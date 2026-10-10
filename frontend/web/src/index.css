@@ -98,3 +98,19 @@ a {
 .badge-success { background: #dcfce7; color: #15803d; }
 .badge-warning { background: #fef3c7; color: #b45309; }
 .badge-danger { background: #fee2e2; color: #b91c1c; }
+
+/* Toast Notification Animation */
+@keyframes toastSlideIn {
+  0% {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast-slide-in {
+  animation: toastSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

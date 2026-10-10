@@ -137,6 +137,11 @@ export const KnowledgeCollectorPage: React.FC = () => {
     }
   }, [notification]);
 
+  // Classes of the same plant (for Multi-Class tagging and AI prompt)
+  const samePlantClasses = selectedClass
+    ? classes.filter(c => c.plantName === selectedClass.plantName && c.modelClass !== selectedClass.modelClass)
+    : [];
+
   // Handle select a class
   const handleSelectClass = (cls: ClassItem) => {
     setSelectedClass(cls);
@@ -209,21 +214,32 @@ export const KnowledgeCollectorPage: React.FC = () => {
 
   // Generate tailored prompt for Browser AI (Gemini / Copilot)
   const generateAiPrompt = (item: ClassItem) => {
-    return `Hãy đọc nội dung trang web hiện tại và trích xuất thông tin khuyến nông phục vụ nghiên cứu thẩm định bệnh cây trồng cho lớp:
-👉 Cây trồng: ${item.plantName}
-👉 Tên bệnh: ${item.diseaseName}
-👉 Mã quốc tế: ${item.modelClass}
+    const otherPlantClasses = classes.filter(
+      c => c.plantName === item.plantName && c.modelClass !== item.modelClass
+    );
+    const otherClassesBullet = otherPlantClasses.length > 0
+      ? otherPlantClasses.map(c => `- ${c.diseaseName} (Mã chuẩn: ${c.modelClass})`).join('\n')
+      : 'Không có';
 
-YÊU CẦU:
+    return `Hãy đọc nội dung trang web hiện tại và trích xuất thông tin khuyến nông phục vụ nghiên cứu thẩm định bệnh cây trồng cho đồ án:
+👉 Cây trồng: ${item.plantName}
+👉 Lớp bệnh chính đang tra cứu: ${item.diseaseName} (Mã: ${item.modelClass})
+
+Danh sách các bệnh khác trên cùng cây ${item.plantName} trong đồ án (để tự động phát hiện nếu bài viết tổng hợp nhiều bệnh):
+${otherClassesBullet}
+
+YÊU CẦU TRÍCH XUẤT:
 1. Trả lời 100% bằng TIẾNG VIỆT, ngắn gọn, khoa học và trung thực (nếu trang web không có thông tin mục nào thì ghi "Không đề cập").
 2. Xuất kết quả ĐÚNG THEO MẪU ĐỊNH DẠNG dưới đây để tôi sao chép nhanh vào biểu mẫu đồ án:
 
+[URL]: <Đường dẫn URL của bài viết này nếu có>
 [TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
 [CƠ QUAN]: <Tên Trường Đại học, Viện nghiên cứu, Cơ quan Khuyến nông hoặc Tác giả>
 [NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
 [MỨC ĐỘ KHỚP]: <Chọn 1 trong 3: "Khớp trực tiếp" HOẶC "Gần nghĩa cần kiểm tra" HOẶC "Tham khảo chung">
 [LOẠI NỘI DUNG]: <Chọn 1: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Kỹ thuật canh tác & phòng ngừa">
-[TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo / kỹ thuật chăm sóc>`;
+[TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo / kỹ thuật chăm sóc của bệnh chính>
+[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI]: <Nếu bài viết CŨNG CÓ ĐỀ CẬP rõ ràng đến các bệnh khác trên cùng cây ${item.plantName} (trong danh sách trên), hãy liệt kê chính xác các Mã chuẩn đó cách nhau bằng dấu phẩy (ví dụ: ${otherPlantClasses.slice(0, 2).map(c => c.modelClass).join(', ') || 'Tomato___Early_blight'}). Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
   };
 
   // Copy AI Prompt
@@ -240,7 +256,7 @@ YÊU CẦU:
     }
   };
 
-  // Smart Parser: Auto-fill form from AI raw response
+  // Smart Parser: Auto-fill form from AI raw response & Auto-select Multi-Classes
   const handleParseAiText = () => {
     if (!aiRawText.trim()) {
       setNotification({ type: 'error', message: 'Vui lòng dán câu trả lời của AI vào ô trước khi phân tích.' });
@@ -248,6 +264,14 @@ YÊU CẦU:
     }
 
     let parsedCount = 0;
+
+    // Extract URL
+    const urlMatch = aiRawText.match(/\[URL\]:\s*(https?:\/\/[^\s]+)/i) || 
+                     aiRawText.match(/(?:URL|Đường dẫn):\s*(https?:\/\/[^\s]+)/i);
+    if (urlMatch && urlMatch[1].trim() && !sourceUrl) {
+      setSourceUrl(urlMatch[1].trim());
+      parsedCount++;
+    }
 
     // Extract Title
     const titleMatch = aiRawText.match(/\[TIÊU ĐỀ\]:\s*(.*)/i) || aiRawText.match(/Tiêu đề:\s*(.*)/i);
@@ -302,9 +326,47 @@ YÊU CẦU:
       setEvidenceText(aiRawText.trim());
     }
 
+    // Extract Multi-Class Co-Mentions
+    const multiClassMatch = aiRawText.match(/\[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI\]:\s*(.*)/i) ||
+                            aiRawText.match(/Các bệnh cùng cây(?:\s*có trong bài)?:\s*(.*)/i);
+
+    const autoSelectedCodes: string[] = [];
+    const autoSelectedNames: string[] = [];
+
+    if (multiClassMatch && multiClassMatch[1].trim()) {
+      const line = multiClassMatch[1].trim();
+      if (!line.toLowerCase().includes('không') && !line.toLowerCase().includes('none')) {
+        samePlantClasses.forEach(c => {
+          if (line.includes(c.modelClass) || line.toLowerCase().includes(c.diseaseName.toLowerCase())) {
+            if (!autoSelectedCodes.includes(c.modelClass)) {
+              autoSelectedCodes.push(c.modelClass);
+              autoSelectedNames.push(c.diseaseName);
+            }
+          }
+        });
+      }
+    }
+
+    // Also scan the whole raw text for any matching model classes of the same plant
+    samePlantClasses.forEach(c => {
+      if (aiRawText.includes(c.modelClass) && !autoSelectedCodes.includes(c.modelClass)) {
+        autoSelectedCodes.push(c.modelClass);
+        autoSelectedNames.push(c.diseaseName);
+      }
+    });
+
+    if (autoSelectedCodes.length > 0) {
+      setAdditionalClassCodes(autoSelectedCodes);
+      parsedCount++;
+    }
+
+    const extraMsg = autoSelectedCodes.length > 0
+      ? ` và tự động tick chọn thêm ${autoSelectedCodes.length} bệnh cùng cây (${autoSelectedNames.join(', ')})!`
+      : '! Bạn chỉ cần kiểm tra và bấm Lưu.';
+
     setNotification({
       type: 'success',
-      message: `✨ Đã tự động bóc tách thành công ${parsedCount} trường! Bạn chỉ cần nhập URL và bấm Lưu.`
+      message: `✨ Đã tự động bóc tách thành công ${parsedCount} trường${extraMsg}`
     });
   };
 
@@ -412,11 +474,6 @@ YÊU CẦU:
     return true;
   });
 
-  // Classes of the same plant (for Multi-Class tagging)
-  const samePlantClasses = selectedClass
-    ? classes.filter(c => c.plantName === selectedClass.plantName && c.modelClass !== selectedClass.modelClass)
-    : [];
-
   return (
     <div className="container" style={{ padding: '32px 20px', maxWidth: '1360px' }}>
       {/* Top Header */}
@@ -470,27 +527,70 @@ YÊU CẦU:
         </div>
       </div>
 
-      {/* Notification Banner */}
+      {/* Floating Toast Notification (Slide-in from right, fixed at top-right, auto-dismiss) */}
       {notification && (
-        <div style={{
-          padding: '14px 18px',
-          borderRadius: '10px',
-          marginBottom: '20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: notification.type === 'success' ? '#dcfce7' : '#fee2e2',
-          border: `1px solid ${notification.type === 'success' ? '#86efac' : '#fca5a5'}`,
-          color: notification.type === 'success' ? '#14532d' : '#991b1b',
-          fontSize: '14px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {notification.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-            <strong>{notification.message}</strong>
+        <div
+          className="toast-slide-in"
+          style={{
+            position: 'fixed',
+            top: '24px',
+            right: '24px',
+            zIndex: 999999,
+            minWidth: '320px',
+            maxWidth: '520px',
+            padding: '14px 18px',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '14px',
+            background: '#ffffff',
+            border: `1.5px solid ${notification.type === 'success' ? '#22c55e' : '#ef4444'}`,
+            color: notification.type === 'success' ? '#14532d' : '#991b1b',
+            boxShadow: '0 12px 32px -4px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.08)',
+            fontSize: '13.5px',
+            lineHeight: 1.45
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              background: notification.type === 'success' ? '#dcfce7' : '#fee2e2',
+              color: notification.type === 'success' ? '#16a34a' : '#dc2626',
+              borderRadius: '50%',
+              padding: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              {notification.type === 'success' ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '13.5px' }}>
+                {notification.type === 'success' ? 'Thao Tác Thành Công' : 'Thông Báo'}
+              </div>
+              <div style={{ fontSize: '13px', color: notification.type === 'success' ? '#166534' : '#b91c1c', marginTop: '2px' }}>
+                {notification.message}
+              </div>
+            </div>
           </div>
           <button
             onClick={() => setNotification(null)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#94a3b8',
+              fontSize: '16px',
+              padding: '4px 6px',
+              borderRadius: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              fontWeight: 700
+            }}
+            title="Đóng thông báo"
           >
             ✕
           </button>
