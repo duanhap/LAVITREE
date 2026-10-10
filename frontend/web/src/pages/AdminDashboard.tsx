@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Database, ShoppingBag, BarChart3, AlertCircle } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
@@ -61,9 +62,9 @@ export const AdminDashboard: React.FC = () => {
           <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '16px' }}>
             Biên tập nội dung cẩm nang bệnh, nạp link tài liệu khuyến nông .gov/.edu và cập nhật các bước xử lý bệnh học.
           </p>
-          <button className="btn btn-primary" style={{ fontSize: '13px' }}>
-            Mở Cẩm Nang Biên Tập
-          </button>
+          <Link to="/admin/knowledge" className="btn btn-primary" style={{ fontSize: '13px', display: 'inline-flex' }}>
+            Mở Cẩm Nang Biên Tập &amp; Thu Thập Tri Thức
+          </Link>
         </div>
 
         <div className="card">

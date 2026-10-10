@@ -22,6 +22,7 @@ public class LavitreeDbContext : DbContext
     public DbSet<DiagnosisRecord> DiagnosisRecords => Set<DiagnosisRecord>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<KnowledgeSource> KnowledgeSources => Set<KnowledgeSource>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -44,6 +44,9 @@ export const Navbar: React.FC = () => {
           <Link to="/handbook" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500, color: '#475569' }}>
             <BookOpen size={18} /> Sổ Tay 38 Bệnh
           </Link>
+          <Link to="/admin/knowledge" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '6px 12px', borderRadius: '8px' }}>
+            <ShieldCheck size={18} /> Thu Thập Tri Thức (KB)
+          </Link>
           <Link to="/admin" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500, color: '#475569' }}>
             <LayoutDashboard size={18} /> Admin Quản Trị
           </Link>

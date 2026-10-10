@@ -4,6 +4,7 @@ import { Navbar } from './components/Navbar';
 import { DiagnosePage } from './pages/DiagnosePage';
 import { HandbookPage } from './pages/HandbookPage';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { KnowledgeCollectorPage } from './pages/KnowledgeCollectorPage';
 
 export const App: React.FC = () => {
   return (
@@ -14,6 +15,8 @@ export const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<DiagnosePage />} />
             <Route path="/handbook" element={<HandbookPage />} />
+            <Route path="/knowledge" element={<KnowledgeCollectorPage />} />
+            <Route path="/admin/knowledge" element={<KnowledgeCollectorPage />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Routes>
         </main>

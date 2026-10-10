@@ -139,6 +139,68 @@ namespace Lavitree.Infrastructure.Migrations
                     b.ToTable("DiseaseProducts");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.KnowledgeSource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DiseaseName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EvidenceText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsManualApproved")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ModelClass")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Organization")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PlantName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReviewerNotes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceQuality")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceTitle")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("KnowledgeSources");
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.Order", b =>
                 {
                     b.Property<Guid>("Id")
