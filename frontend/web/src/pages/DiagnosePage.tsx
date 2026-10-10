@@ -59,7 +59,7 @@ export const DiagnosePage: React.FC = () => {
     formData.append('file', selectedFile);
 
     try {
-      const res = await axios.post<DiagnosisResult>('http://localhost:5000/api/v1/diagnose/scan', formData, {
+      const res = await axios.post<DiagnosisResult>('/api/v1/diagnose/scan', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setResult(res.data);

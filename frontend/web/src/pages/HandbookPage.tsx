@@ -23,7 +23,7 @@ export const HandbookPage: React.FC = () => {
 
   const fetchDiseases = async () => {
     try {
-      const res = await axios.get<DiseaseSummary[]>('http://localhost:5000/api/v1/diseases');
+      const res = await axios.get<DiseaseSummary[]>('/api/v1/diseases');
       setDiseases(res.data);
     } catch {
       // Mock data fallback if API not running yet
