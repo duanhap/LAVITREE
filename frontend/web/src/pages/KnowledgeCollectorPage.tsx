@@ -3,7 +3,8 @@ import axios from 'axios';
 import {
   BookOpen, Search, Copy, ExternalLink, CheckCircle2, AlertCircle,
   Download, Trash2, Info, ShieldCheck, Layers, Sparkles,
-  FileText, Check, AlertTriangle, RefreshCw, Bot, Wand2, Calendar, Target, Globe
+  FileText, Check, AlertTriangle, RefreshCw, Bot, Wand2, Calendar, Target, Globe,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 
 interface ClassItem {
@@ -14,6 +15,7 @@ interface ClassItem {
   phaseName: string;
   isHealthy: boolean;
   suggestedKeywords: string;
+  suggestedKeywordsVn?: string;
   guidanceNotes: string;
   sourcesCount: number;
   status: string;
@@ -81,14 +83,19 @@ export const KnowledgeCollectorPage: React.FC = () => {
   // AI Assistant states
   const [aiRawText, setAiRawText] = useState<string>('');
   const [showAiBox, setShowAiBox] = useState<boolean>(true);
-  const [copiedKeyword, setCopiedKeyword] = useState<boolean>(false);
+  const [copiedKeywordIntl, setCopiedKeywordIntl] = useState<boolean>(false);
+  const [copiedKeywordVn, setCopiedKeywordVn] = useState<boolean>(false);
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
   const [showPromptPreview, setShowPromptPreview] = useState<boolean>(false);
   const [additionalClassCodes, setAdditionalClassCodes] = useState<string[]>([]);
 
+  // UX & Layout states (Anti-fatigue & Compact mode)
+  const [activeTab, setActiveTab] = useState<'entry' | 'sources'>('entry');
+  const [showDashboardDetails, setShowDashboardDetails] = useState<boolean>(false);
+  const [showGuide, setShowGuide] = useState<boolean>(false);
+
   // Notification / Alert
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [showGuide, setShowGuide] = useState<boolean>(true);
 
   // API Base URL (uses Vite proxy or direct)
   const API_BASE = '/api/v1/knowledge';
@@ -144,14 +151,30 @@ export const KnowledgeCollectorPage: React.FC = () => {
     ? classes.filter(c => c.plantName === selectedClass.plantName && c.modelClass !== selectedClass.modelClass)
     : [];
 
-  // Knowledge Coverage Evaluator (Vietnam vs International scope)
+  // Helper to get Vietnamese keywords
+  const getVnKeywords = (item: ClassItem): string => {
+    if (item.suggestedKeywordsVn && item.suggestedKeywordsVn.trim()) {
+      return item.suggestedKeywordsVn;
+    }
+    if (item.isHealthy) {
+      return `kỹ thuật trồng chăm sóc ${item.plantName.toLowerCase()} đạt năng suất cao phòng bệnh khuyennong`;
+    }
+    return `bệnh ${item.diseaseName.toLowerCase()} trên cây ${item.plantName.toLowerCase()} triệu chứng phòng trị thuốc BVTV nongnghiep`;
+  };
+
+  // Comprehensive Knowledge Coverage Evaluator
   const getClassCoverage = (cls: ClassItem) => {
     const classSources = sources.filter(s => s.modelClass === cls.modelClass);
+    const count = classSources.length;
+
+    // 1. Nguồn Việt Nam
     const hasVn = classSources.some(s => 
       s.sourceScope === 'Việt Nam' || 
       (s.organization && s.organization.toLowerCase().includes('việt nam')) || 
       s.sourceUrl.includes('.vn')
     );
+
+    // 2. Nguồn Quốc Tế
     const hasIntl = classSources.some(s => 
       s.sourceScope === 'Quốc tế' || 
       s.sourceUrl.includes('.edu') || 
@@ -159,18 +182,127 @@ export const KnowledgeCollectorPage: React.FC = () => {
       s.sourceUrl.includes('.gov') || 
       (!s.sourceUrl.includes('.vn') && s.sourceScope !== 'Việt Nam')
     );
-    const count = classSources.length;
+
+    // 3. Triệu chứng nhận diện (từ bất kỳ nguồn nào)
+    const hasSymptoms = classSources.some(s => 
+      s.contentType === 'Triệu chứng & Biện pháp' || 
+      s.contentType === 'Chỉ triệu chứng bệnh' ||
+      s.contentType.toLowerCase().includes('triệu chứng')
+    );
+
+    // 4. Biện pháp & Thuốc BVTV tại Việt Nam (Bắt buộc nguồn VN vì danh mục cấp phép của Bộ NN&PTNT)
+    const hasTreatmentVn = classSources.some(s => 
+      (s.sourceScope === 'Việt Nam' || s.sourceUrl.includes('.vn')) &&
+      (s.contentType === 'Triệu chứng & Biện pháp' || 
+       s.contentType === 'Chỉ biện pháp điều trị / thuốc' || 
+       s.contentType.toLowerCase().includes('điều trị') || 
+       s.contentType.toLowerCase().includes('thuốc'))
+    );
+
+    // 5. Kỹ thuật canh tác & chăm sóc (cho Đợt 3 - Cây khỏe)
+    const hasCultivation = classSources.some(s => 
+      s.contentType === 'Kỹ thuật canh tác & phòng ngừa' ||
+      s.contentType === 'Triệu chứng & Biện pháp' ||
+      s.contentType.toLowerCase().includes('canh tác') ||
+      s.contentType.toLowerCase().includes('chăm sóc')
+    );
+
+    // Tổng kết tình trạng
+    let isPerfect = false;
+    let statusLabel = '';
+    let statusType: 'success' | 'warning' | 'info' | 'neutral' = 'neutral';
+    let advice = '';
+
+    if (cls.isHealthy) {
+      // Đợt 3: Cây khỏe mạnh
+      if (count >= 2 && hasVn && hasIntl && hasCultivation) {
+        isPerfect = true;
+        statusLabel = '🌟 Hoàn Hảo (Đủ QT + VN + Canh tác)';
+        statusType = 'success';
+        advice = '🎉 Đã có đủ quy trình canh tác khuyến nông tại Việt Nam và đối chiếu học thuật quốc tế!';
+      } else if (count >= 2 && !hasVn) {
+        statusLabel = '⚠️ Thiếu Nguồn Khuyến Nông Việt Nam';
+        statusType = 'warning';
+        advice = '💡 Cần bổ sung tài liệu kỹ thuật canh tác thích nghi với khí hậu & thổ nhưỡng Việt Nam (Báo Nông nghiệp, TTKN, Viện Cây ăn quả).';
+      } else if (count >= 2 && !hasCultivation) {
+        statusLabel = '⚠️ Thiếu Nội Dung Kỹ Thuật Canh Tác';
+        statusType = 'warning';
+        advice = '💡 Các tài liệu hiện tại chưa có phần hướng dẫn quy trình tưới tiêu, bón phân và chăm sóc cây khỏe.';
+      } else if (count === 1) {
+        statusLabel = '⏳ Đang thu thập (1/2 nguồn)';
+        statusType = 'info';
+        advice = hasVn 
+          ? '💡 Đã có nguồn Việt Nam. Bạn hãy tìm thêm 1 nguồn Quốc tế (.edu / FAO) để đối chiếu học thuật.'
+          : '💡 Đã có nguồn Quốc tế. Bạn cần tìm thêm 1 nguồn Khuyến nông Việt Nam!';
+      } else {
+        statusLabel = '⚪ Chưa có nguồn nào (0/2)';
+        statusType = 'neutral';
+        advice = '💡 Hãy bấm "Sao chép từ khóa VN" hoặc "Tìm trên Google VN" bên dưới để tìm tài liệu đầu tiên.';
+      }
+    } else {
+      // Đợt 1 & 2: Bệnh cây trồng
+      if (count >= 2 && hasVn && hasIntl && hasSymptoms && hasTreatmentVn) {
+        isPerfect = true;
+        statusLabel = '🌟 Hoàn Hảo (Đủ QT + VN + Triệu chứng + Thuốc VN)';
+        statusType = 'success';
+        advice = '🎉 Chuẩn dữ liệu vàng: Có triệu chứng nhận diện và phác đồ thuốc BVTV được cấp phép lưu hành tại Việt Nam!';
+      } else if (count >= 2 && !hasTreatmentVn) {
+        statusLabel = '⚠️ Thiếu Thuốc BVTV Lưu Hành Tại VN';
+        statusType = 'warning';
+        advice = '💡 Ưu tiên Việt Nam: Nước ngoài dùng danh mục hoạt chất khác. Nông dân VN cần thuốc BVTV được Cục BVTV cấp phép lưu hành. Hãy bấm "Tìm Google VN" để lấy thêm bài viết trên nongnghiep.vn!';
+      } else if (count >= 2 && !hasSymptoms) {
+        statusLabel = '⚠️ Thiếu Triệu Chứng Nhận Diện Vết Bệnh';
+        statusType = 'warning';
+        advice = '💡 Chưa có tài liệu nào mô tả chi tiết vết bệnh và cách nhận diện. Hãy bổ sung bài viết có phần triệu chứng.';
+      } else if (count >= 2 && !hasIntl) {
+        statusLabel = '⚠️ Thiếu Nguồn Quốc Tế (.edu / FAO)';
+        statusType = 'warning';
+        advice = '💡 Cần thêm 1 nguồn học thuật đại học quốc tế (Cornell, Penn State, UC Davis...) để chuẩn hóa tên khoa học mầm bệnh.';
+      } else if (count >= 2 && !hasVn) {
+        statusLabel = '⚠️ Thiếu Nguồn Việt Nam';
+        statusType = 'warning';
+        advice = '💡 Bắt buộc cần nguồn Việt Nam để có phác đồ phòng trị và tên thương phẩm thuốc BVTV thực tế tại VN.';
+      } else if (count === 1) {
+        statusLabel = '⏳ Đang thu thập (1/2 nguồn)';
+        statusType = 'info';
+        if (!hasVn) {
+          advice = '💡 Đã có 1 nguồn Quốc tế. Bạn cần tìm thêm 1 bài viết Việt Nam có tên thuốc BVTV lưu hành tại VN!';
+        } else {
+          advice = '💡 Đã có 1 nguồn Việt Nam. Bạn hãy tìm thêm 1 bài viết Quốc tế (.edu / FAO) để đối chiếu bệnh học!';
+        }
+      } else {
+        statusLabel = '⚪ Chưa có nguồn nào (0/2)';
+        statusType = 'neutral';
+        advice = '💡 Hãy bấm "Sao chép từ khóa VN" hoặc "Tìm trên Google VN" bên dưới để tìm tài liệu đầu tiên.';
+      }
+    }
+
     const hasBoth = hasVn && hasIntl && count >= 2;
-    return { count, hasVn, hasIntl, hasBoth };
+
+    return {
+      count,
+      hasVn,
+      hasIntl,
+      hasBoth,
+      hasSymptoms,
+      hasTreatmentVn,
+      hasCultivation,
+      isPerfect,
+      statusLabel,
+      statusType,
+      advice
+    };
   };
 
   // Handle select a class
   const handleSelectClass = (cls: ClassItem) => {
     setSelectedClass(cls);
-    setCopiedKeyword(false);
+    setCopiedKeywordIntl(false);
+    setCopiedKeywordVn(false);
     setCopiedPrompt(false);
     setAdditionalClassCodes([]);
     setSourceScope('Việt Nam');
+    setActiveTab('entry');
     if (window.innerWidth < 768) {
       document.getElementById('source-entry-form')?.scrollIntoView({ behavior: 'smooth' });
     }
@@ -219,20 +351,34 @@ export const KnowledgeCollectorPage: React.FC = () => {
     }
   };
 
-  // Copy keywords
-  const handleCopyKeywords = async (keywords: string) => {
+  // Copy Vietnamese keywords
+  const handleCopyKeywordsVn = async (keywords: string) => {
     const success = await copyToClipboard(keywords);
     if (success) {
-      setCopiedKeyword(true);
-      setTimeout(() => setCopiedKeyword(false), 2500);
+      setCopiedKeywordVn(true);
+      setTimeout(() => setCopiedKeywordVn(false), 2500);
+    } else {
+      setNotification({ type: 'error', message: 'Không thể tự động sao chép. Vui lòng bôi đen từ khóa để sao chép.' });
+    }
+  };
+
+  // Copy International keywords
+  const handleCopyKeywordsIntl = async (keywords: string) => {
+    const success = await copyToClipboard(keywords);
+    if (success) {
+      setCopiedKeywordIntl(true);
+      setTimeout(() => setCopiedKeywordIntl(false), 2500);
     } else {
       setNotification({ type: 'error', message: 'Không thể tự động sao chép. Vui lòng bôi đen từ khóa để sao chép.' });
     }
   };
 
   // Open Google search
-  const handleOpenGoogle = (keywords: string) => {
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(keywords)}`, '_blank');
+  const handleOpenGoogle = (keywords: string, isVn: boolean = false) => {
+    const url = isVn
+      ? `https://www.google.com/search?q=${encodeURIComponent(keywords)}&lr=lang_vi`
+      : `https://www.google.com/search?q=${encodeURIComponent(keywords)}`;
+    window.open(url, '_blank');
   };
 
   // Generate tailored prompt for Browser AI (Gemini / Copilot)
@@ -636,166 +782,120 @@ YÊU CẦU TRÍCH XUẤT:
         </div>
       )}
 
-      {/* Guide & Instructions Accordion Banner */}
-      <div style={{
-        background: '#f8fafc',
-        border: '1px solid #cbd5e1',
-        borderRadius: '12px',
-        padding: '18px 22px',
-        marginBottom: '28px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowGuide(!showGuide)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ background: '#0284c7', color: '#fff', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Info size={16} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-                Hướng Dẫn Thực Hiện Dành Cho Bạn Làm Dữ Liệu (Đọc kỹ trước khi tìm)
-              </h3>
-              <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Mục đích: Đảm bảo dữ liệu đầu vào chuẩn khoa học, có nguồn kiểm chứng minh bạch để bảo vệ trước Hội đồng.
-              </span>
-            </div>
-          </div>
-          <span style={{ fontSize: '13px', color: '#0284c7', fontWeight: 600 }}>
-            {showGuide ? 'Thu gọn ▲' : 'Xem hướng dẫn chi tiết ▼'}
-          </span>
-        </div>
-
-        {showGuide && (
-          <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed #cbd5e1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-            <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#1b5e20', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle2 size={15} color="#16a34a" /> 1. Số lượng và tiêu chí chọn nguồn
-              </h4>
-              <ul style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.6', margin: 0, paddingLeft: '18px' }}>
-                <li>Mỗi lớp bệnh cần <strong>2–3 nguồn độc lập</strong>, không cần tìm ép cho đủ số lượng nếu 1–2 nguồn tốt đã bao quát đủ.</li>
-                <li><strong>Ưu tiên cao nhất</strong>: Đại học/Khuyến nông (.edu, .ac.uk, extension) và Viện/Bộ nông nghiệp (.gov, .gov.vn).</li>
-                <li><strong>Nguồn trong nước</strong>: Báo Nông Nghiệp VN (nongnghiep.vn), Viện BVTV, Viện Cây ăn quả (iasvn.org), Khuyến nông TP/tỉnh.</li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#0284c7', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Bot size={15} color="#0284c7" /> 2. Dùng AI Trình duyệt (Gemini / Copilot) bóc tách nhanh
-              </h4>
-              <p style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.6', margin: 0 }}>
-                Khi mở bài báo, chỉ cần bấm nút <strong>"🤖 Sao chép Prompt cho AI"</strong> bên dưới ➔ dán vào Gemini/Copilot bên cạnh trình duyệt ➔ AI sẽ trả về bản tóm tắt tiếng Việt ➔ Bạn dán vào ô <strong>"Nhập Nhanh Bằng AI"</strong> trên web để tự động điền form trong 1 giây!
-              </p>
-            </div>
-
-            <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#d97706', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <ShieldCheck size={15} color="#d97706" /> 3. Ngoại lệ: "Đã bàn bạc nội bộ / Duyệt ngoại lệ"
-              </h4>
-              <p style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.6', margin: 0 }}>
-                Nếu tìm thấy một bài viết <strong>nội dung rất hay, có triệu chứng và phác đồ rõ ràng</strong> nhưng nằm ở trang web khác (không có đuôi .edu / .gov), bạn hãy tích chọn <strong>[x] Đã bàn bạc nội bộ / Duyệt ngoại lệ</strong>. Hệ thống sẽ ghi nhận và không báo lỗi, tránh phải từ chối nhiều lần!
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Progress Overview Stats */}
+      {/* Compact Dashboard Bar (Anti-fatigue & Clean Viewport) */}
       {stats && (
-        <div style={{ marginBottom: '28px' }}>
-          {/* Main KPI cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-            <div className="card" style={{ padding: '18px', borderLeft: '4px solid #1b5e20' }}>
-              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Tiến Độ Hoàn Thành</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', margin: '8px 0 4px' }}>
-                <span style={{ fontSize: '28px', fontWeight: 800, color: '#1b5e20' }}>{stats.completionPercentage}%</span>
-                <span style={{ fontSize: '13px', color: '#64748b' }}>({stats.completedClasses}/{stats.totalClasses} lớp)</span>
+        <div style={{
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: '12px 18px',
+          marginBottom: '20px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+        }}>
+          {/* Top row: Single compact KPI strip */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            {/* Progress */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Tiến độ:</span>
+                <span style={{ fontSize: '20px', fontWeight: 800, color: '#1b5e20' }}>{stats.completionPercentage}%</span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>({stats.completedClasses}/{stats.totalClasses} lớp)</span>
               </div>
-              <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ width: '120px', height: '7px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
                 <div style={{ width: `${stats.completionPercentage}%`, height: '100%', background: '#1b5e20', transition: 'width 0.4s' }} />
               </div>
             </div>
 
-            <div className="card" style={{ padding: '18px', borderLeft: '4px solid #16a34a' }}>
-              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Đã Đủ Nguồn (&gt;= 2)</div>
-              <div style={{ fontSize: '28px', fontWeight: 800, color: '#16a34a', margin: '8px 0 4px' }}>
-                {stats.completedClasses} <span style={{ fontSize: '14px', fontWeight: 500, color: '#64748b' }}>lớp</span>
-              </div>
-              <span style={{ fontSize: '12px', color: '#16a34a' }}>Sẵn sàng làm dữ liệu cẩm nang</span>
+            {/* Stat pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '6px', background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                🟢 {stats.completedClasses} Đủ nguồn (≥2)
+              </span>
+              <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '6px', background: '#fef3c7', color: '#b45309', fontWeight: 700 }}>
+                🟡 {stats.inProgressClasses} Đang làm (1)
+              </span>
+              <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '6px', background: '#f1f5f9', color: '#64748b', fontWeight: 700 }}>
+                ⚪ {stats.unstartedClasses} Chưa có (0)
+              </span>
+              <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '6px', background: '#e0f2fe', color: '#0369a1', fontWeight: 700 }}>
+                🔵 {stats.totalSources} Link đã lưu
+              </span>
             </div>
 
-            <div className="card" style={{ padding: '18px', borderLeft: '4px solid #eab308' }}>
-              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Đang Thu Thập (1 nguồn)</div>
-              <div style={{ fontSize: '28px', fontWeight: 800, color: '#ca8a04', margin: '8px 0 4px' }}>
-                {stats.inProgressClasses} <span style={{ fontSize: '14px', fontWeight: 500, color: '#64748b' }}>lớp</span>
-              </div>
-              <span style={{ fontSize: '12px', color: '#ca8a04' }}>Cần thêm 1 nguồn đối chiếu</span>
-            </div>
-
-            <div className="card" style={{ padding: '18px', borderLeft: '4px solid #94a3b8' }}>
-              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Chưa Có Nguồn (0)</div>
-              <div style={{ fontSize: '28px', fontWeight: 800, color: '#64748b', margin: '8px 0 4px' }}>
-                {stats.unstartedClasses} <span style={{ fontSize: '14px', fontWeight: 500, color: '#64748b' }}>lớp</span>
-              </div>
-              <span style={{ fontSize: '12px', color: '#94a3b8' }}>Cần bạn ưu tiên tìm trước</span>
-            </div>
-
-            <div className="card" style={{ padding: '18px', borderLeft: '4px solid #0284c7' }}>
-              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Tổng Link Đã Thu Thập</div>
-              <div style={{ fontSize: '28px', fontWeight: 800, color: '#0284c7', margin: '8px 0 4px' }}>
-                {stats.totalSources} <span style={{ fontSize: '14px', fontWeight: 500, color: '#64748b' }}>nguồn</span>
-              </div>
-              <span style={{ fontSize: '12px', color: '#0284c7' }}>Lưu trong Cloud Database</span>
-            </div>
+            {/* Toggle for guidelines & phase details */}
+            <button
+              type="button"
+              onClick={() => setShowDashboardDetails(!showDashboardDetails)}
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12.5px',
+                fontWeight: 600,
+                color: '#0284c7',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              {showDashboardDetails ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              {showDashboardDetails ? 'Thu gọn Hướng dẫn & 3 Đợt' : '📖 Hướng Dẫn & Tiến Độ 3 Đợt'}
+            </button>
           </div>
 
-          {/* 3-Phase Breakdown Progress */}
-          <div className="card" style={{ padding: '18px 24px' }}>
-            <h4 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>
-              Tiến Độ Theo 3 Đợt Triển Khai Chiến Lược:
-            </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-              {/* Phase 1 */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                  <span style={{ fontWeight: 600, color: '#1b5e20' }}>Đợt 1: Cây chủ lực VN (16 lớp)</span>
-                  <span style={{ fontWeight: 700, color: '#1b5e20' }}>{stats.phase1.completed}/{stats.phase1.total} ({stats.phase1.percent}%)</span>
+          {/* Collapsible details (Phase bars & Guidelines) */}
+          {showDashboardDetails && (
+            <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* 3-Phase progress */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', background: '#f8fafc', padding: '12px 16px', borderRadius: '8px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                    <span style={{ color: '#1b5e20' }}>Đợt 1: Cây chủ lực VN (16 lớp)</span>
+                    <span style={{ color: '#1b5e20' }}>{stats.phase1.completed}/{stats.phase1.total} ({stats.phase1.percent}%)</span>
+                  </div>
+                  <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ width: `${stats.phase1.percent}%`, height: '100%', background: '#1b5e20' }} />
+                  </div>
                 </div>
-                <div style={{ width: '100%', height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: `${stats.phase1.percent}%`, height: '100%', background: '#1b5e20' }} />
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                    <span style={{ color: '#0284c7' }}>Đợt 2: Cây ăn quả &amp; phụ (10 lớp)</span>
+                    <span style={{ color: '#0284c7' }}>{stats.phase2.completed}/{stats.phase2.total} ({stats.phase2.percent}%)</span>
+                  </div>
+                  <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ width: `${stats.phase2.percent}%`, height: '100%', background: '#0284c7' }} />
+                  </div>
                 </div>
-                <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                  Cà chua, Khoai tây, Ngô, Ớt, Cam Greening
-                </span>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                    <span style={{ color: '#16a34a' }}>Đợt 3: Cây khỏe mạnh (12 lớp)</span>
+                    <span style={{ color: '#16a34a' }}>{stats.phase3.completed}/{stats.phase3.total} ({stats.phase3.percent}%)</span>
+                  </div>
+                  <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ width: `${stats.phase3.percent}%`, height: '100%', background: '#16a34a' }} />
+                  </div>
+                </div>
               </div>
 
-              {/* Phase 2 */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                  <span style={{ fontWeight: 600, color: '#0284c7' }}>Đợt 2: Cây ăn quả &amp; phụ (10 lớp)</span>
-                  <span style={{ fontWeight: 700, color: '#0284c7' }}>{stats.phase2.completed}/{stats.phase2.total} ({stats.phase2.percent}%)</span>
+              {/* Guidelines */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', fontSize: '12px', color: '#334155', lineHeight: 1.5 }}>
+                <div style={{ background: '#f0fdf4', padding: '10px 14px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                  <div style={{ fontWeight: 700, color: '#166534', marginBottom: '4px' }}>1. Tiêu chí chọn nguồn:</div>
+                  Mỗi bệnh cần 2–3 nguồn. Ưu tiên .edu/.gov quốc tế (Cornell, Penn State) &amp; nguồn Việt Nam (Báo Nông nghiệp, Viện BVTV, Khuyến nông tỉnh).
                 </div>
-                <div style={{ width: '100%', height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: `${stats.phase2.percent}%`, height: '100%', background: '#0284c7' }} />
+                <div style={{ background: '#f0f9ff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                  <div style={{ fontWeight: 700, color: '#0369a1', marginBottom: '4px' }}>2. Dùng Trợ lý AI Trình duyệt:</div>
+                  Mở bài báo ➔ Bấm "🤖 Sao chép Prompt cho AI" ➔ Dán vào Gemini/Copilot cạnh trình duyệt ➔ Dán tóm tắt vào ô Nhập Nhanh để điền form tự động!
                 </div>
-                <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                  Táo, Nho, Đào, Anh đào, Bí ngô, Dâu tây
-                </span>
-              </div>
-
-              {/* Phase 3 */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                  <span style={{ fontWeight: 600, color: '#16a34a' }}>Đợt 3: Cây khỏe mạnh (12 lớp)</span>
-                  <span style={{ fontWeight: 700, color: '#16a34a' }}>{stats.phase3.completed}/{stats.phase3.total} ({stats.phase3.percent}%)</span>
+                <div style={{ background: '#fefce8', padding: '10px 14px', borderRadius: '8px', border: '1px solid #fef08a' }}>
+                  <div style={{ fontWeight: 700, color: '#854d0e', marginBottom: '4px' }}>3. Duyệt ngoại lệ (Manual Approve):</div>
+                  Nếu bài viết rất hay, có phác đồ rõ ràng nhưng ở trang khác (.com/.vn), hãy tích [x] Duyệt ngoại lệ để hệ thống chấp nhận.
                 </div>
-                <div style={{ width: '100%', height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: `${stats.phase3.percent}%`, height: '100%', background: '#16a34a' }} />
-                </div>
-                <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                  Kỹ thuật chăm sóc chuẩn (KHÔNG TÌM THUỐC)
-                </span>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -803,9 +903,9 @@ YÊU CẦU TRÍCH XUẤT:
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 420px) 1fr', gap: '24px', alignItems: 'start' }}>
         
         {/* LEFT COLUMN: 38 Classes List */}
-        <div className="card" style={{ padding: '20px', maxHeight: '880px', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1b5e20', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="card" style={{ padding: '18px', maxHeight: 'calc(100vh - 140px)', display: 'flex', flexDirection: 'column', position: 'sticky', top: '16px' }}>
+          <div style={{ marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1b5e20', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Layers size={18} /> Danh Sách 38 Lớp Cây Trồng
             </h3>
             
@@ -965,10 +1065,17 @@ YÊU CẦU TRÍCH XUẤT:
                       <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                         {(() => {
                           const coverage = getClassCoverage(item);
-                          if (coverage.hasBoth) {
+                          if (coverage.isPerfect) {
                             return (
-                              <span title="Đã có đủ cả nguồn Quốc tế & Việt Nam" style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '1px 5px', borderRadius: '4px' }}>
-                                🇻🇳+🌐 Đủ
+                              <span title="Đạt chuẩn: Đủ cả QT, VN, Triệu chứng & Thuốc BVTV VN" style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '1px 5px', borderRadius: '4px' }}>
+                                🌟 Đủ chuẩn
+                              </span>
+                            );
+                          }
+                          if (coverage.hasBoth && !coverage.hasTreatmentVn && !item.isHealthy) {
+                            return (
+                              <span title="Thiếu thuốc BVTV lưu hành tại VN" style={{ fontSize: '10px', background: '#fef3c7', color: '#b45309', fontWeight: 700, padding: '1px 5px', borderRadius: '4px' }}>
+                                ⚠️ Cần thuốc VN
                               </span>
                             );
                           }
@@ -1009,11 +1116,11 @@ YÊU CẦU TRÍCH XUẤT:
         </div>
 
         {/* RIGHT COLUMN: Interactive Input Form & Search Assistant */}
-        <div id="source-entry-form" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div id="source-entry-form" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
           {/* Active Class Info & Keyword Assistant Card */}
           {selectedClass ? (
-            <div className="card" style={{ padding: '24px', borderTop: '4px solid #1b5e20' }}>
+            <div className="card" style={{ padding: '22px', borderTop: '4px solid #1b5e20' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -1051,52 +1158,48 @@ YÊU CẦU TRÍCH XUẤT:
                 </div>
               </div>
 
-              {/* Knowledge Coverage Diagnostic Card (Vietnam vs International Scope) */}
+              {/* Enhanced Knowledge Coverage Diagnostic Card */}
               {(() => {
                 const coverage = getClassCoverage(selectedClass);
+                const badgeBg = coverage.statusType === 'success' ? '#dcfce7' : coverage.statusType === 'warning' ? '#fef3c7' : coverage.statusType === 'info' ? '#e0f2fe' : '#f1f5f9';
+                const badgeColor = coverage.statusType === 'success' ? '#15803d' : coverage.statusType === 'warning' ? '#b45309' : coverage.statusType === 'info' ? '#0369a1' : '#64748b';
+                const borderColor = coverage.statusType === 'success' ? '#86efac' : coverage.statusType === 'warning' ? '#fde047' : coverage.statusType === 'info' ? '#7dd3fc' : '#e2e8f0';
+
                 return (
                   <div style={{
                     marginTop: '16px',
-                    padding: '14px 18px',
-                    borderRadius: '10px',
-                    background: coverage.hasBoth ? '#f0fdf4' : coverage.count >= 2 ? '#fffbeb' : '#f8fafc',
-                    border: `1.5px solid ${coverage.hasBoth ? '#86efac' : coverage.count >= 2 ? '#fde047' : '#e2e8f0'}`,
+                    padding: '16px 18px',
+                    borderRadius: '12px',
+                    background: coverage.statusType === 'success' ? '#f0fdf4' : coverage.statusType === 'warning' ? '#fffbeb' : '#f8fafc',
+                    border: `1.5px solid ${borderColor}`,
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '10px'
+                    gap: '12px'
                   }}>
+                    {/* Header & Overall Status Pill */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                      <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Layers size={17} color={coverage.hasBoth ? '#16a34a' : '#d97706'} />
-                        Độ Bao Quát Tri Thức Của Lớp Này:
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Layers size={18} color={coverage.statusType === 'success' ? '#16a34a' : coverage.statusType === 'warning' ? '#d97706' : '#0284c7'} />
+                        Đánh Giá Độ Bao Quát Tri Thức Của Lớp Này:
                       </div>
                       <div>
-                        {coverage.hasBoth ? (
-                          <span style={{ background: '#dcfce7', color: '#15803d', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px', border: '1px solid #86efac' }}>
-                            🌟 Bao Quát Hoàn Hảo (Đủ Quốc tế + Việt Nam)
-                          </span>
-                        ) : coverage.count >= 2 && !coverage.hasVn ? (
-                          <span style={{ background: '#fef3c7', color: '#b45309', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px', border: '1px solid #fde047' }}>
-                            ⚠️ Thiếu Nguồn Việt Nam (Cần thuốc BVTV &amp; khí hậu VN)
-                          </span>
-                        ) : coverage.count >= 2 && !coverage.hasIntl ? (
-                          <span style={{ background: '#fef3c7', color: '#b45309', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px', border: '1px solid #fde047' }}>
-                            ⚠️ Thiếu Nguồn Quốc Tế (Cần chuẩn bệnh học quốc tế)
-                          </span>
-                        ) : coverage.count === 1 ? (
-                          <span style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px' }}>
-                            ⏳ Đang thu thập ({coverage.count}/2 nguồn)
-                          </span>
-                        ) : (
-                          <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px' }}>
-                            ⚪ Chưa có nguồn nào (0/2)
-                          </span>
-                        )}
+                        <span style={{
+                          background: badgeBg,
+                          color: badgeColor,
+                          fontSize: '12.5px',
+                          fontWeight: 700,
+                          padding: '4px 14px',
+                          borderRadius: '12px',
+                          border: `1px solid ${borderColor}`
+                        }}>
+                          {coverage.statusLabel}
+                        </span>
                       </div>
                     </div>
 
-                    {/* 2 Check indicators */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', fontSize: '12.5px' }}>
+                    {/* 4 Checklist Criteria Grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
+                      {/* Criterion 1: Nguồn Việt Nam */}
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1108,15 +1211,19 @@ YÊU CẦU TRÍCH XUẤT:
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '15px' }}>{coverage.hasVn ? '✅' : '❌'}</span>
-                          <span style={{ fontWeight: 600, color: coverage.hasVn ? '#14532d' : '#334155' }}>
-                            Nguồn Việt Nam
-                          </span>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasVn ? '#14532d' : '#334155' }}>
+                              🇻🇳 Nguồn Việt Nam
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#64748b' }}>nongnghiep.vn, Cục BVTV</div>
+                          </div>
                         </div>
-                        <span style={{ fontSize: '11px', color: coverage.hasVn ? '#15803d' : '#64748b' }}>
-                          {coverage.hasVn ? 'Đã có tài liệu VN' : 'Cần phác đồ & thuốc VN'}
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: coverage.hasVn ? '#15803d' : '#dc2626' }}>
+                          {coverage.hasVn ? 'Đã có' : 'Chưa có'}
                         </span>
                       </div>
 
+                      {/* Criterion 2: Nguồn Quốc Tế */}
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1128,86 +1235,259 @@ YÊU CẦU TRÍCH XUẤT:
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '15px' }}>{coverage.hasIntl ? '✅' : '❌'}</span>
-                          <span style={{ fontWeight: 600, color: coverage.hasIntl ? '#14532d' : '#334155' }}>
-                            Nguồn Quốc Tế
-                          </span>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasIntl ? '#14532d' : '#334155' }}>
+                              🌐 Nguồn Quốc Tế
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#64748b' }}>.edu, FAO, Cornell, PSU</div>
+                          </div>
                         </div>
-                        <span style={{ fontSize: '11px', color: coverage.hasIntl ? '#15803d' : '#64748b' }}>
-                          {coverage.hasIntl ? 'Đã có chuẩn .edu / FAO' : 'Cần đối chiếu học thuật'}
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: coverage.hasIntl ? '#15803d' : '#dc2626' }}>
+                          {coverage.hasIntl ? 'Đã có' : 'Chưa có'}
                         </span>
                       </div>
+
+                      {/* Criterion 3: Triệu Chứng Nhận Diện */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: coverage.hasSymptoms ? '#dcfce7' : '#ffffff',
+                        border: `1px solid ${coverage.hasSymptoms ? '#86efac' : '#cbd5e1'}`
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '15px' }}>{coverage.hasSymptoms ? '✅' : '❌'}</span>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasSymptoms ? '#14532d' : '#334155' }}>
+                              🔍 Triệu Chứng Vết Bệnh
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#64748b' }}>Hình thái, nhận diện lá</div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: coverage.hasSymptoms ? '#15803d' : '#dc2626' }}>
+                          {coverage.hasSymptoms ? 'Đã có' : 'Chưa có'}
+                        </span>
+                      </div>
+
+                      {/* Criterion 4: Thuốc BVTV tại VN (hoặc Canh tác nếu là Đợt 3) */}
+                      {selectedClass.isHealthy ? (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          background: coverage.hasCultivation ? '#dcfce7' : '#ffffff',
+                          border: `1px solid ${coverage.hasCultivation ? '#86efac' : '#cbd5e1'}`
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '15px' }}>{coverage.hasCultivation ? '✅' : '⚠️'}</span>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasCultivation ? '#14532d' : '#334155' }}>
+                                🌾 Kỹ Thuật Canh Tác
+                              </div>
+                              <div style={{ fontSize: '10.5px', color: '#64748b' }}>Chăm sóc cây khỏe</div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: coverage.hasCultivation ? '#15803d' : '#d97706' }}>
+                            {coverage.hasCultivation ? 'Đã có' : 'Cần bổ sung'}
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          background: coverage.hasTreatmentVn ? '#dcfce7' : '#ffffff',
+                          border: `1.5px solid ${coverage.hasTreatmentVn ? '#86efac' : '#f59e0b'}`
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '15px' }}>{coverage.hasTreatmentVn ? '✅' : '⚠️'}</span>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasTreatmentVn ? '#14532d' : '#b45309' }}>
+                                💊 Thuốc BVTV Tại VN
+                              </div>
+                              <div style={{ fontSize: '10.5px', color: coverage.hasTreatmentVn ? '#15803d' : '#d97706' }}>
+                                Bắt buộc nguồn VN
+                              </div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: coverage.hasTreatmentVn ? '#15803d' : '#b45309' }}>
+                            {coverage.hasTreatmentVn ? 'Đã có thuốc VN' : 'Thiếu thuốc VN'}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Actionable guidance tip */}
-                    <div style={{ fontSize: '12px', color: '#475569', lineHeight: 1.45 }}>
-                      {!coverage.hasVn && (
-                        <div style={{ color: '#b45309' }}>
-                          💡 <strong>Gợi ý:</strong> Bạn hãy tìm thêm 1 bài viết trên <em>Báo Nông Nghiệp VN (nongnghiep.vn)</em>, <em>Viện BVTV</em> hoặc <em>Khuyến nông tỉnh</em> để bổ sung tên thuốc BVTV được cấp phép lưu hành tại Việt Nam.
-                        </div>
-                      )}
-                      {coverage.hasVn && !coverage.hasIntl && (
-                        <div style={{ color: '#0369a1' }}>
-                          💡 <strong>Gợi ý:</strong> Bạn hãy bấm nút <em>"Sao chép từ khóa"</em> ở dưới để tìm thêm 1 bài viết tiếng Anh (.edu của Penn State, Cornell hoặc UC Davis) để chuẩn hóa tên khoa học mầm bệnh.
-                        </div>
-                      )}
-                      {coverage.hasBoth && (
-                        <div style={{ color: '#16a34a' }}>
-                          🎉 <strong>Lớp này đã bao quát hoàn hảo!</strong> Đã có đủ cả học thuật quốc tế lẫn phác đồ thuốc BVTV thực tế tại Việt Nam.
-                        </div>
-                      )}
+                    {/* Actionable Advice box */}
+                    <div style={{
+                      fontSize: '12.5px',
+                      lineHeight: 1.5,
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: coverage.statusType === 'success' ? '#f0fdf4' : coverage.statusType === 'warning' ? '#fefce8' : '#f0f9ff',
+                      color: coverage.statusType === 'success' ? '#166534' : coverage.statusType === 'warning' ? '#854d0e' : '#0369a1',
+                      border: `1px solid ${coverage.statusType === 'success' ? '#bbf7d0' : coverage.statusType === 'warning' ? '#fef08a' : '#bae6fd'}`
+                    }}>
+                      {coverage.advice}
                     </div>
                   </div>
                 );
               })()}
 
-              {/* Keyword & AI Prompt Assistant Box */}
+              {/* Keyword Assistant: Dual Parallel Boxes (Vietnam & International) */}
               <div style={{
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: '10px',
-                padding: '14px 18px',
-                marginTop: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
+                gap: '14px',
+                marginTop: '16px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                {/* Box 1: Vietnam Keywords */}
+                <div style={{
+                  background: '#f0fdf4',
+                  border: '1.5px solid #86efac',
+                  borderRadius: '10px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: '10px'
+                }}>
                   <div>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
-                      1. Từ khóa Google gợi ý:
-                    </span>
-                    <code style={{ fontSize: '13px', color: '#0369a1', fontWeight: 600 }}>
-                      {selectedClass.suggestedKeywords}
-                    </code>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        🇻🇳 1. Từ Khóa Google Tìm Nguồn Việt Nam
+                      </span>
+                      <span style={{ fontSize: '10.5px', background: '#dcfce7', color: '#15803d', fontWeight: 600, padding: '2px 6px', borderRadius: '4px' }}>
+                        Khuyến nông &amp; Thuốc BVTV
+                      </span>
+                    </div>
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: '6px',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      color: '#14532d',
+                      fontWeight: 600,
+                      lineHeight: 1.45,
+                      wordBreak: 'break-word',
+                      fontFamily: 'monospace'
+                    }}>
+                      {getVnKeywords(selectedClass)}
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       type="button"
-                      onClick={() => handleCopyKeywords(selectedClass.suggestedKeywords)}
+                      onClick={() => handleCopyKeywordsVn(getVnKeywords(selectedClass))}
                       className="btn btn-outline"
-                      style={{ fontSize: '12px', padding: '6px 12px' }}
+                      style={{ fontSize: '12px', padding: '6px 12px', flex: 1, borderColor: '#86efac', color: '#166534', background: '#fff' }}
                     >
-                      {copiedKeyword ? <Check size={14} color="#16a34a" /> : <Copy size={14} />}
-                      {copiedKeyword ? 'Đã sao chép!' : 'Sao chép từ khóa'}
+                      {copiedKeywordVn ? <Check size={14} color="#16a34a" /> : <Copy size={14} />}
+                      {copiedKeywordVn ? 'Đã sao chép!' : 'Sao chép từ khóa VN'}
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => handleOpenGoogle(selectedClass.suggestedKeywords)}
+                      onClick={() => handleOpenGoogle(getVnKeywords(selectedClass), true)}
                       className="btn btn-primary"
-                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                      style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
                       <ExternalLink size={14} />
-                      Tìm trên Google
+                      Tìm Google VN
                     </button>
                   </div>
                 </div>
 
-                {/* AI Prompt Generator Button (Crucial feature for browser AI / Gemini) */}
+                {/* Box 2: International Keywords */}
                 <div style={{
-                  paddingTop: '10px',
-                  borderTop: '1px dashed #cbd5e1',
+                  background: '#f0f9ff',
+                  border: '1.5px solid #7dd3fc',
+                  borderRadius: '10px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: '10px'
+                }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: '#0369a1', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        🌐 2. Từ Khóa Google Tìm Nguồn Quốc Tế
+                      </span>
+                      <span style={{ fontSize: '10.5px', background: '#e0f2fe', color: '#0284c7', fontWeight: 600, padding: '2px 6px', borderRadius: '4px' }}>
+                        Chuẩn .edu / FAO
+                      </span>
+                    </div>
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #bae6fd',
+                      borderRadius: '6px',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      color: '#075985',
+                      fontWeight: 600,
+                      lineHeight: 1.45,
+                      wordBreak: 'break-word',
+                      fontFamily: 'monospace'
+                    }}>
+                      {selectedClass.suggestedKeywords}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyKeywordsIntl(selectedClass.suggestedKeywords)}
+                      className="btn btn-outline"
+                      style={{ fontSize: '12px', padding: '6px 12px', flex: 1, borderColor: '#7dd3fc', color: '#0369a1', background: '#fff' }}
+                    >
+                      {copiedKeywordIntl ? <Check size={14} color="#16a34a" /> : <Copy size={14} />}
+                      {copiedKeywordIntl ? 'Đã sao chép!' : 'Sao chép từ khóa QT'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenGoogle(selectedClass.suggestedKeywords, false)}
+                      style={{
+                        background: '#0284c7',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        padding: '6px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                        fontWeight: 600
+                      }}
+                    >
+                      <ExternalLink size={14} />
+                      Tìm Google QT
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Assistant Box (Gemini / Copilot Prompt & Smart Paste) */}
+              <div style={{
+                background: '#faf5ff',
+                border: '1px solid #e9d5ff',
+                borderRadius: '10px',
+                padding: '16px',
+                marginTop: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
@@ -1220,7 +1500,7 @@ YÊU CẦU TRÍCH XUẤT:
                     </div>
                     <div>
                       <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#5b21b6' }}>
-                        2. Trợ lý AI Trình duyệt (Gemini / Copilot / Edge):
+                        3. Trợ lý AI Trình duyệt (Gemini / Copilot / Edge):
                       </span>
                       <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block' }}>
                         Mở bài báo ➔ Bấm AI cạnh trình duyệt ➔ Dán prompt này để AI đọc trang web và trả về bản tóm tắt tiếng Việt!
@@ -1253,7 +1533,7 @@ YÊU CẦU TRÍCH XUẤT:
                 </div>
 
                 {/* Optional toggle to view or manual copy prompt */}
-                <div style={{ marginTop: '4px' }}>
+                <div>
                   <button
                     type="button"
                     onClick={() => setShowPromptPreview(!showPromptPreview)}
@@ -1275,7 +1555,7 @@ YÊU CẦU TRÍCH XUẤT:
                     <div style={{ marginTop: '8px', background: '#ffffff', border: '1px solid #d8b4fe', borderRadius: '8px', padding: '10px' }}>
                       <textarea
                         readOnly
-                        rows={7}
+                        rows={6}
                         value={generateAiPrompt(selectedClass)}
                         onClick={(e) => (e.target as HTMLTextAreaElement).select()}
                         style={{
@@ -1290,83 +1570,137 @@ YÊU CẦU TRÍCH XUẤT:
                           color: '#1e293b'
                         }}
                       />
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>💡 Mẹo: Click vào khung trên để tự động bôi đen tất cả, rồi ấn Ctrl+C để sao chép.</span>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                        💡 Mẹo: Click vào khung trên để tự động bôi đen tất cả, rồi ấn Ctrl+C để sao chép.
                       </div>
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* SMART PASTE AI BOX: Paste AI response -> 1-click Auto-Fill */}
-              <div style={{
-                background: '#faf5ff',
-                border: '1px solid #e9d5ff',
-                borderRadius: '10px',
-                padding: '16px',
-                marginTop: '18px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 700, color: '#6b21a8', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Sparkles size={16} color="#7c3aed" /> Nhập Nhanh Bằng AI: Dán kết quả từ Gemini / Copilot vào đây
-                  </label>
-                  <span style={{ fontSize: '11px', color: '#9333ea', fontWeight: 500 }}>
-                    Tự động bóc tách &amp; điền vào tất cả các ô form
-                  </span>
-                </div>
+                {/* Smart Paste AI Input Box */}
+                <div style={{ paddingTop: '8px', borderTop: '1px dashed #e9d5ff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#6b21a8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Sparkles size={15} color="#7c3aed" /> Nhập Nhanh: Dán kết quả từ AI vào đây để điền form tự động:
+                    </label>
+                  </div>
 
-                <textarea
-                  rows={3}
-                  placeholder={`Dán kết quả AI trả về vào đây (Ví dụ: [TIÊU ĐỀ]: ..., [CƠ QUAN]: ..., [NGÀY CẬP NHẬT]: ..., [TRÍCH DẪN CỐT LÕI]: ...)`}
-                  value={aiRawText}
-                  onChange={(e) => setAiRawText(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #d8b4fe',
-                    fontSize: '12.5px',
-                    fontFamily: 'sans-serif',
-                    resize: 'vertical',
-                    background: '#ffffff'
-                  }}
-                />
+                  <textarea
+                    rows={2}
+                    placeholder={`Dán kết quả AI trả về vào đây (Ví dụ: [TIÊU ĐỀ]: ..., [CƠ QUAN]: ..., [NGÀY CẬP NHẬT]: ..., [TRÍCH DẪN CỐT LÕI]: ...)`}
+                    value={aiRawText}
+                    onChange={(e) => setAiRawText(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #d8b4fe',
+                      fontSize: '12.5px',
+                      fontFamily: 'sans-serif',
+                      resize: 'vertical',
+                      background: '#ffffff'
+                    }}
+                  />
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', gap: '8px' }}>
-                  {aiRawText && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px', gap: '8px' }}>
+                    {aiRawText && (
+                      <button
+                        type="button"
+                        onClick={() => setAiRawText('')}
+                        style={{ background: 'transparent', border: 'none', color: '#9333ea', fontSize: '12px', cursor: 'pointer' }}
+                      >
+                        Xóa nội dung
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setAiRawText('')}
-                      style={{ background: 'transparent', border: 'none', color: '#9333ea', fontSize: '12px', cursor: 'pointer' }}
+                      onClick={handleParseAiText}
+                      style={{
+                        background: '#7c3aed',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '6px 14px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
                     >
-                      Xóa nội dung
+                      <Wand2 size={13} />
+                      ⚡ Phân Tích &amp; Điền Vào Form Ngay
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleParseAiText}
-                    style={{
-                      background: '#7c3aed',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      padding: '6px 14px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <Wand2 size={13} />
-                    ⚡ Phân Tích &amp; Điền Vào Form Ngay
-                  </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Form Input for New Source */}
-              <form onSubmit={handleSubmitSource} style={{ marginTop: '24px' }}>
+              {/* Tabs: Entry Form vs Saved Sources for Current Class (Anti-fatigue Navigation) */}
+              <div style={{
+                display: 'flex',
+                borderBottom: '2px solid #e2e8f0',
+                marginTop: '20px',
+                gap: '12px'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('entry')}
+                  style={{
+                    padding: '10px 16px',
+                    fontSize: '13.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    borderBottom: activeTab === 'entry' ? '3px solid #1b5e20' : '3px solid transparent',
+                    background: 'transparent',
+                    color: activeTab === 'entry' ? '#1b5e20' : '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '-2px'
+                  }}
+                >
+                  <FileText size={16} />
+                  ✏️ Form Nhập Liệu Thẩm Định
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('sources')}
+                  style={{
+                    padding: '10px 16px',
+                    fontSize: '13.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    borderBottom: activeTab === 'sources' ? '3px solid #1b5e20' : '3px solid transparent',
+                    background: 'transparent',
+                    color: activeTab === 'sources' ? '#1b5e20' : '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '-2px'
+                  }}
+                >
+                  <BookOpen size={16} />
+                  📚 Nguồn Đã Lưu Của Lớp Này
+                  <span style={{
+                    background: activeTab === 'sources' ? '#1b5e20' : '#cbd5e1',
+                    color: '#fff',
+                    fontSize: '11px',
+                    padding: '2px 7px',
+                    borderRadius: '12px',
+                    fontWeight: 700
+                  }}>
+                    {sources.filter(s => s.modelClass === selectedClass.modelClass).length}
+                  </span>
+                </button>
+              </div>
+
+              {/* TAB 1: FORM INPUT */}
+              {activeTab === 'entry' && (
+                <form onSubmit={handleSubmitSource} style={{ marginTop: '18px' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1b5e20', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <FileText size={18} /> Chi Tiết Nguồn Dữ Liệu Thẩm Định
                 </h3>
@@ -1714,169 +2048,168 @@ YÊU CẦU TRÍCH XUẤT:
                         : 'Lưu Nguồn Tri Thức Này'}
                   </button>
                 </div>
-              </form>
+                </form>
+              )}
+
+              {/* TAB 2: SAVED SOURCES TABLE FOR CURRENT CLASS */}
+              {activeTab === 'sources' && (
+                <div style={{ marginTop: '18px' }}>
+                  {(() => {
+                    const currentClassSources = sources.filter(s => s.modelClass === selectedClass.modelClass);
+
+                    if (currentClassSources.length === 0) {
+                      return (
+                        <div style={{
+                          padding: '36px 20px',
+                          textAlign: 'center',
+                          background: '#f8fafc',
+                          borderRadius: '8px',
+                          border: '1px dashed #cbd5e1',
+                          color: '#64748b',
+                          fontSize: '13px'
+                        }}>
+                          <p style={{ margin: '0 0 12px', fontWeight: 600, color: '#334155' }}>
+                            Chưa có nguồn tài liệu nào được lưu cho lớp "{selectedClass.diseaseName}".
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('entry')}
+                            className="btn btn-primary"
+                            style={{ fontSize: '12.5px', padding: '6px 16px' }}
+                          >
+                            ✏️ Nhập nguồn đầu tiên ngay
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                              <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Tiêu Đề / Cơ Quan</th>
+                              <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Khớp &amp; Ngày Cập Nhật</th>
+                              <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Đánh Giá Tên Miền</th>
+                              <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Trích Dẫn</th>
+                              <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600, textAlign: 'center' }}>Thao Tác</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {currentClassSources.map((item) => (
+                              <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '12px', maxWidth: '240px' }}>
+                                  <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: '2px' }}>
+                                    {item.sourceTitle}
+                                  </div>
+                                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                                    {item.organization}
+                                  </div>
+                                  <a
+                                    href={item.sourceUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ fontSize: '11px', color: '#0284c7', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}
+                                  >
+                                    Mở liên kết <ExternalLink size={11} />
+                                  </a>
+                                </td>
+
+                                <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
+                                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginBottom: '4px' }}>
+                                    <span style={{
+                                      display: 'inline-block',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '10.5px',
+                                      fontWeight: 600,
+                                      background: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#f3e8ff' : '#e0f2fe',
+                                      color: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#7e22ce' : '#0369a1'
+                                    }}>
+                                      {(item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '🌐 Quốc tế' : '🇻🇳 Việt Nam'}
+                                    </span>
+
+                                    <span style={{
+                                      display: 'inline-block',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '10.5px',
+                                      fontWeight: 600,
+                                      background: item.matchLevel === 'Khớp trực tiếp' ? '#dcfce7' : '#fef3c7',
+                                      color: item.matchLevel === 'Khớp trực tiếp' ? '#15803d' : '#b45309'
+                                    }}>
+                                      {item.matchLevel || 'Khớp trực tiếp'}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                    {item.publishedDate ? `Năm: ${item.publishedDate}` : 'Không ghi ngày'}
+                                  </div>
+                                  <div style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '2px' }}>
+                                    {item.contentType}
+                                  </div>
+                                </td>
+
+                                <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
+                                  <span style={{
+                                    display: 'inline-block',
+                                    padding: '3px 8px',
+                                    borderRadius: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    background: item.isManualApproved ? '#fef3c7' : item.sourceQuality.includes('Cao') ? '#dcfce7' : '#f1f5f9',
+                                    color: item.isManualApproved ? '#92400e' : item.sourceQuality.includes('Cao') ? '#15803d' : '#475569'
+                                  }}>
+                                    {item.sourceQuality}
+                                  </span>
+                                  {item.reviewerNotes && (
+                                    <div style={{ fontSize: '10.5px', color: '#854d0e', marginTop: '4px' }}>
+                                      Lý do: {item.reviewerNotes}
+                                    </div>
+                                  )}
+                                </td>
+
+                                <td style={{ padding: '12px', fontSize: '12px', color: '#475569', maxWidth: '280px' }}>
+                                  {item.evidenceText ? (
+                                    <span style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                      "{item.evidenceText}"
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Không có trích dẫn</span>
+                                  )}
+                                </td>
+
+                                <td style={{ padding: '12px', textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSource(item.id, item.sourceTitle)}
+                                    style={{
+                                      background: 'transparent',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      color: '#dc2626',
+                                      padding: '6px',
+                                      borderRadius: '4px'
+                                    }}
+                                    title="Xóa nguồn này"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           ) : (
             <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
               Vui lòng chọn 1 lớp cây trồng từ danh sách bên trái để bắt đầu nhập nguồn.
             </div>
           )}
-
-          {/* TABLE OF SAVED SOURCES FOR CURRENT CLASS */}
-          <div className="card" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <BookOpen size={18} color="#1b5e20" /> Các Nguồn Đã Lưu
-                  {selectedClass && <span style={{ color: '#1b5e20', fontWeight: 600 }}>({selectedClass.diseaseName})</span>}
-                </h3>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
-                  Danh sách bằng chứng đã lưu cho lớp đang chọn và các lớp khác
-                </span>
-              </div>
-            </div>
-
-            {(() => {
-              const currentClassSources = selectedClass
-                ? sources.filter(s => s.modelClass === selectedClass.modelClass)
-                : sources;
-
-              if (currentClassSources.length === 0) {
-                return (
-                  <div style={{
-                    padding: '30px',
-                    textAlign: 'center',
-                    background: '#f8fafc',
-                    borderRadius: '8px',
-                    border: '1px dashed #cbd5e1',
-                    color: '#64748b',
-                    fontSize: '13px'
-                  }}>
-                    Lớp này hiện chưa có nguồn tài liệu nào được lưu. Hãy dùng từ khóa hoặc Prompt AI ở trên để tìm và lưu nguồn đầu tiên!
-                  </div>
-                );
-              }
-
-              return (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                        <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Tiêu Đề / Cơ Quan</th>
-                        <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Khớp &amp; Ngày Cập Nhật</th>
-                        <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Đánh Giá Tên Miền</th>
-                        <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Trích Dẫn</th>
-                        <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600, textAlign: 'center' }}>Thao Tác</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {currentClassSources.map((item) => (
-                        <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '12px', maxWidth: '240px' }}>
-                            <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: '2px' }}>
-                              {item.sourceTitle}
-                            </div>
-                            <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-                              {item.organization}
-                            </div>
-                            <a
-                              href={item.sourceUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ fontSize: '11px', color: '#0284c7', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}
-                            >
-                              Mở liên kết <ExternalLink size={11} />
-                            </a>
-                          </td>
-
-                          <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
-                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginBottom: '4px' }}>
-                              <span style={{
-                                display: 'inline-block',
-                                padding: '1px 6px',
-                                borderRadius: '4px',
-                                fontSize: '10.5px',
-                                fontWeight: 600,
-                                background: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#f3e8ff' : '#e0f2fe',
-                                color: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#7e22ce' : '#0369a1'
-                              }}>
-                                {(item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '🌐 Quốc tế' : '🇻🇳 Việt Nam'}
-                              </span>
-
-                              <span style={{
-                                display: 'inline-block',
-                                padding: '1px 6px',
-                                borderRadius: '4px',
-                                fontSize: '10.5px',
-                                fontWeight: 600,
-                                background: item.matchLevel === 'Khớp trực tiếp' ? '#dcfce7' : '#fef3c7',
-                                color: item.matchLevel === 'Khớp trực tiếp' ? '#15803d' : '#b45309'
-                              }}>
-                                {item.matchLevel || 'Khớp trực tiếp'}
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#64748b' }}>
-                              {item.publishedDate ? `Năm: ${item.publishedDate}` : 'Không ghi ngày'}
-                            </div>
-                            <div style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '2px' }}>
-                              {item.contentType}
-                            </div>
-                          </td>
-
-                          <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
-                            <span style={{
-                              display: 'inline-block',
-                              padding: '3px 8px',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              background: item.isManualApproved ? '#fef3c7' : item.sourceQuality.includes('Cao') ? '#dcfce7' : '#f1f5f9',
-                              color: item.isManualApproved ? '#92400e' : item.sourceQuality.includes('Cao') ? '#15803d' : '#475569'
-                            }}>
-                              {item.sourceQuality}
-                            </span>
-                            {item.reviewerNotes && (
-                              <div style={{ fontSize: '10.5px', color: '#854d0e', marginTop: '4px' }}>
-                                Lý do: {item.reviewerNotes}
-                              </div>
-                            )}
-                          </td>
-
-                          <td style={{ padding: '12px', fontSize: '12px', color: '#475569', maxWidth: '280px' }}>
-                            {item.evidenceText ? (
-                              <span style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                                "{item.evidenceText}"
-                              </span>
-                            ) : (
-                              <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Không có trích dẫn</span>
-                            )}
-                          </td>
-
-                          <td style={{ padding: '12px', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSource(item.id, item.sourceTitle)}
-                              style={{
-                                background: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: '#dc2626',
-                                padding: '6px',
-                                borderRadius: '4px'
-                              }}
-                              title="Xóa nguồn này"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })()}
-          </div>
         </div>
 
       </div>
