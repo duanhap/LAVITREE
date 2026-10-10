@@ -82,6 +82,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
   const [copiedKeyword, setCopiedKeyword] = useState<boolean>(false);
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
   const [showPromptPreview, setShowPromptPreview] = useState<boolean>(false);
+  const [additionalClassCodes, setAdditionalClassCodes] = useState<string[]>([]);
 
   // Notification / Alert
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -126,11 +127,22 @@ export const KnowledgeCollectorPage: React.FC = () => {
     fetchData();
   }, []);
 
+  // Auto-dismiss notifications after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
   // Handle select a class
   const handleSelectClass = (cls: ClassItem) => {
     setSelectedClass(cls);
     setCopiedKeyword(false);
     setCopiedPrompt(false);
+    setAdditionalClassCodes([]);
     if (window.innerWidth < 768) {
       document.getElementById('source-entry-form')?.scrollIntoView({ behavior: 'smooth' });
     }
@@ -184,7 +196,6 @@ export const KnowledgeCollectorPage: React.FC = () => {
     const success = await copyToClipboard(keywords);
     if (success) {
       setCopiedKeyword(true);
-      setNotification({ type: 'success', message: '✅ Đã sao chép từ khóa vào bộ nhớ tạm thành công!' });
       setTimeout(() => setCopiedKeyword(false), 2500);
     } else {
       setNotification({ type: 'error', message: 'Không thể tự động sao chép. Vui lòng bôi đen từ khóa để sao chép.' });
@@ -222,7 +233,6 @@ YÊU CẦU:
     const success = await copyToClipboard(prompt);
     if (success) {
       setCopiedPrompt(true);
-      setNotification({ type: 'success', message: '🤖 Đã sao chép Prompt cho AI! Bạn hãy mở Gemini / Copilot cạnh trình duyệt và dán vào.' });
       setTimeout(() => setCopiedPrompt(false), 2500);
     } else {
       setShowPromptPreview(true);
@@ -298,7 +308,7 @@ YÊU CẦU:
     });
   };
 
-  // Submit new source
+  // Submit new source (supports multi-class batch saving)
   const handleSubmitSource = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedClass) {
@@ -313,25 +323,38 @@ YÊU CẦU:
     setSubmitting(true);
     setNotification(null);
 
-    try {
-      await axios.post(`${API_BASE}/sources`, {
-        modelClass: selectedClass.modelClass,
-        plantName: selectedClass.plantName,
-        diseaseName: selectedClass.diseaseName,
-        sourceUrl: sourceUrl.trim(),
-        sourceTitle: sourceTitle.trim() || sourceUrl.trim(),
-        organization: organization.trim() || 'Chưa xác định',
-        publishedDate: publishedDate.trim() || 'Không ghi ngày',
-        matchLevel: matchLevel || 'Khớp trực tiếp',
-        evidenceText: evidenceText.trim(),
-        contentType,
-        isManualApproved,
-        reviewerNotes: reviewerNotes.trim()
-      });
+    // Target classes to save: current selectedClass + any additional selected classes from same plant
+    const targetClasses = [
+      selectedClass,
+      ...classes.filter(c => additionalClassCodes.includes(c.modelClass))
+    ];
 
+    try {
+      await Promise.all(
+        targetClasses.map(cls =>
+          axios.post(`${API_BASE}/sources`, {
+            modelClass: cls.modelClass,
+            plantName: cls.plantName,
+            diseaseName: cls.diseaseName,
+            sourceUrl: sourceUrl.trim(),
+            sourceTitle: sourceTitle.trim() || sourceUrl.trim(),
+            organization: organization.trim() || 'Chưa xác định',
+            publishedDate: publishedDate.trim() || 'Không ghi ngày',
+            matchLevel: matchLevel || 'Khớp trực tiếp',
+            evidenceText: evidenceText.trim(),
+            contentType,
+            isManualApproved,
+            reviewerNotes: reviewerNotes.trim()
+          })
+        )
+      );
+
+      const targetNames = targetClasses.map(c => c.diseaseName).join(', ');
       setNotification({
         type: 'success',
-        message: `Đã lưu thành công nguồn dữ liệu cho "${selectedClass.diseaseName}"!`
+        message: targetClasses.length > 1
+          ? `🎉 Đã lưu thành công tài liệu này cho ${targetClasses.length} lớp bệnh: ${targetNames}!`
+          : `🎉 Đã lưu thành công nguồn dữ liệu cho "${selectedClass.diseaseName}"!`
       });
 
       // Reset form fields
@@ -344,6 +367,7 @@ YÊU CẦU:
       setAiRawText('');
       setIsManualApproved(false);
       setReviewerNotes('');
+      setAdditionalClassCodes([]);
 
       // Refresh data
       await fetchData();
@@ -387,6 +411,11 @@ YÊU CẦU:
     }
     return true;
   });
+
+  // Classes of the same plant (for Multi-Class tagging)
+  const samePlantClasses = selectedClass
+    ? classes.filter(c => c.plantName === selectedClass.plantName && c.modelClass !== selectedClass.modelClass)
+    : [];
 
   return (
     <div className="container" style={{ padding: '32px 20px', maxWidth: '1360px' }}>
@@ -1217,6 +1246,111 @@ YÊU CẦU:
                   />
                 </div>
 
+                {/* Multi-Class Tagging Box (Same Plant) */}
+                {selectedClass && samePlantClasses.length > 0 && (
+                  <div style={{
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: '10px',
+                    padding: '16px',
+                    marginBottom: '20px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Layers size={17} color="#166534" />
+                          Gán thêm URL này cho các bệnh khác trên cùng cây {selectedClass.plantName}
+                          {additionalClassCodes.length > 0 && (
+                            <span style={{ background: '#22c55e', color: '#fff', fontSize: '11px', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                              +{additionalClassCodes.length} bệnh được chọn
+                            </span>
+                          )}
+                        </div>
+                        <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0', lineHeight: 1.4 }}>
+                          Nếu bài viết là tài liệu tổng hợp đề cập đến nhiều bệnh trên cây <strong>{selectedClass.plantName}</strong>, hãy tích chọn thêm các bệnh dưới đây để hệ thống tự động lưu 1 lần cho tất cả (không phải nhập lại URL)!
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (additionalClassCodes.length === samePlantClasses.length) {
+                              setAdditionalClassCodes([]);
+                            } else {
+                              setAdditionalClassCodes(samePlantClasses.map(c => c.modelClass));
+                            }
+                          }}
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid #86efac',
+                            color: '#166534',
+                            fontSize: '11.5px',
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                          }}
+                        >
+                          {additionalClassCodes.length === samePlantClasses.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả cùng cây'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                      gap: '8px',
+                      marginTop: '12px'
+                    }}>
+                      {samePlantClasses.map(cls => {
+                        const isChecked = additionalClassCodes.includes(cls.modelClass);
+                        return (
+                          <label
+                            key={cls.modelClass}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: isChecked ? '#dcfce7' : '#ffffff',
+                              border: isChecked ? '1.5px solid #22c55e' : '1px solid #e2e8f0',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s',
+                              fontSize: '12.5px'
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                setAdditionalClassCodes(prev =>
+                                  prev.includes(cls.modelClass)
+                                    ? prev.filter(c => c !== cls.modelClass)
+                                    : [...prev, cls.modelClass]
+                                );
+                              }}
+                              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, color: isChecked ? '#14532d' : '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {cls.diseaseName}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
+                                <span>{cls.modelClass}</span>
+                                <span style={{ color: cls.sourcesCount >= 2 ? '#16a34a' : '#d97706' }}>
+                                  ({cls.sourcesCount}/2 nguồn)
+                                </span>
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* HITL Manual Approve Box */}
                 <div style={{
                   background: isManualApproved ? '#fefce8' : '#f8fafc',
@@ -1272,9 +1406,13 @@ YÊU CẦU:
                     type="submit"
                     disabled={submitting}
                     className="btn btn-primary"
-                    style={{ padding: '10px 24px', fontSize: '14px' }}
+                    style={{ padding: '10px 24px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
                   >
-                    {submitting ? 'Đang lưu vào cơ sở dữ liệu...' : 'Lưu Nguồn Tri Thức Này'}
+                    {submitting
+                      ? 'Đang lưu vào cơ sở dữ liệu...'
+                      : additionalClassCodes.length > 0
+                        ? `Lưu Nguồn Cho ${additionalClassCodes.length + 1} Lớp Bệnh Cùng Lúc`
+                        : 'Lưu Nguồn Tri Thức Này'}
                   </button>
                 </div>
               </form>
