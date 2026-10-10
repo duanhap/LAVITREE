@@ -1,0 +1,32 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    name: Build & Deploy on EC2
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy Docker Containers
+        run: |
+          echo "🚀 Starting automated deployment on AWS EC2..."
+          
+          # Ensure .env is present
+          if [ -f /home/ubuntu/.env.backup ] && [ ! -f .env ]; then
+            cp /home/ubuntu/.env.backup .env
+          fi
+          
+          # Build and restart updated services
+          docker compose build core-api web-portal
+          docker compose up -d --remove-orphans core-api web-portal
+          
+          # Clean up dangling docker images to protect EC2 disk
+          docker image prune -f
+          
+          echo "✅ Deployment finished successfully!"
