@@ -16,10 +16,12 @@ public class KnowledgeSource : BaseEntity
     public string SourceUrl { get; set; } = string.Empty;
     public string SourceTitle { get; set; } = string.Empty;
     public string Organization { get; set; } = string.Empty; // Tác giả / Viện nghiên cứu / Trường ĐH
+    public string? PublishedDate { get; set; } = string.Empty; // Ngày / Năm xuất bản hoặc cập nhật
     
     // Evidence Content
     public string EvidenceText { get; set; } = string.Empty; // Ý chính trích dẫn triệu chứng / phòng ngừa
     public string ContentType { get; set; } = "Triệu chứng & Biện pháp"; // Triệu chứng | Phòng ngừa | Canh tác | Thuốc điều trị
+    public string MatchLevel { get; set; } = "Khớp trực tiếp"; // Khớp trực tiếp | Gần nghĩa / Cần kiểm tra | Tham khảo chung
 
     // Quality & Approval Status
     public string SourceQuality { get; set; } = "Cao"; // Cao | Trung bình | Duyệt ngoại lệ

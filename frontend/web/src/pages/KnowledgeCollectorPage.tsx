@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   BookOpen, Search, Copy, ExternalLink, CheckCircle2, AlertCircle,
-  Filter, Download, Trash2, Info, ShieldCheck, Layers, Sparkles,
-  Clock, ArrowRight, FileText, Check, AlertTriangle, RefreshCw
+  Download, Trash2, Info, ShieldCheck, Layers, Sparkles,
+  FileText, Check, AlertTriangle, RefreshCw, Bot, Wand2, Calendar, Target
 } from 'lucide-react';
 
 interface ClassItem {
@@ -39,6 +39,8 @@ interface KnowledgeSourceItem {
   sourceUrl: string;
   sourceTitle: string;
   organization: string;
+  publishedDate?: string;
+  matchLevel?: string;
   evidenceText: string;
   contentType: string;
   sourceQuality: string;
@@ -66,12 +68,19 @@ export const KnowledgeCollectorPage: React.FC = () => {
   const [sourceUrl, setSourceUrl] = useState<string>('');
   const [sourceTitle, setSourceTitle] = useState<string>('');
   const [organization, setOrganization] = useState<string>('');
+  const [publishedDate, setPublishedDate] = useState<string>('');
+  const [matchLevel, setMatchLevel] = useState<string>('Khớp trực tiếp');
   const [evidenceText, setEvidenceText] = useState<string>('');
   const [contentType, setContentType] = useState<string>('Triệu chứng & Biện pháp');
   const [isManualApproved, setIsManualApproved] = useState<boolean>(false);
   const [reviewerNotes, setReviewerNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  
+  // AI Assistant states
+  const [aiRawText, setAiRawText] = useState<string>('');
+  const [showAiBox, setShowAiBox] = useState<boolean>(true);
   const [copiedKeyword, setCopiedKeyword] = useState<boolean>(false);
+  const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
 
   // Notification / Alert
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -97,7 +106,6 @@ export const KnowledgeCollectorPage: React.FC = () => {
       if (!selectedClass && classesRes.data.length > 0) {
         setSelectedClass(classesRes.data[0]);
       } else if (selectedClass) {
-        // update selectedClass counter
         const updated = classesRes.data.find(c => c.modelClass === selectedClass.modelClass);
         if (updated) setSelectedClass(updated);
       }
@@ -121,7 +129,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
   const handleSelectClass = (cls: ClassItem) => {
     setSelectedClass(cls);
     setCopiedKeyword(false);
-    // Smooth scroll to form if on mobile
+    setCopiedPrompt(false);
     if (window.innerWidth < 768) {
       document.getElementById('source-entry-form')?.scrollIntoView({ behavior: 'smooth' });
     }
@@ -137,6 +145,102 @@ export const KnowledgeCollectorPage: React.FC = () => {
   // Open Google search
   const handleOpenGoogle = (keywords: string) => {
     window.open(`https://www.google.com/search?q=${encodeURIComponent(keywords)}`, '_blank');
+  };
+
+  // Generate tailored prompt for Browser AI (Gemini / Copilot)
+  const generateAiPrompt = (item: ClassItem) => {
+    return `Hãy đọc nội dung trang web hiện tại và trích xuất thông tin khuyến nông phục vụ nghiên cứu thẩm định bệnh cây trồng cho lớp:
+👉 Cây trồng: ${item.plantName}
+👉 Tên bệnh: ${item.diseaseName}
+👉 Mã quốc tế: ${item.modelClass}
+
+YÊU CẦU:
+1. Trả lời 100% bằng TIẾNG VIỆT, ngắn gọn, khoa học và trung thực (nếu trang web không có thông tin mục nào thì ghi "Không đề cập").
+2. Xuất kết quả ĐÚNG THEO MẪU ĐỊNH DẠNG dưới đây để tôi sao chép nhanh vào biểu mẫu đồ án:
+
+[TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
+[CƠ QUAN]: <Tên Trường Đại học, Viện nghiên cứu, Cơ quan Khuyến nông hoặc Tác giả>
+[NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
+[MỨC ĐỘ KHỚP]: <Chọn 1 trong 3: "Khớp trực tiếp" HOẶC "Gần nghĩa cần kiểm tra" HOẶC "Tham khảo chung">
+[LOẠI NỘI DUNG]: <Chọn 1: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Kỹ thuật canh tác & phòng ngừa">
+[TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo / kỹ thuật chăm sóc>`;
+  };
+
+  // Copy AI Prompt
+  const handleCopyAiPrompt = () => {
+    if (!selectedClass) return;
+    const prompt = generateAiPrompt(selectedClass);
+    navigator.clipboard.writeText(prompt);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2500);
+  };
+
+  // Smart Parser: Auto-fill form from AI raw response
+  const handleParseAiText = () => {
+    if (!aiRawText.trim()) {
+      setNotification({ type: 'error', message: 'Vui lòng dán câu trả lời của AI vào ô trước khi phân tích.' });
+      return;
+    }
+
+    let parsedCount = 0;
+
+    // Extract Title
+    const titleMatch = aiRawText.match(/\[TIÊU ĐỀ\]:\s*(.*)/i) || aiRawText.match(/Tiêu đề:\s*(.*)/i);
+    if (titleMatch && titleMatch[1].trim()) {
+      setSourceTitle(titleMatch[1].trim());
+      parsedCount++;
+    }
+
+    // Extract Organization
+    const orgMatch = aiRawText.match(/\[CƠ QUAN\]:\s*(.*)/i) || aiRawText.match(/Cơ quan:\s*(.*)/i) || aiRawText.match(/Tác giả:\s*(.*)/i);
+    if (orgMatch && orgMatch[1].trim()) {
+      setOrganization(orgMatch[1].trim());
+      parsedCount++;
+    }
+
+    // Extract Published Date
+    const dateMatch = aiRawText.match(/\[NGÀY CẬP NHẬT\]:\s*(.*)/i) || aiRawText.match(/Ngày cập nhật:\s*(.*)/i) || aiRawText.match(/Thời gian:\s*(.*)/i);
+    if (dateMatch && dateMatch[1].trim()) {
+      setPublishedDate(dateMatch[1].trim());
+      parsedCount++;
+    }
+
+    // Extract Match Level
+    const matchLevelMatch = aiRawText.match(/\[MỨC ĐỘ KHỚP\]:\s*(.*)/i) || aiRawText.match(/Mức độ khớp:\s*(.*)/i);
+    if (matchLevelMatch && matchLevelMatch[1].trim()) {
+      const m = matchLevelMatch[1].trim();
+      if (m.includes('Khớp trực tiếp')) setMatchLevel('Khớp trực tiếp');
+      else if (m.includes('Gần nghĩa') || m.includes('kiểm tra')) setMatchLevel('Gần nghĩa cần kiểm tra');
+      else if (m.includes('Tham khảo')) setMatchLevel('Tham khảo chung');
+      parsedCount++;
+    }
+
+    // Extract Content Type
+    const contentTypeMatch = aiRawText.match(/\[LOẠI NỘI DUNG\]:\s*(.*)/i) || aiRawText.match(/Loại nội dung:\s*(.*)/i);
+    if (contentTypeMatch && contentTypeMatch[1].trim()) {
+      const c = contentTypeMatch[1].trim();
+      if (c.includes('Triệu chứng & Biện pháp')) setContentType('Triệu chứng & Biện pháp');
+      else if (c.includes('Chỉ triệu chứng')) setContentType('Chỉ triệu chứng bệnh');
+      else if (c.includes('điều trị') || c.includes('thuốc')) setContentType('Chỉ biện pháp điều trị / thuốc');
+      else if (c.includes('canh tác') || c.includes('phòng ngừa')) setContentType('Kỹ thuật canh tác & phòng ngừa');
+      parsedCount++;
+    }
+
+    // Extract Evidence Text
+    const evidenceMatch = aiRawText.match(/\[TRÍCH DẪN CỐT LÕI\]:\s*([\s\S]*?)(?:$|\n\[)/i) || 
+                          aiRawText.match(/Trích dẫn cốt lõi:\s*([\s\S]*?)(?:$|\n[A-Z])/i) || 
+                          aiRawText.match(/Trích dẫn:\s*([\s\S]*?)(?:$|\n[A-Z])/i);
+    if (evidenceMatch && evidenceMatch[1].trim()) {
+      setEvidenceText(evidenceMatch[1].trim());
+      parsedCount++;
+    } else if (!evidenceText) {
+      setEvidenceText(aiRawText.trim());
+    }
+
+    setNotification({
+      type: 'success',
+      message: `✨ Đã tự động bóc tách thành công ${parsedCount} trường! Bạn chỉ cần nhập URL và bấm Lưu.`
+    });
   };
 
   // Submit new source
@@ -162,6 +266,8 @@ export const KnowledgeCollectorPage: React.FC = () => {
         sourceUrl: sourceUrl.trim(),
         sourceTitle: sourceTitle.trim() || sourceUrl.trim(),
         organization: organization.trim() || 'Chưa xác định',
+        publishedDate: publishedDate.trim() || 'Không ghi ngày',
+        matchLevel: matchLevel || 'Khớp trực tiếp',
         evidenceText: evidenceText.trim(),
         contentType,
         isManualApproved,
@@ -173,15 +279,18 @@ export const KnowledgeCollectorPage: React.FC = () => {
         message: `Đã lưu thành công nguồn dữ liệu cho "${selectedClass.diseaseName}"!`
       });
 
-      // Reset form fields (keep class selection)
+      // Reset form fields
       setSourceUrl('');
       setSourceTitle('');
       setOrganization('');
+      setPublishedDate('');
+      setMatchLevel('Khớp trực tiếp');
       setEvidenceText('');
+      setAiRawText('');
       setIsManualApproved(false);
       setReviewerNotes('');
 
-      // Refresh data to update progress counters
+      // Refresh data
       await fetchData();
     } catch (err: any) {
       setNotification({
@@ -336,30 +445,30 @@ export const KnowledgeCollectorPage: React.FC = () => {
           <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed #cbd5e1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
             <div>
               <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#1b5e20', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle2 size={15} color="#16a34a" /> 1. Tiêu chí chọn nguồn tài liệu
+                <CheckCircle2 size={15} color="#16a34a" /> 1. Số lượng và tiêu chí chọn nguồn
               </h4>
               <ul style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.6', margin: 0, paddingLeft: '18px' }}>
-                <li>Mỗi lớp bệnh cần <strong>tối thiểu 2 nguồn độc lập</strong> để đối chiếu chéo.</li>
-                <li><strong>Ưu tiên cao nhất</strong>: Đại học/Khuyến nông nước ngoài (.edu, .ac.uk, extension) và Viện/Bộ nông nghiệp (.gov, .gov.vn).</li>
-                <li><strong>Nguồn trong nước</strong>: Báo Nông Nghiệp VN (nongnghiep.vn), Viện BVTV, Viện Cây ăn quả Miền Nam (iasvn.org), Khuyến nông TP/tỉnh.</li>
+                <li>Mỗi lớp bệnh cần <strong>2–3 nguồn độc lập</strong>, không cần tìm ép cho đủ số lượng nếu 1–2 nguồn tốt đã bao quát đủ.</li>
+                <li><strong>Ưu tiên cao nhất</strong>: Đại học/Khuyến nông (.edu, .ac.uk, extension) và Viện/Bộ nông nghiệp (.gov, .gov.vn).</li>
+                <li><strong>Nguồn trong nước</strong>: Báo Nông Nghiệp VN (nongnghiep.vn), Viện BVTV, Viện Cây ăn quả (iasvn.org), Khuyến nông TP/tỉnh.</li>
               </ul>
             </div>
 
             <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#d97706', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <ShieldCheck size={15} color="#d97706" /> 2. Ngoại lệ: "Đã bàn bạc nội bộ -&gt; Duyệt ngoại lệ"
+              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#0284c7', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Bot size={15} color="#0284c7" /> 2. Dùng AI Trình duyệt (Gemini / Copilot) bóc tách nhanh
               </h4>
               <p style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.6', margin: 0 }}>
-                Nếu tìm thấy một bài viết <strong>nội dung rất hay, có triệu chứng và phác đồ rõ ràng</strong> nhưng nằm ở trang web khác (không có đuôi .edu / .gov), bạn hãy tích chọn <strong>[x] Đã bàn bạc nội bộ / Duyệt ngoại lệ</strong>. Hệ thống sẽ ghi nhận và không báo lỗi, tránh phải từ chối nhiều lần!
+                Khi mở bài báo, chỉ cần bấm nút <strong>"🤖 Sao chép Prompt cho AI"</strong> bên dưới ➔ dán vào Gemini/Copilot bên cạnh trình duyệt ➔ AI sẽ trả về bản tóm tắt tiếng Việt ➔ Bạn dán vào ô <strong>"Nhập Nhanh Bằng AI"</strong> trên web để tự động điền form trong 1 giây!
               </p>
             </div>
 
             <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#0284c7', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Sparkles size={15} color="#0284c7" /> 3. Lưu ý quan trọng cho ĐỢT 3 (Cây khỏe)
+              <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#d97706', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ShieldCheck size={15} color="#d97706" /> 3. Ngoại lệ: "Đã bàn bạc nội bộ / Duyệt ngoại lệ"
               </h4>
               <p style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.6', margin: 0 }}>
-                Các lớp có đuôi <code>___healthy</code> (Đợt 3) là cây khỏe mạnh: <strong>TUYỆT ĐỐI KHÔNG TÌM THUỐC BVTV</strong>. Chỉ tìm kỹ thuật canh tác, tưới tiêu, bón phân hữu cơ và biện pháp phòng ngừa sâu bệnh từ sớm.
+                Nếu tìm thấy một bài viết <strong>nội dung rất hay, có triệu chứng và phác đồ rõ ràng</strong> nhưng nằm ở trang web khác (không có đuôi .edu / .gov), bạn hãy tích chọn <strong>[x] Đã bàn bạc nội bộ / Duyệt ngoại lệ</strong>. Hệ thống sẽ ghi nhận và không báo lỗi, tránh phải từ chối nhiều lần!
               </p>
             </div>
           </div>
@@ -471,7 +580,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 420px) 1fr', gap: '24px', alignItems: 'start' }}>
         
         {/* LEFT COLUMN: 38 Classes List */}
-        <div className="card" style={{ padding: '20px', maxHeight: '820px', display: 'flex', flexDirection: 'column' }}>
+        <div className="card" style={{ padding: '20px', maxHeight: '880px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ marginBottom: '14px' }}>
             <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1b5e20', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Layers size={18} /> Danh Sách 38 Lớp Cây Trồng
@@ -690,47 +799,162 @@ export const KnowledgeCollectorPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Keyword Copy Box */}
+              {/* Keyword & AI Prompt Assistant Box */}
               <div style={{
                 background: '#f8fafc',
                 border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                padding: '12px 16px',
+                borderRadius: '10px',
+                padding: '14px 18px',
                 marginTop: '16px',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
+                flexDirection: 'column',
                 gap: '12px'
               }}>
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
-                    Từ khóa tra cứu gợi ý (Chuẩn khuyến nông quốc tế &amp; VN):
-                  </span>
-                  <code style={{ fontSize: '13px', color: '#0369a1', fontWeight: 600 }}>
-                    {selectedClass.suggestedKeywords}
-                  </code>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
+                      1. Từ khóa Google gợi ý:
+                    </span>
+                    <code style={{ fontSize: '13px', color: '#0369a1', fontWeight: 600 }}>
+                      {selectedClass.suggestedKeywords}
+                    </code>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyKeywords(selectedClass.suggestedKeywords)}
+                      className="btn btn-outline"
+                      style={{ fontSize: '12px', padding: '6px 12px' }}
+                    >
+                      {copiedKeyword ? <Check size={14} color="#16a34a" /> : <Copy size={14} />}
+                      {copiedKeyword ? 'Đã sao chép!' : 'Sao chép từ khóa'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenGoogle(selectedClass.suggestedKeywords)}
+                      className="btn btn-primary"
+                      style={{ fontSize: '12px', padding: '6px 14px' }}
+                    >
+                      <ExternalLink size={14} />
+                      Tìm trên Google
+                    </button>
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyKeywords(selectedClass.suggestedKeywords)}
-                    className="btn btn-outline"
-                    style={{ fontSize: '12px', padding: '6px 12px' }}
-                  >
-                    {copiedKeyword ? <Check size={14} color="#16a34a" /> : <Copy size={14} />}
-                    {copiedKeyword ? 'Đã sao chép!' : 'Sao chép từ khóa'}
-                  </button>
+                {/* AI Prompt Generator Button (Crucial feature for browser AI / Gemini) */}
+                <div style={{
+                  paddingTop: '10px',
+                  borderTop: '1px dashed #cbd5e1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ background: '#7c3aed', color: '#fff', borderRadius: '6px', padding: '4px 6px', display: 'flex' }}>
+                      <Bot size={15} />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#5b21b6' }}>
+                        2. Trợ lý AI Trình duyệt (Gemini / Copilot / Edge):
+                      </span>
+                      <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block' }}>
+                        Mở bài báo ➔ Bấm AI cạnh trình duyệt ➔ Dán prompt này để AI đọc trang web và trả về bản tóm tắt tiếng Việt!
+                      </span>
+                    </div>
+                  </div>
 
                   <button
                     type="button"
-                    onClick={() => handleOpenGoogle(selectedClass.suggestedKeywords)}
-                    className="btn btn-primary"
-                    style={{ fontSize: '12px', padding: '6px 14px' }}
+                    onClick={handleCopyAiPrompt}
+                    style={{
+                      background: copiedPrompt ? '#16a34a' : 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '7px 16px',
+                      fontSize: '12.5px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 6px rgba(124, 58, 237, 0.25)',
+                      transition: 'all 0.2s ease'
+                    }}
                   >
-                    <ExternalLink size={14} />
-                    Tìm trên Google
+                    {copiedPrompt ? <Check size={15} /> : <Wand2 size={15} />}
+                    {copiedPrompt ? 'Đã chép Prompt AI!' : '🤖 Sao chép Prompt cho AI'}
+                  </button>
+                </div>
+              </div>
+
+              {/* SMART PASTE AI BOX: Paste AI response -> 1-click Auto-Fill */}
+              <div style={{
+                background: '#faf5ff',
+                border: '1px solid #e9d5ff',
+                borderRadius: '10px',
+                padding: '16px',
+                marginTop: '18px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 700, color: '#6b21a8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Sparkles size={16} color="#7c3aed" /> Nhập Nhanh Bằng AI: Dán kết quả từ Gemini / Copilot vào đây
+                  </label>
+                  <span style={{ fontSize: '11px', color: '#9333ea', fontWeight: 500 }}>
+                    Tự động bóc tách &amp; điền vào tất cả các ô form
+                  </span>
+                </div>
+
+                <textarea
+                  rows={3}
+                  placeholder={`Dán kết quả AI trả về vào đây (Ví dụ: [TIÊU ĐỀ]: ..., [CƠ QUAN]: ..., [NGÀY CẬP NHẬT]: ..., [TRÍCH DẪN CỐT LÕI]: ...)`}
+                  value={aiRawText}
+                  onChange={(e) => setAiRawText(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #d8b4fe',
+                    fontSize: '12.5px',
+                    fontFamily: 'sans-serif',
+                    resize: 'vertical',
+                    background: '#ffffff'
+                  }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', gap: '8px' }}>
+                  {aiRawText && (
+                    <button
+                      type="button"
+                      onClick={() => setAiRawText('')}
+                      style={{ background: 'transparent', border: 'none', color: '#9333ea', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Xóa nội dung
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleParseAiText}
+                    style={{
+                      background: '#7c3aed',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Wand2 size={13} />
+                    ⚡ Phân Tích &amp; Điền Vào Form Ngay
                   </button>
                 </div>
               </div>
@@ -738,10 +962,10 @@ export const KnowledgeCollectorPage: React.FC = () => {
               {/* Form Input for New Source */}
               <form onSubmit={handleSubmitSource} style={{ marginTop: '24px' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1b5e20', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FileText size={18} /> Nhập Nguồn Dữ Liệu Thẩm Định
+                  <FileText size={18} /> Chi Tiết Nguồn Dữ Liệu Thẩm Định
                 </h3>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                   {/* Source URL */}
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
@@ -765,7 +989,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
                   </div>
 
                   {/* Title */}
-                  <div>
+                  <div style={{ gridColumn: 'span 2' }}>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
                       Tiêu đề bài viết / Tài liệu
                     </label>
@@ -791,7 +1015,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
                     </label>
                     <input
                       type="text"
-                      placeholder="Ví dụ: Penn State Extension, Viện BVTV, Báo Nông Nghiệp VN"
+                      placeholder="Ví dụ: Penn State Extension, Viện BVTV"
                       value={organization}
                       onChange={(e) => setOrganization(e.target.value)}
                       style={{
@@ -803,40 +1027,83 @@ export const KnowledgeCollectorPage: React.FC = () => {
                       }}
                     />
                   </div>
-                </div>
 
-                {/* Content Type */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                    Loại nội dung tài liệu cung cấp
-                  </label>
-                  <select
-                    value={contentType}
-                    onChange={(e) => setContentType(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '10px 14px',
-                      borderRadius: '8px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '14px',
-                      background: '#fff'
-                    }}
-                  >
-                    <option value="Triệu chứng & Biện pháp">Cả triệu chứng nhận diện &amp; biện pháp phòng trị (Đầy đủ nhất)</option>
-                    <option value="Chỉ triệu chứng bệnh">Chỉ triệu chứng / hình ảnh nhận biết vết bệnh</option>
-                    <option value="Chỉ biện pháp điều trị / thuốc">Chỉ biện pháp điều trị / hoạt chất thuốc BVTV</option>
-                    <option value="Kỹ thuật canh tác & phòng ngừa">Kỹ thuật canh tác, tưới tiêu &amp; chăm sóc (Đợt 3 cây khỏe)</option>
-                  </select>
+                  {/* Published Date */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      <Calendar size={14} color="#0284c7" /> Thời gian xuất bản / Cập nhật
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ví dụ: 2024, Tháng 5/2023, hoặc Không ghi ngày"
+                      value={publishedDate}
+                      onChange={(e) => setPublishedDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px'
+                      }}
+                    />
+                  </div>
+
+                  {/* Match Level */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      <Target size={14} color="#16a34a" /> Mức độ khớp với lớp bệnh này
+                    </label>
+                    <select
+                      value={matchLevel}
+                      onChange={(e) => setMatchLevel(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px',
+                        background: '#fff'
+                      }}
+                    >
+                      <option value="Khớp trực tiếp">Khớp trực tiếp (Đúng cây - Đúng bệnh chuẩn)</option>
+                      <option value="Gần nghĩa cần kiểm tra">Gần nghĩa / Cần đối chiếu thêm triệu chứng</option>
+                      <option value="Tham khảo chung">Chỉ tham khảo chung (Tổng quan canh tác)</option>
+                    </select>
+                  </div>
+
+                  {/* Content Type */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      Loại nội dung tài liệu cung cấp
+                    </label>
+                    <select
+                      value={contentType}
+                      onChange={(e) => setContentType(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px',
+                        background: '#fff'
+                      }}
+                    >
+                      <option value="Triệu chứng & Biện pháp">Cả triệu chứng nhận diện &amp; biện pháp phòng trị (Đầy đủ nhất)</option>
+                      <option value="Chỉ triệu chứng bệnh">Chỉ triệu chứng / hình ảnh nhận biết vết bệnh</option>
+                      <option value="Chỉ biện pháp điều trị / thuốc">Chỉ biện pháp điều trị / hoạt chất thuốc BVTV</option>
+                      <option value="Kỹ thuật canh tác & phòng ngừa">Kỹ thuật canh tác, tưới tiêu &amp; chăm sóc (Đợt 3 cây khỏe)</option>
+                    </select>
+                  </div>
                 </div>
 
                 {/* Evidence snippet */}
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                    Trích dẫn chứng cứ / Điểm cốt lõi (Tóm tắt ngắn 1-3 câu)
+                    Trích dẫn chứng cứ / Điểm cốt lõi (Tóm tắt ngắn 1-3 câu tiếng Việt)
                   </label>
                   <textarea
                     rows={3}
-                    placeholder="Ví dụ: Bệnh xuất hiện vết đốm sũng nước màu nâu xám trên lá, có lớp mốc trắng mặt dưới lá trong điều kiện ẩm ướt. Biện pháp: dùng thuốc gốc đồng, Mancozeb..."
+                    placeholder="Ví dụ: Vết bệnh sũng nước màu nâu xám trên lá, có lớp mốc trắng mặt dưới lá trong điều kiện ẩm ướt. Phòng trị bằng thuốc gốc đồng, Mancozeb..."
                     value={evidenceText}
                     onChange={(e) => setEvidenceText(e.target.value)}
                     style={{
@@ -948,7 +1215,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
                     color: '#64748b',
                     fontSize: '13px'
                   }}>
-                    Lớp này hiện chưa có nguồn tài liệu nào được lưu. Hãy dùng từ khóa ở trên để tìm và lưu nguồn đầu tiên!
+                    Lớp này hiện chưa có nguồn tài liệu nào được lưu. Hãy dùng từ khóa hoặc Prompt AI ở trên để tìm và lưu nguồn đầu tiên!
                   </div>
                 );
               }
@@ -959,8 +1226,8 @@ export const KnowledgeCollectorPage: React.FC = () => {
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
                         <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Tiêu Đề / Cơ Quan</th>
+                        <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Khớp &amp; Ngày Cập Nhật</th>
                         <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Đánh Giá Tên Miền</th>
-                        <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Loại Nội Dung</th>
                         <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>Trích Dẫn</th>
                         <th style={{ padding: '10px 12px', color: '#475569', fontWeight: 600, textAlign: 'center' }}>Thao Tác</th>
                       </tr>
@@ -988,6 +1255,26 @@ export const KnowledgeCollectorPage: React.FC = () => {
                           <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
                             <span style={{
                               display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              background: item.matchLevel === 'Khớp trực tiếp' ? '#dcfce7' : '#fef3c7',
+                              color: item.matchLevel === 'Khớp trực tiếp' ? '#15803d' : '#b45309'
+                            }}>
+                              {item.matchLevel || 'Khớp trực tiếp'}
+                            </span>
+                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                              {item.publishedDate ? `Năm: ${item.publishedDate}` : 'Không ghi ngày'}
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#94a3b8' }}>
+                              {item.contentType}
+                            </div>
+                          </td>
+
+                          <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
+                            <span style={{
+                              display: 'inline-block',
                               padding: '3px 8px',
                               borderRadius: '4px',
                               fontSize: '11px',
@@ -1002,10 +1289,6 @@ export const KnowledgeCollectorPage: React.FC = () => {
                                 Lý do: {item.reviewerNotes}
                               </div>
                             )}
-                          </td>
-
-                          <td style={{ padding: '12px', color: '#334155', fontSize: '12px' }}>
-                            {item.contentType}
                           </td>
 
                           <td style={{ padding: '12px', fontSize: '12px', color: '#475569', maxWidth: '280px' }}>

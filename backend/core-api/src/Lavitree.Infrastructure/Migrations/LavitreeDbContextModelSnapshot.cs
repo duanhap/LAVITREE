@@ -166,6 +166,10 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Property<bool>("IsManualApproved")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MatchLevel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("ModelClass")
                         .IsRequired()
                         .HasColumnType("text");
@@ -176,6 +180,9 @@ namespace Lavitree.Infrastructure.Migrations
 
                     b.Property<string>("PlantName")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PublishedDate")
                         .HasColumnType("text");
 
                     b.Property<string>("ReviewerNotes")
