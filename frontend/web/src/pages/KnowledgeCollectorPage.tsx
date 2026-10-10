@@ -81,6 +81,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
   const [showAiBox, setShowAiBox] = useState<boolean>(true);
   const [copiedKeyword, setCopiedKeyword] = useState<boolean>(false);
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
+  const [showPromptPreview, setShowPromptPreview] = useState<boolean>(false);
 
   // Notification / Alert
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -135,11 +136,59 @@ export const KnowledgeCollectorPage: React.FC = () => {
     }
   };
 
+  // Universal clipboard function with fallback for HTTP contexts (remote IP)
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    // 1. Try modern navigator.clipboard API if available and in secure context
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {
+        console.warn('navigator.clipboard failed, attempting fallback...', err);
+      }
+    }
+
+    // 2. Fallback using document.execCommand for HTTP environments
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'fixed';
+      textArea.style.top = '0';
+      textArea.style.left = '0';
+      textArea.style.width = '2em';
+      textArea.style.height = '2em';
+      textArea.style.padding = '0';
+      textArea.style.border = 'none';
+      textArea.style.outline = 'none';
+      textArea.style.boxShadow = 'none';
+      textArea.style.background = 'transparent';
+      textArea.style.opacity = '0';
+      textArea.style.zIndex = '-999';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      textArea.setSelectionRange(0, 99999);
+      
+      const success = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return success;
+    } catch (err) {
+      console.error('Fallback clipboard copy failed:', err);
+      return false;
+    }
+  };
+
   // Copy keywords
-  const handleCopyKeywords = (keywords: string) => {
-    navigator.clipboard.writeText(keywords);
-    setCopiedKeyword(true);
-    setTimeout(() => setCopiedKeyword(false), 2000);
+  const handleCopyKeywords = async (keywords: string) => {
+    const success = await copyToClipboard(keywords);
+    if (success) {
+      setCopiedKeyword(true);
+      setNotification({ type: 'success', message: '✅ Đã sao chép từ khóa vào bộ nhớ tạm thành công!' });
+      setTimeout(() => setCopiedKeyword(false), 2500);
+    } else {
+      setNotification({ type: 'error', message: 'Không thể tự động sao chép. Vui lòng bôi đen từ khóa để sao chép.' });
+    }
   };
 
   // Open Google search
@@ -167,12 +216,18 @@ YÊU CẦU:
   };
 
   // Copy AI Prompt
-  const handleCopyAiPrompt = () => {
+  const handleCopyAiPrompt = async () => {
     if (!selectedClass) return;
     const prompt = generateAiPrompt(selectedClass);
-    navigator.clipboard.writeText(prompt);
-    setCopiedPrompt(true);
-    setTimeout(() => setCopiedPrompt(false), 2500);
+    const success = await copyToClipboard(prompt);
+    if (success) {
+      setCopiedPrompt(true);
+      setNotification({ type: 'success', message: '🤖 Đã sao chép Prompt cho AI! Bạn hãy mở Gemini / Copilot cạnh trình duyệt và dán vào.' });
+      setTimeout(() => setCopiedPrompt(false), 2500);
+    } else {
+      setShowPromptPreview(true);
+      setNotification({ type: 'error', message: 'Trình duyệt chặn quyền Clipboard trên HTTP. Bạn có thể sao chép trực tiếp từ ô xem trước bên dưới!' });
+    }
   };
 
   // Smart Parser: Auto-fill form from AI raw response
@@ -887,8 +942,53 @@ YÊU CẦU:
                     }}
                   >
                     {copiedPrompt ? <Check size={15} /> : <Wand2 size={15} />}
-                    {copiedPrompt ? 'Đã chép Prompt AI!' : '🤖 Sao chép Prompt cho AI'}
+                    {copiedPrompt ? '✅ Đã chép Prompt AI!' : '🤖 Sao chép Prompt cho AI'}
                   </button>
+                </div>
+
+                {/* Optional toggle to view or manual copy prompt */}
+                <div style={{ marginTop: '4px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowPromptPreview(!showPromptPreview)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#7c3aed',
+                      fontSize: '11.5px',
+                      cursor: 'pointer',
+                      padding: 0,
+                      textDecoration: 'underline',
+                      fontWeight: 600
+                    }}
+                  >
+                    {showPromptPreview ? 'Ẩn nội dung Prompt ▲' : '👁️ Bấm vào đây để xem toàn bộ nội dung Prompt (hoặc tự bôi đen chép) ▼'}
+                  </button>
+
+                  {showPromptPreview && (
+                    <div style={{ marginTop: '8px', background: '#ffffff', border: '1px solid #d8b4fe', borderRadius: '8px', padding: '10px' }}>
+                      <textarea
+                        readOnly
+                        rows={7}
+                        value={generateAiPrompt(selectedClass)}
+                        onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                        style={{
+                          width: '100%',
+                          fontSize: '12px',
+                          border: 'none',
+                          outline: 'none',
+                          background: 'transparent',
+                          resize: 'vertical',
+                          fontFamily: 'monospace',
+                          lineHeight: '1.5',
+                          color: '#1e293b'
+                        }}
+                      />
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>💡 Mẹo: Click vào khung trên để tự động bôi đen tất cả, rồi ấn Ctrl+C để sao chép.</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
