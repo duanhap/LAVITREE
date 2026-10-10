@@ -1,0 +1,32 @@
+# .NET & Visual Studio
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/
+
+# Python & AI
+**/__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.pt.tmp
+
+# Node & Frontend
+**/node_modules/
+**/dist/
+.env.local
+npm-debug.log*
+
+# Android
+**/mobile/android/.gradle/
+**/mobile/android/build/
+**/mobile/android/*/build/
+**/mobile/android/local.properties
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db

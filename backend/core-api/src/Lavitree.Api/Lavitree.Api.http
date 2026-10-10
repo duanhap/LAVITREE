@@ -1,0 +1,6 @@
+@Lavitree.Api_HostAddress = http://localhost:5176
+
+GET {{Lavitree.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
