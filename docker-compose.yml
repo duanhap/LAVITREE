@@ -1,21 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. PostgreSQL Database (Chạy local; nếu dùng Supabase cloud có thể bỏ qua container này)
-  postgres-db:
-    image: postgres:16-alpine
-    container_name: lavitree-postgres
-    restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
-      POSTGRES_DB: LavitreeDb
-    ports:
-      - "5432:5432"
-    volumes:
-      - lavitree_pgdata:/var/lib/postgresql/data
-
-  # 2. AI Vision Microservice (FastAPI + PyTorch ResNet-18 + Grad-CAM)
+  # 1. AI Vision Microservice (FastAPI + PyTorch ResNet-18 + Grad-CAM)
   ai-service:
     build:
       context: ./backend/ai-service
@@ -25,7 +11,7 @@ services:
     ports:
       - "8000:8000"
 
-  # 3. Agri-Agent Service (Bonus: FastAPI + RAG Tư vấn khuyến nông)
+  # 2. Agri-Agent Service (Bonus: FastAPI + RAG Tư vấn khuyến nông)
   agent-service:
     build:
       context: ./backend/agent-service
@@ -35,7 +21,7 @@ services:
     ports:
       - "8001:8001"
 
-  # 4. Core Business API (ASP.NET Core 8 Web API - Clean Architecture)
+  # 3. Core Business API (ASP.NET Core 8 Web API - Clean Architecture)
   core-api:
     build:
       context: ./backend/core-api
@@ -44,16 +30,16 @@ services:
     restart: always
     ports:
       - "5000:8080"
+    env_file:
+      - .env
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres-db;Port=5432;Database=LavitreeDb;Username=postgres;Password=postgrespassword;
+      - ASPNETCORE_ENVIRONMENT=Production
       - AiService__BaseUrl=http://ai-service:8000
       - AgentService__BaseUrl=http://agent-service:8001
     depends_on:
-      - postgres-db
       - ai-service
 
-  # 5. Web Frontend Portal & Admin Dashboard (React Vite)
+  # 4. Web Frontend Portal & Admin Dashboard (React Vite)
   web-portal:
     build:
       context: ./frontend/web
@@ -64,6 +50,3 @@ services:
       - "3000:80"
     depends_on:
       - core-api
-
-volumes:
-  lavitree_pgdata:

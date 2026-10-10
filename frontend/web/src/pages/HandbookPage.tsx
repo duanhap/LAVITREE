@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, BookOpen, AlertCircle } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 interface DiseaseSummary {
   id: number;
@@ -16,15 +16,12 @@ interface DiseaseSummary {
 export const HandbookPage: React.FC = () => {
   const [diseases, setDiseases] = useState<DiseaseSummary[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Initial load
     fetchDiseases();
   }, []);
 
   const fetchDiseases = async () => {
-    setLoading(true);
     try {
       const res = await axios.get<DiseaseSummary[]>('http://localhost:5000/api/v1/diseases');
       setDiseases(res.data);
@@ -62,8 +59,6 @@ export const HandbookPage: React.FC = () => {
           prevention: 'Sử dụng giống kháng bệnh, vun gốc cao, phun thuốc gốc đồng phòng ngừa.'
         }
       ]);
-    } finally {
-      setLoading(false);
     }
   };
 

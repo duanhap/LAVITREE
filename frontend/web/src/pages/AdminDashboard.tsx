@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, FileText, ShoppingBag, BarChart3, Users, AlertCircle } from 'lucide-react';
+import { Database, ShoppingBag, BarChart3, AlertCircle } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
   return (
