@@ -321,6 +321,19 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { message = "Vui lòng chọn lớp cây–bệnh và nhập đường dẫn URL." });
         }
 
+        // Check duplicate URL for the same model class
+        var trimmedUrl = dto.SourceUrl.Trim().TrimEnd('/');
+        var existing = await _dbContext.KnowledgeSources
+            .FirstOrDefaultAsync(s => !s.IsDeleted && 
+                                      s.ModelClass == dto.ModelClass && 
+                                      (s.SourceUrl.Trim().ToLower() == trimmedUrl.ToLower() || 
+                                       s.SourceUrl.Trim().TrimEnd('/').ToLower() == trimmedUrl.ToLower()));
+
+        if (existing != null)
+        {
+            return Conflict(new { message = $"URL này đã được lưu trước đó cho lớp '{dto.DiseaseName}' ({dto.ModelClass}) rồi. Vui lòng không lưu trùng!" });
+        }
+
         // Automatic domain quality evaluation
         string evaluatedQuality;
         var lowerUrl = dto.SourceUrl.ToLowerInvariant();

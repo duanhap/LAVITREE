@@ -151,6 +151,23 @@ export const KnowledgeCollectorPage: React.FC = () => {
     ? classes.filter(c => c.plantName === selectedClass.plantName && c.modelClass !== selectedClass.modelClass)
     : [];
 
+  // Helper normalize URL (trims whitespace, trailing slashes, and lowercase)
+  const normalizeUrl = (u: string) => (u || '').trim().toLowerCase().replace(/\/+$/, '');
+
+  // Live duplicate URL detection
+  const normalizedCurrentUrl = normalizeUrl(sourceUrl);
+  const isDuplicateForSelectedClass = Boolean(
+    selectedClass &&
+    normalizedCurrentUrl &&
+    sources.some(s => s.modelClass === selectedClass.modelClass && normalizeUrl(s.sourceUrl) === normalizedCurrentUrl)
+  );
+
+  const existingOtherSourcesWithUrl = sources.filter(
+    s => normalizedCurrentUrl &&
+         (!selectedClass || s.modelClass !== selectedClass.modelClass) &&
+         normalizeUrl(s.sourceUrl) === normalizedCurrentUrl
+  );
+
   // Helper to get Vietnamese keywords
   const getVnKeywords = (item: ClassItem): string => {
     if (item.suggestedKeywordsVn && item.suggestedKeywordsVn.trim()) {
@@ -398,10 +415,11 @@ Danh sách các bệnh khác trên cùng cây ${item.plantName} trong đồ án 
 ${otherClassesBullet}
 
 YÊU CẦU TRÍCH XUẤT:
-1. Trả lời 100% bằng TIẾNG VIỆT, ngắn gọn, khoa học và trung thực (nếu trang web không có thông tin mục nào thì ghi "Không đề cập").
-2. Xuất kết quả ĐÚNG THEO MẪU ĐỊNH DẠNG dưới đây để tôi sao chép nhanh vào biểu mẫu đồ án:
+1. [URL]: Hãy lấy chính xác đường dẫn URL đầy đủ (bắt đầu bằng https:// hoặc http://) của trang web hiện tại bạn đang đọc trên trình duyệt. Đây là trường BẮT BUỘC để hệ thống tự động điền form, Teammate không cần phải copy tay URL riêng nữa.
+2. Trả lời 100% bằng TIẾNG VIỆT, ngắn gọn, khoa học và trung thực (nếu trang web không có thông tin mục nào thì ghi "Không đề cập").
+3. Xuất kết quả ĐÚNG THEO MẪU ĐỊNH DẠNG dưới đây để tôi sao chép nhanh vào biểu mẫu đồ án:
 
-[URL]: <Đường dẫn URL của bài viết này nếu có>
+[URL]: https://... (Điền chính xác đường dẫn URL đầy đủ của trang web hiện tại)
 [TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
 [CƠ QUAN]: <Tên Trường Đại học, Viện nghiên cứu, Cơ quan Khuyến nông hoặc Tác giả>
 [NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
@@ -435,12 +453,17 @@ YÊU CẦU TRÍCH XUẤT:
 
     let parsedCount = 0;
 
-    // Extract URL
-    const urlMatch = aiRawText.match(/\[URL\]:\s*(https?:\/\/[^\s]+)/i) || 
-                     aiRawText.match(/(?:URL|Đường dẫn):\s*(https?:\/\/[^\s]+)/i);
-    if (urlMatch && urlMatch[1].trim() && !sourceUrl) {
-      setSourceUrl(urlMatch[1].trim());
-      parsedCount++;
+    // Extract URL (Robust matching for multiple patterns including markdown links, angle brackets, and trailing characters)
+    const urlMatch = aiRawText.match(/\[URL\]:\s*<?([^\s>\n\r]+)>?/i) || 
+                     aiRawText.match(/(?:URL|Đường dẫn|Link):\s*<?([^\s>\n\r]+)>?/i) ||
+                     aiRawText.match(/\[.*?\]\((https?:\/\/[^\s\)]+)\)/i) ||
+                     aiRawText.match(/(https?:\/\/[^\s>]+)/i);
+    if (urlMatch && urlMatch[1].trim()) {
+      const cleanUrl = urlMatch[1].trim().replace(/[.,;>)]+$/, '');
+      if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+        setSourceUrl(cleanUrl);
+        parsedCount++;
+      }
     }
 
     // Extract Title
@@ -565,14 +588,29 @@ YÊU CẦU TRÍCH XUẤT:
       return;
     }
 
-    setSubmitting(true);
-    setNotification(null);
-
     // Target classes to save: current selectedClass + any additional selected classes from same plant
     const targetClasses = [
       selectedClass,
       ...classes.filter(c => additionalClassCodes.includes(c.modelClass))
     ];
+
+    // Check duplicate URL before sending request
+    const cleanCurrentUrl = normalizeUrl(sourceUrl);
+    const duplicateClasses = targetClasses.filter(cls =>
+      sources.some(s => s.modelClass === cls.modelClass && normalizeUrl(s.sourceUrl) === cleanCurrentUrl)
+    );
+
+    if (duplicateClasses.length > 0) {
+      const names = duplicateClasses.map(c => c.diseaseName).join(', ');
+      setNotification({
+        type: 'error',
+        message: `⚠️ URL này đã được lưu trước đó cho bệnh: "${names}". Hệ thống tự động chặn để chống trùng lặp!`
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    setNotification(null);
 
     try {
       await Promise.all(
@@ -1708,9 +1746,27 @@ YÊU CẦU TRÍCH XUẤT:
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                   {/* Source URL */}
                   <div style={{ gridColumn: '1 / -1' }}>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                      Đường dẫn URL bài viết / tài liệu (*)
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                        Đường dẫn URL bài viết / tài liệu (*)
+                      </label>
+                      {sourceUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setSourceUrl('')}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#94a3b8',
+                            fontSize: '11.5px',
+                            cursor: 'pointer',
+                            textDecoration: 'underline'
+                          }}
+                        >
+                          Xóa URL
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="url"
                       required
@@ -1721,11 +1777,77 @@ YÊU CẦU TRÍCH XUẤT:
                         width: '100%',
                         padding: '10px 14px',
                         borderRadius: '8px',
-                        border: '1px solid #cbd5e1',
+                        border: isDuplicateForSelectedClass
+                          ? '2px solid #ef4444'
+                          : normalizedCurrentUrl
+                            ? '1.5px solid #22c55e'
+                            : '1px solid #cbd5e1',
                         fontSize: '14px',
-                        outline: 'none'
+                        outline: 'none',
+                        background: isDuplicateForSelectedClass ? '#fff5f5' : '#ffffff',
+                        transition: 'border 0.2s, background 0.2s'
                       }}
                     />
+
+                    {/* Real-time duplicate status feedback */}
+                    {normalizedCurrentUrl && isDuplicateForSelectedClass && (
+                      <div style={{
+                        marginTop: '6px',
+                        padding: '8px 12px',
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        color: '#b91c1c',
+                        fontSize: '12.5px',
+                        fontWeight: 600
+                      }}>
+                        <AlertCircle size={16} color="#dc2626" />
+                        <span>
+                          ⚠️ <strong>URL này đã tồn tại:</strong> Lớp "{selectedClass?.diseaseName}" đã được lưu URL này trước đó. Vui lòng chọn bài viết khác để tránh trùng lặp!
+                        </span>
+                      </div>
+                    )}
+
+                    {normalizedCurrentUrl && !isDuplicateForSelectedClass && existingOtherSourcesWithUrl.length > 0 && (
+                      <div style={{
+                        marginTop: '6px',
+                        padding: '8px 12px',
+                        background: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        color: '#1d4ed8',
+                        fontSize: '12.5px'
+                      }}>
+                        <Info size={16} color="#2563eb" />
+                        <span>
+                          ℹ️ <strong>URL dùng chung:</strong> URL này đang được gán cho {existingOtherSourcesWithUrl.map(s => `"${s.diseaseName}"`).join(', ')}. Hệ thống cho phép gán thêm cho lớp này nếu bài viết đề cập nhiều bệnh.
+                        </span>
+                      </div>
+                    )}
+
+                    {normalizedCurrentUrl && !isDuplicateForSelectedClass && existingOtherSourcesWithUrl.length === 0 && (
+                      <div style={{
+                        marginTop: '6px',
+                        padding: '6px 12px',
+                        background: '#f0fdf4',
+                        border: '1px solid #bbf7d0',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        color: '#15803d',
+                        fontSize: '12px'
+                      }}>
+                        <CheckCircle2 size={14} color="#16a34a" />
+                        <span>✓ URL hợp lệ, chưa từng có trong hệ thống cho bất kỳ bệnh nào.</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Title */}
@@ -2037,15 +2159,26 @@ YÊU CẦU TRÍCH XUẤT:
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || isDuplicateForSelectedClass}
                     className="btn btn-primary"
-                    style={{ padding: '10px 24px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                    style={{
+                      padding: '10px 24px',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      opacity: isDuplicateForSelectedClass ? 0.6 : 1,
+                      cursor: isDuplicateForSelectedClass ? 'not-allowed' : 'pointer',
+                      background: isDuplicateForSelectedClass ? '#94a3b8' : undefined
+                    }}
                   >
                     {submitting
                       ? 'Đang lưu vào cơ sở dữ liệu...'
-                      : additionalClassCodes.length > 0
-                        ? `Lưu Nguồn Cho ${additionalClassCodes.length + 1} Lớp Bệnh Cùng Lúc`
-                        : 'Lưu Nguồn Tri Thức Này'}
+                      : isDuplicateForSelectedClass
+                        ? '⚠️ URL Đã Tồn Tại (Không Được Lưu Trùng)'
+                        : additionalClassCodes.length > 0
+                          ? `Lưu Nguồn Cho ${additionalClassCodes.length + 1} Lớp Bệnh Cùng Lúc`
+                          : 'Lưu Nguồn Tri Thức Này'}
                   </button>
                 </div>
                 </form>
