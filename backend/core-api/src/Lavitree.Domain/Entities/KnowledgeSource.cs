@@ -17,6 +17,7 @@ public class KnowledgeSource : BaseEntity
     public string SourceTitle { get; set; } = string.Empty;
     public string Organization { get; set; } = string.Empty; // Tác giả / Viện nghiên cứu / Trường ĐH
     public string? PublishedDate { get; set; } = string.Empty; // Ngày / Năm xuất bản hoặc cập nhật
+    public string SourceScope { get; set; } = "Việt Nam"; // Việt Nam | Quốc tế
     
     // Evidence Content
     public string EvidenceText { get; set; } = string.Empty; // Ý chính trích dẫn triệu chứng / phòng ngừa

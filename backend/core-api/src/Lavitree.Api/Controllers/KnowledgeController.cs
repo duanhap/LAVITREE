@@ -189,6 +189,7 @@ public class KnowledgeController : ControllerBase
         string Organization,
         string? PublishedDate,
         string? MatchLevel,
+        string? SourceScope,
         string EvidenceText,
         string ContentType,
         bool IsManualApproved,
@@ -237,6 +238,7 @@ public class KnowledgeController : ControllerBase
             Organization = string.IsNullOrWhiteSpace(dto.Organization) ? "Chưa xác định" : dto.Organization,
             PublishedDate = string.IsNullOrWhiteSpace(dto.PublishedDate) ? "Không ghi ngày" : dto.PublishedDate,
             MatchLevel = string.IsNullOrWhiteSpace(dto.MatchLevel) ? "Khớp trực tiếp" : dto.MatchLevel,
+            SourceScope = string.IsNullOrWhiteSpace(dto.SourceScope) ? "Việt Nam" : dto.SourceScope,
             EvidenceText = dto.EvidenceText ?? string.Empty,
             ContentType = string.IsNullOrWhiteSpace(dto.ContentType) ? "Triệu chứng & Biện pháp" : dto.ContentType,
             SourceQuality = evaluatedQuality,
@@ -274,19 +276,20 @@ public class KnowledgeController : ControllerBase
         var sb = new StringBuilder();
         // UTF-8 BOM for Excel support
         sb.Append('\uFEFF');
-        sb.AppendLine("ID,Model_Class,Plant_Name,Disease_Name,Source_Title,Organization,Published_Date,Source_URL,Content_Type,Match_Level,Source_Quality,Is_Manual_Approved,Evidence_Text,Reviewer_Notes,Created_At");
+        sb.AppendLine("ID,Model_Class,Plant_Name,Disease_Name,Source_Title,Organization,Published_Date,Source_Scope,Source_URL,Content_Type,Match_Level,Source_Quality,Is_Manual_Approved,Evidence_Text,Reviewer_Notes,Created_At");
 
         foreach (var s in sources)
         {
             var title = EscapeCsv(s.SourceTitle);
             var org = EscapeCsv(s.Organization);
             var pubDate = EscapeCsv(s.PublishedDate ?? "Không ghi ngày");
+            var scope = EscapeCsv(s.SourceScope ?? "Việt Nam");
             var url = EscapeCsv(s.SourceUrl);
             var match = EscapeCsv(s.MatchLevel ?? "Khớp trực tiếp");
             var evidence = EscapeCsv(s.EvidenceText ?? "");
             var notes = EscapeCsv(s.ReviewerNotes ?? "");
 
-            sb.AppendLine($"{s.Id},{s.ModelClass},{s.PlantName},{s.DiseaseName},{title},{org},{pubDate},{url},{s.ContentType},{match},{s.SourceQuality},{s.IsManualApproved},{evidence},{notes},{s.CreatedAt:yyyy-MM-dd HH:mm}");
+            sb.AppendLine($"{s.Id},{s.ModelClass},{s.PlantName},{s.DiseaseName},{title},{org},{pubDate},{scope},{url},{s.ContentType},{match},{s.SourceQuality},{s.IsManualApproved},{evidence},{notes},{s.CreatedAt:yyyy-MM-dd HH:mm}");
         }
 
         var bytes = Encoding.UTF8.GetBytes(sb.ToString());

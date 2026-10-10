@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
   BookOpen, Search, Copy, ExternalLink, CheckCircle2, AlertCircle,
   Download, Trash2, Info, ShieldCheck, Layers, Sparkles,
-  FileText, Check, AlertTriangle, RefreshCw, Bot, Wand2, Calendar, Target
+  FileText, Check, AlertTriangle, RefreshCw, Bot, Wand2, Calendar, Target, Globe
 } from 'lucide-react';
 
 interface ClassItem {
@@ -41,6 +41,7 @@ interface KnowledgeSourceItem {
   organization: string;
   publishedDate?: string;
   matchLevel?: string;
+  sourceScope?: string;
   evidenceText: string;
   contentType: string;
   sourceQuality: string;
@@ -70,6 +71,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
   const [organization, setOrganization] = useState<string>('');
   const [publishedDate, setPublishedDate] = useState<string>('');
   const [matchLevel, setMatchLevel] = useState<string>('Khớp trực tiếp');
+  const [sourceScope, setSourceScope] = useState<string>('Việt Nam');
   const [evidenceText, setEvidenceText] = useState<string>('');
   const [contentType, setContentType] = useState<string>('Triệu chứng & Biện pháp');
   const [isManualApproved, setIsManualApproved] = useState<boolean>(false);
@@ -142,12 +144,33 @@ export const KnowledgeCollectorPage: React.FC = () => {
     ? classes.filter(c => c.plantName === selectedClass.plantName && c.modelClass !== selectedClass.modelClass)
     : [];
 
+  // Knowledge Coverage Evaluator (Vietnam vs International scope)
+  const getClassCoverage = (cls: ClassItem) => {
+    const classSources = sources.filter(s => s.modelClass === cls.modelClass);
+    const hasVn = classSources.some(s => 
+      s.sourceScope === 'Việt Nam' || 
+      (s.organization && s.organization.toLowerCase().includes('việt nam')) || 
+      s.sourceUrl.includes('.vn')
+    );
+    const hasIntl = classSources.some(s => 
+      s.sourceScope === 'Quốc tế' || 
+      s.sourceUrl.includes('.edu') || 
+      s.sourceUrl.includes('.org') || 
+      s.sourceUrl.includes('.gov') || 
+      (!s.sourceUrl.includes('.vn') && s.sourceScope !== 'Việt Nam')
+    );
+    const count = classSources.length;
+    const hasBoth = hasVn && hasIntl && count >= 2;
+    return { count, hasVn, hasIntl, hasBoth };
+  };
+
   // Handle select a class
   const handleSelectClass = (cls: ClassItem) => {
     setSelectedClass(cls);
     setCopiedKeyword(false);
     setCopiedPrompt(false);
     setAdditionalClassCodes([]);
+    setSourceScope('Việt Nam');
     if (window.innerWidth < 768) {
       document.getElementById('source-entry-form')?.scrollIntoView({ behavior: 'smooth' });
     }
@@ -236,6 +259,7 @@ YÊU CẦU TRÍCH XUẤT:
 [TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
 [CƠ QUAN]: <Tên Trường Đại học, Viện nghiên cứu, Cơ quan Khuyến nông hoặc Tác giả>
 [NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
+[PHẠM VI NGUỒN]: <Chọn 1 trong 2: "Việt Nam" (nếu là bài viết tiếng Việt / cơ quan / khuyến nông / thuốc BVTV tại Việt Nam) HOẶC "Quốc tế" (nếu là tài liệu tiếng Anh / trường ĐH quốc tế như Cornell, Penn State, UC Davis, FAO...)>
 [MỨC ĐỘ KHỚP]: <Chọn 1 trong 3: "Khớp trực tiếp" HOẶC "Gần nghĩa cần kiểm tra" HOẶC "Tham khảo chung">
 [LOẠI NỘI DUNG]: <Chọn 1: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Kỹ thuật canh tác & phòng ngừa">
 [TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo / kỹ thuật chăm sóc của bệnh chính>
@@ -291,6 +315,19 @@ YÊU CẦU TRÍCH XUẤT:
     const dateMatch = aiRawText.match(/\[NGÀY CẬP NHẬT\]:\s*(.*)/i) || aiRawText.match(/Ngày cập nhật:\s*(.*)/i) || aiRawText.match(/Thời gian:\s*(.*)/i);
     if (dateMatch && dateMatch[1].trim()) {
       setPublishedDate(dateMatch[1].trim());
+      parsedCount++;
+    }
+
+    // Extract Source Scope (Việt Nam vs Quốc tế)
+    const scopeMatch = aiRawText.match(/\[PHẠM VI NGUỒN\]:\s*(.*)/i) || 
+                       aiRawText.match(/Phạm vi nguồn:\s*(.*)/i);
+    if (scopeMatch && scopeMatch[1].trim()) {
+      const s = scopeMatch[1].trim().toLowerCase();
+      if (s.includes('quốc tế') || s.includes('international') || s.includes('nước ngoài')) {
+        setSourceScope('Quốc tế');
+      } else {
+        setSourceScope('Việt Nam');
+      }
       parsedCount++;
     }
 
@@ -403,6 +440,7 @@ YÊU CẦU TRÍCH XUẤT:
             organization: organization.trim() || 'Chưa xác định',
             publishedDate: publishedDate.trim() || 'Không ghi ngày',
             matchLevel: matchLevel || 'Khớp trực tiếp',
+            sourceScope: sourceScope || 'Việt Nam',
             evidenceText: evidenceText.trim(),
             contentType,
             isManualApproved,
@@ -425,6 +463,7 @@ YÊU CẦU TRÍCH XUẤT:
       setOrganization('');
       setPublishedDate('');
       setMatchLevel('Khớp trực tiếp');
+      setSourceScope('Việt Nam');
       setEvidenceText('');
       setAiRawText('');
       setIsManualApproved(false);
@@ -920,18 +959,47 @@ YÊU CẦU TRÍCH XUẤT:
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
                       <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
-                        {item.modelClass.length > 28 ? item.modelClass.substring(0, 26) + '...' : item.modelClass}
+                        {item.modelClass.length > 25 ? item.modelClass.substring(0, 23) + '...' : item.modelClass}
                       </span>
-                      <span style={{
-                        fontSize: '10.5px',
-                        padding: '1px 6px',
-                        borderRadius: '4px',
-                        background: item.phase === 1 ? '#e0f2fe' : item.phase === 2 ? '#fae8ff' : '#ecfdf5',
-                        color: item.phase === 1 ? '#0369a1' : item.phase === 2 ? '#86198f' : '#047857',
-                        fontWeight: 600
-                      }}>
-                        Đợt {item.phase}
-                      </span>
+                      
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        {(() => {
+                          const coverage = getClassCoverage(item);
+                          if (coverage.hasBoth) {
+                            return (
+                              <span title="Đã có đủ cả nguồn Quốc tế & Việt Nam" style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '1px 5px', borderRadius: '4px' }}>
+                                🇻🇳+🌐 Đủ
+                              </span>
+                            );
+                          }
+                          if (coverage.hasVn) {
+                            return (
+                              <span title="Mới có nguồn Việt Nam" style={{ fontSize: '10px', background: '#e0f2fe', color: '#0369a1', fontWeight: 600, padding: '1px 5px', borderRadius: '4px' }}>
+                                🇻🇳 VN
+                              </span>
+                            );
+                          }
+                          if (coverage.hasIntl) {
+                            return (
+                              <span title="Mới có nguồn Quốc tế" style={{ fontSize: '10px', background: '#f3e8ff', color: '#7e22ce', fontWeight: 600, padding: '1px 5px', borderRadius: '4px' }}>
+                                🌐 QT
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        <span style={{
+                          fontSize: '10.5px',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          background: item.phase === 1 ? '#e0f2fe' : item.phase === 2 ? '#fae8ff' : '#ecfdf5',
+                          color: item.phase === 1 ? '#0369a1' : item.phase === 2 ? '#86198f' : '#047857',
+                          fontWeight: 600
+                        }}>
+                          Đợt {item.phase}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -982,6 +1050,115 @@ YÊU CẦU TRÍCH XUẤT:
                   </div>
                 </div>
               </div>
+
+              {/* Knowledge Coverage Diagnostic Card (Vietnam vs International Scope) */}
+              {(() => {
+                const coverage = getClassCoverage(selectedClass);
+                return (
+                  <div style={{
+                    marginTop: '16px',
+                    padding: '14px 18px',
+                    borderRadius: '10px',
+                    background: coverage.hasBoth ? '#f0fdf4' : coverage.count >= 2 ? '#fffbeb' : '#f8fafc',
+                    border: `1.5px solid ${coverage.hasBoth ? '#86efac' : coverage.count >= 2 ? '#fde047' : '#e2e8f0'}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Layers size={17} color={coverage.hasBoth ? '#16a34a' : '#d97706'} />
+                        Độ Bao Quát Tri Thức Của Lớp Này:
+                      </div>
+                      <div>
+                        {coverage.hasBoth ? (
+                          <span style={{ background: '#dcfce7', color: '#15803d', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px', border: '1px solid #86efac' }}>
+                            🌟 Bao Quát Hoàn Hảo (Đủ Quốc tế + Việt Nam)
+                          </span>
+                        ) : coverage.count >= 2 && !coverage.hasVn ? (
+                          <span style={{ background: '#fef3c7', color: '#b45309', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px', border: '1px solid #fde047' }}>
+                            ⚠️ Thiếu Nguồn Việt Nam (Cần thuốc BVTV &amp; khí hậu VN)
+                          </span>
+                        ) : coverage.count >= 2 && !coverage.hasIntl ? (
+                          <span style={{ background: '#fef3c7', color: '#b45309', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px', border: '1px solid #fde047' }}>
+                            ⚠️ Thiếu Nguồn Quốc Tế (Cần chuẩn bệnh học quốc tế)
+                          </span>
+                        ) : coverage.count === 1 ? (
+                          <span style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px' }}>
+                            ⏳ Đang thu thập ({coverage.count}/2 nguồn)
+                          </span>
+                        ) : (
+                          <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: '12px', fontWeight: 700, padding: '3px 12px', borderRadius: '12px' }}>
+                            ⚪ Chưa có nguồn nào (0/2)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 2 Check indicators */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', fontSize: '12.5px' }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: coverage.hasVn ? '#dcfce7' : '#ffffff',
+                        border: `1px solid ${coverage.hasVn ? '#86efac' : '#cbd5e1'}`
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '15px' }}>{coverage.hasVn ? '✅' : '❌'}</span>
+                          <span style={{ fontWeight: 600, color: coverage.hasVn ? '#14532d' : '#334155' }}>
+                            Nguồn Việt Nam
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: coverage.hasVn ? '#15803d' : '#64748b' }}>
+                          {coverage.hasVn ? 'Đã có tài liệu VN' : 'Cần phác đồ & thuốc VN'}
+                        </span>
+                      </div>
+
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: coverage.hasIntl ? '#dcfce7' : '#ffffff',
+                        border: `1px solid ${coverage.hasIntl ? '#86efac' : '#cbd5e1'}`
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '15px' }}>{coverage.hasIntl ? '✅' : '❌'}</span>
+                          <span style={{ fontWeight: 600, color: coverage.hasIntl ? '#14532d' : '#334155' }}>
+                            Nguồn Quốc Tế
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: coverage.hasIntl ? '#15803d' : '#64748b' }}>
+                          {coverage.hasIntl ? 'Đã có chuẩn .edu / FAO' : 'Cần đối chiếu học thuật'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actionable guidance tip */}
+                    <div style={{ fontSize: '12px', color: '#475569', lineHeight: 1.45 }}>
+                      {!coverage.hasVn && (
+                        <div style={{ color: '#b45309' }}>
+                          💡 <strong>Gợi ý:</strong> Bạn hãy tìm thêm 1 bài viết trên <em>Báo Nông Nghiệp VN (nongnghiep.vn)</em>, <em>Viện BVTV</em> hoặc <em>Khuyến nông tỉnh</em> để bổ sung tên thuốc BVTV được cấp phép lưu hành tại Việt Nam.
+                        </div>
+                      )}
+                      {coverage.hasVn && !coverage.hasIntl && (
+                        <div style={{ color: '#0369a1' }}>
+                          💡 <strong>Gợi ý:</strong> Bạn hãy bấm nút <em>"Sao chép từ khóa"</em> ở dưới để tìm thêm 1 bài viết tiếng Anh (.edu của Penn State, Cornell hoặc UC Davis) để chuẩn hóa tên khoa học mầm bệnh.
+                        </div>
+                      )}
+                      {coverage.hasBoth && (
+                        <div style={{ color: '#16a34a' }}>
+                          🎉 <strong>Lớp này đã bao quát hoàn hảo!</strong> Đã có đủ cả học thuật quốc tế lẫn phác đồ thuốc BVTV thực tế tại Việt Nam.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Keyword & AI Prompt Assistant Box */}
               <div style={{
@@ -1300,6 +1477,28 @@ YÊU CẦU TRÍCH XUẤT:
                     </select>
                   </div>
 
+                  {/* Source Scope (Việt Nam vs Quốc tế) */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      <Globe size={14} color="#0284c7" /> Phạm vi nguồn tài liệu
+                    </label>
+                    <select
+                      value={sourceScope}
+                      onChange={(e) => setSourceScope(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px',
+                        background: '#fff'
+                      }}
+                    >
+                      <option value="Việt Nam">🇻🇳 Việt Nam (Nông nghiệp &amp; Thuốc trong nước)</option>
+                      <option value="Quốc tế">🌐 Quốc tế (Học thuật &amp; Chuẩn bệnh học quốc tế)</option>
+                    </select>
+                  </div>
+
                   {/* Content Type */}
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
@@ -1591,21 +1790,35 @@ YÊU CẦU TRÍCH XUẤT:
                           </td>
 
                           <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>
-                            <span style={{
-                              display: 'inline-block',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              background: item.matchLevel === 'Khớp trực tiếp' ? '#dcfce7' : '#fef3c7',
-                              color: item.matchLevel === 'Khớp trực tiếp' ? '#15803d' : '#b45309'
-                            }}>
-                              {item.matchLevel || 'Khớp trực tiếp'}
-                            </span>
-                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginBottom: '4px' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                fontSize: '10.5px',
+                                fontWeight: 600,
+                                background: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#f3e8ff' : '#e0f2fe',
+                                color: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#7e22ce' : '#0369a1'
+                              }}>
+                                {(item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '🌐 Quốc tế' : '🇻🇳 Việt Nam'}
+                              </span>
+
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                fontSize: '10.5px',
+                                fontWeight: 600,
+                                background: item.matchLevel === 'Khớp trực tiếp' ? '#dcfce7' : '#fef3c7',
+                                color: item.matchLevel === 'Khớp trực tiếp' ? '#15803d' : '#b45309'
+                              }}>
+                                {item.matchLevel || 'Khớp trực tiếp'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>
                               {item.publishedDate ? `Năm: ${item.publishedDate}` : 'Không ghi ngày'}
                             </div>
-                            <div style={{ fontSize: '10.5px', color: '#94a3b8' }}>
+                            <div style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '2px' }}>
                               {item.contentType}
                             </div>
                           </td>

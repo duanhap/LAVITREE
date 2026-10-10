@@ -192,6 +192,10 @@ namespace Lavitree.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("SourceScope")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("SourceTitle")
                         .IsRequired()
                         .HasColumnType("text");
