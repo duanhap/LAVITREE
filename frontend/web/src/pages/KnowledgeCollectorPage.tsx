@@ -187,26 +187,48 @@ export const KnowledgeCollectorPage: React.FC = () => {
     return `bệnh ${item.diseaseName.toLowerCase()} trên cây ${item.plantName.toLowerCase()} triệu chứng phòng trị thuốc BVTV nongnghiep`;
   };
 
+  // Helper to determine if a knowledge source is Vietnamese
+  const isSourceVn = (s: KnowledgeSourceItem): boolean => {
+    if (s.sourceScope === 'Việt Nam') return true;
+    if (s.sourceScope === 'Quốc tế') return false;
+    // Legacy fallback (dành cho dữ liệu cũ chưa có trường sourceScope):
+    const url = (s.sourceUrl || '').toLowerCase();
+    const org = (s.organization || '').toLowerCase();
+    return url.includes('.vn') || 
+           org.includes('việt nam') || 
+           org.includes('khuyến nông') || 
+           org.includes('cục bvtv') || 
+           org.includes('bộ nông nghiệp') ||
+           org.includes('bộ nn');
+  };
+
+  // Helper to determine if a knowledge source is International
+  const isSourceIntl = (s: KnowledgeSourceItem): boolean => {
+    if (s.sourceScope === 'Quốc tế') return true;
+    if (s.sourceScope === 'Việt Nam') return false; // Nguồn Việt Nam tuyệt đối không tính là Quốc tế!
+    // Legacy fallback: Chỉ xét khi chắc chắn không phải nguồn Việt Nam
+    if (isSourceVn(s)) return false;
+    const url = (s.sourceUrl || '').toLowerCase();
+    return url.includes('.edu') || 
+           url.includes('.org') || 
+           url.includes('.gov') || 
+           url.includes('cabi') || 
+           url.includes('fao') || 
+           url.includes('extension') ||
+           url.includes('cornell') ||
+           url.includes('ucanr');
+  };
+
   // Comprehensive Knowledge Coverage Evaluator
   const getClassCoverage = (cls: ClassItem) => {
     const classSources = sources.filter(s => s.modelClass === cls.modelClass);
     const count = classSources.length;
 
     // 1. Nguồn Việt Nam
-    const hasVn = classSources.some(s => 
-      s.sourceScope === 'Việt Nam' || 
-      (s.organization && s.organization.toLowerCase().includes('việt nam')) || 
-      s.sourceUrl.includes('.vn')
-    );
+    const hasVn = classSources.some(s => isSourceVn(s));
 
     // 2. Nguồn Quốc Tế
-    const hasIntl = classSources.some(s => 
-      s.sourceScope === 'Quốc tế' || 
-      s.sourceUrl.includes('.edu') || 
-      s.sourceUrl.includes('.org') || 
-      s.sourceUrl.includes('.gov') || 
-      (!s.sourceUrl.includes('.vn') && s.sourceScope !== 'Việt Nam')
-    );
+    const hasIntl = classSources.some(s => isSourceIntl(s));
 
     // 3. Triệu chứng nhận diện (từ bất kỳ nguồn nào)
     const hasSymptoms = classSources.some(s => 
@@ -217,7 +239,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
 
     // 4. Biện pháp & Thuốc BVTV tại Việt Nam (Bắt buộc nguồn VN vì danh mục cấp phép của Bộ NN&PTNT)
     const hasTreatmentVn = classSources.some(s => 
-      (s.sourceScope === 'Việt Nam' || s.sourceUrl.includes('.vn')) &&
+      isSourceVn(s) &&
       (s.contentType === 'Triệu chứng & Biện pháp' || 
        s.contentType === 'Chỉ biện pháp điều trị / thuốc' || 
        s.contentType.toLowerCase().includes('thuốc')) &&
@@ -440,7 +462,7 @@ YÊU CẦU TRÍCH XUẤT:
 [URL]: https://... (Điền chính xác đường dẫn URL đầy đủ của trang web hiện tại)
 [TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
 [CƠ QUAN]: <Tên Trường Đại học, Viện nghiên cứu, Cơ quan Khuyến nông hoặc Tác giả>
-[NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
+[NGÀY CẬP NHẬT / XUẤT BẢN]: <Ngày hoặc năm cập nhật gần nhất. Nếu trang web ghi cả hai thì ghi dạng "2019 (Cập nhật 01/03/2024)", nếu không có thì ghi "Không ghi ngày">
 [PHẠM VI NGUỒN]: <Chọn 1 trong 2: "Việt Nam" HOẶC "Quốc tế">
 [MỨC ĐỘ KHỚP]: Khớp trực tiếp
 [LOẠI NỘI DUNG]: Kỹ thuật canh tác & chăm sóc
@@ -472,7 +494,7 @@ YÊU CẦU TRÍCH XUẤT:
 [URL]: https://... (Điền chính xác đường dẫn URL đầy đủ của trang web hiện tại)
 [TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
 [CƠ QUAN]: <Tên Trường Đại học, Viện nghiên cứu, Cơ quan Khuyến nông hoặc Tác giả>
-[NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
+[NGÀY CẬP NHẬT / XUẤT BẢN]: <Ngày hoặc năm cập nhật gần nhất của bài viết. Nếu trang web ghi cả hai thì ghi dạng "2019 (Cập nhật 01/03/2024)", nếu không có thì ghi "Không ghi ngày">
 [PHẠM VI NGUỒN]: <Chọn 1 trong 2: "Việt Nam" (nếu là bài viết tiếng Việt / cơ quan / khuyến nông / thuốc BVTV tại Việt Nam) HOẶC "Quốc tế" (nếu là tài liệu tiếng Anh / trường ĐH quốc tế như Cornell, Penn State, UC Davis, FAO...)>
 [MỨC ĐỘ KHỚP]: <Chọn 1 trong 3: "Khớp trực tiếp" HOẶC "Gần nghĩa cần kiểm tra" HOẶC "Tham khảo chung">
 [LOẠI NỘI DUNG]: <Chọn 1 trong 4: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Chỉ tham khảo / Không có chi tiết">
@@ -535,8 +557,9 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
       parsedCount++;
     }
 
-    // Extract Published Date
-    const dateMatch = aiRawText.match(/\[NGÀY CẬP NHẬT\]:\s*(.*)/i) || aiRawText.match(/Ngày cập nhật:\s*(.*)/i) || aiRawText.match(/Thời gian:\s*(.*)/i);
+    // Extract Published / Updated Date (Flexible matching for all variants)
+    const dateMatch = aiRawText.match(/\[(?:NGÀY CẬP NHẬT|NGÀY XUẤT BẢN|NGÀY ĐĂNG|THỜI GIAN|NGÀY XUẤT BẢN \/ CẬP NHẬT|NGÀY CẬP NHẬT \/ XUẤT BẢN|PUBLISHED DATE|DATE)\]:\s*(.*)/i) || 
+                      aiRawText.match(/(?:Thời gian xuất bản \/ cập nhật|Ngày cập nhật|Ngày xuất bản|Ngày đăng|Thời gian):\s*(.*)/i);
     if (dateMatch && dateMatch[1].trim()) {
       setPublishedDate(dateMatch[1].trim());
       parsedCount++;
@@ -640,7 +663,19 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
         if (!isExplicitlyNone) {
           const lines = blockText.split(/\r?\n/).filter(l => l.trim().length > 0);
           samePlantClasses.forEach(c => {
-            const matchingLine = lines.find(l => l.includes(c.modelClass) || l.toLowerCase().includes(c.diseaseName.toLowerCase()));
+            const modelLower = c.modelClass.toLowerCase();
+            const diseaseLower = c.diseaseName.toLowerCase();
+            const cleanDiseaseName = diseaseLower.replace(/^bệnh\s+/i, '');
+            const diseaseSuffix = (c.modelClass.split('___')[1] || '').toLowerCase();
+
+            const matchingLine = lines.find(l => {
+              const lLower = l.toLowerCase();
+              return lLower.includes(modelLower) || 
+                     (diseaseSuffix && lLower.includes(diseaseSuffix)) ||
+                     lLower.includes(diseaseLower) ||
+                     (cleanDiseaseName.length >= 4 && lLower.includes(cleanDiseaseName));
+            });
+
             if (matchingLine) {
               const lineLower = matchingLine.toLowerCase();
               let customNote = '';
@@ -697,7 +732,19 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
 
       // 3. Fallback scan raw text for direct mentions
       samePlantClasses.forEach(c => {
-        if (aiRawText.includes(c.modelClass) && !autoSelectedCodes.includes(c.modelClass)) {
+        const rawLower = aiRawText.toLowerCase();
+        const modelLower = c.modelClass.toLowerCase();
+        const diseaseLower = c.diseaseName.toLowerCase();
+        const cleanDiseaseName = diseaseLower.replace(/^bệnh\s+/i, '');
+        const diseaseSuffix = (c.modelClass.split('___')[1] || '').toLowerCase();
+
+        const isMentioned = 
+          rawLower.includes(modelLower) ||
+          (diseaseSuffix && rawLower.includes(diseaseSuffix)) ||
+          rawLower.includes(diseaseLower) ||
+          (cleanDiseaseName.length >= 5 && rawLower.includes(cleanDiseaseName));
+
+        if (isMentioned && !autoSelectedCodes.includes(c.modelClass)) {
           autoSelectedCodes.push(c.modelClass);
           autoSelectedNames.push(c.isHealthy ? `${c.plantName} (Canh tác)` : c.diseaseName);
           newConfigs[c.modelClass] = {
@@ -2806,10 +2853,10 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                                       borderRadius: '4px',
                                       fontSize: '10.5px',
                                       fontWeight: 600,
-                                      background: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#f3e8ff' : '#e0f2fe',
-                                      color: (item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '#7e22ce' : '#0369a1'
+                                      background: isSourceIntl(item) ? '#f3e8ff' : '#e0f2fe',
+                                      color: isSourceIntl(item) ? '#7e22ce' : '#0369a1'
                                     }}>
-                                      {(item.sourceScope === 'Quốc tế' || (!item.sourceScope && (item.sourceUrl.includes('.edu') || item.sourceUrl.includes('.org')))) ? '🌐 Quốc tế' : '🇻🇳 Việt Nam'}
+                                      {isSourceIntl(item) ? '🌐 Quốc tế' : '🇻🇳 Việt Nam'}
                                     </span>
 
                                     <span style={{
