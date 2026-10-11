@@ -1469,32 +1469,8 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                         </span>
                       </div>
 
-                      {/* Criterion 3: Triệu Chứng Nhận Diện */}
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        background: coverage.hasSymptoms ? '#dcfce7' : '#ffffff',
-                        border: `1px solid ${coverage.hasSymptoms ? '#86efac' : '#cbd5e1'}`
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '15px' }}>{coverage.hasSymptoms ? '✅' : '❌'}</span>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasSymptoms ? '#14532d' : '#334155' }}>
-                              🔍 Triệu Chứng Vết Bệnh
-                            </div>
-                            <div style={{ fontSize: '10.5px', color: '#64748b' }}>Hình thái, nhận diện lá</div>
-                          </div>
-                        </div>
-                        <span style={{ fontSize: '11px', fontWeight: 600, color: coverage.hasSymptoms ? '#15803d' : '#dc2626' }}>
-                          {coverage.hasSymptoms ? 'Đã có' : 'Chưa có'}
-                        </span>
-                      </div>
-
-                      {/* Criterion 4: Thuốc BVTV tại VN (hoặc Canh tác nếu là Đợt 3) */}
                       {selectedClass.isHealthy ? (
+                        /* Criterion 3 (Healthy): Kỹ Thuật Canh Tác (Dành riêng cho Cây Khỏe) */
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -1510,7 +1486,7 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                               <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasCultivation ? '#14532d' : '#334155' }}>
                                 🌾 Kỹ Thuật Canh Tác
                               </div>
-                              <div style={{ fontSize: '10.5px', color: '#64748b' }}>Chăm sóc cây khỏe</div>
+                              <div style={{ fontSize: '10.5px', color: '#64748b' }}>Làm đất, tưới tiêu, bón phân, tỉa cành</div>
                             </div>
                           </div>
                           <span style={{ fontSize: '11px', fontWeight: 600, color: coverage.hasCultivation ? '#15803d' : '#d97706' }}>
@@ -1518,30 +1494,57 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                           </span>
                         </div>
                       ) : (
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          background: coverage.hasTreatmentVn ? '#dcfce7' : '#ffffff',
-                          border: `1.5px solid ${coverage.hasTreatmentVn ? '#86efac' : '#f59e0b'}`
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '15px' }}>{coverage.hasTreatmentVn ? '✅' : '⚠️'}</span>
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasTreatmentVn ? '#14532d' : '#b45309' }}>
-                                💊 Thuốc BVTV Tại VN
-                              </div>
-                              <div style={{ fontSize: '10.5px', color: coverage.hasTreatmentVn ? '#15803d' : '#d97706' }}>
-                                Bắt buộc nguồn VN
+                        <>
+                          {/* Criterion 3 (Disease): Triệu Chứng Nhận Diện */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            background: coverage.hasSymptoms ? '#dcfce7' : '#ffffff',
+                            border: `1px solid ${coverage.hasSymptoms ? '#86efac' : '#cbd5e1'}`
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '15px' }}>{coverage.hasSymptoms ? '✅' : '❌'}</span>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasSymptoms ? '#14532d' : '#334155' }}>
+                                  🔍 Triệu Chứng Vết Bệnh
+                                </div>
+                                <div style={{ fontSize: '10.5px', color: '#64748b' }}>Hình thái, nhận diện lá</div>
                               </div>
                             </div>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: coverage.hasSymptoms ? '#15803d' : '#dc2626' }}>
+                              {coverage.hasSymptoms ? 'Đã có' : 'Chưa có'}
+                            </span>
                           </div>
-                          <span style={{ fontSize: '11px', fontWeight: 700, color: coverage.hasTreatmentVn ? '#15803d' : '#b45309' }}>
-                            {coverage.hasTreatmentVn ? 'Đã có thuốc VN' : 'Thiếu thuốc VN'}
-                          </span>
-                        </div>
+
+                          {/* Criterion 4 (Disease): Thuốc BVTV tại VN */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            background: coverage.hasTreatmentVn ? '#dcfce7' : '#ffffff',
+                            border: `1.5px solid ${coverage.hasTreatmentVn ? '#86efac' : '#f59e0b'}`
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '15px' }}>{coverage.hasTreatmentVn ? '✅' : '⚠️'}</span>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '12px', color: coverage.hasTreatmentVn ? '#14532d' : '#b45309' }}>
+                                  💊 Thuốc BVTV Tại VN
+                                </div>
+                                <div style={{ fontSize: '10.5px', color: coverage.hasTreatmentVn ? '#15803d' : '#d97706' }}>
+                                  Bắt buộc nguồn VN
+                                </div>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: coverage.hasTreatmentVn ? '#15803d' : '#b45309' }}>
+                              {coverage.hasTreatmentVn ? 'Đã có thuốc VN' : 'Thiếu thuốc VN'}
+                            </span>
+                          </div>
+                        </>
                       )}
                     </div>
 
