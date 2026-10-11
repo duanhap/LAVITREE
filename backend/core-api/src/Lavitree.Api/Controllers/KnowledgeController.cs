@@ -308,6 +308,7 @@ public class KnowledgeController : ControllerBase
         string? SourceScope,
         string EvidenceText,
         string ContentType,
+        bool? HasCultivationTechnique,
         bool IsManualApproved,
         string? ReviewerNotes
     );
@@ -370,6 +371,7 @@ public class KnowledgeController : ControllerBase
             SourceScope = string.IsNullOrWhiteSpace(dto.SourceScope) ? "Việt Nam" : dto.SourceScope,
             EvidenceText = dto.EvidenceText ?? string.Empty,
             ContentType = string.IsNullOrWhiteSpace(dto.ContentType) ? "Triệu chứng & Biện pháp" : dto.ContentType,
+            HasCultivationTechnique = dto.HasCultivationTechnique ?? false,
             SourceQuality = evaluatedQuality,
             IsManualApproved = dto.IsManualApproved,
             ReviewerNotes = dto.ReviewerNotes
@@ -405,7 +407,7 @@ public class KnowledgeController : ControllerBase
         var sb = new StringBuilder();
         // UTF-8 BOM for Excel support
         sb.Append('\uFEFF');
-        sb.AppendLine("ID,Model_Class,Plant_Name,Disease_Name,Source_Title,Organization,Published_Date,Source_Scope,Source_URL,Content_Type,Match_Level,Source_Quality,Is_Manual_Approved,Evidence_Text,Reviewer_Notes,Created_At");
+        sb.AppendLine("ID,Model_Class,Plant_Name,Disease_Name,Source_Title,Organization,Published_Date,Source_Scope,Source_URL,Content_Type,Has_Cultivation,Match_Level,Source_Quality,Is_Manual_Approved,Evidence_Text,Reviewer_Notes,Created_At");
 
         foreach (var s in sources)
         {
@@ -417,8 +419,9 @@ public class KnowledgeController : ControllerBase
             var match = EscapeCsv(s.MatchLevel ?? "Khớp trực tiếp");
             var evidence = EscapeCsv(s.EvidenceText ?? "");
             var notes = EscapeCsv(s.ReviewerNotes ?? "");
+            var hasCultivation = s.HasCultivationTechnique ? "Có" : "Không";
 
-            sb.AppendLine($"{s.Id},{s.ModelClass},{s.PlantName},{s.DiseaseName},{title},{org},{pubDate},{scope},{url},{s.ContentType},{match},{s.SourceQuality},{s.IsManualApproved},{evidence},{notes},{s.CreatedAt:yyyy-MM-dd HH:mm}");
+            sb.AppendLine($"{s.Id},{s.ModelClass},{s.PlantName},{s.DiseaseName},{title},{org},{pubDate},{scope},{url},{s.ContentType},{hasCultivation},{match},{s.SourceQuality},{s.IsManualApproved},{evidence},{notes},{s.CreatedAt:yyyy-MM-dd HH:mm}");
         }
 
         var bytes = Encoding.UTF8.GetBytes(sb.ToString());

@@ -25,6 +25,7 @@ public class KnowledgeSource : BaseEntity
     public string MatchLevel { get; set; } = "Khớp trực tiếp"; // Khớp trực tiếp | Gần nghĩa / Cần kiểm tra | Tham khảo chung
 
     // Quality & Approval Status
+    public bool HasCultivationTechnique { get; set; } = false; // Bài viết có kèm hướng dẫn kỹ thuật canh tác / chăm sóc phòng ngừa
     public string SourceQuality { get; set; } = "Cao"; // Cao | Trung bình | Duyệt ngoại lệ
     public bool IsManualApproved { get; set; } = false; // Đã bàn bạc nội bộ / Duyệt ngoại lệ
     public string? ReviewerNotes { get; set; } // Ghi chú của nhóm khi duyệt ngoại lệ
