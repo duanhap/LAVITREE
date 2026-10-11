@@ -212,7 +212,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
     const hasSymptoms = classSources.some(s => 
       s.contentType === 'Triệu chứng & Biện pháp' || 
       s.contentType === 'Chỉ triệu chứng bệnh' ||
-      s.contentType.toLowerCase().includes('triệu chứng')
+      (s.contentType.toLowerCase().includes('triệu chứng') && !s.contentType.toLowerCase().includes('không'))
     );
 
     // 4. Biện pháp & Thuốc BVTV tại Việt Nam (Bắt buộc nguồn VN vì danh mục cấp phép của Bộ NN&PTNT)
@@ -220,8 +220,8 @@ export const KnowledgeCollectorPage: React.FC = () => {
       (s.sourceScope === 'Việt Nam' || s.sourceUrl.includes('.vn')) &&
       (s.contentType === 'Triệu chứng & Biện pháp' || 
        s.contentType === 'Chỉ biện pháp điều trị / thuốc' || 
-       s.contentType.toLowerCase().includes('điều trị') || 
-       s.contentType.toLowerCase().includes('thuốc'))
+       s.contentType.toLowerCase().includes('thuốc')) &&
+      !s.contentType.toLowerCase().includes('không')
     );
 
     // 5. Kỹ thuật canh tác & chăm sóc (Hỗ trợ cả trường HasCultivationTechnique và ContentType)
@@ -440,7 +440,7 @@ YÊU CẦU TRÍCH XUẤT:
 [NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
 [PHẠM VI NGUỒN]: <Chọn 1 trong 2: "Việt Nam" (nếu là bài viết tiếng Việt / cơ quan / khuyến nông / thuốc BVTV tại Việt Nam) HOẶC "Quốc tế" (nếu là tài liệu tiếng Anh / trường ĐH quốc tế như Cornell, Penn State, UC Davis, FAO...)>
 [MỨC ĐỘ KHỚP]: <Chọn 1 trong 3: "Khớp trực tiếp" HOẶC "Gần nghĩa cần kiểm tra" HOẶC "Tham khảo chung">
-[LOẠI NỘI DUNG]: <Chọn 1: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Kỹ thuật canh tác & phòng ngừa">
+[LOẠI NỘI DUNG]: <Chọn 1 trong 4: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Chỉ tham khảo / Không có chi tiết">
 [CÓ KỸ THUẬT CANH TÁC]: <Chọn "Có" (nếu bài viết có hướng dẫn thêm về kỹ thuật canh tác, bón phân, tưới nước, tỉa cành, luân canh...) HOẶC "Không">
 [TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo / kỹ thuật chăm sóc của bệnh chính>
 [CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI]: <Nếu bài viết CŨNG CÓ ĐỀ CẬP đến các bệnh khác trên cùng cây ${item.plantName} (trong danh sách trên), hãy liệt kê rõ theo từng dòng định dạng:
@@ -604,8 +604,8 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
             } else if (lineLower.includes('chỉ triệu chứng') || lineLower.includes('triệu chứng')) {
               cType = 'Chỉ triệu chứng bệnh';
               mLevel = 'Khớp trực tiếp';
-            } else if (lineLower.includes('chỉ tham khảo') || lineLower.includes('nhắc tên') || lineLower.includes('tham khảo')) {
-              cType = 'Chỉ triệu chứng bệnh';
+            } else if (lineLower.includes('chỉ tham khảo') || lineLower.includes('nhắc tên') || lineLower.includes('tham khảo') || lineLower.includes('không có')) {
+              cType = 'Chỉ tham khảo / Không có chi tiết';
               mLevel = 'Tham khảo chung';
             }
 
@@ -2095,7 +2095,13 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                     </label>
                     <select
                       value={contentType}
-                      onChange={(e) => setContentType(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setContentType(val);
+                        if (val === 'Chỉ tham khảo / Không có chi tiết') {
+                          setMatchLevel('Tham khảo chung');
+                        }
+                      }}
                       style={{
                         width: '100%',
                         padding: '10px 14px',
@@ -2108,42 +2114,51 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                       <option value="Triệu chứng & Biện pháp">Cả triệu chứng nhận diện &amp; biện pháp phòng trị (Đầy đủ nhất)</option>
                       <option value="Chỉ triệu chứng bệnh">Chỉ triệu chứng / hình ảnh nhận biết vết bệnh</option>
                       <option value="Chỉ biện pháp điều trị / thuốc">Chỉ biện pháp điều trị / hoạt chất thuốc BVTV</option>
-                      <option value="Kỹ thuật canh tác & phòng ngừa">Chuyên sâu kỹ thuật canh tác, tưới tiêu &amp; chăm sóc phòng ngừa</option>
+                      <option value="Chỉ tham khảo / Không có chi tiết">Không có thông tin triệu chứng / thuốc (Chỉ nhắc tên / Tham khảo chung)</option>
                     </select>
-
-                    {/* Separate Cultivation Checkbox */}
-                    <div style={{ marginTop: '10px' }}>
-                      <label style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        cursor: 'pointer',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        background: hasCultivation ? '#ecfdf5' : '#f8fafc',
-                        border: hasCultivation ? '1.5px solid #10b981' : '1px solid #cbd5e1',
-                        transition: 'all 0.15s'
-                      }}>
-                        <input
-                          type="checkbox"
-                          checked={hasCultivation}
-                          onChange={(e) => setHasCultivation(e.target.checked)}
-                          style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '13px', fontWeight: 600, color: hasCultivation ? '#065f46' : '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span>🌾 Bài viết có kèm Kỹ thuật canh tác &amp; Chăm sóc</span>
-                            <span style={{ fontSize: '11px', color: '#059669', background: '#d1fae5', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
-                              Điểm cộng bonus
-                            </span>
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#64748b' }}>
-                            Tỉa cành, bón phân, tưới tiêu, luân canh, mật độ gieo trồng (áp dụng cho mọi loài cây và mọi đợt bệnh)
-                          </div>
-                        </div>
-                      </label>
-                    </div>
                   </div>
+                </div>
+
+                {/* Separate Full-Width Cultivation Technique Bonus Row */}
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    background: hasCultivation ? '#ecfdf5' : '#f8fafc',
+                    border: hasCultivation ? '1.5px solid #10b981' : '1px solid #cbd5e1',
+                    transition: 'all 0.15s'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <input
+                        type="checkbox"
+                        checked={hasCultivation}
+                        onChange={(e) => setHasCultivation(e.target.checked)}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: hasCultivation ? '#065f46' : '#334155' }}>
+                        🌾 Bài viết có kèm Kỹ thuật canh tác &amp; Chăm sóc
+                      </span>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>
+                        (Bón phân, tỉa cành, tưới tiêu, luân canh — áp dụng cho mọi loài cây)
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: '11px',
+                      color: '#059669',
+                      background: '#d1fae5',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap'
+                    }}>
+                      +Bonus điểm cộng
+                    </span>
+                  </label>
                 </div>
 
                 {/* Evidence snippet */}
@@ -2399,7 +2414,7 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                                         ...prev,
                                         [cls.modelClass]: {
                                           ...prev[cls.modelClass],
-                                          contentType: 'Chỉ triệu chứng bệnh',
+                                          contentType: 'Chỉ tham khảo / Không có chi tiết',
                                           matchLevel: 'Tham khảo chung'
                                         }
                                       }));
@@ -2414,7 +2429,7 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                                       cursor: 'pointer',
                                       fontWeight: config.matchLevel === 'Tham khảo chung' ? 700 : 500
                                     }}
-                                    title="Bài viết chỉ nhắc tên bệnh hoặc nói lướt qua để tham khảo"
+                                    title="Bài viết chỉ nhắc tên bệnh hoặc nói lướt qua để tham khảo (không có thông tin cụ thể)"
                                   >
                                     📖 Tham khảo / Nhắc tên
                                   </button>
