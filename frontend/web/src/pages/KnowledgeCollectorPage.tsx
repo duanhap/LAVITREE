@@ -88,6 +88,11 @@ export const KnowledgeCollectorPage: React.FC = () => {
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
   const [showPromptPreview, setShowPromptPreview] = useState<boolean>(false);
   const [additionalClassCodes, setAdditionalClassCodes] = useState<string[]>([]);
+  const [additionalClassConfigs, setAdditionalClassConfigs] = useState<Record<string, {
+    contentType: string;
+    matchLevel: string;
+    customEvidence?: string;
+  }>>({});
 
   // UX & Layout states (Anti-fatigue & Compact mode)
   const [activeTab, setActiveTab] = useState<'entry' | 'sources'>('entry');
@@ -318,6 +323,7 @@ export const KnowledgeCollectorPage: React.FC = () => {
     setCopiedKeywordVn(false);
     setCopiedPrompt(false);
     setAdditionalClassCodes([]);
+    setAdditionalClassConfigs({});
     setSourceScope('Việt Nam');
     setActiveTab('entry');
     if (window.innerWidth < 768) {
@@ -427,7 +433,12 @@ YÊU CẦU TRÍCH XUẤT:
 [MỨC ĐỘ KHỚP]: <Chọn 1 trong 3: "Khớp trực tiếp" HOẶC "Gần nghĩa cần kiểm tra" HOẶC "Tham khảo chung">
 [LOẠI NỘI DUNG]: <Chọn 1: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Kỹ thuật canh tác & phòng ngừa">
 [TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo / kỹ thuật chăm sóc của bệnh chính>
-[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI]: <Nếu bài viết CŨNG CÓ ĐỀ CẬP rõ ràng đến các bệnh khác trên cùng cây ${item.plantName} (trong danh sách trên), hãy liệt kê chính xác các Mã chuẩn đó cách nhau bằng dấu phẩy (ví dụ: ${otherPlantClasses.slice(0, 2).map(c => c.modelClass).join(', ') || 'Tomato___Early_blight'}). Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
+[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI]: <Nếu bài viết CŨNG CÓ ĐỀ CẬP đến các bệnh khác trên cùng cây ${item.plantName} (trong danh sách trên), hãy liệt kê rõ theo từng dòng định dạng:
+- Mã_Chuẩn | Mức_Độ: <"Đủ triệu chứng và thuốc" HOẶC "Chỉ triệu chứng" HOẶC "Chỉ tham khảo/nhắc tên"> | Tóm_Tắt: <1 câu ngắn tóm tắt triệu chứng/thuốc riêng của bệnh này nếu có>
+Ví dụ:
+- Tomato___Early_blight | Mức_Độ: Đủ triệu chứng và thuốc | Tóm_Tắt: Đốm nâu có vòng đồng tâm, trị bằng hoạt chất Difenoconazole hoặc Mancozeb.
+- Tomato___Bacterial_spot | Mức_Độ: Chỉ triệu chứng | Tóm_Tắt: Đốm nhỏ dạng giọt dầu viền vàng trên lá.
+Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
   };
 
   // Copy AI Prompt
@@ -532,42 +543,79 @@ YÊU CẦU TRÍCH XUẤT:
       setEvidenceText(aiRawText.trim());
     }
 
-    // Extract Multi-Class Co-Mentions
-    const multiClassMatch = aiRawText.match(/\[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI\]:\s*(.*)/i) ||
-                            aiRawText.match(/Các bệnh cùng cây(?:\s*có trong bài)?:\s*(.*)/i);
+    // Extract Multi-Class Co-Mentions with depth evaluation & custom summaries
+    const multiClassMatch = aiRawText.match(/\[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI\]:\s*([\s\S]*?)(?:$|\n\[)/i) ||
+                            aiRawText.match(/Các bệnh cùng cây(?:\s*có trong bài)?:\s*([\s\S]*?)(?:$|\n[A-Z])/i);
 
     const autoSelectedCodes: string[] = [];
     const autoSelectedNames: string[] = [];
+    const newConfigs: Record<string, { contentType: string; matchLevel: string; customEvidence?: string }> = {};
 
     if (multiClassMatch && multiClassMatch[1].trim()) {
-      const line = multiClassMatch[1].trim();
-      if (!line.toLowerCase().includes('không') && !line.toLowerCase().includes('none')) {
+      const blockText = multiClassMatch[1].trim();
+      if (!blockText.toLowerCase().includes('không') && !blockText.toLowerCase().includes('none')) {
+        const lines = blockText.split(/\r?\n/);
         samePlantClasses.forEach(c => {
-          if (line.includes(c.modelClass) || line.toLowerCase().includes(c.diseaseName.toLowerCase())) {
+          // Look for this class in any line or within the block
+          const matchingLine = lines.find(l => l.includes(c.modelClass) || l.toLowerCase().includes(c.diseaseName.toLowerCase()));
+          if (matchingLine) {
+            const lineLower = matchingLine.toLowerCase();
+            let cType = 'Chỉ triệu chứng bệnh';
+            let mLevel = 'Khớp trực tiếp';
+            let customNote = '';
+
+            if (lineLower.includes('đủ triệu chứng') || lineLower.includes('triệu chứng và thuốc') || lineLower.includes('triệu chứng & thuốc') || lineLower.includes('triệu chứng & biện pháp') || lineLower.includes('đủ thuốc')) {
+              cType = 'Triệu chứng & Biện pháp';
+              mLevel = 'Khớp trực tiếp';
+            } else if (lineLower.includes('chỉ triệu chứng') || lineLower.includes('triệu chứng')) {
+              cType = 'Chỉ triệu chứng bệnh';
+              mLevel = 'Khớp trực tiếp';
+            } else if (lineLower.includes('chỉ tham khảo') || lineLower.includes('nhắc tên') || lineLower.includes('tham khảo')) {
+              cType = 'Chỉ triệu chứng bệnh';
+              mLevel = 'Tham khảo chung';
+            }
+
+            // Extract custom summary
+            const noteMatch = matchingLine.match(/(?:Tóm_Tắt|Tóm tắt|Tóm lược):\s*(.*)/i) || 
+                              matchingLine.match(/\|\s*([^|]+)$/);
+            if (noteMatch && noteMatch[1].trim() && !noteMatch[1].toLowerCase().includes('mức_độ')) {
+              customNote = noteMatch[1].trim();
+            }
+
             if (!autoSelectedCodes.includes(c.modelClass)) {
               autoSelectedCodes.push(c.modelClass);
               autoSelectedNames.push(c.diseaseName);
+              newConfigs[c.modelClass] = {
+                contentType: cType,
+                matchLevel: mLevel,
+                customEvidence: customNote || undefined
+              };
             }
           }
         });
       }
     }
 
-    // Also scan the whole raw text for any matching model classes of the same plant
+    // Also scan whole raw text as fallback for any mentioned model classes
     samePlantClasses.forEach(c => {
       if (aiRawText.includes(c.modelClass) && !autoSelectedCodes.includes(c.modelClass)) {
         autoSelectedCodes.push(c.modelClass);
         autoSelectedNames.push(c.diseaseName);
+        newConfigs[c.modelClass] = {
+          contentType: 'Chỉ triệu chứng bệnh',
+          matchLevel: 'Tham khảo chung'
+        };
       }
     });
 
     if (autoSelectedCodes.length > 0) {
       setAdditionalClassCodes(autoSelectedCodes);
+      setAdditionalClassConfigs(newConfigs);
       parsedCount++;
     }
 
     const extraMsg = autoSelectedCodes.length > 0
-      ? ` và tự động tick chọn thêm ${autoSelectedCodes.length} bệnh cùng cây (${autoSelectedNames.join(', ')})!`
+      ? ` và tự động tick chọn + phân loại ${autoSelectedCodes.length} bệnh cùng cây (${autoSelectedNames.join(', ')})!`
       : '! Bạn chỉ cần kiểm tra và bấm Lưu.';
 
     setNotification({
@@ -614,8 +662,31 @@ YÊU CẦU TRÍCH XUẤT:
 
     try {
       await Promise.all(
-        targetClasses.map(cls =>
-          axios.post(`${API_BASE}/sources`, {
+        targetClasses.map(cls => {
+          const isMain = cls.modelClass === selectedClass.modelClass;
+          const extraConfig = additionalClassConfigs[cls.modelClass];
+
+          const clsContentType = isMain 
+            ? contentType 
+            : (extraConfig?.contentType || 'Chỉ triệu chứng bệnh');
+
+          const clsMatchLevel = isMain 
+            ? matchLevel 
+            : (extraConfig?.matchLevel || 'Tham khảo chung');
+
+          const clsEvidenceText = isMain
+            ? evidenceText.trim()
+            : (extraConfig?.customEvidence?.trim()
+                ? `[Tóm tắt riêng cho ${cls.diseaseName}]: ${extraConfig.customEvidence.trim()}\n[Tài liệu tham khảo chung]: ${evidenceText.trim()}`
+                : evidenceText.trim());
+
+          const clsReviewerNotes = isMain
+            ? reviewerNotes.trim()
+            : (reviewerNotes.trim()
+                ? `[Đồng lưu từ ${selectedClass.diseaseName}] ` + reviewerNotes.trim()
+                : `[Đồng lưu từ ${selectedClass.diseaseName}]`);
+
+          return axios.post(`${API_BASE}/sources`, {
             modelClass: cls.modelClass,
             plantName: cls.plantName,
             diseaseName: cls.diseaseName,
@@ -623,14 +694,14 @@ YÊU CẦU TRÍCH XUẤT:
             sourceTitle: sourceTitle.trim() || sourceUrl.trim(),
             organization: organization.trim() || 'Chưa xác định',
             publishedDate: publishedDate.trim() || 'Không ghi ngày',
-            matchLevel: matchLevel || 'Khớp trực tiếp',
+            matchLevel: clsMatchLevel,
             sourceScope: sourceScope || 'Việt Nam',
-            evidenceText: evidenceText.trim(),
-            contentType,
+            evidenceText: clsEvidenceText,
+            contentType: clsContentType,
             isManualApproved,
-            reviewerNotes: reviewerNotes.trim()
-          })
-        )
+            reviewerNotes: clsReviewerNotes
+          });
+        })
       );
 
       const targetNames = targetClasses.map(c => c.diseaseName).join(', ');
@@ -653,6 +724,7 @@ YÊU CẦU TRÍCH XUẤT:
       setIsManualApproved(false);
       setReviewerNotes('');
       setAdditionalClassCodes([]);
+      setAdditionalClassConfigs({});
 
       // Refresh data
       await fetchData();
@@ -2032,8 +2104,17 @@ YÊU CẦU TRÍCH XUẤT:
                           onClick={() => {
                             if (additionalClassCodes.length === samePlantClasses.length) {
                               setAdditionalClassCodes([]);
+                              setAdditionalClassConfigs({});
                             } else {
                               setAdditionalClassCodes(samePlantClasses.map(c => c.modelClass));
+                              const allConfigs: Record<string, any> = {};
+                              samePlantClasses.forEach(c => {
+                                allConfigs[c.modelClass] = {
+                                  contentType: 'Chỉ triệu chứng bệnh',
+                                  matchLevel: 'Tham khảo chung'
+                                };
+                              });
+                              setAdditionalClassConfigs(allConfigs);
                             }
                           }}
                           style={{
@@ -2054,52 +2135,200 @@ YÊU CẦU TRÍCH XUẤT:
 
                     <div style={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-                      gap: '8px',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                      gap: '10px',
                       marginTop: '12px'
                     }}>
                       {samePlantClasses.map(cls => {
                         const isChecked = additionalClassCodes.includes(cls.modelClass);
+                        const config = additionalClassConfigs[cls.modelClass] || {
+                          contentType: 'Chỉ triệu chứng bệnh',
+                          matchLevel: 'Khớp trực tiếp'
+                        };
+
                         return (
-                          <label
+                          <div
                             key={cls.modelClass}
                             style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '10px',
-                              padding: '8px 12px',
+                              padding: '10px 12px',
                               borderRadius: '8px',
-                              background: isChecked ? '#dcfce7' : '#ffffff',
+                              background: isChecked ? '#f0fdf4' : '#ffffff',
                               border: isChecked ? '1.5px solid #22c55e' : '1px solid #e2e8f0',
-                              cursor: 'pointer',
                               transition: 'all 0.15s',
-                              fontSize: '12.5px'
+                              fontSize: '12.5px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '8px'
                             }}
                           >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => {
-                                setAdditionalClassCodes(prev =>
-                                  prev.includes(cls.modelClass)
-                                    ? prev.filter(c => c !== cls.modelClass)
-                                    : [...prev, cls.modelClass]
-                                );
-                              }}
-                              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                            />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, color: isChecked ? '#14532d' : '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {cls.diseaseName}
-                              </div>
-                              <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
-                                <span>{cls.modelClass}</span>
-                                <span style={{ color: cls.sourcesCount >= 2 ? '#16a34a' : '#d97706' }}>
-                                  ({cls.sourcesCount}/2 nguồn)
-                                </span>
-                              </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <input
+                                type="checkbox"
+                                id={`sub-check-${cls.modelClass}`}
+                                checked={isChecked}
+                                onChange={() => {
+                                  if (isChecked) {
+                                    setAdditionalClassCodes(prev => prev.filter(c => c !== cls.modelClass));
+                                    setAdditionalClassConfigs(prev => {
+                                      const next = { ...prev };
+                                      delete next[cls.modelClass];
+                                      return next;
+                                    });
+                                  } else {
+                                    setAdditionalClassCodes(prev => [...prev, cls.modelClass]);
+                                    setAdditionalClassConfigs(prev => ({
+                                      ...prev,
+                                      [cls.modelClass]: {
+                                        contentType: 'Triệu chứng & Biện pháp',
+                                        matchLevel: 'Khớp trực tiếp'
+                                      }
+                                    }));
+                                  }
+                                }}
+                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                              />
+                              <label
+                                htmlFor={`sub-check-${cls.modelClass}`}
+                                style={{ flex: 1, minWidth: 0, cursor: 'pointer', margin: 0 }}
+                              >
+                                <div style={{ fontWeight: 600, color: isChecked ? '#14532d' : '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {cls.diseaseName}
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
+                                  <span>{cls.modelClass}</span>
+                                  <span style={{ color: cls.sourcesCount >= 2 ? '#16a34a' : '#d97706' }}>
+                                    ({cls.sourcesCount}/2 nguồn)
+                                  </span>
+                                </div>
+                              </label>
                             </div>
-                          </label>
+
+                            {/* Sub-options for Knowledge Depth & Coverage */}
+                            {isChecked && (
+                              <div style={{
+                                paddingTop: '8px',
+                                borderTop: '1px dashed #bbf7d0',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px'
+                              }}>
+                                <div style={{ fontSize: '11px', fontWeight: 600, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span>Mức độ tri thức trong bài viết:</span>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAdditionalClassConfigs(prev => ({
+                                        ...prev,
+                                        [cls.modelClass]: {
+                                          ...prev[cls.modelClass],
+                                          contentType: 'Triệu chứng & Biện pháp',
+                                          matchLevel: 'Khớp trực tiếp'
+                                        }
+                                      }));
+                                    }}
+                                    style={{
+                                      fontSize: '11px',
+                                      padding: '3px 7px',
+                                      borderRadius: '4px',
+                                      border: config.contentType === 'Triệu chứng & Biện pháp' ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                                      background: config.contentType === 'Triệu chứng & Biện pháp' ? '#dcfce7' : '#ffffff',
+                                      color: config.contentType === 'Triệu chứng & Biện pháp' ? '#14532d' : '#475569',
+                                      cursor: 'pointer',
+                                      fontWeight: config.contentType === 'Triệu chứng & Biện pháp' ? 700 : 500
+                                    }}
+                                    title="Bài viết có hướng dẫn chi tiết cả triệu chứng lẫn thuốc/biện pháp đặc trị cho bệnh này"
+                                  >
+                                    💊 Đủ Triệu chứng & Thuốc
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAdditionalClassConfigs(prev => ({
+                                        ...prev,
+                                        [cls.modelClass]: {
+                                          ...prev[cls.modelClass],
+                                          contentType: 'Chỉ triệu chứng bệnh',
+                                          matchLevel: 'Khớp trực tiếp'
+                                        }
+                                      }));
+                                    }}
+                                    style={{
+                                      fontSize: '11px',
+                                      padding: '3px 7px',
+                                      borderRadius: '4px',
+                                      border: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                                      background: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '#e0f2fe' : '#ffffff',
+                                      color: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '#0369a1' : '#475569',
+                                      cursor: 'pointer',
+                                      fontWeight: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? 700 : 500
+                                    }}
+                                    title="Bài viết mô tả vết bệnh nhận diện nhưng không có phác đồ thuốc BVTV riêng cho bệnh này"
+                                  >
+                                    🔍 Chỉ Triệu chứng
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAdditionalClassConfigs(prev => ({
+                                        ...prev,
+                                        [cls.modelClass]: {
+                                          ...prev[cls.modelClass],
+                                          contentType: 'Chỉ triệu chứng bệnh',
+                                          matchLevel: 'Tham khảo chung'
+                                        }
+                                      }));
+                                    }}
+                                    style={{
+                                      fontSize: '11px',
+                                      padding: '3px 7px',
+                                      borderRadius: '4px',
+                                      border: config.matchLevel === 'Tham khảo chung' ? '1.5px solid #eab308' : '1px solid #cbd5e1',
+                                      background: config.matchLevel === 'Tham khảo chung' ? '#fef9c3' : '#ffffff',
+                                      color: config.matchLevel === 'Tham khảo chung' ? '#854d0e' : '#475569',
+                                      cursor: 'pointer',
+                                      fontWeight: config.matchLevel === 'Tham khảo chung' ? 700 : 500
+                                    }}
+                                    title="Bài viết chỉ nhắc tên bệnh hoặc nói lướt qua để tham khảo"
+                                  >
+                                    📖 Tham khảo / Nhắc tên
+                                  </button>
+                                </div>
+
+                                {/* Custom evidence input */}
+                                <div style={{ marginTop: '2px' }}>
+                                  <input
+                                    type="text"
+                                    placeholder={`Tóm tắt riêng cho ${cls.diseaseName} (nếu có, để trống sẽ dùng trích dẫn chung)...`}
+                                    value={config.customEvidence || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setAdditionalClassConfigs(prev => ({
+                                        ...prev,
+                                        [cls.modelClass]: {
+                                          ...prev[cls.modelClass],
+                                          customEvidence: val
+                                        }
+                                      }));
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      fontSize: '11px',
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #cbd5e1',
+                                      boxSizing: 'border-box',
+                                      background: '#ffffff'
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
