@@ -192,7 +192,15 @@ public class KnowledgeController : ControllerBase
         new("Soybean___healthy", "Đậu nành (Đậu tương)", "Cây khỏe mạnh", 3, "Đợt 3: Cây khỏe", true, 
             "soybean crop management extension", 
             "kỹ thuật trồng chăm sóc đậu tương đậu nành đạt năng suất cao khuyennong", 
-            "KHÔNG TÌM THUỐC")
+            "KHÔNG TÌM THUỐC"),
+        new("Orange___healthy", "Cam / Có múi", "Cây khỏe mạnh", 3, "Đợt 3: Cây khỏe", true, 
+            "orange citrus tree cultivation care guidelines extension", 
+            "kỹ thuật trồng chăm sóc cây cam năng suất cao bón phân tưới tiêu khuyennong", 
+            "KHÔNG TÌM THUỐC; kỹ thuật trồng, tưới tiêu và bón phân cam quýt"),
+        new("Squash___healthy", "Bí đỏ / Bí ngô", "Cây khỏe mạnh", 3, "Đợt 3: Cây khỏe", true, 
+            "squash pumpkin growing cultivation guide extension", 
+            "kỹ thuật trồng chăm sóc bí đỏ bí ngô đạt năng suất cao khuyennong", 
+            "KHÔNG TÌM THUỐC; kỹ thuật trồng, làm đất, thụ phấn và chăm sóc bí")
     };
 
     // 1. GET /api/v1/knowledge/classes
@@ -238,7 +246,7 @@ public class KnowledgeController : ControllerBase
             .Select(g => new { ModelClass = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ModelClass, x => x.Count);
 
-        var totalClasses = All38Classes.Count; // 38
+        var totalClasses = All38Classes.Count; // 40
         var completedClasses = All38Classes.Count(c => counts.GetValueOrDefault(c.ModelClass, 0) >= 2);
         var inProgressClasses = All38Classes.Count(c => counts.GetValueOrDefault(c.ModelClass, 0) == 1);
         var unstartedClasses = All38Classes.Count(c => counts.GetValueOrDefault(c.ModelClass, 0) == 0);
@@ -252,7 +260,7 @@ public class KnowledgeController : ControllerBase
         var p2 = All38Classes.Where(c => c.Phase == 2).ToList();
         var p2Done = p2.Count(c => counts.GetValueOrDefault(c.ModelClass, 0) >= 2);
 
-        // Phase 3 (12 classes)
+        // Phase 3 (14 classes)
         var p3 = All38Classes.Where(c => c.Phase == 3).ToList();
         var p3Done = p3.Count(c => counts.GetValueOrDefault(c.ModelClass, 0) >= 2);
 

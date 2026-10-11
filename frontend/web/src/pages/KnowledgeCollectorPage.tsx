@@ -332,7 +332,15 @@ export const KnowledgeCollectorPage: React.FC = () => {
     setCopiedPrompt(false);
     setAdditionalClassCodes([]);
     setAdditionalClassConfigs({});
-    setHasCultivation(false);
+    if (cls.isHealthy) {
+      setContentType('Kỹ thuật canh tác & phòng ngừa');
+      setHasCultivation(true);
+      setMatchLevel('Khớp trực tiếp');
+    } else {
+      setContentType('Triệu chứng & Biện pháp');
+      setHasCultivation(false);
+      setMatchLevel('Khớp trực tiếp');
+    }
     setSourceScope('Việt Nam');
     setActiveTab('entry');
     if (window.innerWidth < 768) {
@@ -415,11 +423,38 @@ export const KnowledgeCollectorPage: React.FC = () => {
 
   // Generate tailored prompt for Browser AI (Gemini / Copilot)
   const generateAiPrompt = (item: ClassItem) => {
-    const otherPlantClasses = classes.filter(
-      c => c.plantName === item.plantName && c.modelClass !== item.modelClass
+    if (item.isHealthy) {
+      return `Hãy đọc nội dung trang web hiện tại và trích xuất thông tin kỹ thuật canh tác, chăm sóc cây trồng phục vụ cẩm nang nông nghiệp cho đồ án:
+👉 Cây trồng: ${item.plantName}
+👉 Chuyên mục: Kỹ thuật canh tác & Chăm sóc cây khỏe mạnh (Mã: ${item.modelClass})
+
+LƯU Ý QUAN TRỌNG:
+- Đây là tài liệu cẩm nang cây khỏe mạnh, KHÔNG TÌM THUỐC BVTV HÓA HỌC HAY TRIỆU CHỨNG BỆNH.
+- Tập trung vào quy trình nông học: thời vụ gieo trồng, chuẩn bị làm đất, mật độ khoảng cách, kỹ thuật tưới tiêu, bón phân hữu cơ/NPK theo từng giai đoạn, cắt tỉa cành tạo tán và phòng trừ tổng hợp IPM.
+
+YÊU CẦU TRÍCH XUẤT:
+1. [URL]: Hãy lấy chính xác đường dẫn URL đầy đủ (bắt đầu bằng https:// hoặc http://) của trang web hiện tại bạn đang đọc trên trình duyệt.
+2. Trả lời 100% bằng TIẾNG VIỆT, ngắn gọn, khoa học và trung thực (nếu trang web không có thông tin mục nào thì ghi "Không đề cập").
+3. Xuất kết quả ĐÚNG THEO MẪU ĐỊNH DẠNG dưới đây:
+
+[URL]: https://... (Điền chính xác đường dẫn URL đầy đủ của trang web hiện tại)
+[TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
+[CƠ QUAN]: <Tên Trường Đại học, Viện nghiên cứu, Cơ quan Khuyến nông hoặc Tác giả>
+[NGÀY CẬP NHẬT]: <Năm hoặc Ngày xuất bản/cập nhật trên trang, nếu không có thì ghi "Không ghi ngày">
+[PHẠM VI NGUỒN]: <Chọn 1 trong 2: "Việt Nam" HOẶC "Quốc tế">
+[MỨC ĐỘ KHỚP]: Khớp trực tiếp
+[LOẠI NỘI DUNG]: Kỹ thuật canh tác & chăm sóc
+[TRÍCH DẪN CỐT LÕI]: <2–4 câu tiếng Việt tóm tắt quy trình nông học: làm đất, thời vụ, tưới tiêu, bón phân, tỉa cành giúp cây phát triển khỏe mạnh đạt năng suất cao>`;
+    }
+
+    const otherDiseases = classes.filter(
+      c => c.plantName === item.plantName && c.modelClass !== item.modelClass && !c.isHealthy
     );
-    const otherClassesBullet = otherPlantClasses.length > 0
-      ? otherPlantClasses.map(c => `- ${c.diseaseName} (Mã chuẩn: ${c.modelClass})`).join('\n')
+    const healthyClass = classes.find(
+      c => c.plantName === item.plantName && c.isHealthy
+    );
+    const otherClassesBullet = otherDiseases.length > 0
+      ? otherDiseases.map(c => `- ${c.diseaseName} (Mã chuẩn: ${c.modelClass})`).join('\n')
       : 'Không có';
 
     return `Hãy đọc nội dung trang web hiện tại và trích xuất thông tin khuyến nông phục vụ nghiên cứu thẩm định bệnh cây trồng cho đồ án:
@@ -430,9 +465,9 @@ Danh sách các bệnh khác trên cùng cây ${item.plantName} trong đồ án 
 ${otherClassesBullet}
 
 YÊU CẦU TRÍCH XUẤT:
-1. [URL]: Hãy lấy chính xác đường dẫn URL đầy đủ (bắt đầu bằng https:// hoặc http://) của trang web hiện tại bạn đang đọc trên trình duyệt. Đây là trường BẮT BUỘC để hệ thống tự động điền form, Teammate không cần phải copy tay URL riêng nữa.
+1. [URL]: Hãy lấy chính xác đường dẫn URL đầy đủ (bắt đầu bằng https:// hoặc http://) của trang web hiện tại bạn đang đọc trên trình duyệt. Đây là trường BẮT BUỘC để hệ thống tự động điền form.
 2. Trả lời 100% bằng TIẾNG VIỆT, ngắn gọn, khoa học và trung thực (nếu trang web không có thông tin mục nào thì ghi "Không đề cập").
-3. Xuất kết quả ĐÚNG THEO MẪU ĐỊNH DẠNG dưới đây để tôi sao chép nhanh vào biểu mẫu đồ án:
+3. Xuất kết quả ĐÚNG THEO MẪU ĐỊNH DẠNG dưới đây:
 
 [URL]: https://... (Điền chính xác đường dẫn URL đầy đủ của trang web hiện tại)
 [TIÊU ĐỀ]: <Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>
@@ -441,14 +476,12 @@ YÊU CẦU TRÍCH XUẤT:
 [PHẠM VI NGUỒN]: <Chọn 1 trong 2: "Việt Nam" (nếu là bài viết tiếng Việt / cơ quan / khuyến nông / thuốc BVTV tại Việt Nam) HOẶC "Quốc tế" (nếu là tài liệu tiếng Anh / trường ĐH quốc tế như Cornell, Penn State, UC Davis, FAO...)>
 [MỨC ĐỘ KHỚP]: <Chọn 1 trong 3: "Khớp trực tiếp" HOẶC "Gần nghĩa cần kiểm tra" HOẶC "Tham khảo chung">
 [LOẠI NỘI DUNG]: <Chọn 1 trong 4: "Triệu chứng & Biện pháp" HOẶC "Chỉ triệu chứng bệnh" HOẶC "Chỉ biện pháp điều trị" HOẶC "Chỉ tham khảo / Không có chi tiết">
-[CÓ KỸ THUẬT CANH TÁC]: <Chọn "Có" (nếu bài viết có hướng dẫn thêm về kỹ thuật canh tác, bón phân, tưới nước, tỉa cành, luân canh...) HOẶC "Không">
-[TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo / kỹ thuật chăm sóc của bệnh chính>
+[CÓ KỸ THUẬT CANH TÁC]: <Chọn "Có" (nếu bài viết có hướng dẫn thêm về kỹ thuật canh tác, bón phân, tưới nước, tỉa cành, làm đất...) HOẶC "Không">
+[TRÍCH DẪN CỐT LÕI]: <1–3 câu tiếng Việt tóm tắt triệu chứng nhận diện đặc trưng và biện pháp điều trị / hoạt chất khuyến cáo của bệnh chính>
 [CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI]: <Nếu bài viết CŨNG CÓ ĐỀ CẬP đến các bệnh khác trên cùng cây ${item.plantName} (trong danh sách trên), hãy liệt kê rõ theo từng dòng định dạng:
-- Mã_Chuẩn | Mức_Độ: <"Đủ triệu chứng và thuốc" HOẶC "Chỉ triệu chứng" HOẶC "Chỉ thuốc BVTV" HOẶC "Chỉ tham khảo/nhắc tên"> | Canh_Tác: <"Có" HOẶC "Không"> | Tóm_Tắt: <1 câu ngắn tóm tắt triệu chứng/thuốc riêng của bệnh này nếu có>
-Ví dụ:
-- Tomato___Early_blight | Mức_Độ: Đủ triệu chứng và thuốc | Canh_Tác: Có | Tóm_Tắt: Đốm nâu có vòng đồng tâm, trị bằng hoạt chất Difenoconazole hoặc Mancozeb.
-- Tomato___Bacterial_spot | Mức_Độ: Chỉ triệu chứng | Canh_Tác: Không | Tóm_Tắt: Đốm nhỏ dạng giọt dầu viền vàng trên lá.
-- Tomato___Tomato_Yellow_Leaf_Curl_Virus | Mức_Độ: Chỉ thuốc BVTV | Canh_Tác: Không | Tóm_Tắt: Phun trừ bọ phấn trắng bằng hoạt chất Pymetrozine hoặc Dinotefuran.
+- Mã_Chuẩn | Mức_Độ: <"Đủ triệu chứng và thuốc" HOẶC "Chỉ triệu chứng" HOẶC "Chỉ thuốc BVTV" HOẶC "Chỉ tham khảo/nhắc tên"> | Tóm_Tắt: <1 câu ngắn tóm tắt triệu chứng/thuốc riêng của bệnh này nếu có>
+${healthyClass ? `Nếu bài viết có kèm hướng dẫn kỹ thuật canh tác, tưới tiêu, bón phân chung cho cây ${item.plantName}, hãy thêm dòng:
+- ${healthyClass.modelClass} | Canh_Tác: Có | Tóm_Tắt: <1 câu ngắn tóm tắt kỹ thuật canh tác chung>` : ''}
 Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
   };
 
@@ -533,32 +566,34 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
     }
 
     // Extract Content Type
-    const contentTypeMatch = aiRawText.match(/\[LOẠI NỘI DUNG\]:\s*(.*)/i) || aiRawText.match(/Loại nội dung:\s*(.*)/i);
-    if (contentTypeMatch && contentTypeMatch[1].trim()) {
-      const c = contentTypeMatch[1].trim();
-      if (c.includes('Triệu chứng & Biện pháp')) setContentType('Triệu chứng & Biện pháp');
-      else if (c.includes('Chỉ triệu chứng')) setContentType('Chỉ triệu chứng bệnh');
-      else if (c.includes('điều trị') || c.includes('thuốc')) setContentType('Chỉ biện pháp điều trị / thuốc');
-      else if (c.includes('canh tác') || c.includes('phòng ngừa')) setContentType('Kỹ thuật canh tác & phòng ngừa');
-      parsedCount++;
+    if (selectedClass?.isHealthy) {
+      setContentType('Kỹ thuật canh tác & phòng ngừa');
+      setHasCultivation(true);
+    } else {
+      const contentTypeMatch = aiRawText.match(/\[LOẠI NỘI DUNG\]:\s*(.*)/i) || aiRawText.match(/Loại nội dung:\s*(.*)/i);
+      if (contentTypeMatch && contentTypeMatch[1].trim()) {
+        const c = contentTypeMatch[1].trim();
+        if (c.includes('Triệu chứng & Biện pháp')) setContentType('Triệu chứng & Biện pháp');
+        else if (c.includes('Chỉ triệu chứng')) setContentType('Chỉ triệu chứng bệnh');
+        else if (c.includes('điều trị') || c.includes('thuốc')) setContentType('Chỉ biện pháp điều trị / thuốc');
+        else if (c.includes('tham khảo') || c.includes('nhắc tên') || c.includes('không có')) setContentType('Chỉ tham khảo / Không có chi tiết');
+        parsedCount++;
+      }
     }
 
-    // Extract Has Cultivation
+    // Extract Cultivation Detection
     const cultMatch = aiRawText.match(/\[CÓ KỸ THUẬT CANH TÁC\]:\s*(.*)/i) || 
                       aiRawText.match(/Có kỹ thuật canh tác:\s*(.*)/i);
+    let hasCultInArticle = false;
     if (cultMatch && cultMatch[1].trim()) {
       const v = cultMatch[1].trim().toLowerCase();
       if (v.includes('có') || v.includes('yes') || v.includes('true')) {
-        setHasCultivation(true);
-        parsedCount++;
-      } else {
-        setHasCultivation(false);
+        hasCultInArticle = true;
       }
     } else {
-      // Auto-detect cultivation keywords in raw text
       const lower = aiRawText.toLowerCase();
-      if (lower.includes('bón phân') || lower.includes('tưới nước') || lower.includes('tỉa cành') || lower.includes('luân canh') || lower.includes('canh tác')) {
-        setHasCultivation(true);
+      if (lower.includes('bón phân') || lower.includes('tưới nước') || lower.includes('tỉa cành') || lower.includes('luân canh') || lower.includes('làm đất')) {
+        hasCultInArticle = true;
       }
     }
 
@@ -573,76 +608,106 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
       setEvidenceText(aiRawText.trim());
     }
 
-    // Extract Multi-Class Co-Mentions with depth evaluation & custom summaries
-    const multiClassMatch = aiRawText.match(/\[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI\]:\s*([\s\S]*?)(?:$|\n\[)/i) ||
-                            aiRawText.match(/Các bệnh cùng cây(?:\s*có trong bài)?:\s*([\s\S]*?)(?:$|\n[A-Z])/i);
-
+    // Extract Multi-Class Co-Mentions (Only when in Disease mode)
     const autoSelectedCodes: string[] = [];
     const autoSelectedNames: string[] = [];
     const newConfigs: Record<string, { contentType: string; matchLevel: string; customEvidence?: string; hasCultivation?: boolean }> = {};
 
-    if (multiClassMatch && multiClassMatch[1].trim()) {
-      const blockText = multiClassMatch[1].trim();
-      if (!blockText.toLowerCase().includes('không') && !blockText.toLowerCase().includes('none')) {
-        const lines = blockText.split(/\r?\n/);
-        samePlantClasses.forEach(c => {
-          // Look for this class in any line or within the block
-          const matchingLine = lines.find(l => l.includes(c.modelClass) || l.toLowerCase().includes(c.diseaseName.toLowerCase()));
-          if (matchingLine) {
-            const lineLower = matchingLine.toLowerCase();
-            let cType = 'Chỉ triệu chứng bệnh';
-            let mLevel = 'Khớp trực tiếp';
-            let customNote = '';
-            let hasCult = lineLower.includes('canh_tác: có') || lineLower.includes('canh tác: có') || lineLower.includes('có canh tác');
-
-            if (lineLower.includes('đủ triệu chứng') || lineLower.includes('triệu chứng và thuốc') || lineLower.includes('triệu chứng & thuốc') || lineLower.includes('triệu chứng & biện pháp') || lineLower.includes('đủ thuốc')) {
-              cType = 'Triệu chứng & Biện pháp';
-              mLevel = 'Khớp trực tiếp';
-            } else if (lineLower.includes('chỉ thuốc') || lineLower.includes('chỉ biện pháp') || lineLower.includes('chỉ điều trị') || lineLower.includes('thuốc bvtv')) {
-              cType = 'Chỉ biện pháp điều trị / thuốc';
-              mLevel = 'Khớp trực tiếp';
-            } else if (lineLower.includes('chỉ triệu chứng') || lineLower.includes('triệu chứng')) {
-              cType = 'Chỉ triệu chứng bệnh';
-              mLevel = 'Khớp trực tiếp';
-            } else if (lineLower.includes('chỉ tham khảo') || lineLower.includes('nhắc tên') || lineLower.includes('tham khảo') || lineLower.includes('không có')) {
-              cType = 'Chỉ tham khảo / Không có chi tiết';
-              mLevel = 'Tham khảo chung';
-            }
-
-            // Extract custom summary
-            const noteMatch = matchingLine.match(/(?:Tóm_Tắt|Tóm tắt|Tóm lược):\s*(.*)/i) || 
-                              matchingLine.match(/\|\s*([^|]+)$/);
-            if (noteMatch && noteMatch[1].trim() && !noteMatch[1].toLowerCase().includes('mức_độ') && !noteMatch[1].toLowerCase().includes('canh_tác')) {
-              customNote = noteMatch[1].trim();
-            }
-
-            if (!autoSelectedCodes.includes(c.modelClass)) {
-              autoSelectedCodes.push(c.modelClass);
-              autoSelectedNames.push(c.diseaseName);
-              newConfigs[c.modelClass] = {
-                contentType: cType,
-                matchLevel: mLevel,
-                customEvidence: customNote || undefined,
-                hasCultivation: hasCult
-              };
-            }
-          }
-        });
+    if (!selectedClass?.isHealthy) {
+      // 1. Auto-tag Healthy class if article mentions cultivation techniques
+      const healthyClassOfPlant = samePlantClasses.find(c => c.isHealthy);
+      if (hasCultInArticle && healthyClassOfPlant) {
+        if (!autoSelectedCodes.includes(healthyClassOfPlant.modelClass)) {
+          autoSelectedCodes.push(healthyClassOfPlant.modelClass);
+          autoSelectedNames.push(`${healthyClassOfPlant.plantName} (Canh tác)`);
+          newConfigs[healthyClassOfPlant.modelClass] = {
+            contentType: 'Kỹ thuật canh tác & phòng ngừa',
+            matchLevel: 'Khớp trực tiếp',
+            hasCultivation: true
+          };
+        }
       }
+
+      // 2. Parse co-mentioned diseases block
+      const multiClassMatch = aiRawText.match(/\[CÁC BỆNH CÙNG CÂY CÓ TRONG BÀI\]:\s*([\s\S]*?)(?:$|\n\[)/i) ||
+                              aiRawText.match(/Các bệnh cùng cây(?:\s*có trong bài)?:\s*([\s\S]*?)(?:$|\n[A-Z])/i);
+
+      if (multiClassMatch && multiClassMatch[1].trim()) {
+        const blockText = multiClassMatch[1].trim();
+        const lowerBlock = blockText.toLowerCase();
+        const isExplicitlyNone = lowerBlock === 'không' || lowerBlock === 'không có' || lowerBlock === 'none' || lowerBlock === 'không đề cập' || lowerBlock === 'n/a';
+        
+        if (!isExplicitlyNone) {
+          const lines = blockText.split(/\r?\n/).filter(l => l.trim().length > 0);
+          samePlantClasses.forEach(c => {
+            const matchingLine = lines.find(l => l.includes(c.modelClass) || l.toLowerCase().includes(c.diseaseName.toLowerCase()));
+            if (matchingLine) {
+              const lineLower = matchingLine.toLowerCase();
+              let customNote = '';
+              const noteMatch = matchingLine.match(/(?:Tóm_Tắt|Tóm tắt|Tóm lược):\s*(.*)/i) || 
+                                matchingLine.match(/\|\s*([^|]+)$/);
+              if (noteMatch && noteMatch[1].trim() && !noteMatch[1].toLowerCase().includes('mức_độ') && !noteMatch[1].toLowerCase().includes('canh_tác')) {
+                customNote = noteMatch[1].trim();
+              }
+
+              if (c.isHealthy) {
+                if (!autoSelectedCodes.includes(c.modelClass)) {
+                  autoSelectedCodes.push(c.modelClass);
+                  autoSelectedNames.push(`${c.plantName} (Canh tác)`);
+                }
+                newConfigs[c.modelClass] = {
+                  contentType: 'Kỹ thuật canh tác & phòng ngừa',
+                  matchLevel: 'Khớp trực tiếp',
+                  customEvidence: customNote || undefined,
+                  hasCultivation: true
+                };
+              } else {
+                let cType = 'Chỉ triệu chứng bệnh';
+                let mLevel = 'Khớp trực tiếp';
+
+                if (lineLower.includes('đủ triệu chứng') || lineLower.includes('triệu chứng và thuốc') || lineLower.includes('triệu chứng & thuốc') || lineLower.includes('triệu chứng & biện pháp') || lineLower.includes('đủ thuốc')) {
+                  cType = 'Triệu chứng & Biện pháp';
+                  mLevel = 'Khớp trực tiếp';
+                } else if (lineLower.includes('chỉ thuốc') || lineLower.includes('chỉ biện pháp') || lineLower.includes('chỉ điều trị') || lineLower.includes('thuốc bvtv')) {
+                  cType = 'Chỉ biện pháp điều trị / thuốc';
+                  mLevel = 'Khớp trực tiếp';
+                } else if (lineLower.includes('chỉ triệu chứng') || lineLower.includes('triệu chứng')) {
+                  cType = 'Chỉ triệu chứng bệnh';
+                  mLevel = 'Khớp trực tiếp';
+                } else if (lineLower.includes('chỉ tham khảo') || lineLower.includes('nhắc tên') || lineLower.includes('tham khảo') || lineLower.includes('không có')) {
+                  cType = 'Chỉ tham khảo / Không có chi tiết';
+                  mLevel = 'Tham khảo chung';
+                }
+
+                if (!autoSelectedCodes.includes(c.modelClass)) {
+                  autoSelectedCodes.push(c.modelClass);
+                  autoSelectedNames.push(c.diseaseName);
+                }
+                newConfigs[c.modelClass] = {
+                  contentType: cType,
+                  matchLevel: mLevel,
+                  customEvidence: customNote || undefined,
+                  hasCultivation: false
+                };
+              }
+            }
+          });
+        }
+      }
+
+      // 3. Fallback scan raw text for direct mentions
+      samePlantClasses.forEach(c => {
+        if (aiRawText.includes(c.modelClass) && !autoSelectedCodes.includes(c.modelClass)) {
+          autoSelectedCodes.push(c.modelClass);
+          autoSelectedNames.push(c.isHealthy ? `${c.plantName} (Canh tác)` : c.diseaseName);
+          newConfigs[c.modelClass] = {
+            contentType: c.isHealthy ? 'Kỹ thuật canh tác & phòng ngừa' : 'Chỉ tham khảo / Không có chi tiết',
+            matchLevel: 'Tham khảo chung',
+            hasCultivation: c.isHealthy
+          };
+        }
+      });
     }
-
-    // Also scan whole raw text as fallback for any mentioned model classes
-    samePlantClasses.forEach(c => {
-      if (aiRawText.includes(c.modelClass) && !autoSelectedCodes.includes(c.modelClass)) {
-        autoSelectedCodes.push(c.modelClass);
-        autoSelectedNames.push(c.diseaseName);
-        newConfigs[c.modelClass] = {
-          contentType: 'Chỉ triệu chứng bệnh',
-          matchLevel: 'Tham khảo chung',
-          hasCultivation: false
-        };
-      }
-    });
 
     if (autoSelectedCodes.length > 0) {
       setAdditionalClassCodes(autoSelectedCodes);
@@ -651,7 +716,7 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
     }
 
     const extraMsg = autoSelectedCodes.length > 0
-      ? ` và tự động tick chọn + phân loại ${autoSelectedCodes.length} bệnh cùng cây (${autoSelectedNames.join(', ')})!`
+      ? ` và tự động tick chọn + phân loại ${autoSelectedCodes.length} mục cùng cây (${autoSelectedNames.join(', ')})!`
       : '! Bạn chỉ cần kiểm tra và bấm Lưu.';
 
     setNotification({
@@ -702,22 +767,27 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
           const isMain = cls.modelClass === selectedClass.modelClass;
           const extraConfig = additionalClassConfigs[cls.modelClass];
 
-          const clsContentType = isMain 
-            ? contentType 
-            : (extraConfig?.contentType || 'Chỉ triệu chứng bệnh');
+          let clsContentType = isMain 
+            ? (selectedClass.isHealthy ? 'Kỹ thuật canh tác & phòng ngừa' : contentType)
+            : (extraConfig?.contentType || (cls.isHealthy ? 'Kỹ thuật canh tác & phòng ngừa' : 'Chỉ triệu chứng bệnh'));
 
-          const clsMatchLevel = isMain 
+          let clsMatchLevel = isMain 
             ? matchLevel 
-            : (extraConfig?.matchLevel || 'Tham khảo chung');
+            : (extraConfig?.matchLevel || (cls.isHealthy ? 'Khớp trực tiếp' : 'Tham khảo chung'));
 
-          const clsHasCultivation = isMain
-            ? hasCultivation
-            : Boolean(extraConfig?.hasCultivation ?? hasCultivation);
+          let clsHasCultivation = cls.isHealthy ? true : Boolean(extraConfig?.hasCultivation);
+
+          if (cls.isHealthy) {
+            clsContentType = 'Kỹ thuật canh tác & phòng ngừa';
+            clsHasCultivation = true;
+          }
 
           const clsEvidenceText = isMain
             ? evidenceText.trim()
             : (extraConfig?.customEvidence?.trim()
-                ? `[Tóm tắt riêng cho ${cls.diseaseName}]: ${extraConfig.customEvidence.trim()}\n[Tài liệu tham khảo chung]: ${evidenceText.trim()}`
+                ? (cls.isHealthy
+                    ? `[Kỹ thuật canh tác & chăm sóc]: ${extraConfig.customEvidence.trim()}\n[Tài liệu tham khảo]: ${evidenceText.trim()}`
+                    : `[Tóm tắt riêng cho ${cls.diseaseName}]: ${extraConfig.customEvidence.trim()}\n[Tài liệu tham khảo]: ${evidenceText.trim()}`)
                 : evidenceText.trim());
 
           const clsReviewerNotes = isMain
@@ -1876,6 +1946,29 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                   <FileText size={18} /> Chi Tiết Nguồn Dữ Liệu Thẩm Định
                 </h3>
 
+                {selectedClass.isHealthy && (
+                  <div style={{
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    background: '#ecfdf5',
+                    border: '1.5px solid #10b981',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}>
+                    <Sparkles size={20} color="#059669" />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '13.5px', color: '#065f46' }}>
+                        🌿 Chế độ Thu thập Cẩm nang Canh tác &amp; Chăm sóc Cây khỏe ({selectedClass.plantName})
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#047857', marginTop: '2px' }}>
+                        Chuyên mục quy trình nông học: chuẩn bị đất, thời vụ, tưới tiêu, bón phân NPK/hữu cơ, bấm ngọn tỉa cành tạo tán. Không yêu cầu triệu chứng bệnh hay thuốc BVTV hóa học.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                   {/* Source URL */}
                   <div style={{ gridColumn: '1 / -1' }}>
@@ -2046,7 +2139,7 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                   {/* Match Level */}
                   <div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                      <Target size={14} color="#16a34a" /> Mức độ khớp với lớp bệnh này
+                      <Target size={14} color="#16a34a" /> Mức độ khớp với lớp này
                     </label>
                     <select
                       value={matchLevel}
@@ -2060,8 +2153,8 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                         background: '#fff'
                       }}
                     >
-                      <option value="Khớp trực tiếp">Khớp trực tiếp (Đúng cây - Đúng bệnh chuẩn)</option>
-                      <option value="Gần nghĩa cần kiểm tra">Gần nghĩa / Cần đối chiếu thêm triệu chứng</option>
+                      <option value="Khớp trực tiếp">Khớp trực tiếp (Đúng cây - Đúng chuyên mục)</option>
+                      <option value="Gần nghĩa cần kiểm tra">Gần nghĩa / Cần đối chiếu thêm thông tin</option>
                       <option value="Tham khảo chung">Chỉ tham khảo chung (Tổng quan canh tác)</option>
                     </select>
                   </div>
@@ -2083,8 +2176,8 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                         background: '#fff'
                       }}
                     >
-                      <option value="Việt Nam">🇻🇳 Việt Nam (Nông nghiệp &amp; Thuốc trong nước)</option>
-                      <option value="Quốc tế">🌐 Quốc tế (Học thuật &amp; Chuẩn bệnh học quốc tế)</option>
+                      <option value="Việt Nam">🇻🇳 Việt Nam (Nông nghiệp &amp; Khuyến nông trong nước)</option>
+                      <option value="Quốc tế">🌐 Quốc tế (Học thuật &amp; Chuẩn quốc tế)</option>
                     </select>
                   </div>
 
@@ -2093,82 +2186,61 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
                       Loại nội dung tài liệu cung cấp
                     </label>
-                    <select
-                      value={contentType}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setContentType(val);
-                        if (val === 'Chỉ tham khảo / Không có chi tiết') {
-                          setMatchLevel('Tham khảo chung');
-                        }
-                      }}
-                      style={{
-                        width: '100%',
+                    {selectedClass.isHealthy ? (
+                      <div style={{
                         padding: '10px 14px',
                         borderRadius: '8px',
-                        border: '1px solid #cbd5e1',
-                        fontSize: '14px',
-                        background: '#fff'
-                      }}
-                    >
-                      <option value="Triệu chứng & Biện pháp">Cả triệu chứng nhận diện &amp; biện pháp phòng trị (Đầy đủ nhất)</option>
-                      <option value="Chỉ triệu chứng bệnh">Chỉ triệu chứng / hình ảnh nhận biết vết bệnh</option>
-                      <option value="Chỉ biện pháp điều trị / thuốc">Chỉ biện pháp điều trị / hoạt chất thuốc BVTV</option>
-                      <option value="Chỉ tham khảo / Không có chi tiết">Không có thông tin triệu chứng / thuốc (Chỉ nhắc tên / Tham khảo chung)</option>
-                    </select>
+                        background: '#f0fdf4',
+                        border: '1.5px solid #86efac',
+                        fontSize: '13.5px',
+                        fontWeight: 600,
+                        color: '#166534',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <span>🌾 Kỹ thuật canh tác &amp; Chăm sóc cây</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={contentType}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setContentType(val);
+                          if (val === 'Chỉ tham khảo / Không có chi tiết') {
+                            setMatchLevel('Tham khảo chung');
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '14px',
+                          background: '#fff'
+                        }}
+                      >
+                        <option value="Triệu chứng & Biện pháp">Cả triệu chứng nhận diện &amp; biện pháp phòng trị (Đầy đủ nhất)</option>
+                        <option value="Chỉ triệu chứng bệnh">Chỉ triệu chứng / hình ảnh nhận biết vết bệnh</option>
+                        <option value="Chỉ biện pháp điều trị / thuốc">Chỉ biện pháp điều trị / hoạt chất thuốc BVTV</option>
+                        <option value="Chỉ tham khảo / Không có chi tiết">Không có thông tin triệu chứng / thuốc (Chỉ nhắc tên / Tham khảo)</option>
+                      </select>
+                    )}
                   </div>
-                </div>
-
-                {/* Separate Full-Width Cultivation Technique Bonus Row */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    cursor: 'pointer',
-                    padding: '10px 14px',
-                    borderRadius: '8px',
-                    background: hasCultivation ? '#ecfdf5' : '#f8fafc',
-                    border: hasCultivation ? '1.5px solid #10b981' : '1px solid #cbd5e1',
-                    transition: 'all 0.15s'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                      <input
-                        type="checkbox"
-                        checked={hasCultivation}
-                        onChange={(e) => setHasCultivation(e.target.checked)}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                      />
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: hasCultivation ? '#065f46' : '#334155' }}>
-                        🌾 Bài viết có kèm Kỹ thuật canh tác &amp; Chăm sóc
-                      </span>
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>
-                        (Bón phân, tỉa cành, tưới tiêu, luân canh — áp dụng cho mọi loài cây)
-                      </span>
-                    </div>
-                    <span style={{
-                      fontSize: '11px',
-                      color: '#059669',
-                      background: '#d1fae5',
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      fontWeight: 600,
-                      whiteSpace: 'nowrap'
-                    }}>
-                      +Bonus điểm cộng
-                    </span>
-                  </label>
                 </div>
 
                 {/* Evidence snippet */}
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                    Trích dẫn chứng cứ / Điểm cốt lõi (Tóm tắt ngắn 1-3 câu tiếng Việt)
+                    {selectedClass.isHealthy
+                      ? 'Quy trình kỹ thuật canh tác & Chăm sóc cây cốt lõi (1–3 câu tóm tắt) *'
+                      : 'Trích dẫn chứng cứ / Điểm cốt lõi (Tóm tắt ngắn 1–3 câu tiếng Việt) *'}
                   </label>
                   <textarea
                     rows={3}
-                    placeholder="Ví dụ: Vết bệnh sũng nước màu nâu xám trên lá, có lớp mốc trắng mặt dưới lá trong điều kiện ẩm ướt. Phòng trị bằng thuốc gốc đồng, Mancozeb..."
+                    placeholder={selectedClass.isHealthy
+                      ? "Ví dụ: Lên luống cao 25-30cm thoát nước tốt, mật độ trồng thích hợp. Bón lót phân chuồng hoai mục kết hợp super lân. Tưới ẩm định kỳ 70-80%, bấm ngọn tỉa cành tạo tán..."
+                      : "Ví dụ: Vết bệnh sũng nước màu nâu xám trên lá, có lớp mốc trắng mặt dưới lá trong điều kiện ẩm ướt. Phòng trị bằng thuốc gốc đồng, Mancozeb..."}
                     value={evidenceText}
                     onChange={(e) => setEvidenceText(e.target.value)}
                     style={{
@@ -2182,330 +2254,404 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                   />
                 </div>
 
-                {/* Multi-Class Tagging Box (Same Plant) */}
-                {selectedClass && samePlantClasses.length > 0 && (
-                  <div style={{
-                    background: '#f0fdf4',
-                    border: '1px solid #bbf7d0',
-                    borderRadius: '10px',
-                    padding: '16px',
-                    marginBottom: '20px'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Layers size={17} color="#166534" />
-                          Gán thêm URL này cho các bệnh khác trên cùng cây {selectedClass.plantName}
-                          {additionalClassCodes.length > 0 && (
-                            <span style={{ background: '#22c55e', color: '#fff', fontSize: '11px', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
-                              +{additionalClassCodes.length} bệnh được chọn
-                            </span>
-                          )}
-                        </div>
-                        <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0', lineHeight: 1.4 }}>
-                          Nếu bài viết là tài liệu tổng hợp đề cập đến nhiều bệnh trên cây <strong>{selectedClass.plantName}</strong>, hãy tích chọn thêm các bệnh dưới đây để hệ thống tự động lưu 1 lần cho tất cả (không phải nhập lại URL)!
-                        </p>
-                      </div>
+                {/* Multi-Class Tagging Box (Same Plant) - ONLY FOR DISEASE MODE */}
+                {selectedClass && !selectedClass.isHealthy && samePlantClasses.length > 0 && (() => {
+                  const healthyClassItem = samePlantClasses.find(c => c.isHealthy);
+                  const otherDiseaseClasses = samePlantClasses.filter(c => !c.isHealthy);
+                  const isHealthyChecked = Boolean(healthyClassItem && additionalClassCodes.includes(healthyClassItem.modelClass));
+                  const diseaseCodes = otherDiseaseClasses.map(c => c.modelClass);
+                  const isAllDiseasesSelected = diseaseCodes.length > 0 && diseaseCodes.every(code => additionalClassCodes.includes(code));
 
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (additionalClassCodes.length === samePlantClasses.length) {
-                              setAdditionalClassCodes([]);
-                              setAdditionalClassConfigs({});
-                            } else {
-                              setAdditionalClassCodes(samePlantClasses.map(c => c.modelClass));
-                              const allConfigs: Record<string, any> = {};
-                              samePlantClasses.forEach(c => {
-                                allConfigs[c.modelClass] = {
-                                  contentType: 'Chỉ triệu chứng bệnh',
-                                  matchLevel: 'Tham khảo chung'
-                                };
-                              });
-                              setAdditionalClassConfigs(allConfigs);
-                            }
-                          }}
-                          style={{
-                            background: '#ffffff',
-                            border: '1px solid #86efac',
-                            color: '#166534',
-                            fontSize: '11.5px',
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            fontWeight: 600
-                          }}
-                        >
-                          {additionalClassCodes.length === samePlantClasses.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả cùng cây'}
-                        </button>
-                      </div>
-                    </div>
-
+                  return (
                     <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                      gap: '10px',
-                      marginTop: '12px'
+                      background: '#f0fdf4',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: '10px',
+                      padding: '16px',
+                      marginBottom: '20px'
                     }}>
-                      {samePlantClasses.map(cls => {
-                        const isChecked = additionalClassCodes.includes(cls.modelClass);
-                        const config = additionalClassConfigs[cls.modelClass] || {
-                          contentType: 'Chỉ triệu chứng bệnh',
-                          matchLevel: 'Khớp trực tiếp'
-                        };
-
-                        return (
-                          <div
-                            key={cls.modelClass}
-                            style={{
-                              padding: '10px 12px',
-                              borderRadius: '8px',
-                              background: isChecked ? '#f0fdf4' : '#ffffff',
-                              border: isChecked ? '1.5px solid #22c55e' : '1px solid #e2e8f0',
-                              transition: 'all 0.15s',
-                              fontSize: '12.5px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '8px'
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <input
-                                type="checkbox"
-                                id={`sub-check-${cls.modelClass}`}
-                                checked={isChecked}
-                                onChange={() => {
-                                  if (isChecked) {
-                                    setAdditionalClassCodes(prev => prev.filter(c => c !== cls.modelClass));
-                                    setAdditionalClassConfigs(prev => {
-                                      const next = { ...prev };
-                                      delete next[cls.modelClass];
-                                      return next;
-                                    });
-                                  } else {
-                                    setAdditionalClassCodes(prev => [...prev, cls.modelClass]);
-                                    setAdditionalClassConfigs(prev => ({
-                                      ...prev,
-                                      [cls.modelClass]: {
-                                        contentType: 'Triệu chứng & Biện pháp',
-                                        matchLevel: 'Khớp trực tiếp'
-                                      }
-                                    }));
-                                  }
-                                }}
-                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                              />
-                              <label
-                                htmlFor={`sub-check-${cls.modelClass}`}
-                                style={{ flex: 1, minWidth: 0, cursor: 'pointer', margin: 0 }}
-                              >
-                                <div style={{ fontWeight: 600, color: isChecked ? '#14532d' : '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {cls.diseaseName}
-                                </div>
-                                <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
-                                  <span>{cls.modelClass}</span>
-                                  <span style={{ color: cls.sourcesCount >= 2 ? '#16a34a' : '#d97706' }}>
-                                    ({cls.sourcesCount}/2 nguồn)
-                                  </span>
-                                </div>
-                              </label>
-                            </div>
-
-                            {/* Sub-options for Knowledge Depth & Coverage */}
-                            {isChecked && (
-                              <div style={{
-                                paddingTop: '8px',
-                                borderTop: '1px dashed #bbf7d0',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '6px'
-                              }}>
-                                <div style={{ fontSize: '11px', fontWeight: 600, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                  <span>Mức độ tri thức trong bài viết:</span>
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAdditionalClassConfigs(prev => ({
-                                        ...prev,
-                                        [cls.modelClass]: {
-                                          ...prev[cls.modelClass],
-                                          contentType: 'Triệu chứng & Biện pháp',
-                                          matchLevel: 'Khớp trực tiếp'
-                                        }
-                                      }));
-                                    }}
-                                    style={{
-                                      fontSize: '11px',
-                                      padding: '3px 7px',
-                                      borderRadius: '4px',
-                                      border: config.contentType === 'Triệu chứng & Biện pháp' ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
-                                      background: config.contentType === 'Triệu chứng & Biện pháp' ? '#dcfce7' : '#ffffff',
-                                      color: config.contentType === 'Triệu chứng & Biện pháp' ? '#14532d' : '#475569',
-                                      cursor: 'pointer',
-                                      fontWeight: config.contentType === 'Triệu chứng & Biện pháp' ? 700 : 500
-                                    }}
-                                    title="Bài viết có hướng dẫn chi tiết cả triệu chứng lẫn thuốc/biện pháp đặc trị cho bệnh này"
-                                  >
-                                    💊 Đủ Triệu chứng & Thuốc
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAdditionalClassConfigs(prev => ({
-                                        ...prev,
-                                        [cls.modelClass]: {
-                                          ...prev[cls.modelClass],
-                                          contentType: 'Chỉ triệu chứng bệnh',
-                                          matchLevel: 'Khớp trực tiếp'
-                                        }
-                                      }));
-                                    }}
-                                    style={{
-                                      fontSize: '11px',
-                                      padding: '3px 7px',
-                                      borderRadius: '4px',
-                                      border: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
-                                      background: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '#e0f2fe' : '#ffffff',
-                                      color: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '#0369a1' : '#475569',
-                                      cursor: 'pointer',
-                                      fontWeight: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? 700 : 500
-                                    }}
-                                    title="Bài viết mô tả vết bệnh nhận diện nhưng không có phác đồ thuốc BVTV riêng cho bệnh này"
-                                  >
-                                    🔍 Chỉ Triệu chứng
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAdditionalClassConfigs(prev => ({
-                                        ...prev,
-                                        [cls.modelClass]: {
-                                          ...prev[cls.modelClass],
-                                          contentType: 'Chỉ biện pháp điều trị / thuốc',
-                                          matchLevel: 'Khớp trực tiếp'
-                                        }
-                                      }));
-                                    }}
-                                    style={{
-                                      fontSize: '11px',
-                                      padding: '3px 7px',
-                                      borderRadius: '4px',
-                                      border: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? '1.5px solid #8b5cf6' : '1px solid #cbd5e1',
-                                      background: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? '#f3e8ff' : '#ffffff',
-                                      color: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? '#6b21a8' : '#475569',
-                                      cursor: 'pointer',
-                                      fontWeight: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? 700 : 500
-                                    }}
-                                    title="Bài viết có phác đồ thuốc BVTV / biện pháp phòng trị mà không mô tả triệu chứng nhận diện"
-                                  >
-                                    💊 Chỉ Thuốc BVTV
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAdditionalClassConfigs(prev => ({
-                                        ...prev,
-                                        [cls.modelClass]: {
-                                          ...prev[cls.modelClass],
-                                          contentType: 'Chỉ tham khảo / Không có chi tiết',
-                                          matchLevel: 'Tham khảo chung'
-                                        }
-                                      }));
-                                    }}
-                                    style={{
-                                      fontSize: '11px',
-                                      padding: '3px 7px',
-                                      borderRadius: '4px',
-                                      border: config.matchLevel === 'Tham khảo chung' ? '1.5px solid #eab308' : '1px solid #cbd5e1',
-                                      background: config.matchLevel === 'Tham khảo chung' ? '#fef9c3' : '#ffffff',
-                                      color: config.matchLevel === 'Tham khảo chung' ? '#854d0e' : '#475569',
-                                      cursor: 'pointer',
-                                      fontWeight: config.matchLevel === 'Tham khảo chung' ? 700 : 500
-                                    }}
-                                    title="Bài viết chỉ nhắc tên bệnh hoặc nói lướt qua để tham khảo (không có thông tin cụ thể)"
-                                  >
-                                    📖 Tham khảo / Nhắc tên
-                                  </button>
-                                </div>
-
-                                {/* Extra cultivation checkbox for related class */}
-                                <label style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '6px',
-                                  cursor: 'pointer',
-                                  fontSize: '11.5px',
-                                  fontWeight: 600,
-                                  color: (config.hasCultivation ?? hasCultivation) ? '#065f46' : '#475569',
-                                  marginTop: '2px',
-                                  background: (config.hasCultivation ?? hasCultivation) ? '#ecfdf5' : 'transparent',
-                                  padding: '4px 6px',
-                                  borderRadius: '4px'
-                                }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={config.hasCultivation ?? hasCultivation}
-                                    onChange={(e) => {
-                                      setAdditionalClassConfigs(prev => ({
-                                        ...prev,
-                                        [cls.modelClass]: {
-                                          ...prev[cls.modelClass],
-                                          hasCultivation: e.target.checked
-                                        }
-                                      }));
-                                    }}
-                                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
-                                  />
-                                  <span>🌾 Kèm kỹ thuật canh tác cho bệnh này</span>
-                                  {(config.hasCultivation ?? hasCultivation) && (
-                                    <span style={{ fontSize: '10px', color: '#059669', background: '#d1fae5', padding: '0 4px', borderRadius: '3px' }}>
-                                      Bonus
-                                    </span>
-                                  )}
-                                </label>
-
-                                {/* Custom evidence input */}
-                                <div style={{ marginTop: '2px' }}>
-                                  <input
-                                    type="text"
-                                    placeholder={`Tóm tắt riêng cho ${cls.diseaseName} (nếu có, để trống sẽ dùng trích dẫn chung)...`}
-                                    value={config.customEvidence || ''}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setAdditionalClassConfigs(prev => ({
-                                        ...prev,
-                                        [cls.modelClass]: {
-                                          ...prev[cls.modelClass],
-                                          customEvidence: val
-                                        }
-                                      }));
-                                    }}
-                                    style={{
-                                      width: '100%',
-                                      fontSize: '11px',
-                                      padding: '4px 8px',
-                                      borderRadius: '4px',
-                                      border: '1px solid #cbd5e1',
-                                      boxSizing: 'border-box',
-                                      background: '#ffffff'
-                                    }}
-                                  />
-                                </div>
-                              </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Layers size={17} color="#166534" />
+                            Gán thêm URL này cho các bệnh khác trên cùng cây {selectedClass.plantName}
+                            {additionalClassCodes.length > 0 && (
+                              <span style={{ background: '#22c55e', color: '#fff', fontSize: '11px', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                                +{additionalClassCodes.length} mục được chọn
+                              </span>
                             )}
                           </div>
-                        );
-                      })}
+                          <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0', lineHeight: 1.4 }}>
+                            Nếu bài viết là tài liệu tổng hợp đề cập đến nhiều bệnh hoặc có kèm kỹ thuật canh tác chung trên cây <strong>{selectedClass.plantName}</strong>, hãy tích chọn dưới đây để tự động đồng bộ 1 lần!
+                          </p>
+                        </div>
+
+                        {otherDiseaseClasses.length > 0 && (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isAllDiseasesSelected) {
+                                  // Deselect all diseases, keep healthy if selected
+                                  setAdditionalClassCodes(prev => prev.filter(c => !diseaseCodes.includes(c)));
+                                  setAdditionalClassConfigs(prev => {
+                                    const next = { ...prev };
+                                    diseaseCodes.forEach(code => delete next[code]);
+                                    return next;
+                                  });
+                                } else {
+                                  // Select all other diseases
+                                  setAdditionalClassCodes(prev => Array.from(new Set([...prev, ...diseaseCodes])));
+                                  setAdditionalClassConfigs(prev => {
+                                    const next = { ...prev };
+                                    diseaseCodes.forEach(code => {
+                                      if (!next[code]) {
+                                        next[code] = {
+                                          contentType: 'Chỉ triệu chứng bệnh',
+                                          matchLevel: 'Khớp trực tiếp'
+                                        };
+                                      }
+                                    });
+                                    return next;
+                                  });
+                                }
+                              }}
+                              style={{
+                                background: '#ffffff',
+                                border: '1px solid #86efac',
+                                color: '#166534',
+                                fontSize: '11.5px',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                              }}
+                            >
+                              {isAllDiseasesSelected ? 'Bỏ chọn các bệnh cùng cây' : 'Chọn tất cả bệnh cùng cây'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 1. Dedicated Healthy/Cultivation Card for this plant */}
+                      {healthyClassItem && (
+                        <div style={{
+                          padding: '12px 14px',
+                          borderRadius: '8px',
+                          background: isHealthyChecked ? '#dcfce7' : '#ffffff',
+                          border: isHealthyChecked ? '1.5px solid #16a34a' : '1px dashed #86efac',
+                          marginBottom: '12px',
+                          transition: 'all 0.15s'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                            <input
+                              type="checkbox"
+                              id={`sub-healthy-${healthyClassItem.modelClass}`}
+                              checked={isHealthyChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setAdditionalClassCodes(prev => Array.from(new Set([...prev, healthyClassItem.modelClass])));
+                                  setAdditionalClassConfigs(prev => ({
+                                    ...prev,
+                                    [healthyClassItem.modelClass]: {
+                                      contentType: 'Kỹ thuật canh tác & phòng ngừa',
+                                      matchLevel: 'Khớp trực tiếp',
+                                      hasCultivation: true
+                                    }
+                                  }));
+                                } else {
+                                  setAdditionalClassCodes(prev => prev.filter(c => c !== healthyClassItem.modelClass));
+                                  setAdditionalClassConfigs(prev => {
+                                    const next = { ...prev };
+                                    delete next[healthyClassItem.modelClass];
+                                    return next;
+                                  });
+                                }
+                              }}
+                              style={{ width: '18px', height: '18px', marginTop: '2px', cursor: 'pointer' }}
+                            />
+                            <label htmlFor={`sub-healthy-${healthyClassItem.modelClass}`} style={{ flex: 1, cursor: 'pointer', margin: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 700, color: '#14532d', fontSize: '13px' }}>
+                                  🌾 Kèm Kỹ thuật canh tác, tưới tiêu &amp; chăm sóc cây {selectedClass.plantName}
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#166534', background: '#bbf7d0', padding: '1px 8px', borderRadius: '10px', fontWeight: 600 }}>
+                                  Cẩm nang Cây khỏe ({healthyClassItem.modelClass})
+                                </span>
+                                <span style={{ fontSize: '11px', color: healthyClassItem.sourcesCount >= 2 ? '#16a34a' : '#d97706', fontWeight: 600 }}>
+                                  ({healthyClassItem.sourcesCount}/2 nguồn)
+                                </span>
+                              </div>
+                              <p style={{ fontSize: '12px', color: '#15803d', margin: '3px 0 0', lineHeight: 1.4 }}>
+                                Tích chọn nếu bài viết có hướng dẫn thêm về chuẩn bị đất, thời vụ, bón phân, tưới nước hoặc tỉa cành. Hệ thống sẽ tự động tạo 1 tài liệu canh tác cho lớp Cây khỏe mạnh!
+                              </p>
+                            </label>
+                          </div>
+
+                          {isHealthyChecked && (
+                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #86efac' }}>
+                              <input
+                                type="text"
+                                placeholder={`Tóm tắt riêng kỹ thuật canh tác cho cây ${selectedClass.plantName} (nếu có, để trống sẽ dùng trích dẫn chung)...`}
+                                value={additionalClassConfigs[healthyClassItem.modelClass]?.customEvidence || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setAdditionalClassConfigs(prev => ({
+                                    ...prev,
+                                    [healthyClassItem.modelClass]: {
+                                      ...prev[healthyClassItem.modelClass],
+                                      contentType: 'Kỹ thuật canh tác & phòng ngừa',
+                                      matchLevel: 'Khớp trực tiếp',
+                                      customEvidence: val,
+                                      hasCultivation: true
+                                    }
+                                  }));
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 10px',
+                                  fontSize: '12px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #86efac',
+                                  background: '#ffffff'
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 2. Grid of other diseases on the same plant */}
+                      {otherDiseaseClasses.length > 0 && (
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                          gap: '10px'
+                        }}>
+                          {otherDiseaseClasses.map(cls => {
+                            const isChecked = additionalClassCodes.includes(cls.modelClass);
+                            const config = additionalClassConfigs[cls.modelClass] || {
+                              contentType: 'Chỉ triệu chứng bệnh',
+                              matchLevel: 'Khớp trực tiếp'
+                            };
+
+                            return (
+                              <div
+                                key={cls.modelClass}
+                                style={{
+                                  padding: '10px 12px',
+                                  borderRadius: '8px',
+                                  background: isChecked ? '#f0fdf4' : '#ffffff',
+                                  border: isChecked ? '1.5px solid #22c55e' : '1px solid #e2e8f0',
+                                  transition: 'all 0.15s',
+                                  fontSize: '12.5px',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '8px'
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <input
+                                    type="checkbox"
+                                    id={`sub-check-${cls.modelClass}`}
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      if (isChecked) {
+                                        setAdditionalClassCodes(prev => prev.filter(c => c !== cls.modelClass));
+                                        setAdditionalClassConfigs(prev => {
+                                          const next = { ...prev };
+                                          delete next[cls.modelClass];
+                                          return next;
+                                        });
+                                      } else {
+                                        setAdditionalClassCodes(prev => [...prev, cls.modelClass]);
+                                        setAdditionalClassConfigs(prev => ({
+                                          ...prev,
+                                          [cls.modelClass]: {
+                                            contentType: 'Triệu chứng & Biện pháp',
+                                            matchLevel: 'Khớp trực tiếp'
+                                          }
+                                        }));
+                                      }
+                                    }}
+                                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                  />
+                                  <label
+                                    htmlFor={`sub-check-${cls.modelClass}`}
+                                    style={{ flex: 1, minWidth: 0, cursor: 'pointer', margin: 0 }}
+                                  >
+                                    <div style={{ fontWeight: 600, color: isChecked ? '#14532d' : '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {cls.diseaseName}
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
+                                      <span>{cls.modelClass}</span>
+                                      <span style={{ color: cls.sourcesCount >= 2 ? '#16a34a' : '#d97706' }}>
+                                        ({cls.sourcesCount}/2 nguồn)
+                                      </span>
+                                    </div>
+                                  </label>
+                                </div>
+
+                                {/* Sub-options for Knowledge Depth & Coverage */}
+                                {isChecked && (
+                                  <div style={{
+                                    paddingTop: '8px',
+                                    borderTop: '1px dashed #bbf7d0',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '6px'
+                                  }}>
+                                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#166534' }}>
+                                      Mức độ tri thức cho bệnh này:
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAdditionalClassConfigs(prev => ({
+                                            ...prev,
+                                            [cls.modelClass]: {
+                                              ...prev[cls.modelClass],
+                                              contentType: 'Triệu chứng & Biện pháp',
+                                              matchLevel: 'Khớp trực tiếp'
+                                            }
+                                          }));
+                                        }}
+                                        style={{
+                                          fontSize: '11px',
+                                          padding: '3px 7px',
+                                          borderRadius: '4px',
+                                          border: config.contentType === 'Triệu chứng & Biện pháp' ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                                          background: config.contentType === 'Triệu chứng & Biện pháp' ? '#dcfce7' : '#ffffff',
+                                          color: config.contentType === 'Triệu chứng & Biện pháp' ? '#14532d' : '#475569',
+                                          cursor: 'pointer',
+                                          fontWeight: config.contentType === 'Triệu chứng & Biện pháp' ? 700 : 500
+                                        }}
+                                        title="Bài viết có hướng dẫn chi tiết cả triệu chứng lẫn thuốc/biện pháp đặc trị cho bệnh này"
+                                      >
+                                        💊 Đủ Triệu chứng &amp; Thuốc
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAdditionalClassConfigs(prev => ({
+                                            ...prev,
+                                            [cls.modelClass]: {
+                                              ...prev[cls.modelClass],
+                                              contentType: 'Chỉ triệu chứng bệnh',
+                                              matchLevel: 'Khớp trực tiếp'
+                                            }
+                                          }));
+                                        }}
+                                        style={{
+                                          fontSize: '11px',
+                                          padding: '3px 7px',
+                                          borderRadius: '4px',
+                                          border: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                                          background: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '#e0f2fe' : '#ffffff',
+                                          color: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? '#0369a1' : '#475569',
+                                          cursor: 'pointer',
+                                          fontWeight: config.contentType === 'Chỉ triệu chứng bệnh' && config.matchLevel === 'Khớp trực tiếp' ? 700 : 500
+                                        }}
+                                        title="Bài viết mô tả vết bệnh nhận diện nhưng không có phác đồ thuốc BVTV riêng cho bệnh này"
+                                      >
+                                        🔍 Chỉ Triệu chứng
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAdditionalClassConfigs(prev => ({
+                                            ...prev,
+                                            [cls.modelClass]: {
+                                              ...prev[cls.modelClass],
+                                              contentType: 'Chỉ biện pháp điều trị / thuốc',
+                                              matchLevel: 'Khớp trực tiếp'
+                                            }
+                                          }));
+                                        }}
+                                        style={{
+                                          fontSize: '11px',
+                                          padding: '3px 7px',
+                                          borderRadius: '4px',
+                                          border: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? '1.5px solid #8b5cf6' : '1px solid #cbd5e1',
+                                          background: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? '#f3e8ff' : '#ffffff',
+                                          color: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? '#6b21a8' : '#475569',
+                                          cursor: 'pointer',
+                                          fontWeight: config.contentType === 'Chỉ biện pháp điều trị / thuốc' && config.matchLevel === 'Khớp trực tiếp' ? 700 : 500
+                                        }}
+                                        title="Bài viết có phác đồ thuốc BVTV / biện pháp phòng trị mà không mô tả triệu chứng nhận diện"
+                                      >
+                                        💊 Chỉ Thuốc BVTV
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAdditionalClassConfigs(prev => ({
+                                            ...prev,
+                                            [cls.modelClass]: {
+                                              ...prev[cls.modelClass],
+                                              contentType: 'Chỉ tham khảo / Không có chi tiết',
+                                              matchLevel: 'Tham khảo chung'
+                                            }
+                                          }));
+                                        }}
+                                        style={{
+                                          fontSize: '11px',
+                                          padding: '3px 7px',
+                                          borderRadius: '4px',
+                                          border: config.matchLevel === 'Tham khảo chung' ? '1.5px solid #eab308' : '1px solid #cbd5e1',
+                                          background: config.matchLevel === 'Tham khảo chung' ? '#fef9c3' : '#ffffff',
+                                          color: config.matchLevel === 'Tham khảo chung' ? '#854d0e' : '#475569',
+                                          cursor: 'pointer',
+                                          fontWeight: config.matchLevel === 'Tham khảo chung' ? 700 : 500
+                                        }}
+                                        title="Bài viết chỉ nhắc tên bệnh hoặc nói lướt qua để tham khảo (không có thông tin cụ thể)"
+                                      >
+                                        📖 Tham khảo / Nhắc tên
+                                      </button>
+                                    </div>
+
+                                    {/* Custom evidence input */}
+                                    <div style={{ marginTop: '2px' }}>
+                                      <input
+                                        type="text"
+                                        placeholder={`Tóm tắt riêng cho ${cls.diseaseName} (nếu có, để trống sẽ dùng trích dẫn chung)...`}
+                                        value={config.customEvidence || ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setAdditionalClassConfigs(prev => ({
+                                            ...prev,
+                                            [cls.modelClass]: {
+                                              ...prev[cls.modelClass],
+                                              customEvidence: val
+                                            }
+                                          }));
+                                        }}
+                                        style={{
+                                          width: '100%',
+                                          fontSize: '11px',
+                                          padding: '4px 8px',
+                                          borderRadius: '4px',
+                                          border: '1px solid #cbd5e1',
+                                          boxSizing: 'border-box',
+                                          background: '#ffffff'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* HITL Manual Approve Box */}
                 <div style={{
