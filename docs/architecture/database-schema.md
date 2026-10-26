@@ -9,7 +9,7 @@
 ```mermaid
 erDiagram
     PlantCategories ||--o{ Diseases : "có nhiều loại bệnh"
-    Diseases ||--o{ TreatmentPlans : "có phác đồ 3 bước"
+    Diseases ||--o{ TreatmentPlans : "hướng dẫn xử lý IPM"
     Diseases ||--o{ DiseaseProducts : "liên kết thuốc đặc trị"
     Products ||--o{ DiseaseProducts : "điều trị bệnh"
     Diseases ||--o{ DiagnosisRecords : "ghi nhận kết quả"
@@ -47,15 +47,16 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `Prevention` | `TEXT` | NOT NULL | Biện pháp canh tác phòng ngừa |
 | `SeverityLevel` | `INT` | DEFAULT 2 | Mức độ nghiêm trọng (1: Nhẹ, 2: Vừa, 3: Nguy hiểm) |
 
-#### 3. `TreatmentPlans` (Phác đồ điều trị 3 bước chuẩn Khuyến Nông)
+#### 3. `TreatmentPlans` (Hướng dẫn xử lý theo từng tình trạng bệnh & cây trồng chuẩn Khuyến Nông IPM)
+*Cấu trúc linh hoạt 1-nhiều: mỗi lớp bệnh/cây khỏe có các bước xử lý tương ứng (Canh tác & cơ học $\rightarrow$ Hóa sinh / Sinh học có kiểm soát $\rightarrow$ Phục hồi dinh dưỡng).*
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
-| `Id` | `SERIAL` | PK | Mã phác đồ |
-| `DiseaseId` | `INT` | FK $\rightarrow$ Diseases | Áp dụng cho bệnh nào |
-| `StepOrder` | `INT` | NOT NULL | Bước thực hiện (1: Cách ly/Cắt tỉa, 2: Hóa sinh, 3: Phục hồi) |
-| `ActionTitle` | `VARCHAR(150)` | NOT NULL | Tiêu đề hành động (Ví dụ: "Phun thuốc đặc trị nấm mốc") |
-| `Instructions` | `TEXT` | NOT NULL | Hướng dẫn chi tiết kỹ thuật pha bình 16L |
-| `IsolationDays` | `VARCHAR(50)` | NULL | Thời gian cách ly an toàn (PHI: "7-14 ngày") |
+| `Id` | `SERIAL` | PK | Mã hướng dẫn |
+| `DiseaseId` | `INT` | FK $\rightarrow$ Diseases | Áp dụng cho bệnh / tình trạng nào |
+| `StepOrder` | `INT` | NOT NULL | Thứ tự thực hiện (1: Canh tác/Cắt tỉa, 2: Hóa sinh/Sinh học nếu có, 3: Phục hồi) |
+| `ActionTitle` | `VARCHAR(150)` | NOT NULL | Tiêu đề hành động (Ví dụ: "Phun thuốc phòng trừ nấm mốc sương", hoặc "Quy trình tưới tiêu định kỳ") |
+| `Instructions` | `TEXT` | NOT NULL | Hướng dẫn chi tiết kỹ thuật canh tác hoặc pha bình 16L tham khảo |
+| `IsolationDays` | `VARCHAR(50)` | NULL | Thời gian cách ly an toàn (PHI: "7-14 ngày", để trống nếu là biện pháp sinh học/canh tác) |
 
 #### 4. `KnowledgeSources` (Kho bài báo đối chứng & Kỹ thuật canh tác)
 *Khớp 100% với dữ liệu thu thập được từ `KnowledgeSources_rows.csv` (112 bản ghi)*

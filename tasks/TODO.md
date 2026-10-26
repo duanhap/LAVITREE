@@ -23,7 +23,7 @@
   - Đầu ra: Tùy chọn trả về ảnh Heatmap phủ lên ảnh gốc để hiển thị vùng nghi vấn trên giao diện.
 - [ ] **TASK-04: Đóng gói Seed Data tri thức nông nghiệp cho Database**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: File SQL/JSON chứa 38 lớp cây trồng, triệu chứng và phác đồ điều trị 3 bước từ `Lavitree_Selected_Classes.csv`.
+  - Đầu ra: File SQL/JSON chứa 38 lớp cây trồng, triệu chứng và hướng dẫn xử lý & chăm sóc chuẩn IPM từ `Lavitree_Selected_Classes.csv`.
 
 ---
 
@@ -44,7 +44,7 @@
 ## 💻 SPRINT 3: GIAO DIỆN WEB / MOBILE & ĐÓNG GÓI DEMO OFFLINE (TUẦN 3)
 *Mục tiêu: Giao diện chụp ảnh có khung ngắm hướng dẫn, hiển thị Grad-CAM, kết nối end-to-end và chạy Docker 1 lệnh duy nhất.*
 
-- [ ] **TASK-09: Xây dựng Frontend Web Portal (React 18 + Vite) — Chẩn đoán & Xem phác đồ**
+- [ ] **TASK-09: Xây dựng Frontend Web Portal (React 18 + Vite) — Chẩn đoán & Hướng dẫn xử lý IPM**
   - Trạng thái: `[ ] PENDING`
 - [ ] **TASK-10: Xây dựng Admin Dashboard quản trị dịch tễ cây trồng**
   - Trạng thái: `[ ] PENDING`

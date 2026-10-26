@@ -62,7 +62,7 @@
 *Cửa ngõ chính (Gateway) phục vụ Web Portal và Mobile Android*
 
 ### 3.1. `POST /api/v1/diagnose` (Khám lá toàn trình khép kín)
-*Nông dân gửi ảnh $\rightarrow$ Core API gọi AI $\rightarrow$ Lấy phác đồ & thuốc từ DB $\rightarrow$ Lưu lịch sử $\rightarrow$ Trả kết quả trọn gói.*
+*Nông dân gửi ảnh $\rightarrow$ Core API gọi AI $\rightarrow$ Lấy hướng dẫn xử lý chuẩn IPM & vật tư từ DB $\rightarrow$ Lưu lịch sử $\rightarrow$ Trả kết quả trọn gói.*
 - **Content-Type**: `multipart/form-data`
 - **Request Form**:
   - `image`: File ảnh lá chụp từ camera/gallery.
@@ -87,11 +87,26 @@
       "original_image_url": "http://localhost:9000/lavitree-diagnoses/a1b2c3d4_orig.jpg",
       "gradcam_image_url": "http://localhost:9000/lavitree-diagnoses/a1b2c3d4_gradcam.jpg"
     },
-    "treatment_regimen": {
-      "step_1_mechanical": "Cắt tỉa toàn bộ lá bệnh bị mốc trắng nhúng nước vôi, tiêu hủy cách xa vườn.",
-      "step_2_chemical": "Phun luân phiên thuốc gốc đồng hoặc hoạt chất Mancozeb / Metalaxyl vào sáng sớm.",
-      "step_3_recovery": "Bón bổ sung phân bón lá Kali - Silic giúp cứng gân lá, cách ly an toàn 7 ngày (PHI)."
-    },
+    "treatment_guidelines": [
+      {
+        "step_order": 1,
+        "action_title": "Biện pháp Canh tác & Cơ học",
+        "instructions": "Cắt tỉa toàn bộ lá bệnh bị mốc trắng nhúng nước vôi, tiêu hủy cách xa vườn để tránh phát tán bào tử nấm.",
+        "isolation_days": null
+      },
+      {
+        "step_order": 2,
+        "action_title": "Biện pháp Hóa sinh & Sinh học",
+        "instructions": "Phun luân phiên thuốc gốc đồng hoặc hoạt chất Mancozeb / Metalaxyl vào sáng sớm khi nấm chớm xuất hiện.",
+        "isolation_days": "7 ngày"
+      },
+      {
+        "step_order": 3,
+        "action_title": "Biện pháp Dinh dưỡng & Phục hồi",
+        "instructions": "Bổ sung vi sinh đối kháng Trichoderma và Kali - Silic giúp cứng gân lá và phục hồi hệ rễ.",
+        "isolation_days": null
+      }
+    ],
     "recommended_products": [
       {
         "id": 1,

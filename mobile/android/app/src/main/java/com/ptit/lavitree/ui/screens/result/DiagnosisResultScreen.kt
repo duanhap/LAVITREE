@@ -120,8 +120,8 @@ fun DiagnosisResultScreen(
                 }
             }
 
-            // 3-step Treatment Plan
-            Text("Phác Đồ Xử Lý Tiêu Chuẩn (3 Bước)", style = MaterialTheme.typography.titleMedium)
+            // IPM Treatment & Care Guidelines
+            Text("Hướng Dẫn Xử Lý Chuẩn Khuyến Nông (IPM)", style = MaterialTheme.typography.titleMedium)
             result.treatmentSteps.forEach { step ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),

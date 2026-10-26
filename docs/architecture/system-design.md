@@ -70,11 +70,11 @@ sequenceDiagram
     Vision->>Vision: 4. ResNet18 suy luận, tính Grad-CAM, gắn cờ Tier 1/2/3
     Vision-->>Core: 5. Trả về JSON (Top-1, Top-3, Tier, Warning, Base64 Heatmap)
     Core->>MinIO: 6. Giải mã Base64 & Upload ảnh Grad-CAM vào bucket 'lavitree-diagnoses'
-    Core->>DB: 7. Truy vấn phác đồ điều trị 3 bước & thuốc đặc trị theo ClassCode
+    Core->>DB: 7. Truy vấn hướng dẫn xử lý chuẩn IPM & vật tư đặc trị theo ClassCode
     Core->>Agent: 8. [Tùy chọn] Gọi Agent tổng hợp lời khuyên cá nhân hóa
     Agent-->>Core: 9. Trả về hướng dẫn chi tiết
     Core->>DB: 10. Lưu lượt khám vào DiagnosisRecords (kèm URL ảnh gốc & Grad-CAM từ MinIO)
-    Core-->>Farmer: 11. Trả về kết quả chẩn đoán + URL ảnh MinIO + Phác đồ + Gợi ý mua thuốc
+    Core-->>Farmer: 11. Trả về kết quả chẩn đoán + URL ảnh MinIO + Hướng dẫn IPM + Gợi ý vật tư phù hợp
 ```
 
 ---
@@ -82,7 +82,7 @@ sequenceDiagram
 ## 3. CÁC NGUYÊN TẮC KIẾN TRÚC ĐẶC THÙ (ARCHITECTURAL PRINCIPLES)
 
 1. **Cơ chế Fallback Ngoại Tuyến (Graceful Degradation - Kế thừa DAY 2)**:
-   - Nếu mất kết nối internet hoặc không có LLM API Key: Hệ thống **tự động fallback về dữ liệu tĩnh** trong PostgreSQL (112 nguồn bài báo từ `KnowledgeSources_rows.csv` và phác đồ 3 bước chuẩn hóa). Đảm bảo hội đồng chấm thi luôn xem được demo mà không phụ thuộc internet.
+   - Nếu mất kết nối internet hoặc không có LLM API Key: Hệ thống **tự động fallback về dữ liệu tĩnh** trong PostgreSQL (112 nguồn bài báo từ `KnowledgeSources_rows.csv` và hướng dẫn xử lý chuẩn IPM). Đảm bảo hội đồng chấm thi luôn xem được demo mà không phụ thuộc internet.
 2. **Nguyên tắc "Cửa ngõ duy nhất" (Single Entrypoint Gateway)**:
    - Các ứng dụng Client (Web/Mobile) chỉ giao tiếp trực tiếp với `core-api:5000`. 
    - `ai-service` và `agent-service` là các microservices nội bộ (internal services) được bảo vệ, chỉ nhận lời gọi từ Core API.

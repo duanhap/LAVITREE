@@ -77,7 +77,7 @@ export const DiagnosePage: React.FC = () => {
           Khám Bệnh Lá Cây Bằng Trí Tuệ Nhân Tạo
         </h1>
         <p style={{ color: '#64748b', fontSize: '16px', maxWidth: '650px', margin: '0 auto' }}>
-          Mô hình ResNet-18 nhận diện 38 lớp sâu bệnh phổ biến trên 14 loài cây trồng. Tích hợp trực quan hóa Grad-CAM Heatmap và phác đồ điều trị 3 bước.
+          Mô hình ResNet-18 nhận diện 38 lớp sâu bệnh phổ biến trên 14 loài cây trồng. Tích hợp trực quan hóa Grad-CAM Heatmap và hướng dẫn xử lý chuẩn Khuyến nông (IPM).
         </p>
       </header>
 
@@ -214,11 +214,11 @@ export const DiagnosePage: React.FC = () => {
                 </div>
               )}
 
-              {/* 3-Step Treatment Plan */}
+              {/* IPM Treatment & Care Guidelines */}
               {result.treatmentSteps.length > 0 && (
                 <div className="card">
                   <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>
-                    Phác Đồ Xử Lý Tiêu Chuẩn 3 Bước
+                    Hướng Dẫn Xử Lý & Chăm Sóc Chuẩn Khuyến Nông (IPM)
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {result.treatmentSteps.map((step) => (

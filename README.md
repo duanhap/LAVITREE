@@ -37,7 +37,7 @@ LAVITREE/
 │   └── web/               # [React 18 + Vite + TypeScript] - Web Portal & Admin Dashboard
 │       ├── src/
 │       │   ├── components/Navbar.tsx
-│       │   ├── pages/DiagnosePage.tsx    # Chẩn đoán lá, xem Grad-CAM, phác đồ 3 bước
+│       │   ├── pages/DiagnosePage.tsx    # Chẩn đoán lá, xem Grad-CAM, hướng dẫn xử lý chuẩn IPM
 │       │   ├── pages/HandbookPage.tsx    # Tra cứu 14 loài cây & 38 lớp bệnh
 │       │   └── pages/AdminDashboard.tsx  # Cổng quản trị tri thức & đơn hàng
 │       └── Dockerfile
