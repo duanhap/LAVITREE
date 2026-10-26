@@ -1,4 +1,4 @@
-# TASK-01: THIẾT LẬP AI VISION SERVICE & ENDPOINT NHẬN DIỆN RESNET-18
+# TASK-01: ĐỒNG BỘ AI VISION SERVICE & ENDPOINT DỰ ĐOÁN RESNET-18
 * **Sprint**: Sprint 1 (Full-stack Pipeline)
 * **Phân hệ**: `backend/ai-service` (FastAPI)
 * **Trạng thái**: `[ ] PENDING`
@@ -8,60 +8,43 @@
 ---
 
 ## 1. BỐI CẢNH & MỤC TIÊU (CONTEXT & OBJECTIVES)
-- **Mô tả ngắn**: Đóng gói dịch vụ AI Vision độc lập bằng FastAPI, nạp trọng số mô hình PyTorch ResNet-18 (`best_plant_model.pt`) và danh mục 38 lớp (`class_indices.json`). Cung cấp endpoint nhận diện ảnh lá, trả về kết quả Top-1, Top-3, phân cấp Tier 1/2/3 và kiểm tra độ bất định $T < 0.70$.
-- **Tài liệu tham chiếu**:
-  - Spec: `docs/spec/features.md` (FEAT-02)
-  - Spec: `docs/spec/classes-tier.md` (38 lớp & Tier Policy)
-  - Architecture: `docs/architecture/api-contracts.md` (Mục 2.1)
+- **Mô tả ngắn**: Rà soát và chỉnh sửa mã nguồn hiện có trong `backend/ai-service` để khớp 100% với tài liệu hợp đồng `docs/architecture/api-contracts.md` (Mục 2.1).
+- **Trọng tâm sửa đổi**:
+  - Đổi tiền tố router thành `POST /api/v1/predict` (thay vì `/api/v1/ai/predict`).
+  - Nạp thêm file `Lavitree_Selected_Classes.csv` vào `app/models/` để ánh xạ tên tiếng Việt (`plant_name`, `disease_name`) và phân cấp `tier` (`TIER_1_APPROVED`, `TIER_2_CONDITIONAL`, `TIER_3_EXCLUDED`).
+  - Tách bạch: `is_uncertain` (chỉ theo ngưỡng `confidence < 0.70`) và `warning_message` (theo Tier policy).
+  - Giới hạn kích thước ảnh tải lên tối đa **10MB**, trả về mã lỗi HTTP 400 nếu ảnh không đúng định dạng.
+- **Tài liệu tham chiếu chuẩn duy nhất**:
+  - Hợp đồng API: `docs/architecture/api-contracts.md` (Mục 2.1)
+  - Danh mục phân cấp: `docs/spec/classes-tier.md`
 
 ---
 
 ## 2. ĐẶC TẢ KỸ THUẬT (SPECIFICATIONS)
 - **Danh sách file tác động**:
-  - `Thêm mới`: `backend/ai-service/app/main.py`
-  - `Thêm mới`: `backend/ai-service/app/services/predictor.py`
-  - `Thêm mới`: `backend/ai-service/app/models/best_plant_model.pt` (sao chép từ `plant-model-test/backend/`)
-  - `Thêm mới`: `backend/ai-service/app/models/class_indices.json`
-  - `Thêm mới`: `backend/ai-service/requirements.txt`
-  - `Thêm mới`: `backend/ai-service/Dockerfile`
-  - `Thêm mới`: `backend/ai-service/test_predict.py`
-- **Hợp đồng dữ liệu (API Contract)**:
-  - Endpoint: `POST /api/v1/predict`
-  - Request: `multipart/form-data` chứa trường `file` (ảnh JPEG/PNG).
-  - Response:
-    ```json
-    {
-      "success": true,
-      "top1": {
-        "class_code": "Tomato___Late_blight",
-        "plant_name": "Cà chua",
-        "disease_name": "Bệnh mốc sương cà chua",
-        "confidence": 0.9462,
-        "tier": "Tier 1",
-        "is_uncertain": false
-      },
-      "top3": [ ... ],
-      "warning": null,
-      "inference_time_ms": 28.5
-    }
-    ```
-- **Xử lý tình huống biên (Edge Cases)**:
-  - File gửi lên không phải ảnh $\rightarrow$ Trả về mã lỗi 400 kèm message: "File tải lên không phải ảnh hợp lệ".
-  - Điểm tin cậy $< 0.70$ hoặc thuộc Tier 2/3 $\rightarrow$ Gán cờ `is_uncertain: true` và cảnh báo chụp lại.
+  - `Thêm mới`: `backend/ai-service/app/models/Lavitree_Selected_Classes.csv` (sao chép từ `plan/05_chot_danh_muc_lop_va_gioi_han/`)
+  - `Chỉnh sửa`: `backend/ai-service/app/main.py` (chuẩn hóa router prefix và health check `{"status": "ok", "model_loaded": true}`)
+  - `Chỉnh sửa`: `backend/ai-service/app/api/endpoints/predict.py` (giới hạn 10MB, trả về 400 nếu lỗi)
+  - `Chỉnh sửa`: `backend/ai-service/app/services/predictor.py` (load mapping tiếng Việt & Tier, cấu trúc response khớp `api-contracts.md`)
+  - `Thêm mới`: `backend/ai-service/test_predict.py` (kiểm thử tự động)
+- **Hợp đồng dữ liệu (API Contract SSOT)**:
+  - Khớp 100% với định dạng JSON tại **Mục 2.1 trong `docs/architecture/api-contracts.md`**.
+  - Ví dụ: `Tomato___Late_blight` được phân cấp chuẩn là `"TIER_2_CONDITIONAL"`.
 
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
-- [ ] **Pha 1**: Sao chép `best_plant_model.pt` và `class_indices.json` vào thư mục `backend/ai-service/app/models/`.
-- [ ] **Pha 2**: Viết module `predictor.py` định nghĩa kiến trúc ResNet-18, transform ảnh 224x224 (Normalize ImageNet), hàm suy luận `predict_leaf_disease`.
-- [ ] **Pha 3**: Viết `main.py` cấu hình FastAPI, CORS middleware, endpoint `GET /health` và `POST /api/v1/predict`.
-- [ ] **Pha 4**: Viết script `test_predict.py` kiểm thử gửi ảnh mẫu thực tế từ `plant-model-test`.
+- [ ] **Pha 1**: Sao chép `Lavitree_Selected_Classes.csv` vào `backend/ai-service/app/models/`.
+- [ ] **Pha 2**: Nâng cấp `predictor.py` đọc file CSV để tạo từ điển ánh xạ `class_code -> {plant_name, disease_name, tier}`. Cập nhật logic `is_uncertain = confidence < 0.70` và sinh `warning_message`.
+- [ ] **Pha 3**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`, kiểm tra `file.size <= 10 * 1024 * 1024`.
+- [ ] **Pha 4**: Chạy script `test_predict.py` kiểm thử thời gian phản hồi ($\le 1.0$s trên CPU).
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Healthcheck `GET /health` trả về `{"status": "healthy", "model_loaded": true}`.
-- [ ] Endpoint `POST /api/v1/predict` suy luận trong thời gian $< 100$ms trên CPU.
+- [ ] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
+- [ ] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1.
+- [ ] Tốc độ suy luận ResNet-18 đạt $\le 1.0$ giây trên CPU.
 - [ ] Bằng chứng kiểm thử (Receipts):
   ```bash
   # Dán stdout kiểm thử curl / python test_predict.py tại đây khi nghiệm thu

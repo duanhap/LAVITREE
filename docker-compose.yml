@@ -34,13 +34,16 @@ services:
       - .env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=postgrespassword123;
       - AiService__BaseUrl=http://ai-service:8000
       - AgentService__BaseUrl=http://agent-service:8001
       - Minio__Endpoint=minio:9000
+      - Minio__PublicUrl=http://localhost:9000
       - Minio__AccessKey=minioadmin
       - Minio__SecretKey=miniopassword123
       - Minio__BucketName=lavitree-diagnoses
     depends_on:
+      - postgres
       - ai-service
       - minio
 
@@ -56,7 +59,21 @@ services:
     depends_on:
       - core-api
 
-  # 5. Object Storage (MinIO S3-Compatible)
+  # 5. Database: PostgreSQL 15 Container (100% Offline Ready)
+  postgres:
+    image: postgres:15-alpine
+    container_name: lavitree-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: lavitree
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 6. Object Storage (MinIO S3-Compatible)
   minio:
     image: minio/minio:latest
     container_name: lavitree-minio
@@ -72,5 +89,7 @@ services:
       - minio_data:/data
 
 volumes:
+  postgres_data:
   minio_data:
+
 

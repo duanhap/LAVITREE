@@ -1,10 +1,10 @@
 # 🚀 KẾ HOẠCH SPRINT 1: NỀN TẢNG HỆ THỐNG TOÀN TRÌNH (FULL-STACK PIPELINE)
-## Thời gian dự kiến: Tuần 1 — Nhóm 2 Người
+## Thời gian dự kiến: Tuần 1 — Nhóm 2 Người (Đã rà soát & Đồng bộ 100% với Code)
 
 ---
 
 ### 1. 🎯 MỤC TIÊU SPRINT (SPRINT GOAL)
-Xây dựng và kết nối thông suốt luồng chẩn đoán thị giác khép kín từ lúc Client gửi ảnh lá qua Camera $\rightarrow$ Core API (.NET 8) tiếp nhận $\rightarrow$ Lưu ảnh gốc & Grad-CAM vào MinIO S3 $\rightarrow$ AI Vision Service (FastAPI) phân tích ResNet-18 trích xuất Grad-CAM $\rightarrow$ PostgreSQL lưu kết quả $\rightarrow$ Trả về kết quả chẩn đoán kèm Hướng dẫn IPM chuẩn.
+Đồng bộ và kết nối thông suốt luồng chẩn đoán thị giác khép kín từ lúc Client gửi ảnh lá $\rightarrow$ Core API (`Lavitree.Api`) tiếp nhận $\rightarrow$ Lưu ảnh gốc & Grad-CAM vào MinIO S3 $\rightarrow$ AI Vision Service (`ai-service`) phân tích ResNet-18 trả về Top-1/Top-3 kèm Grad-CAM Heatmap $\rightarrow$ PostgreSQL 10 bảng truy vấn và lưu kết quả $\rightarrow$ Trả về kết quả chẩn đoán kèm Hướng dẫn IPM chuẩn.
 
 ---
 
@@ -12,35 +12,39 @@ Xây dựng và kết nối thông suốt luồng chẩn đoán thị giác khé
 
 | Thành viên | Trách nhiệm chính (Owner) | Deliverables Sprint 1 |
 | :--- | :--- | :--- |
-| **Thành viên A (System & Backend)** | • Hạ tầng MinIO Object Storage & PostgreSQL 10 bảng<br>• Core API (.NET 8 Clean Architecture)<br>• Endpoint toàn trình `POST /api/v1/diagnose` | • `docker-compose.yml` (chạy postgres, minio, core-api)<br>• Entity Framework Core Migrations & Seed Data<br>• Core API kết nối MinIO và AI Service |
-| **Thành viên B (AI Vision)** | • Đóng gói `backend/ai-service` (FastAPI)<br>• Nạp mô hình `best_plant_model.pt`<br>• Trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)<br>• Bộ lọc độ bất định (OOD Check $T < 0.70$) | • `backend/ai-service` Dockerized<br>• Endpoint `POST /api/v1/predict`<br>• Script kiểm thử `test_predict.py` pass 100% |
+| **Thành viên A (System & Backend)** | • Hạ tầng Docker: PostgreSQL 15 (port 5432) & MinIO (port 9000/9001)<br>• Cập nhật Database: Chạy `dotnet ef database update` từ các migration đã có<br>• Nạp dữ liệu Seed Data (38 lớp, 112 bài báo, TreatmentPlans, Products)<br>• Core API: Cài đặt MinIO Service và hoàn thiện `POST /api/v1/diagnose` | • `docker-compose.yml` có sẵn `postgres` và `minio`<br>• 10 bảng PostgreSQL có đủ dữ liệu Seed<br>• Core API kết nối MinIO và AI Service pass E2E |
+| **Thành viên B (AI Vision)** | • Đồng bộ `backend/ai-service` khớp 100% với `api-contracts.md`<br>• Nạp dữ liệu `Lavitree_Selected_Classes.csv` để trả về tên tiếng Việt & phân cấp Tier 1/2/3<br>• Chuẩn hóa endpoint `POST /api/v1/predict` (hỗ trợ `include_heatmap`, max 10MB)<br>• Tách bạch quy tắc `is_uncertain` (< 0.70) và `warning_message` (theo Tier) | • `backend/ai-service` chạy chuẩn RESTful<br>• Endpoint `POST /api/v1/predict` đạt latency $\le 1.0$s trên CPU<br>• Script kiểm thử `test_predict.py` pass 100% |
 
 ---
 
-### 3. 📋 DANH SÁCH TASKS CHI TIẾT SPRINT 1
+### 3. 📋 DANH SÁCH TASKS CHI TIẾT SPRINT 1 (ĐỒNG BỘ MÃ NGUỒN HIỆN CÓ)
 
-- [ ] **TASK-01: Thiết lập `backend/ai-service` (FastAPI) & Endpoint nhận diện ResNet-18** *(Owner: Thành viên B)*
-  - File tác động: `backend/ai-service/app/main.py`, `app/services/predictor.py`, `requirements.txt`, `Dockerfile`.
-  - Hợp đồng: Nhận Multipart image $\rightarrow$ Resize 224x224 $\rightarrow$ Trả về Top-1, Top-3, Tier 1/2/3 và cảnh báo $T < 0.70$.
-- [ ] **TASK-02: Endpoint trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)** *(Owner: Thành viên B)*
-  - File tác động: `backend/ai-service/app/services/gradcam.py`.
-  - Hợp đồng: Trả về ảnh heatmap (Jet colormap) phủ mờ 50% lên ảnh lá gốc dưới dạng Base64 / byte stream.
-- [ ] **TASK-03: Khởi tạo PostgreSQL 10 bảng chuẩn hóa 3NF & Nạp Seed Data** *(Owner: Thành viên A)*
-  - File tác động: `backend/core-api/src/Lavitree.Infrastructure/Data/`, script nạp dữ liệu SQL.
-  - Hợp đồng: Schema 10 bảng khớp 100% với `database-schema.md`, nạp 38 lớp cây trồng và 112 nguồn tri thức từ `KnowledgeSources_rows.csv`.
-- [ ] **TASK-04: Xây dựng Core API (.NET 8 Clean Architecture) & Tích hợp MinIO Storage** *(Owner: Thành viên A)*
-  - File tác động: `backend/core-api/src/Lavitree.API/Controllers/DiagnoseController.cs`, `MinioStorageService.cs`.
-  - Hợp đồng: Upload ảnh lên bucket `lavitree-diagnoses`, gọi `ai-service`, truy vấn hướng dẫn IPM và lưu bản ghi `DiagnosisRecords`.
+- [ ] **TASK-01: Đồng bộ `backend/ai-service` (FastAPI) khớp chuẩn `api-contracts.md`** *(Owner: Thành viên B)*
+  - File tác động: `backend/ai-service/app/main.py`, `app/api/endpoints/predict.py`, `app/services/predictor.py`.
+  - Dữ liệu nạp thêm: Copy `Lavitree_Selected_Classes.csv` vào `app/models/` để ánh xạ Tên tiếng Việt và Tier.
+  - Hợp đồng: Chuẩn hóa URL thành `POST /api/v1/predict`, kiểm tra file $\le 10$MB, trả về đúng định dạng JSON chuẩn (Top-1, Top-3, `tier`, `is_uncertain`, `warning_message`, `gradcam_base64`).
+- [ ] **TASK-02: Chuẩn hóa tham số và tối ưu hóa Grad-CAM (`layer4[-1]`)** *(Owner: Thành viên B)*
+  - File tác động: `backend/ai-service/app/services/gradcam.py`, `predictor.py`.
+  - Hợp đồng: Bổ sung tham số `include_heatmap: bool = True`. Tối ưu tốc độ sinh heatmap kết hợp ResNet-18 đạt $\le 1.0$s trên CPU.
+- [ ] **TASK-03: Khởi tạo PostgreSQL 15 Container & Nạp đầy đủ Seed Data** *(Owner: Thành viên A)*
+  - File tác động: `docker-compose.yml`, thư mục seed `backend/core-api/seed/`.
+  - Thực thi: Khởi động container `postgres`, chạy `dotnet ef database update` áp dụng 5 migrations đã có sẵn trong `Lavitree.Infrastructure/Migrations/`.
+  - Nạp dữ liệu: 38 lớp cây trồng (`Diseases`), 112 bài báo (`KnowledgeSources`), kèm dữ liệu mẫu `TreatmentPlans` (IPM) và `Products`/`DiseaseProducts`.
+- [ ] **TASK-04: Tích hợp MinIO Storage & Hoàn thiện Core API (`Lavitree.Api`)** *(Owner: Thành viên A)*
+  - File tác động: `backend/core-api/src/Lavitree.Infrastructure/Services/MinioStorageService.cs`, `Lavitree.Api/Controllers/DiagnoseController.cs`.
+  - Thư viện: Cài đặt NuGet package `Minio` (hoặc `AWSSDK.S3`).
+  - Hợp đồng: Nhận `POST /api/v1/diagnose`, upload ảnh gốc lên MinIO, gọi AI Service, lưu ảnh Grad-CAM vào MinIO, truy vấn DB lấy hướng dẫn IPM & sản phẩm, trả về public URL (`http://localhost:9000/...`).
 
 ---
 
-### 4. 🛡️ TIÊU CHÍ NGHIỆM THU SPRINT (DEFINITION OF DONE & QUALITY GATES)
+### 4. 🛡️ TIÊU CHÍ NGHIỆM THU SPRINT (QUALITY GATES ĐÃ THỐNG NHẤT)
 
-1. **Gate 1 - AI Vision Performance**:
-   - Thời gian suy luận ResNet-18 + Grad-CAM $< 1.0$ giây trên CPU / $< 0.3$ giây trên GPU.
-   - Nhận diện đúng các mẫu lá kiểm thử từ bộ PlantVillage test.
-2. **Gate 2 - Storage & Persistence**:
-   - Ảnh lá gốc và ảnh heatmap Grad-CAM được lưu thành công trên MinIO S3 (`http://localhost:9000/lavitree-diagnoses/...`).
-   - Bản ghi `DiagnosisRecord` được lưu đầy đủ vào PostgreSQL kèm URL MinIO.
+1. **Gate 1 - AI Vision Latency & Accuracy**:
+   - Thời gian suy luận ResNet-18 + sinh Grad-CAM Heatmap: **$\le 1.0$ giây trên CPU** (hoặc $< 0.3$ giây trên GPU).
+   - `is_uncertain` đánh giá đúng ngưỡng tin cậy $< 0.70$; `tier` trả về đúng chuẩn `"TIER_1_APPROVED"`, `"TIER_2_CONDITIONAL"`, `"TIER_3_EXCLUDED"`.
+2. **Gate 2 - Storage & Persistence (100% Offline Ready)**:
+   - PostgreSQL 15 chạy độc lập trong Docker container (Port 5432), có đủ 10 bảng dữ liệu.
+   - Ảnh lá gốc và ảnh heatmap Grad-CAM được lưu trên MinIO S3 (`http://localhost:9000/lavitree-diagnoses/...`).
 3. **Gate 3 - E2E Integration Pass**:
-   - Gửi request `POST /api/v1/diagnose` qua Postman/cURL với 1 ảnh lá thật $\rightarrow$ Nhận mã `200 OK`, JSON trả về đúng chuẩn [api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md) kèm Hướng dẫn IPM và URL ảnh MinIO.
+   - Gửi request `POST /api/v1/diagnose` với 1 ảnh lá thật $\rightarrow$ Nhận mã `200 OK` trong **$\le 1.5$ giây**.
+   - Dữ liệu trả về đầy đủ kết quả chẩn đoán, ảnh nhiệt, các bước IPM và sản phẩm gợi ý khớp 100% [api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md).

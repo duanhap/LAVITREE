@@ -1,4 +1,4 @@
-# TASK-04: XÂY DỰNG CORE API (.NET 8) & TÍCH HỢP MINIO STORAGE
+# TASK-04: TÍCH HỢP MINIO STORAGE & HOÀN THIỆN CORE API (`Lavitree.Api`)
 * **Sprint**: Sprint 1 (Full-stack Pipeline)
 * **Phân hệ**: `backend/core-api`
 * **Trạng thái**: `[ ] PENDING`
@@ -8,35 +8,40 @@
 ---
 
 ## 1. BỐI CẢNH & MỤC TIÊU (CONTEXT & OBJECTIVES)
-- **Mô tả ngắn**: Cấu hình MinIO S3 Client (`AWSSDK.S3`) để tự động khởi tạo bucket `lavitree-diagnoses`. Xây dựng endpoint toàn trình `POST /api/v1/diagnose` tiếp nhận ảnh từ Client $\rightarrow$ tải ảnh lên MinIO $\rightarrow$ gọi `ai-service:8000` $\rightarrow$ giải mã lưu ảnh Grad-CAM vào MinIO $\rightarrow$ truy vấn hướng dẫn IPM và thuốc từ PostgreSQL $\rightarrow$ ghi bản ghi `DiagnosisRecord` $\rightarrow$ trả kết quả trọn gói 1 request.
-- **Tài liệu tham chiếu**:
-  - Architecture: `docs/architecture/system-design.md` (Mục 2)
-  - Architecture: `docs/architecture/api-contracts.md` (Mục 3.1)
+- **Mô tả ngắn**: Rà soát và chỉnh sửa mã nguồn hiện có trong `backend/core-api/src/Lavitree.Api/Controllers/DiagnoseController.cs` và `Lavitree.Infrastructure/Services/AiVisionService.cs`.
+- **Trọng tâm sửa đổi**:
+  - Chuẩn hóa endpoint thành `POST /api/v1/diagnose` khớp 100% với `docs/architecture/api-contracts.md` (Mục 3.1). Nhận form field `image` (thay vì `file`), tùy chọn `userId` và `notes`.
+  - Cài đặt thư viện `Minio` NuGet package để tải ảnh gốc và ảnh heatmap Grad-CAM lên bucket `lavitree-diagnoses`. Thiết lập bucket policy cho phép public-read.
+  - Trả về URL ảnh MinIO có thể truy cập được từ trình duyệt/mobile client (dùng `Minio__PublicUrl=http://localhost:9000` thay vì tên host nội bộ Docker `minio:9000`).
+  - Đảm bảo toàn bộ luồng chẩn đoán E2E hoàn thành trong **$\le 1.5$ giây**.
+- **Tài liệu tham chiếu chuẩn duy nhất**:
+  - Hợp đồng API: `docs/architecture/api-contracts.md` (Mục 3.1)
 
 ---
 
 ## 2. ĐẶC TẢ KỸ THUẬT (SPECIFICATIONS)
 - **Danh sách file tác động**:
   - `Thêm mới`: `backend/core-api/src/Lavitree.Infrastructure/Services/MinioStorageService.cs`
-  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.API/Controllers/DiagnoseController.cs`
-  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.API/appsettings.json` (cấu hình MinIO endpoint, access key, secret key)
-- **Hợp đồng dữ liệu (API Contract)**:
-  - Khớp 100% với mục 3.1 trong `docs/architecture/api-contracts.md`.
+  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Infrastructure/Services/AiVisionService.cs` (gọi đúng `POST /api/v1/predict`)
+  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Api/Controllers/DiagnoseController.cs` (đổi route thành `POST /api/v1/diagnose`, nhận trường `image`, gọi MinIO)
+  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Api/appsettings.json` (bổ sung cấu hình `Minio`)
+- **Hợp đồng dữ liệu (API Contract SSOT)**:
+  - Khớp 100% với cấu trúc JSON tại **Mục 3.1 trong `docs/architecture/api-contracts.md`**.
 
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
-- [ ] **Pha 1**: Cấu hình MinIO S3 Client trong `core-api`, kiểm tra kết nối và tạo bucket nếu chưa có.
-- [ ] **Pha 2**: Viết HttpClient gọi `ai-service:8000/api/v1/predict?include_heatmap=true`.
-- [ ] **Pha 3**: Lưu ảnh lá và ảnh heatmap vào MinIO, lấy public URL.
-- [ ] **Pha 4**: Hoàn thiện `DiagnoseController.cs` kết nối PostgreSQL và MinIO.
+- [ ] **Pha 1**: Cài đặt package `Minio` vào `Lavitree.Infrastructure.csproj`. Cài đặt `MinioStorageService` thực hiện khởi tạo bucket và upload ảnh.
+- [ ] **Pha 2**: Chỉnh sửa `AiVisionService.cs` gọi endpoint chuẩn `/api/v1/predict?include_heatmap=true` của `ai-service`.
+- [ ] **Pha 3**: Cập nhật `DiagnoseController.cs` nhận file `image`, lưu ảnh gốc vào MinIO, gọi AI Service, lưu ảnh Grad-CAM vào MinIO, truy vấn `TreatmentPlans` & `Products` từ PostgreSQL và lưu bản ghi `DiagnosisRecords`.
+- [ ] **Pha 4**: Chạy kiểm thử cURL toàn trình đo lường thời gian phản hồi ($\le 1.5$s).
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Gửi ảnh lá qua `POST /api/v1/diagnose` trả về HTTP 200 OK trong $< 1.5$s.
-- [ ] MinIO chứa đủ 2 file: ảnh lá gốc và ảnh heatmap Grad-CAM.
-- [ ] Database có bản ghi mới trong bảng `DiagnosisRecords`.
+- [ ] Endpoint `POST /api/v1/diagnose` trả về HTTP 200 OK với cấu trúc JSON khớp 100% `api-contracts.md` Mục 3.1.
+- [ ] Trình duyệt truy cập được link ảnh gốc và ảnh heatmap qua URL `http://localhost:9000/lavitree-diagnoses/...`.
+- [ ] Thời gian toàn luồng E2E đạt $\le 1.5$ giây.
 - [ ] Bằng chứng kiểm thử (Receipts):
   ```bash
   # Dán stdout kiểm thử cURL tại đây khi nghiệm thu
