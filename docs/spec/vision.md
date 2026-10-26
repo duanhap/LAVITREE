@@ -22,9 +22,9 @@
 ---
 
 ### 3. 👥 ĐỐI TƯỢNG NGƯỜI DÙNG MỤC TIÊU (TARGET USERS)
-- **Nông dân & Chủ vườn**: Cần công cụ chẩn đoán nhanh trên điện thoại di động tại ruộng, hướng dẫn xử lý dễ hiểu (tính theo bình 16 lít).
-- **Cán bộ Khuyến Nông & Kỹ sư nông nghiệp**: Cần công cụ tra cứu tri thức bệnh cây, kiểm chứng nguồn tài liệu uy tín (từ Viện BVTV, Bộ NN&PTNT, University Extensions).
-- **Đại lý Vật tư Nông nghiệp & HTX**: Tiếp nhận đơn đặt mua vật tư/thuốc đặc trị theo đúng phác đồ điều trị được gợi ý.
+- **Nông dân & Chủ vườn**: Cần công cụ chẩn đoán nhanh trên điện thoại di động tại ruộng, hướng dẫn xử lý dễ hiểu (tính theo bình 16 lít), tư vấn tương tác trực tiếp với Bác sĩ/AI và mua thuốc chính hãng giao tận nơi.
+- **Kỹ sư Nông nghiệp Lavitree (Bác sĩ Cây trồng)**: Tiếp nhận các ca bệnh khó/nguy cấp được Agent chuyển giao, hội chẩn trực tiếp với người dùng và quản lý kho vật tư chính hãng.
+- **Hợp tác xã & Doanh nghiệp Nông sản**: Quản trị nhật ký vùng trồng, theo dõi phục hồi và kế hoạch chăm sóc chuẩn VietGAP.
 
 ---
 
@@ -35,7 +35,9 @@
 - Trực quan hóa vùng tổn thương bằng **Grad-CAM (layer4[-1])**.
 - Cơ chế cảnh báo độ bất định khi điểm tin cậy $< 70\%$ hoặc rơi vào lớp bệnh Tier 2/3.
 - Cung cấp **Hướng dẫn xử lý chuẩn Khuyến nông & Quản lý dịch hại IPM** kèm **112 nguồn bài báo khoa học đối chứng**.
-- **Tác tử Khuyến Nông Tự hành (Autonomous Agri-Agent)**: ReAct Loop, 4 công cụ chuẩn MCP (Thời tiết, Kho thuốc, Tri thức bệnh, Rà soát an toàn PHI), Boundary Guardrails và Streaming SSE.
+- **Tác tử Khuyến Nông Tự hành (Autonomous Agri-Agent)**: ReAct Loop, 4 công cụ chuẩn MCP (Thời tiết, Kho thuốc, Tri thức bệnh, Rà soát an toàn PHI), Boundary Guardrails, cơ chế chuyển ca Bác sĩ con người (Seamless Handover) và Streaming SSE.
+- **Lập Kế Hoạch Chăm Sóc & Theo Dõi Phục Hồi**: Hẹn 3–5 ngày chụp lại so sánh vết nấm cho cây bệnh; sinh thời gian biểu chăm sóc định kỳ cho 12 lớp cây khỏe.
+- **Cửa hàng Vật tư Trực tiếp Lavitree Store**: Kho vật tư chính hãng (Hà Nội, Lâm Đồng, Cần Thơ), tự động xuất kho từ chi nhánh gần nhất và thanh toán COD / VietQR.
 - **Bảng Quan sát Vết thực thi (Agent Observability)**: Xem Waterfall Trace Log minh bạch hóa quá trình Agent suy luận.
 - Hỗ trợ đa nền tảng: **Web Portal (React Vite)** và **Mobile App (Android Kotlin Jetpack Compose)**.
 - Đóng gói Docker Compose chạy mượt mà **100% Offline** khi báo cáo trước Hội đồng chấm thi.
