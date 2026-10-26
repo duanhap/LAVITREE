@@ -22,9 +22,10 @@ jobs:
             cp /home/ubuntu/.env.backup .env
           fi
           
-          # Build and restart updated services
-          docker compose build core-api web-portal
-          docker compose up -d --remove-orphans core-api web-portal
+          # Pull base images and build services
+          docker compose pull minio postgres || true
+          docker compose build core-api web-portal ai-service
+          docker compose up -d --remove-orphans
           
           # Clean up dangling docker images to protect EC2 disk
           docker image prune -f
