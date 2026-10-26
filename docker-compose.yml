@@ -73,20 +73,20 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # 6. Object Storage (MinIO S3-Compatible)
+  # 6. Object Storage (Bitnami MinIO S3-Compatible - Public & Free)
   minio:
-    image: quay.io/minio/minio:latest
+    image: bitnami/minio:latest
     container_name: lavitree-minio
     restart: always
-    command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: miniopassword123
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=miniopassword123
+      - MINIO_DEFAULT_BUCKETS=lavitree-diagnoses
     ports:
       - "9000:9000"       # S3 API cho Core API & AI Service gọi
       - "9001:9001"       # Web Dashboard quản trị xem ảnh
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
 
 volumes:
   postgres_data:
