@@ -30,9 +30,11 @@
 ---
 
 ## 3. TIÊU CHUẨN CÔNG NGHỆ & MÃ NGUỒN (CODE CONVENTIONS)
-- **Backend AI Service**: Python 3.10+, FastAPI, PyTorch, Torchvision, Pillow. Tuân thủ định dạng kiểu dữ liệu rõ ràng (Type hints với Pydantic v2).
+- **Backend AI Vision Service**: Python 3.10+, FastAPI, PyTorch, Torchvision, Pillow. Tuân thủ định dạng kiểu dữ liệu rõ ràng (Type hints với Pydantic v2).
+- **Backend Agent Service**: Python 3.10+, FastAPI, RAG Tri thức, SSE Streaming, Guardrails.
 - **Backend Core API**: .NET 8 Web API, C# Clean Architecture, CQRS (MediatR), Entity Framework Core.
 - **Frontend Web**: React 18, Vite, TypeScript, TailwindCSS / CSS Modules, Axios / React Query.
+- **Mobile App**: Android Native, **Kotlin**, **Jetpack Compose**, Material Design 3, CameraX (tích hợp khung ngắm 15–20cm), Retrofit 2, OkHttp, Coil (load ảnh & heatmap Grad-CAM), Coroutines/Flow. Tối ưu UX thao tác 1 tay ngoài đồng ruộng.
 - **Database**: PostgreSQL 15+ (chạy Docker), thiết kế chuẩn hóa 3NF, có script Migration và Seed Data rõ ràng.
 - **Quy chuẩn Git Commit Message**:
   - `feat: [Mã Task] Tên tính năng mới` (Ví dụ: `feat: [TASK-01] Xây dựng endpoint POST /predict`)
