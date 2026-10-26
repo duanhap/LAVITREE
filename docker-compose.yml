@@ -36,8 +36,13 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - AiService__BaseUrl=http://ai-service:8000
       - AgentService__BaseUrl=http://agent-service:8001
+      - Minio__Endpoint=minio:9000
+      - Minio__AccessKey=minioadmin
+      - Minio__SecretKey=miniopassword123
+      - Minio__BucketName=lavitree-diagnoses
     depends_on:
       - ai-service
+      - minio
 
   # 4. Web Frontend Portal & Admin Dashboard (React Vite)
   web-portal:
@@ -50,3 +55,22 @@ services:
       - "3000:80"
     depends_on:
       - core-api
+
+  # 5. Object Storage (MinIO S3-Compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: lavitree-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: miniopassword123
+    ports:
+      - "9000:9000"       # S3 API cho Core API & AI Service gọi
+      - "9001:9001"       # Web Dashboard quản trị xem ảnh
+    volumes:
+      - minio_data:/data
+
+volumes:
+  minio_data:
+
