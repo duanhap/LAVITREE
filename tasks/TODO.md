@@ -1,5 +1,5 @@
 # 📌 BẢNG THEO DÕI TIẾN ĐỘ DỰ ÁN (TASKS/TODO.MD)
-## Hệ thống Lavitree — Kế hoạch thực thi Sprint & Tasks
+## Hệ thống Lavitree — Kế hoạch thực thi 3 Sprint tối ưu cho Nhóm 2 Người
 
 > **Quy ước trạng thái**:
 > - `[ ]` **PENDING**: Chưa bắt đầu
@@ -9,46 +9,64 @@
 
 ---
 
-## 🚀 SPRINT 1: AI VISION SERVICE & TRI THỨC LÕI (TUẦN 1)
-*Mục tiêu: Đóng gói dịch vụ FastAPI chẩn đoán ảnh lá cây, trích xuất Grad-CAM và xuất dữ liệu Seed tri thức.*
+## 🚀 SPRINT 1: NỀN TẢNG HỆ THỐNG TOÀN TRÌNH (FULL-STACK PIPELINE)
+*Mục tiêu: Hoàn thành luồng kết nối cơ bản từ Chụp ảnh lá $\rightarrow$ Core API $\rightarrow$ AI Vision $\rightarrow$ MinIO & PostgreSQL $\rightarrow$ Trả kết quả.*
 
-- [ ] **TASK-01: Thiết lập cấu trúc dự án `backend/ai-service` (FastAPI) & Quản lý phụ thuộc**
+- [ ] **TASK-01: Thiết lập `backend/ai-service` (FastAPI) & Endpoint nhận diện ResNet-18**
+  - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: `main.py`, `requirements.txt`, Dockerfile, kiểm tra healthcheck `GET /health`.
-- [ ] **TASK-02: Endpoint `POST /api/v1/predict` nhận diện ảnh lá với ResNet18**
+  - Đầu ra: Nạp model `best_plant_model.pt`, tiền xử lý 224x224, trả về Top-1, Top-3, phân cấp Tier 1/2/3 và cảnh báo độ bất định ($T < 0.70$).
+- [ ] **TASK-02: Endpoint trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)**
+  - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Nạp model `best_plant_model.pt`, tiền xử lý ảnh 224x224, trả về Top-1, Top-3, phân cấp Tier 1/2/3 và cảnh báo độ bất định ($T < 0.70$).
-- [ ] **TASK-03: Endpoint trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)**
+  - Đầu ra: Trả về ảnh Heatmap phủ lên ảnh gốc để hiển thị vùng nghi vấn nấm bệnh trên giao diện.
+- [ ] **TASK-03: Khởi tạo PostgreSQL 10 bảng chuẩn hóa 3NF & Nạp Seed Data**
+  - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Tùy chọn trả về ảnh Heatmap phủ lên ảnh gốc để hiển thị vùng nghi vấn trên giao diện.
-- [ ] **TASK-04: Đóng gói Seed Data tri thức nông nghiệp cho Database**
+  - Đầu ra: Migration EF Core 10 bảng, nạp 38 lớp cây trồng và 112 nguồn tri thức từ `KnowledgeSources_rows.csv` & `Lavitree_Selected_Classes.csv`.
+- [ ] **TASK-04: Xây dựng Core API (.NET 8 Clean Architecture) & Tích hợp MinIO Storage**
+  - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: File SQL/JSON chứa 38 lớp cây trồng, triệu chứng và hướng dẫn xử lý & chăm sóc chuẩn IPM từ `Lavitree_Selected_Classes.csv`.
-
----
-
-## 🏛️ SPRINT 2: CORE API (.NET 8) & POSTGRESQL DATABASE (TUẦN 2)
-*Mục tiêu: Xây dựng cơ sở dữ liệu 10 bảng, API nghiệp vụ chẩn đoán, quản lý người dùng và giỏ hàng tiệm thuốc.*
-
-- [ ] **TASK-05: Khởi tạo PostgreSQL Database với 10 bảng chuẩn hóa 3NF trên Docker**
-  - Trạng thái: `[ ] PENDING`
-- [ ] **TASK-06: Xây dựng Core API (.NET 8 Clean Architecture) — Module Quản lý Tri thức bệnh**
-  - Trạng thái: `[ ] PENDING`
-- [ ] **TASK-07: Xây dựng Core API — Module Lịch sử Chẩn đoán (Diagnosis Records)**
-  - Trạng thái: `[ ] PENDING`
-- [ ] **TASK-08: Xây dựng Core API — Module Tiệm thuốc & Đơn hàng (Mini Store & Orders)**
-  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Cấu hình MinIO bucket `lavitree-diagnoses`, hoàn thiện endpoint toàn trình `POST /api/v1/diagnose` gọi AI Service và lưu bản ghi lịch sử.
 
 ---
 
-## 💻 SPRINT 3: GIAO DIỆN WEB / MOBILE & ĐÓNG GÓI DEMO OFFLINE (TUẦN 3)
-*Mục tiêu: Giao diện chụp ảnh có khung ngắm hướng dẫn, hiển thị Grad-CAM, kết nối end-to-end và chạy Docker 1 lệnh duy nhất.*
+## 🧠 SPRINT 2: TRỌNG TÂM TRÍ TUỆ NHÂN TẠO TÁC TỬ (AGRI-AGENT & MCP ECOSYSTEM)
+*Mục tiêu: Hiện thực hóa toàn diện nghiên cứu 27 DAY từ thư mục `extract/` vào `backend/agent-service` (FastAPI).*
 
-- [ ] **TASK-09: Xây dựng Frontend Web Portal (React 18 + Vite) — Chẩn đoán & Hướng dẫn xử lý IPM**
+- [ ] **TASK-05: Thiết lập `backend/agent-service` & Cấu trúc Model Context Protocol (MCP Server)**
+  - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-- [ ] **TASK-10: Xây dựng Admin Dashboard quản trị dịch tễ cây trồng**
+  - Đầu ra: Kiến trúc MCP Server công bố công cụ theo chuẩn JSON Schema, kết nối Core API.
+- [ ] **TASK-06: Triển khai 4 Công cụ MCP Nông nghiệp (`MCP Tools`)**
+  - Trách nhiệm: **Thành viên B** (phối hợp Thành viên A về DB/API)
   - Trạng thái: `[ ] PENDING`
-- [ ] **TASK-11: Cấu hình Docker Compose hợp nhất (Offline 100%)**
+  - Đầu ra: 4 công cụ hoạt động: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`.
+- [ ] **TASK-07: Xây dựng ReAct Loop & Chốt chặn An toàn (Boundary Guardrails - DAY 2, 3)**
+  - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-- [ ] **TASK-12: Kiểm thử tích hợp toàn hệ thống (E2E Integration Test) & Viết kịch bản Demo**
+  - Đầu ra: Chu trình `Thought → Action → Observation`, chốt chặn an toàn PHI $\le 3$ ngày sát ngày thu hoạch, Human-in-the-loop duyệt đơn mua thuốc, Graceful Degradation hạ cấp offline.
+- [ ] **TASK-08: Triển khai Streaming SSE & Waterfall Trace Logging (DAY 1, 3)**
+  - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Endpoint `POST /api/v1/agent/chat` truyền phát token thời gian thực và xuất file `trace_waterfall.json` phục vụ minh bạch hóa suy luận.
+
+---
+
+## 💻 SPRINT 3: TỐI ƯU GIAO DIỆN, QUAN SÁT (OBSERVABILITY) & DEMO OFFLINE
+*Mục tiêu: Giao diện Web/Mobile hoàn chỉnh, màn hình quan sát suy luận của Agent và đóng gói Docker chạy 100% Offline.*
+
+- [ ] **TASK-09: Xây dựng Frontend Web Portal (React 18 + Vite) — Khám lá & Tương tác Agent Streaming**
+  - Trách nhiệm: **Thành viên A**
+  - Trạng thái: `[ ] PENDING`
+- [ ] **TASK-10: Xây dựng Android Native App (Kotlin, Jetpack Compose, CameraX) — Chụp ảnh & Chat với Agent**
+  - Trách nhiệm: **Thành viên A**
+  - Trạng thái: `[ ] PENDING`
+- [ ] **TASK-11: Xây dựng Admin Dashboard quản trị dịch tễ & Màn hình Quan sát (Agent Observability Waterfall Chart)**
+  - Trách nhiệm: **Thành viên A & B**
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Trực quan hóa tiến trình suy luận của Agent cho hội đồng chấm thi xem trực tiếp.
+- [ ] **TASK-12: Cấu hình Docker Compose hợp nhất (Offline 100%) & Kịch bản Demo**
+  - Trách nhiệm: **Thành viên A & B**
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Hệ thống khởi động bằng 1 lệnh `docker compose up -d`, chạy mượt mà không cần mạng internet.

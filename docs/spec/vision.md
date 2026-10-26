@@ -5,8 +5,9 @@
 ---
 
 ### 1. 🎯 TUYÊN NGÔN SẢN PHẨM (ONE-LINER PITCH)
-**LAVITREE** là giải pháp nông nghiệp số giúp người trồng cây:  
-**Chụp ảnh lá $\rightarrow$ Nhận diện bệnh tức thì bằng AI $\rightarrow$ Xem vị trí đốm nấm qua ảnh nhiệt Grad-CAM $\rightarrow$ Nhận hướng dẫn xử lý chuẩn Khuyến nông (IPM) $\rightarrow$ Gợi ý vật tư phù hợp & Theo dõi phục hồi.**
+**LAVITREE** là hệ sinh thái nông nghiệp số tích hợp **2 Trụ cột Trí tuệ Nhân tạo đột phá**:  
+1. **Thị giác Máy tính có Giải thích (Computer Vision & XAI)**: Chụp ảnh lá $\rightarrow$ Nhận diện 38 lớp bệnh cây $\rightarrow$ Trực quan hóa vùng nấm bằng ảnh nhiệt Grad-CAM.  
+2. **Tác tử Khuyến Nông Tự hành (Autonomous Agri-Agent)**: ReAct Loop với MCP Tools (Thời tiết, Kho thuốc, Tri thức, Rà soát PHI) $\rightarrow$ Lập luận đa biến số sinh hướng dẫn xử lý cá nhân hóa $\rightarrow$ Gợi ý vật tư an toàn & Theo dõi phục hồi.
 
 ---
 
@@ -33,7 +34,9 @@
 - Nhận diện **38 phân lớp** trên **14 loài cây trồng** chủ lực (Cà chua, Khoai tây, Ngô, Táo, Nho, Ớt chuông, Cam...).
 - Trực quan hóa vùng tổn thương bằng **Grad-CAM (layer4[-1])**.
 - Cơ chế cảnh báo độ bất định khi điểm tin cậy $< 70\%$ hoặc rơi vào lớp bệnh Tier 2/3.
-- Cung cấp **Hướng dẫn xử lý theo từng cây – tình trạng bệnh chuẩn Khuyến nông & Quản lý dịch hại IPM** (Canh tác & cơ học $\rightarrow$ Hóa sinh/Sinh học khi phù hợp $\rightarrow$ Phục hồi & Dinh dưỡng) kèm **112 nguồn bài báo khoa học đối chứng**.
+- Cung cấp **Hướng dẫn xử lý chuẩn Khuyến nông & Quản lý dịch hại IPM** kèm **112 nguồn bài báo khoa học đối chứng**.
+- **Tác tử Khuyến Nông Tự hành (Autonomous Agri-Agent)**: ReAct Loop, 4 công cụ chuẩn MCP (Thời tiết, Kho thuốc, Tri thức bệnh, Rà soát an toàn PHI), Boundary Guardrails và Streaming SSE.
+- **Bảng Quan sát Vết thực thi (Agent Observability)**: Xem Waterfall Trace Log minh bạch hóa quá trình Agent suy luận.
 - Hỗ trợ đa nền tảng: **Web Portal (React Vite)** và **Mobile App (Android Kotlin Jetpack Compose)**.
 - Đóng gói Docker Compose chạy mượt mà **100% Offline** khi báo cáo trước Hội đồng chấm thi.
 

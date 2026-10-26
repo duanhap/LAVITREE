@@ -1,10 +1,20 @@
 # 🗺️ LỘ TRÌNH TỔNG THỂ DỰ ÁN (ROADMAP.MD)
-## Hệ thống Lavitree — 3 Sprints chuẩn bị nghiệm thu Đồ án
+## Hệ thống Lavitree — 3 Sprints chuẩn hóa cho Nhóm 2 Người
 
-> Nguyên tắc: Mỗi Sprint chỉ 1 dòng tóm tắt mục tiêu, thời hạn và tiêu chí chuyển tiếp.
+> **Nguyên tắc phân công**:
+> - **Thành viên A (System & Backend / Frontend)**: Phụ trách Core API .NET 8, PostgreSQL, MinIO, Docker Compose, Web/Mobile UI.
+> - **Thành viên B (AI Vision & Autonomous Agent)**: Phụ trách AI Vision Service (ResNet-18 + Grad-CAM), Agri-Agent Service (ReAct + MCP Tools).
 
 ---
 
-1. **Sprint 1 (Tuần 1)**: Đóng gói AI Vision Service (FastAPI) nhận diện 38 lớp, phân tích Grad-CAM, kiểm tra độ bất định $T < 0.70$ và xuất dữ liệu Seed. $\rightarrow$ *Điều kiện xong: API test pass 100%, thời gian xử lý $< 1.5$s.*
-2. **Sprint 2 (Tuần 2)**: Xây dựng Core API (.NET 8 Clean Architecture) + PostgreSQL 10 bảng (Tri thức bệnh, Lịch sử chẩn đoán, Giỏ hàng tiệm thuốc). $\rightarrow$ *Điều kiện xong: Chạy Migration thành công, CRUD API test pass qua Swagger/Postman.*
-3. **Sprint 3 (Tuần 3)**: Hoàn thiện Web Portal (React 18), Admin Dashboard và đóng gói `docker-compose.yml` chạy offline 100%. $\rightarrow$ *Điều kiện xong: Demo toàn trình từ chụp ảnh lá $\rightarrow$ ra Grad-CAM $\rightarrow$ hướng dẫn xử lý IPM $\rightarrow$ gợi ý vật tư hoàn toàn mượt mà.*
+1. **Sprint 1: Nền tảng Hệ thống Toàn trình (Full-stack Pipeline)**
+   - *Mục tiêu*: Kết nối luồng chẩn đoán thị giác khép kín: Client $\rightarrow$ Core API (.NET 8) $\rightarrow$ AI Vision Service (ResNet-18 + Grad-CAM) $\rightarrow$ Lưu DB PostgreSQL & MinIO S3 $\rightarrow$ Trả kết quả kèm Hướng dẫn IPM.
+   - *Điều kiện chuyển tiếp (DoD)*: Bấm gửi ảnh lá thực tế $\rightarrow$ API trả kết quả Top-1/Top-3, ảnh Grad-CAM và các bước IPM trong $< 1.5$s; lưu trữ MinIO và DB thành công.
+
+2. **Sprint 2: Trọng tâm Trí tuệ Nhân tạo Tác tử (Autonomous Agri-Agent & MCP Ecosystem)**
+   - *Mục tiêu*: Hiện thực hóa kho tri thức nghiên cứu 27 DAY từ thư mục `extract/` vào `backend/agent-service` (FastAPI): Triển khai chu trình ReAct (`Thought → Action → Observation`), tích hợp 4 MCP Tools (Tri thức, Thời tiết, Kho thuốc, Rà soát PHI), chốt chặn an toàn Boundary Guardrails, Streaming SSE và Waterfall Trace Logging.
+   - *Điều kiện chuyển tiếp (DoD)*: Agent giải quyết thành công kịch bản ca bệnh phức tạp ngoài vườn: tự động kiểm tra thời tiết $\rightarrow$ tra thuốc phù hợp $\rightarrow$ chặn thuốc có PHI dài sát ngày thu hoạch $\rightarrow$ xuất file `trace_waterfall.json` giải trình minh bạch.
+
+3. **Sprint 3: Tối ưu Giao diện Web/Mobile, Quan sát (Observability) & Đóng gói Demo Offline**
+   - *Mục tiêu*: Hoàn thiện giao diện Web Portal (React 18) & Mobile App (Android Kotlin Jetpack Compose) hiển thị mượt mà cả kết quả Vision lẫn Streaming Agent; Bổ sung Màn hình Quan sát Trace Log trên Admin Dashboard; Đóng gói Docker Compose chạy 100% Offline sẵn sàng bảo vệ đồ án.
+   - *Điều kiện chuyển tiếp (DoD)*: Demo toàn trình thông suốt không cần kết nối mạng ngoài, kịch bản bảo vệ trước Hội đồng chạy trơn tru 100%.

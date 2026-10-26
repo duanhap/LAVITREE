@@ -174,22 +174,95 @@
 
 ---
 
-## 4. PHÂN HỆ 3: AGRI-AGENT SERVICE (`agent-service:8001`)
-*Trợ lý nông nghiệp tư vấn thông minh (kế thừa từ thư mục extract/)*
+## 4. PHÂN HỆ 3: TÁC TỬ NÔNG NGHIỆP THÔNG MINH (`agent-service:8001`)
+*Tác tử tự hành ReAct Loop kết nối công cụ MCP Tools (Kế thừa toàn diện nghiên cứu 27 DAY từ thư mục `extract/`)*
 
-### 4.1. `POST /api/v1/agent/chat` (Tư vấn hội thoại nông nghiệp)
-- **Request Body**:
+### 4.1. `POST /api/v1/agent/chat` (Hội thoại Tác tử Streaming SSE)
+- **Headers**: `Accept: text/event-stream`
+- **Request Body (`application/json`)**:
   ```json
   {
-    "message": "Thuốc Ridomil Gold pha thế nào cho bình 16 lít hả chuyên gia?",
-    "conversation_id": "conv-12345",
+    "message": "Vườn cà chua của tôi bị sương mai, 2 ngày nữa thu hoạch, chiều nay có mưa không và xử lý thế nào?",
+    "conversation_id": "conv-a1b2c3d4",
+    "location": "Hà Nam",
+    "harvest_days_left": 2,
     "current_disease_code": "Tomato___Late_blight"
   }
   ```
 
-- **Response Body (`200 OK` hoặc `text/event-stream` SSE Streaming)**:
+- **Streaming Response (`text/event-stream`)**:
+  ```text
+  event: trace_start
+  data: {"trace_id": "tr-987654", "status": "thinking"}
+
+  event: thought
+  data: {"step": 1, "thought": "Cần kiểm tra thời tiết tại Hà Nam chiều nay để xem có nguy cơ mưa rửa trôi không."}
+
+  event: action
+  data: {"step": 1, "tool": "check_weather_risk", "params": {"location": "Hà Nam", "forecast_hours": 12}}
+
+  event: observation
+  data: {"step": 1, "result": {"is_rain": true, "rainfall_mm": 20, "humidity": 92, "recommendation": "NGUY CƠ RỬA TRÔI"}}
+
+  event: thought
+  data: {"step": 2, "thought": "Trời chiều nay có mưa to. Cây thu hoạch sau 2 ngày -> vi phạm thời gian cách ly PHI của thuốc hóa học (7-14 ngày). Phải kích hoạt Boundary Guardrail chặn thuốc BVTV hóa học, tìm giải pháp cơ học & sinh học thay thế."}
+
+  event: delta
+  data: {"token": "Chào "}
+  event: delta
+  data: {"token": "bác! "}
+  event: delta
+  data: {"token": "Vì cà chua của bác chỉ còn 2 ngày nữa là thu hoạch..."}
+
+  event: final_answer
+  data: {
+    "trace_id": "tr-987654",
+    "answer": "Chào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể quét nước vôi trong hoặc dùng chế phẩm Nano Bạc hữu cơ cách ly 0 ngày sau cơn mưa.",
+    "draft_order": null,
+    "guardrail_triggered": "PHI_PROTECTION_LESS_THAN_3_DAYS",
+    "total_latency_ms": 1150
+  }
+  ```
+
+---
+
+### 4.2. `GET /api/v1/agent/trace/{trace_id}` (Quan sát Vết Thực thi - Agent Observability)
+*Phục vụ Màn hình Waterfall Chart trên Admin Dashboard và báo cáo hội đồng*
+- **Response Body (`200 OK`)**:
   ```json
   {
-    "reply": "Chào bác! Với bệnh mốc sương trên cà chua, bác dùng gói Ridomil Gold 68WP (100g) pha cho 2 bình 16 lít (tức 50g/bình). Phun ướt đều cả 2 mặt lá vào sáng sớm khi sương vừa tan. Nhớ tuân thủ thời gian cách ly 7 ngày trước khi thu hoạch bác nhé!"
+    "trace_id": "tr-987654",
+    "timestamp": "2026-10-26T14:35:10Z",
+    "total_duration_ms": 1150,
+    "total_tokens": 420,
+    "steps": [
+      {
+        "step_order": 1,
+        "type": "thought",
+        "content": "Kiểm tra dự báo thời tiết tại Hà Nam",
+        "duration_ms": 120
+      },
+      {
+        "step_order": 2,
+        "type": "action",
+        "tool_name": "check_weather_risk",
+        "tool_input": {"location": "Hà Nam", "forecast_hours": 12},
+        "tool_output": {"is_rain": true, "rainfall_mm": 20},
+        "duration_ms": 280
+      },
+      {
+        "step_order": 3,
+        "type": "guardrail_check",
+        "guardrail_name": "verify_phi_safety",
+        "status": "BLOCKED_CHEMICAL_PESTICIDE",
+        "reason": "Harvest days (2) < Chemical PHI (7)",
+        "duration_ms": 40
+      },
+      {
+        "step_order": 4,
+        "type": "final_synthesis",
+        "duration_ms": 710
+      }
+    ]
   }
   ```

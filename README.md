@@ -26,10 +26,11 @@ LAVITREE/
 │   │   ├── requirements.txt
 │   │   └── Dockerfile
 │   │
-│   └── agent-service/     # [FastAPI + RAG] - Trợ lý Khuyến nông (Bonus)
+│   └── agent-service/     # [FastAPI + ReAct + MCP] - Tác tử Khuyến nông Tự hành (Strategic Pillar 2)
 │       ├── app/
-│       │   ├── agent/                    # prompts.py (An toàn PHI, chống bịa thuốc)
-│       │   └── rag/                      # knowledge_retriever.py
+│       │   ├── agent/                    # react_loop.py, prompts.py (Guardrails PHI, HITL)
+│       │   ├── mcp/                      # mcp_server.py (Weather, Store, Knowledge, PHI tools)
+│       │   └── observability/            # trace_logger.py (Waterfall Trace JSON)
 │       ├── requirements.txt
 │       └── Dockerfile
 │
