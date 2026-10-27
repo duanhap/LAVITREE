@@ -15,6 +15,9 @@
 | `2026-10-27 00:30` | `AUDIT-01` | Rà soát & Đồng bộ 100% Sprint 1 với Mã nguồn thực tế theo phản biện | Developer & Antigravity Agent | Thêm `postgres` vào docker-compose, sửa 4 tickets & sprint-01.md, chốt SSOT api-contracts, copy 2 CSV vào repo seed |
 | `2026-10-27 00:58` | `DEVOPS-01` | Sửa lỗi 401 Unauthorized CI/CD khi pull MinIO trên EC2 | Developer & Antigravity Agent | Chuyển sang `bitnami/minio:latest` (tuy nhiên Docker Hub đã gỡ bỏ tag `:latest` của Bitnami) |
 | `2026-10-27 01:06` | `DEVOPS-02` | Khắc phục triệt để lỗi pull MinIO bằng `pgsty/silo:latest` | Developer & Antigravity Agent | Đã chuyển sang `pgsty/silo:latest` (drop-in S3-compatible MinIO của Pigsty trên Docker Hub, public, không rate-limit, tương thích 100% command và env) |
-
+| `2026-10-27 12:10` | `DOCS-02` | Hoàn thiện báo cáo tiến độ chi tiết ngày 26/10/2026 | Developer & Antigravity Agent | Đã tạo `doc/process/2026-10-26.md` ghi nhận 10 commit về kiến trúc, Docker Offline và Sprint 1 |
+| `2026-10-27 21:40` | `OOD-01` | Tích hợp bộ lọc OOD đa tầng (Energy-based Score + Heuristic Vegetation Pre-check) vào Task 01 | Developer & Antigravity Agent | Cập nhật `task-01-setup-ai-service.md`, `sprint-01.md`, `TODO.md` và `api-contracts.md` giải quyết triệt để Softmax Overconfidence |
+| `2026-10-27 22:15` | `CONTRACT-02` | Khắc phục Contract Drift, chốt `api-contracts.md` làm SSOT duy nhất và hạ tông văn phong quảng cáo | Developer & Antigravity Agent | Xóa bỏ schema trùng lặp tại `task-01`, `task-02`, `task-04`; tiết chế buzzwords tại `vision.md`, `features.md`, `system-design.md` |
+| `2026-10-27 22:35` | `BIZ-01` | Làm rõ mô hình Bác sĩ Cây trồng kiêm Nhà thuốc Chuyên doanh Lavitree | Developer & Antigravity Agent | Cập nhật FEAT-04 trong `features.md` khẳng định vai trò Kỹ sư nông nghiệp quản lý hệ thống kiêm kiểm định xuất kho thuốc |
 
 
