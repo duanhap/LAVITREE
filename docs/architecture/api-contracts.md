@@ -49,6 +49,7 @@
       { "class_code": "Tomato___Early_blight", "confidence": 0.0315 },
       { "class_code": "Tomato___Septoria_leaf_spot", "confidence": 0.0102 }
     ],
+    "is_ood": false,
     "is_uncertain": false,
     "warning_message": "Lớp bệnh Tier 2 dễ bị ảnh hưởng bởi phông nền dã ngoại. Khuyến nghị chụp cận cảnh 15-20cm trên nền trơn.",
     "gradcam_base64": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...",

@@ -12,10 +12,10 @@
 ## 🚀 SPRINT 1: NỀN TẢNG HỆ THỐNG TOÀN TRÌNH (FULL-STACK PIPELINE)
 *Mục tiêu: Hoàn thành luồng kết nối cơ bản từ Chụp ảnh lá $\rightarrow$ Core API $\rightarrow$ AI Vision $\rightarrow$ MinIO & PostgreSQL $\rightarrow$ Trả kết quả.*
 
-- [ ] **TASK-01: Thiết lập `backend/ai-service` (FastAPI) & Endpoint nhận diện ResNet-18**
+- [ ] **TASK-01: Thiết lập `backend/ai-service` (FastAPI), Endpoint ResNet-18 & Bộ lọc OOD đa tầng**
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Nạp model `best_plant_model.pt`, tiền xử lý 224x224, trả về Top-1, Top-3, phân cấp Tier 1/2/3 và cảnh báo độ bất định ($T < 0.70$).
+  - Đầu ra: Nạp model `best_plant_model.pt`, tiền xử lý 224x224, trả về Top-1, Top-3, phân cấp Tier 1/2/3, bộ lọc OOD đa tầng (`ood_filter.py`: Tín hiệu màu thực vật sơ bộ + Energy-based OOD Score trên logits) và cảnh báo độ bất định ($T < 0.70$).
 - [ ] **TASK-02: Endpoint trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)**
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`

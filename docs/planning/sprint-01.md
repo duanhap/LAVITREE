@@ -19,10 +19,11 @@
 
 ### 3. 📋 DANH SÁCH TASKS CHI TIẾT SPRINT 1 (ĐỒNG BỘ MÃ NGUỒN HIỆN CÓ)
 
-- [ ] **TASK-01: Đồng bộ `backend/ai-service` (FastAPI) khớp chuẩn `api-contracts.md`** *(Owner: Thành viên B)*
-  - File tác động: `backend/ai-service/app/main.py`, `app/api/endpoints/predict.py`, `app/services/predictor.py`.
+- [ ] **TASK-01: Đồng bộ `backend/ai-service` (FastAPI), Endpoint dự đoán ResNet-18 & Bộ lọc OOD đa tầng** *(Owner: Thành viên B)*
+  - File tác động: `backend/ai-service/app/main.py`, `app/api/endpoints/predict.py`, `app/services/predictor.py`, `app/services/ood_filter.py`.
   - Dữ liệu nạp thêm: Copy `Lavitree_Selected_Classes.csv` vào `app/models/` để ánh xạ Tên tiếng Việt và Tier.
-  - Hợp đồng: Chuẩn hóa URL thành `POST /api/v1/predict`, kiểm tra file $\le 10$MB, trả về đúng định dạng JSON chuẩn (Top-1, Top-3, `tier`, `is_uncertain`, `warning_message`, `gradcam_base64`).
+  - Bộ lọc OOD đa tầng: Tích hợp `ood_filter.py` kết hợp tín hiệu sơ bộ màu thực vật (HSV/ExG, không coi là bằng chứng khẳng định) + Energy-based OOD Score trên logits (ngưỡng 95th percentile ID) để ngăn chặn hiện tượng Softmax Overconfidence trên ảnh bàn tay, mặt người, đồ vật ngoại lai.
+  - Hợp đồng: Chuẩn hóa URL thành `POST /api/v1/predict`, kiểm tra file $\le 10$MB, trả về đúng định dạng JSON chuẩn (Top-1, Top-3, `tier`, `is_ood`, `is_uncertain`, `warning_message`, `gradcam_base64`).
 - [ ] **TASK-02: Chuẩn hóa tham số và tối ưu hóa Grad-CAM (`layer4[-1]`)** *(Owner: Thành viên B)*
   - File tác động: `backend/ai-service/app/services/gradcam.py`, `predictor.py`.
   - Hợp đồng: Bổ sung tham số `include_heatmap: bool = True`. Tối ưu tốc độ sinh heatmap kết hợp ResNet-18 đạt $\le 1.0$s trên CPU.
@@ -39,8 +40,9 @@
 
 ### 4. 🛡️ TIÊU CHÍ NGHIỆM THU SPRINT (QUALITY GATES ĐÃ THỐNG NHẤT)
 
-1. **Gate 1 - AI Vision Latency & Accuracy**:
+1. **Gate 1 - AI Vision Latency, Accuracy & OOD Filtering**:
    - Thời gian suy luận ResNet-18 + sinh Grad-CAM Heatmap: **$\le 1.0$ giây trên CPU** (hoặc $< 0.3$ giây trên GPU).
+   - `is_ood` phát hiện và gắn cờ chính xác khi đưa ảnh bàn tay / đồ vật ngoại lai vào hệ thống (thông qua Energy-based OOD Score).
    - `is_uncertain` đánh giá đúng ngưỡng tin cậy $< 0.70$; `tier` trả về đúng chuẩn `"TIER_1_APPROVED"`, `"TIER_2_CONDITIONAL"`, `"TIER_3_EXCLUDED"`.
 2. **Gate 2 - Storage & Persistence (100% Offline Ready)**:
    - PostgreSQL 15 chạy độc lập trong Docker container (Port 5432), có đủ 10 bảng dữ liệu.
