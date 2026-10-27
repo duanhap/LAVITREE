@@ -11,10 +11,10 @@
 - **Mô tả ngắn**: Rà soát và chỉnh sửa module `gradcam.py` và `predictor.py` hiện có trong `backend/ai-service`.
 - **Trọng tâm sửa đổi**:
   - Hỗ trợ tham số truy vấn `include_heatmap: bool = True` (nếu `false` thì bỏ qua bước sinh heatmap để tiết kiệm CPU khi chỉ cần kết quả text).
-  - Đổi tên trường trả về thành `gradcam_base64` khớp 100% với `docs/architecture/api-contracts.md` (Mục 2.1).
+  - Đổi tên trường trả về thành `gradcam_base64` tuân thủ [Mục 2.1 trong api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58).
   - Tối ưu hóa hàm phủ ảnh nhiệt (Jet colormap) lên ảnh gốc, đảm bảo tổng thời gian ResNet-18 + Grad-CAM đạt $\le 1.0$ giây trên CPU.
-- **Tài liệu tham chiếu chuẩn duy nhất**:
-  - Hợp đồng API: `docs/architecture/api-contracts.md` (Mục 2.1)
+- **Tài liệu tham chiếu chuẩn duy nhất (SSOT)**:
+  - Hợp đồng API: [docs/architecture/api-contracts.md Mục 2.1](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58)
 
 ---
 
@@ -24,7 +24,7 @@
   - `Chỉnh sửa`: `backend/ai-service/app/services/predictor.py`
   - `Chỉnh sửa`: `backend/ai-service/app/api/endpoints/predict.py` (tiếp nhận query param `include_heatmap`)
 - **Hợp đồng dữ liệu (API Contract SSOT)**:
-  - Khớp 100% với trường `gradcam_base64` tại **Mục 2.1 trong `docs/architecture/api-contracts.md`**.
+  - Cấu trúc trường `gradcam_base64` tuân thủ duy nhất theo [Mục 2.1 trong docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58).
 
 ---
 

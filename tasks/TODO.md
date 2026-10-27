@@ -53,8 +53,8 @@
 
 ---
 
-## 💻 SPRINT 3: TỐI ƯU GIAO DIỆN, QUAN SÁT (OBSERVABILITY) & DEMO OFFLINE
-*Mục tiêu: Giao diện Web/Mobile hoàn chỉnh, màn hình quan sát suy luận của Agent và đóng gói Docker chạy 100% Offline.*
+## 💻 SPRINT 3: TỐI ƯU GIAO DIỆN, QUAN SÁT (OBSERVABILITY) & DEMO NGOẠI TUYẾN
+*Mục tiêu: Giao diện Web/Mobile hoàn chỉnh, màn hình quan sát suy luận của Agent và đóng gói Docker chạy cục bộ ngoại tuyến (Local Container Deployment).*
 
 - [ ] **TASK-09: Xây dựng Frontend Web Portal (React 18 + Vite) — Khám lá & Tương tác Agent Streaming**
   - Trách nhiệm: **Thành viên A**
@@ -66,7 +66,7 @@
   - Trách nhiệm: **Thành viên A & B**
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Trực quan hóa tiến trình suy luận của Agent cho hội đồng chấm thi xem trực tiếp.
-- [ ] **TASK-12: Cấu hình Docker Compose hợp nhất (Offline 100%) & Kịch bản Demo**
+- [ ] **TASK-12: Cấu hình Docker Compose hợp nhất (Local/Offline Container) & Kịch bản Demo**
   - Trách nhiệm: **Thành viên A & B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Hệ thống khởi động bằng 1 lệnh `docker compose up -d`, chạy mượt mà không cần mạng internet.
+  - Đầu ra: Hệ thống khởi động bằng 1 lệnh `docker compose up -d`, vận hành ổn định trong môi trường không có kết nối internet.

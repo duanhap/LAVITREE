@@ -1,10 +1,12 @@
 # 🚀 KẾ HOẠCH SPRINT 1: NỀN TẢNG HỆ THỐNG TOÀN TRÌNH (FULL-STACK PIPELINE)
-## Thời gian dự kiến: Tuần 1 — Nhóm 2 Người (Đã rà soát & Đồng bộ 100% với Code)
+## Thời gian dự kiến: Tuần 1 — Kế hoạch thực thi cho Nhóm 2 Người
 
 ---
 
 ### 1. 🎯 MỤC TIÊU SPRINT (SPRINT GOAL)
-Đồng bộ và kết nối thông suốt luồng chẩn đoán thị giác khép kín từ lúc Client gửi ảnh lá $\rightarrow$ Core API (`Lavitree.Api`) tiếp nhận $\rightarrow$ Lưu ảnh gốc & Grad-CAM vào MinIO S3 $\rightarrow$ AI Vision Service (`ai-service`) phân tích ResNet-18 trả về Top-1/Top-3 kèm Grad-CAM Heatmap $\rightarrow$ PostgreSQL 10 bảng truy vấn và lưu kết quả $\rightarrow$ Trả về kết quả chẩn đoán kèm Hướng dẫn IPM chuẩn.
+Đồng bộ và kết nối luồng chẩn đoán khép kín: Client gửi ảnh lá $\rightarrow$ Core API (`Lavitree.Api`) tiếp nhận $\rightarrow$ Lưu ảnh gốc & Grad-CAM vào MinIO S3 $\rightarrow$ AI Vision Service (`ai-service`) phân tích ResNet-18 trả về Top-1/Top-3 kèm Grad-CAM Heatmap $\rightarrow$ PostgreSQL 10 bảng truy vấn và lưu kết quả $\rightarrow$ Trả về kết quả chẩn đoán kèm Hướng dẫn IPM chuẩn.
+
+> **Quy chuẩn Giao tiếp Dữ liệu (SSOT)**: Mọi định dạng Request và Response của các Endpoint trong Sprint 1 tuân thủ duy nhất theo [docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md). Các task chi tiết chỉ dẫn chiếu theo tài liệu này, không định nghĩa lại schema riêng.
 
 ---
 
@@ -13,7 +15,7 @@
 | Thành viên | Trách nhiệm chính (Owner) | Deliverables Sprint 1 |
 | :--- | :--- | :--- |
 | **Thành viên A (System & Backend)** | • Hạ tầng Docker: PostgreSQL 15 (port 5432) & MinIO (port 9000/9001)<br>• Cập nhật Database: Chạy `dotnet ef database update` từ các migration đã có<br>• Nạp dữ liệu Seed Data (38 lớp, 112 bài báo, TreatmentPlans, Products)<br>• Core API: Cài đặt MinIO Service và hoàn thiện `POST /api/v1/diagnose` | • `docker-compose.yml` có sẵn `postgres` và `minio`<br>• 10 bảng PostgreSQL có đủ dữ liệu Seed<br>• Core API kết nối MinIO và AI Service pass E2E |
-| **Thành viên B (AI Vision)** | • Đồng bộ `backend/ai-service` khớp 100% với `api-contracts.md`<br>• Nạp dữ liệu `Lavitree_Selected_Classes.csv` để trả về tên tiếng Việt & phân cấp Tier 1/2/3<br>• Chuẩn hóa endpoint `POST /api/v1/predict` (hỗ trợ `include_heatmap`, max 10MB)<br>• Tách bạch quy tắc `is_uncertain` (< 0.70) và `warning_message` (theo Tier) | • `backend/ai-service` chạy chuẩn RESTful<br>• Endpoint `POST /api/v1/predict` đạt latency $\le 1.0$s trên CPU<br>• Script kiểm thử `test_predict.py` pass 100% |
+| **Thành viên B (AI Vision)** | • Đồng bộ `backend/ai-service` khớp với `api-contracts.md`<br>• Nạp dữ liệu `Lavitree_Selected_Classes.csv` để trả về tên tiếng Việt & phân cấp Tier 1/2/3<br>• Chuẩn hóa endpoint `POST /api/v1/predict` (hỗ trợ `include_heatmap`, max 10MB)<br>• Tách bạch quy tắc `is_uncertain` (< 0.70) và `warning_message` (theo Tier) | • `backend/ai-service` chạy chuẩn RESTful<br>• Endpoint `POST /api/v1/predict` đạt latency $\le 1.0$s trên CPU<br>• Script kiểm thử `test_predict.py` pass 100% |
 
 ---
 

@@ -6,7 +6,9 @@
 
 ## 1. SƠ ĐỒ KIẾN TRÚC TỔNG THỂ (HIGH-LEVEL ARCHITECTURE)
 
-Hệ thống được thiết kế theo mô hình **Microservices định hướng miền (Domain-Driven Microservices)**, hỗ trợ vận hành **100% Offline qua Docker Compose**:
+Hệ thống được thiết kế theo mô hình **Microservices định hướng miền (Domain-Driven Microservices)**, hỗ trợ triển khai cục bộ (Local Container Deployment) qua Docker Compose phục vụ môi trường ngoại tuyến.
+
+> **Nguyên tắc Chuẩn hóa Dữ liệu (Single Source of Truth - SSOT)**: Toàn bộ cấu trúc JSON Request và Response giữa các phân hệ (Client $\leftrightarrow$ Core API $\leftrightarrow$ AI Vision & Agent) được quy định thống nhất và duy nhất tại [api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md). Các tài liệu khác chỉ đóng vai trò tham chiếu.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐

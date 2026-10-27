@@ -38,7 +38,7 @@
   - `Chỉnh sửa`: `backend/ai-service/app/api/endpoints/predict.py` (giới hạn 10MB, trả về 400 nếu lỗi, bổ sung trường `is_ood`)
   - `Thêm mới`: `backend/ai-service/test_predict.py` (kiểm thử tự động các ca In-Distribution, ảnh bàn tay/mặt bàn OOD)
 - **Hợp đồng dữ liệu (API Contract SSOT)**:
-  - Khớp 100% với định dạng JSON tại **Mục 2.1 trong `docs/architecture/api-contracts.md`**, bổ sung trường `is_ood: bool`.
+  - Cấu trúc Request/Response tuân thủ duy nhất theo [Mục 2.1 trong docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58). Không tự định nghĩa cấu trúc dữ liệu riêng lẻ.
 
 ---
 

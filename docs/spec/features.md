@@ -34,16 +34,16 @@
     - Mỗi nội dung hướng dẫn đều ghi rõ nguồn tham khảo chính thống và đường dẫn gốc (Cục Bảo vệ Thực vật `ppd.gov.vn`, Viện BVTV `vipp.org.vn`, Trung tâm Khuyến nông Quốc gia `khuyennongvn.gov.vn`, University Extensions) trích xuất từ 112 bản ghi `KnowledgeSources_rows.csv`.
     - Đội ngũ Kỹ sư Nông nghiệp Lavitree đóng vai trò **Hội đồng Thẩm định & Chọn lọc (Expert Curators)**, loại bỏ các hoạt chất cũ đã bị Bộ NN&PTNT cấm lưu hành.
 
-#### FEAT-04: Cửa hàng Vật tư Trực tiếp Lavitree Store (Direct-to-Farmer Retail)
-- **Mục tiêu**: Cung cấp thuốc BVTV và chế phẩm sinh học chính hãng, giao hàng nhanh chóng tận vườn.
+#### FEAT-04: Cửa hàng Cung ứng Vật tư Lavitree Store
+- **Mục tiêu**: Cung cấp thuốc BVTV và chế phẩm sinh học được cấp phép lưu hành, hỗ trợ giao hàng tận vườn.
 - **Mô hình vận hành**:
-  - Lavitree là **Chuỗi Chuyên doanh Vật tư Nông nghiệp & Nhà thuốc Cây trồng trực tiếp** (do kỹ sư nông nghiệp có chứng chỉ hành nghề phụ trách), không qua sàn trung gian để đảm bảo 100% thuốc thật, không bị trà trộn hàng giả.
-  - Tự động xuất kho từ **Chi nhánh / Kho Lavitree gần nhất** (Kho Hà Nội, Kho Lâm Đồng, Kho Cần Thơ) để giảm phí vận chuyển và giao hỏa tốc 24–48h.
-  - Hỗ trợ thanh toán an toàn: COD (nhận hàng kiểm tra mới trả tiền) hoặc chuyển khoản VietQR tự động.
+  - Lavitree tích hợp phân hệ **Cửa hàng Cung ứng Vật tư & Chế phẩm Nông nghiệp** trực tiếp từ các đơn vị phân phối chính thức, đảm bảo nguồn gốc xuất xứ rõ ràng.
+  - Tự động gợi ý xuất kho từ **Chi nhánh / Kho Lavitree gần nhất** (Kho Hà Nội, Kho Lâm Đồng, Kho Cần Thơ) để giảm chi phí vận chuyển.
+  - Hỗ trợ thanh toán: COD (nhận hàng kiểm tra thanh toán) hoặc chuyển khoản VietQR tự động.
 
 ---
 
-## 🧠 TRỤ CỘT 2: TÁC TỬ NÔNG NGHIỆP THÔNG MINH (AUTONOMOUS AGRI-AGENT & MCP TOOLS)
+## 🧠 TRỤ CỘT 2: TRỢ LÝ TÁC TỬ NÔNG NGHIỆP (AGRI-AGENT & MCP TOOLS)
 *Kế thừa trọn vẹn kết quả nghiên cứu 27 DAY từ thư mục `extract/`: ReAct Loop, MCP Protocol, Boundary Guardrails, Escalation & Observability*
 
 #### FEAT-05: Tác tử Khuyến Nông Đa Công Cụ & Chuyển Giao Bác Sĩ (ReAct & Seamless Handover)

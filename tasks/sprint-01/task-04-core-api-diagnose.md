@@ -10,23 +10,24 @@
 ## 1. BỐI CẢNH & MỤC TIÊU (CONTEXT & OBJECTIVES)
 - **Mô tả ngắn**: Rà soát và chỉnh sửa mã nguồn hiện có trong `backend/core-api/src/Lavitree.Api/Controllers/DiagnoseController.cs` và `Lavitree.Infrastructure/Services/AiVisionService.cs`.
 - **Trọng tâm sửa đổi**:
-  - Chuẩn hóa endpoint thành `POST /api/v1/diagnose` khớp 100% với `docs/architecture/api-contracts.md` (Mục 3.1). Nhận form field `image` (thay vì `file`), tùy chọn `userId` và `notes`.
+  - Chuẩn hóa endpoint thành `POST /api/v1/diagnose` tuân thủ [Mục 3.1 trong api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L62-L130). Nhận form field `image`, tùy chọn `userId` và `notes`.
   - Cài đặt thư viện `Minio` NuGet package để tải ảnh gốc và ảnh heatmap Grad-CAM lên bucket `lavitree-diagnoses`. Thiết lập bucket policy cho phép public-read.
   - Trả về URL ảnh MinIO có thể truy cập được từ trình duyệt/mobile client (dùng `Minio__PublicUrl=http://localhost:9000` thay vì tên host nội bộ Docker `minio:9000`).
   - Đảm bảo toàn bộ luồng chẩn đoán E2E hoàn thành trong **$\le 1.5$ giây**.
-- **Tài liệu tham chiếu chuẩn duy nhất**:
-  - Hợp đồng API: `docs/architecture/api-contracts.md` (Mục 3.1)
+- **Tài liệu tham chiếu chuẩn duy nhất (SSOT)**:
+  - Hợp đồng API: [docs/architecture/api-contracts.md Mục 3.1](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L62-L130)
 
 ---
 
 ## 2. ĐẶC TẢ KỸ THUẬT (SPECIFICATIONS)
 - **Danh sách file tác động**:
   - `Thêm mới`: `backend/core-api/src/Lavitree.Infrastructure/Services/MinioStorageService.cs`
-  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Infrastructure/Services/AiVisionService.cs` (gọi đúng `POST /api/v1/predict`)
+  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Infrastructure/Services/AiVisionService.cs` (gọi đúng `POST /api/v1/predict` của `ai-service`)
+  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Application/DTOs/DiagnosisDtos.cs` (cập nhật DTO `AiPredictionResponse` và `DiagnosisResultDto` khớp với `api-contracts.md`)
   - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Api/Controllers/DiagnoseController.cs` (đổi route thành `POST /api/v1/diagnose`, nhận trường `image`, gọi MinIO)
   - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Api/appsettings.json` (bổ sung cấu hình `Minio`)
 - **Hợp đồng dữ liệu (API Contract SSOT)**:
-  - Khớp 100% với cấu trúc JSON tại **Mục 3.1 trong `docs/architecture/api-contracts.md`**.
+  - Cấu trúc Request/Response tuân thủ duy nhất theo [Mục 3.1 trong docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L62-L130). Không tự định nghĩa cấu trúc dữ liệu riêng lẻ.
 
 ---
 
