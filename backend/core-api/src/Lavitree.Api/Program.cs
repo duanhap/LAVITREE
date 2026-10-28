@@ -79,4 +79,17 @@ app.UseCors("AllowAll");
 app.UseAuthorization();
 app.MapControllers();
 
+// 5. Automatic Database Seeding (Idempotent)
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<LavitreeDbContext>();
+    await LavitreeDbContextSeeder.SeedAsync(dbContext);
+}
+
+if (args.Contains("--seed-only"))
+{
+    Console.WriteLine("[App] Seeding completed in --seed-only mode. Exiting.");
+    return;
+}
+
 app.Run();
