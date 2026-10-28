@@ -1,7 +1,7 @@
 # TASK-01: ĐỒNG BỘ AI VISION SERVICE, ENDPOINT DỰ ĐOÁN RESNET-18 & BỘ LỌC OOD CƠ BẢN
 * **Sprint**: Sprint 1 (Full-stack Pipeline)
 * **Phân hệ**: `backend/ai-service` (FastAPI)
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[/] IN PROGRESS`
 * **Người phụ trách**: Thành viên B (AI Vision Specialist)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 
@@ -61,7 +61,7 @@
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
-- [ ] **Pha 0 (Day 1 - Unblock Teammate A)**: Tạo stub endpoint giả lập `POST /api/v1/predict` (hardcoded JSON đúng 100% `api-contracts.md`) để Thành viên A tích hợp và kiểm thử Core API E2E ngay trong ngày đầu tiên.
+- [x] **Pha 0 (Day 1 - Unblock Teammate A)**: Tạo stub endpoint giả lập `POST /api/v1/predict` (hardcoded JSON đúng 100% `api-contracts.md`) để Thành viên A tích hợp và kiểm thử Core API E2E ngay trong ngày đầu tiên.
 - [ ] **Pha 1**: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`), xây dựng dictionary ánh xạ `class_code` $\rightarrow$ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`; bỏ qua 2 lớp `HANDBOOK_ONLY`.
 - [ ] **Pha 2**: Viết module `ood_filter.py` gồm hàm tính Energy Score $S_{energy}(x)$ và hàm `calculate_vegetation_ratio`. Ngưỡng đọc từ `OOD_ENERGY_THRESHOLD`; chọn giá trị tạm bằng cách in Energy score của ~20 ảnh lá mẫu và ~10 ảnh vật thể tự chụp (không cần thống kê; ghi các con số vào mục 5 để Sprint 3 dùng tiếp).
 - [ ] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, gắn `confusion_group` và sinh `warning_message` theo 4 quy tắc kết hợp.
@@ -80,9 +80,9 @@
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Stub endpoint hoàn thành trong 30 phút đầu để Thành viên A bắt đầu TASK-04 song song.
+- [x] Stub endpoint hoàn thành trong 30 phút đầu để Thành viên A bắt đầu TASK-04 song song.
 - [ ] Module `ood_filter.py` chạy được trong `app/services/`, ngưỡng đọc từ `OOD_ENERGY_THRESHOLD` (thiếu biến thì tắt kiểm tra Energy và ghi log cảnh báo).
-- [ ] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
+- [x] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
 - [ ] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 (khi OOD: `top1: null`, `gradcam_base64: null`).
 - [ ] Kiểm tra nhanh OOD: ảnh bàn tay mẫu trong `test_predict.py` bị gắn `is_ood: true`; ảnh lá mẫu không bị chặn nhầm. *(Chỉ tiêu định lượng ≥ 80% / ≤ 5% thuộc Sprint 3.)*
 - [ ] Response không còn trường `tier`; có `confusion_group` đúng contract.
