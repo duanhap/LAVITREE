@@ -1,7 +1,7 @@
 # TASK-03: CẬP NHẬT CSDL & NẠP SEED DATA THEO NGUYÊN TẮC IDEMPOTENT (CHỐNG TRÙNG LẶP)
 * **Sprint**: Sprint 1 (Full-stack Pipeline)
 * **Phân hệ**: `backend/core-api` & `database`
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[x] DONE`
 * **Người phụ trách**: Thành viên A (System & Backend Lead)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 
@@ -41,7 +41,7 @@
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
-- [ ] **Pha 1**: Kiểm tra số lượng bản ghi hiện có bằng câu lệnh SQL:
+- [x] **Pha 1**: Kiểm tra số lượng bản ghi hiện có bằng câu lệnh SQL:
   ```sql
   SELECT 'plants', COUNT(*) FROM "PlantCategories"
   UNION ALL SELECT 'diseases', COUNT(*) FROM "Diseases"
@@ -49,20 +49,34 @@
   UNION ALL SELECT 'treatments', COUNT(*) FROM "TreatmentPlans"
   UNION ALL SELECT 'products', COUNT(*) FROM "Products";
   ```
-- [ ] **Pha 2**: Chạy lệnh `dotnet ef database update --project src/Lavitree.Infrastructure --startup-project src/Lavitree.Api` để đồng bộ cấu trúc 10 bảng (không tạo thêm migration mới).
-- [ ] **Pha 3**: Cài đặt class `LavitreeDbContextSeeder.cs` với logic kiểm tra tồn tại (Idempotent) trước khi chèn bản ghi.
-- [ ] **Pha 4**: Tích hợp gọi seeder trong `Program.cs` khi khởi động ứng dụng.
-- [ ] **Pha 5**: Chạy kiểm thử seeder 2 lần liên tiếp để xác nhận số lượng bản ghi không đổi.
+- [x] **Pha 2**: Chạy lệnh `dotnet ef database update --project src/Lavitree.Infrastructure --startup-project src/Lavitree.Api` để đồng bộ cấu trúc 10 bảng (không tạo thêm migration mới).
+- [x] **Pha 3**: Cài đặt class `LavitreeDbContextSeeder.cs` với logic kiểm tra tồn tại (Idempotent) trước khi chèn bản ghi.
+- [x] **Pha 4**: Tích hợp gọi seeder trong `Program.cs` khi khởi động ứng dụng.
+- [x] **Pha 5**: Chạy kiểm thử seeder 2 lần liên tiếp để xác nhận số lượng bản ghi không đổi.
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Bảng `PlantCategories` có đúng **14 loài cây**.
-- [ ] Bảng `Diseases` có đúng **40 lớp** (38 lớp nhận diện AI + 2 lớp cẩm nang canh tác `Orange___healthy` & `Squash___healthy` để không mồ côi 4 bài báo trong CSDL).
-- [ ] Bảng `KnowledgeSources` giữ nguyên **đúng 112 bản ghi** (tuyệt đối không bị nhân đôi lên 224).
-- [ ] Bảng `TreatmentPlans` và `Products` có dữ liệu mẫu của ca `Tomato___Late_blight` sẵn sàng cho `DiagnoseController` lưu `DiagnosisRecord`.
-- [ ] **Tiêu chí Idempotent**: Chạy lại lệnh seed lần thứ 2 $\rightarrow$ Số lượng bản ghi trong các bảng không thay đổi 100%.
-- [ ] Bằng chứng kiểm thử (Receipts):
+- [x] Bảng `PlantCategories` có đúng **14 loài cây**.
+- [x] Bảng `Diseases` có đúng **40 lớp** (38 lớp nhận diện AI + 2 lớp cẩm nang canh tác `Orange___healthy` & `Squash___healthy` để không mồ côi 4 bài báo trong CSDL).
+- [x] Bảng `KnowledgeSources` giữ nguyên **đúng 112 bản ghi** (tuyệt đối không bị nhân đôi lên 224).
+- [x] Bảng `TreatmentPlans` và `Products` có dữ liệu mẫu của ca `Tomato___Late_blight` sẵn sàng cho `DiagnoseController` lưu `DiagnosisRecord`.
+- [x] **Tiêu chí Idempotent**: Chạy lại lệnh seed lần thứ 2 $\rightarrow$ Số lượng bản ghi trong các bảng không thay đổi 100%.
+- [x] Bằng chứng kiểm thử (Receipts):
   ```bash
-  # Dán stdout kết quả kiểm tra SQL COUNT(*) sau 2 lần chạy seed
+  # RUN 1: dotnet run --project src/Lavitree.Api -- --seed-only
+  # RUN 2: dotnet run --project src/Lavitree.Api -- --seed-only
+  
+  # SQL Count Result after 2 consecutive runs:
+  # - plants: 14 bản ghi
+  # - diseases: 40 bản ghi
+  # - knowledge: 112 bản ghi (không bị nhân đôi)
+  # - treatments: 3 bản ghi (Tomato___Late_blight)
+  # - products: 3 bản ghi (Ridomil Gold, Antracol, Trichoderma)
+  # - disease_products: 3 bản ghi
   ```
+
+---
+
+## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
+- *2026-10-29 05:24*: Đã chạy nghiệm thu 2 lần liên tiếp. CSDL Supabase đạt tính Idempotent 100%, bảo toàn đúng 112 bài báo tri thức và sẵn sàng cho TASK-04.
