@@ -22,5 +22,8 @@
 | `2026-10-28 13:00` | `PLAN-02` | Quy hoạch toàn diện Sprint 2: Kế thừa 27 DAY từ `extract/`, Hybrid RAG, Guardrails & Phân bổ 2 người | Developer & Antigravity Agent | Tạo `docs/planning/sprint-02.md`, 4 task tickets (`task-05` đến `task-08`), cập nhật `TODO.md` phân bổ đều việc cho Thành viên A & B |
 | `2026-10-28 15:00` | `SYNC-01` | Đồng bộ toàn diện Sprint 1 & Sprint 2: Thông luồng mẫu Sprint 1 & Curation Ingestion Sprint 2 | Developer & Antigravity Agent | Cập nhật `task-03` (chỉ seed mẫu 1-2 ca), `task-06` (Human-in-the-loop Ingestion), `database-schema.md` (cột IsAllowed & IsolationDays trên Products), `sprint-01.md`, `TODO.md` |
 | `2026-10-28 15:30` | `AUDIT-03` | Rà soát CSDL Supabase thực tế, thiết kế Idempotent Seeder chống nhân đôi 112 bài & lỗi InitialCreate | Developer & Antigravity Agent | Đếm thực tế Supabase (112 KnowledgeSources, 0 Diseases/Plants), cập nhật `task-03` (chống nhân đôi dữ liệu), bổ sung Unique index trong `database-schema.md` |
+| `2026-10-28 16:35` | `SPEC-02` | Đặc tả Tác nhân (Actors), Ma trận phân quyền (RBAC) & Danh mục Ca sử dụng (Use Cases) chuẩn PTIT | Developer & Antigravity Agent | Tạo `docs/spec/roles-usecases.md`, cập nhật `docs/spec/README.md`, định hình 3 tác nhân con người (Khách, Nông dân, Admin kiêm Kỹ sư) và lộ trình xác thực |
+| `2026-10-28 16:40` | `SEC-01` | Tích hợp Bảo mật cơ sở & Đồng bộ Kế hoạch phân công 2 người vào Sprint 1 Tasks | Developer & Antigravity Agent | Cập nhật `TODO.md`, `task-01` (Pillow check, max pixels, ẩn `str(e)`, 10MB limit), `task-04` (`[AdminApiKeyAuth]` với `X-Admin-Key`, siết CORS domain, 10MB limit, dọn `appsettings.json`) |
+
 
 

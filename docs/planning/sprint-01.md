@@ -6,7 +6,7 @@
 ### 1. 🎯 MỤC TIÊU SPRINT (SPRINT GOAL)
 Đồng bộ và kết nối luồng chẩn đoán khép kín: Client gửi ảnh lá $\rightarrow$ Core API (`Lavitree.Api`) tiếp nhận $\rightarrow$ Lưu ảnh gốc & Grad-CAM vào MinIO S3 $\rightarrow$ AI Vision Service (`ai-service`) phân tích ResNet-18 trả về Top-1/Top-3 kèm Grad-CAM Heatmap $\rightarrow$ PostgreSQL 10 bảng truy vấn và lưu kết quả $\rightarrow$ Trả về kết quả chẩn đoán kèm Hướng dẫn IPM chuẩn.
 
-> **Quy chuẩn Giao tiếp Dữ liệu (SSOT)**: Mọi định dạng Request và Response của các Endpoint trong Sprint 1 tuân thủ duy nhất theo [docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md). Các task chi tiết chỉ dẫn chiếu theo tài liệu này, không định nghĩa lại schema riêng.
+> **Quy chuẩn Giao tiếp Dữ liệu (SSOT)**: Mọi định dạng Request và Response của các Endpoint trong Sprint 1 tuân thủ duy nhất theo [docs/architecture/api-contracts.md](../architecture/api-contracts.md). Các task chi tiết chỉ dẫn chiếu theo tài liệu này, không định nghĩa lại schema riêng.
 
 ---
 

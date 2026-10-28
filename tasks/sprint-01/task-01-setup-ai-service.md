@@ -22,7 +22,12 @@
       2. Nếu `is_ood = false` nhưng `vegetation_ratio < 5%` và `confidence < 0.70`: Bật cảnh báo bất định: *"Ảnh có tỷ lệ lá thấp và độ tin cậy chưa tối ưu, vui lòng căn chỉnh lá vào đúng khung ngắm."*
       3. Nếu `is_ood = false` và `confidence >= 0.70`: Chấp thuận kết quả dự đoán, áp dụng quy tắc cảnh báo theo Tier Policy.
   - Tách bạch: `is_ood` (theo Energy/Vegetation filter), `is_uncertain` (khi `confidence < 0.70` hoặc rơi vào Tier 2/3), và `warning_message` (theo Tier policy & OOD).
-  - Giới hạn kích thước ảnh tải lên tối đa **10MB**, trả về mã lỗi HTTP 400 nếu ảnh không đúng định dạng.
+  - **Bổ sung An toàn & Bảo mật AI Service (Security Hardening)**:
+    - *Kiểm tra dung lượng tệp*: Giới hạn kích thước ảnh tải lên tối đa **10MB**, từ chối ngay với HTTP 400 nếu vượt quá.
+    - *Xác thực ảnh bằng Pillow (Chống MIME spoofing)*: Sử dụng `PIL.Image.open()` và `verify()` trực tiếp trên luồng bytes thay vì chỉ tin cậy header `file.content_type` của client.
+    - *Chống tấn công Decompression Bomb*: Thiết lập `Image.MAX_IMAGE_PIXELS = 10_000_000` (10 Megapixels) để ngăn chặn ảnh nén độc hại làm cạn kiệt RAM server.
+    - *Ẩn thông tin lỗi nội bộ*: Thay thế `detail=str(e)` bằng logging server nội bộ và trả về thông báo lỗi thân thiện (`detail="Đã xảy ra lỗi trong quá trình xử lý hình ảnh. Vui lòng thử lại với ảnh khác."`), không để lộ đường dẫn file hay stack trace.
+
 - **Tài liệu tham chiếu chuẩn duy nhất**:
   - Hợp đồng API: `docs/architecture/api-contracts.md` (Mục 2.1)
   - Danh mục phân cấp: `docs/spec/classes-tier.md`
@@ -38,7 +43,7 @@
   - `Chỉnh sửa`: `backend/ai-service/app/api/endpoints/predict.py` (giới hạn 10MB, trả về 400 nếu lỗi, bổ sung trường `is_ood`)
   - `Thêm mới`: `backend/ai-service/test_predict.py` (kiểm thử tự động các ca In-Distribution, ảnh bàn tay/mặt bàn OOD)
 - **Hợp đồng dữ liệu (API Contract SSOT)**:
-  - Cấu trúc Request/Response tuân thủ duy nhất theo [Mục 2.1 trong docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58). Không tự định nghĩa cấu trúc dữ liệu riêng lẻ.
+  - Cấu trúc Request/Response tuân thủ duy nhất theo [Mục 2.1 trong docs/architecture/api-contracts.md](../../docs/architecture/api-contracts.md#L30-L58). Không tự định nghĩa cấu trúc dữ liệu riêng lẻ.
 
 ---
 
@@ -46,10 +51,14 @@
 - [ ] **Pha 1**: Sao chép `Lavitree_Selected_Classes.csv` vào `backend/ai-service/app/models/`.
 - [ ] **Pha 2**: Viết module `ood_filter.py` cài đặt hàm tính Energy Score $S_{energy}(x)$ và hàm tính tỷ lệ màu thực vật sơ bộ `calculate_vegetation_ratio`.
 - [ ] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, ánh xạ phân cấp Tier và sinh `warning_message`.
-- [ ] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`, kiểm tra `file.size <= 10 * 1024 * 1024`.
+- [ ] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`:
+  - Kiểm tra `len(contents) <= 10 * 1024 * 1024` (10MB).
+  - Xác thực ảnh bằng `PIL.Image.open()` và đặt `Image.MAX_IMAGE_PIXELS = 10_000_000`.
+  - Try/catch bắt lỗi và ẩn `str(e)`, ghi log nội bộ qua logging module.
 - [ ] **Pha 5**: Viết và chạy script `test_predict.py` kiểm thử:
   - 1 ảnh lá bệnh hợp lệ $\rightarrow$ `is_ood: false`, trả về bệnh chính xác.
   - 1 ảnh bàn tay / đồ vật ngoại lai $\rightarrow$ `is_ood: true` và cảnh báo từ chối.
+  - 1 file giả mạo định dạng (tệp text đổi tên thành .jpg) $\rightarrow$ trả về HTTP 400.
   - Thời gian phản hồi toàn trình $\le 1.0$s trên CPU.
 
 ---
@@ -59,7 +68,9 @@
 - [ ] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
 - [ ] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 kèm cờ `is_ood`.
 - [ ] Ảnh bàn tay/đồ vật không có lá bị phát hiện và gắn cờ `is_ood: true`.
+- [ ] Bảo mật: File > 10MB hoặc file giả mạo bị từ chối 400; lỗi ngoại lệ không lộ `str(e)`.
 - [ ] Tốc độ suy luận ResNet-18 + OOD Filter đạt $\le 1.0$ giây trên CPU.
+
 - [ ] Bằng chứng kiểm thử (Receipts):
   ```bash
   # Dán stdout kiểm thử curl / python test_predict.py tại đây khi nghiệm thu
