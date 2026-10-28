@@ -52,4 +52,4 @@
    - Ảnh lá gốc và ảnh heatmap Grad-CAM được lưu trên MinIO S3 (`http://localhost:9000/lavitree-diagnoses/...`).
 3. **Gate 3 - E2E Integration Pass**:
    - Gửi request `POST /api/v1/diagnose` với 1 ảnh lá thật $\rightarrow$ Nhận mã `200 OK` trong **$\le 1.5$ giây**.
-   - Dữ liệu trả về đầy đủ kết quả chẩn đoán, ảnh nhiệt, các bước IPM và sản phẩm gợi ý khớp 100% [api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md).
+   - Dữ liệu trả về đầy đủ kết quả chẩn đoán, ảnh nhiệt, các bước IPM và sản phẩm gợi ý khớp 100% [api-contracts.md](../architecture/api-contracts.md).
