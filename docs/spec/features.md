@@ -21,7 +21,7 @@
   - Nhận diện 38 phân lớp trên mô hình ResNet-18 trong thời gian $< 0.5$ giây.
   - Trả về Top-1 (kèm độ tin cậy) và Top-3 ứng viên.
   - Sinh bản đồ nhiệt **Grad-CAM (layer4[-1])** phủ màu Jet lên ảnh gốc, chỉ rõ vùng đốm bệnh kích hoạt mạng nơ-ron.
-  - **Cơ chế chống đoán bừa (Uncertainty Check)**: Nếu độ tin cậy $< 70\%$ hoặc thuộc lớp Tier 2/3, hệ thống tự động gắn nhãn cảnh báo nghi ngờ và khuyến nghị chụp lại.
+  - **Cơ chế chống đoán bừa (Uncertainty Check)**: Nếu độ tin cậy $< 70\%$, hệ thống gắn cờ `is_uncertain` và khuyến nghị chụp lại. Mỗi lớp có mẹo chụp riêng (`Capture_Tip`); các lớp dễ nhầm (Early blight ↔ Target spot) luôn hiện Top-3. Chi tiết: `docs/spec/classes.md`.
 
 #### FEAT-03: Hướng dẫn xử lý theo từng cây – tình trạng bệnh (Chuẩn Khuyến nông & IPM)
 - **Mục tiêu**: Cung cấp giải pháp xử lý linh hoạt, chuẩn phương pháp Quản lý dịch hại tổng hợp (IPM), tránh lạm dụng hóa chất.

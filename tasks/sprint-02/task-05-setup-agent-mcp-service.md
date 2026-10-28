@@ -14,8 +14,9 @@
   - **Áp dụng nguyên tắc "Chặn ghi" (Read-Only Enforcement)**: Toàn bộ 4 công cụ của Agent chỉ có quyền đọc (Read-only query), tuyệt đối không thiết kế các tool có khả năng tạo đơn hàng, thanh toán hoặc chỉnh sửa CSDL.
   - **Thay thế dữ liệu giả (Mock Dicts)**: Chuyển toàn bộ dữ liệu mock trong `DAY3` (`DISEASE_DATABASE`, `PESTICIDE_INVENTORY`, `WEATHER_LIVE_API`) thành các lời gọi REST API kết nối trực tiếp với `backend/core-api` (.NET 8) và dịch vụ thời tiết thật.
 - **Tài liệu tham chiếu chuẩn**:
-  - Hợp đồng API: [docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md) (Mục 4: Agent Service API)
-  - Kế hoạch Sprint 2: [docs/planning/sprint-02.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/planning/sprint-02.md)
+  - Hợp đồng API: [docs/architecture/api-contracts.md](../../docs/architecture/api-contracts.md) (Mục 4: Agent Service API)
+  - Kế hoạch Sprint 2: [docs/planning/sprint-02.md](../../docs/planning/sprint-02.md)
+
 
 ---
 

@@ -11,10 +11,10 @@
 - **Mô tả ngắn**: Rà soát và chỉnh sửa module `gradcam.py` và `predictor.py` hiện có trong `backend/ai-service`.
 - **Trọng tâm sửa đổi**:
   - Hỗ trợ tham số truy vấn `include_heatmap: bool = True` (nếu `false` thì bỏ qua bước sinh heatmap để tiết kiệm CPU khi chỉ cần kết quả text).
-  - Đổi tên trường trả về thành `gradcam_base64` tuân thủ [Mục 2.1 trong api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58).
+  - Đổi tên trường trả về thành `gradcam_base64` tuân thủ [Mục 2.1 trong api-contracts.md](../../docs/architecture/api-contracts.md#L30-L58).
   - Tối ưu hóa hàm phủ ảnh nhiệt (Jet colormap) lên ảnh gốc, đảm bảo tổng thời gian ResNet-18 + Grad-CAM đạt $\le 1.0$ giây trên CPU.
 - **Tài liệu tham chiếu chuẩn duy nhất (SSOT)**:
-  - Hợp đồng API: [docs/architecture/api-contracts.md Mục 2.1](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58)
+  - Hợp đồng API: [docs/architecture/api-contracts.md Mục 2.1](../../docs/architecture/api-contracts.md#L30-L58)
 
 ---
 
@@ -24,14 +24,16 @@
   - `Chỉnh sửa`: `backend/ai-service/app/services/predictor.py`
   - `Chỉnh sửa`: `backend/ai-service/app/api/endpoints/predict.py` (tiếp nhận query param `include_heatmap`)
 - **Hợp đồng dữ liệu (API Contract SSOT)**:
-  - Cấu trúc trường `gradcam_base64` tuân thủ duy nhất theo [Mục 2.1 trong docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md#L30-L58).
+  - Cấu trúc trường `gradcam_base64` tuân thủ duy nhất theo [Mục 2.1 trong docs/architecture/api-contracts.md](../../docs/architecture/api-contracts.md#L30-L58).
 
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 - [ ] **Pha 1**: Cập nhật hàm `predict()` trong `predictor.py` nhận cờ `include_heatmap: bool = True`. Nếu `False`, gán `gradcam_base64 = null`.
 - [ ] **Pha 2**: Tinh chỉnh `gradcam.py` để xử lý mượt mà trên bộ nhớ RAM (không ghi file tạm ra đĩa cứng), trả về chuỗi Base64 chuẩn `data:image/jpeg;base64,...` hoặc chuỗi Base64 raw.
+  - *Mẹo tối ưu hiệu năng (Single-pass inference)*: Khi `include_heatmap = True`, gộp bước dự đoán và trích xuất gradient thành 1 lượt forward pass duy nhất (bật gradient hook trên `layer4[-1]`), thay vì chạy model 2 lần riêng biệt. Điều này giúp cắt giảm ~45% thời gian suy luận trên CPU.
 - [ ] **Pha 3**: Kiểm tra benchmark độ trễ khi bật heatmap vs khi tắt heatmap.
+
 
 ---
 

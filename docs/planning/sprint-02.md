@@ -8,7 +8,7 @@
 Xây dựng phân hệ Trợ lý Tác tử Nông nghiệp Thông minh (**Lavitree Agri-Agent**) độc lập dựa trên kiến trúc **ReAct Loop** (`Thought → Action → Observation → Final Answer`) kết nối hệ sinh thái **Model Context Protocol (MCP)**. Tác tử giải quyết các ca bệnh thực tế ngoài vườn thông qua việc tích hợp đa nguồn: Tra cứu tri thức chuẩn khuyến nông (Hybrid RAG trên 112 tài liệu), kiểm tra thời tiết thời gian thực, đối soát kho thuốc BVTV, chốt chặn an toàn thời gian cách ly (PHI $\le 3$ ngày) và tự phục hồi/hạ cấp ngoại tuyến khi rớt mạng.
 
 > **Quy chuẩn Giao tiếp & Ranh giới Nghiệp vụ (SSOT & Safety Boundaries)**:
-> 1. **Hợp đồng API chuẩn**: Toàn bộ endpoint của `agent-service` tuân thủ Mục 4 trong [docs/architecture/api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md).
+> 1. **Hợp đồng API chuẩn**: Toàn bộ endpoint của `agent-service` tuân thủ Mục 4 trong [docs/architecture/api-contracts.md](../architecture/api-contracts.md).
 > 2. **Nguyên tắc "Chặn ghi" (Read-only Agent - DAY4)**: Agent chỉ được cấp quyền đọc dữ liệu, tuyệt đối không được cấp tool tự động tạo đơn mua hàng hay thay đổi database.
 > 3. **Nhãn khuyến nghị bản thảo (HITL - DAY11, DAY27)**: Mọi đơn thuốc đề xuất phải gắn nhãn `[DRAFT_RECOMMENDATION]` để Bác sĩ Cây trồng hoặc Nông dân chủ động duyệt.
 > 4. **Khả năng tự phục hồi (Resilience - DAY25, DAY27)**: Khi LLM hoặc API thời tiết lỗi/mất mạng, Circuit Breaker kích hoạt Router hạ cấp ngoại tuyến, trả về phác đồ tĩnh IPM từ CSDL Supabase/PostgreSQL.

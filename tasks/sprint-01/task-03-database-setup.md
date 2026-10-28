@@ -1,4 +1,4 @@
-# TASK-03: KHỞI TẠO POSTGRESQL 15 CONTAINER & NẠP ĐẦY ĐỦ SEED DATA
+# TASK-03: CẬP NHẬT CSDL & NẠP SEED DATA THEO NGUYÊN TẮC IDEMPOTENT (CHỐNG TRÙNG LẶP)
 * **Sprint**: Sprint 1 (Full-stack Pipeline)
 * **Phân hệ**: `backend/core-api` & `database`
 * **Trạng thái**: `[ ] PENDING`
@@ -8,16 +8,20 @@
 ---
 
 ## 1. BỐI CẢNH & MỤC TIÊU (CONTEXT & OBJECTIVES)
-- **Mô tả ngắn**: Cập nhật cấu trúc 10 bảng dữ liệu trên Supabase Cloud (hoặc PostgreSQL cục bộ) bằng 5 migrations có sẵn trong `Lavitree.Infrastructure/Migrations/`. Nạp dữ liệu danh mục cốt lõi và **1–2 bản ghi mẫu đại diện** cho phác đồ IPM & thuốc BVTV nhằm thông luồng kỹ thuật cho endpoint `POST /api/v1/diagnose` ở Gate 3.
-- **Trọng tâm sửa đổi & thực thi (Đơn giản hóa, không làm quá tải)**:
-  - Sử dụng lệnh `dotnet ef database update` để sinh cấu trúc 10 bảng (đã có sẵn 5 migrations trong repo).
-  - Nạp 14 loài cây mục tiêu (`PlantCategories`) và 38 lớp (`Diseases`) từ `Lavitree_Selected_Classes.csv`.
-  - Nạp 112 bài báo tri thức kiểm chứng vào bảng `KnowledgeSources` từ `KnowledgeSources_rows.csv`.
-  - **Về phác đồ điều trị (`TreatmentPlans`) và kho thuốc (`Products`)**:
-    - **Trong Sprint 1 chỉ cần nạp 1–2 ca bệnh mẫu đại diện** (ví dụ: ca *Mốc sương cà chua* `Tomato___Late_blight` với 3 bước IPM và 2 loại thuốc mẫu: Ridomil Gold, Chế phẩm sinh học Trichoderma).
-    - **Tuyệt đối không yêu cầu soạn tay toàn bộ 38 lớp ở Sprint 1**: Toàn bộ dữ liệu tri thức đầy đủ sẽ được nạp thông qua cơ chế *Human-in-the-loop AI Ingestion* (AI trích xuất từ bài viết $\rightarrow$ Bác sĩ kiểm duyệt $\rightarrow$ Lưu kép DB & Vector DB) ở Sprint 2 & 3.
-- **Tài liệu tham chiếu chuẩn duy nhất**:
-  - Thiết kế database: `docs/architecture/database-schema.md` (10 bảng chuẩn hóa 3NF)
+- **Hiện trạng kiểm tra thực tế trên Supabase Cloud**:
+  - `KnowledgeSources`: Đã có sẵn **đúng 112 bản ghi** (từ lượt import trước).
+  - `PlantCategories`: Đang có **0 bản ghi**.
+  - `Diseases`: Đang có **0 bản ghi**.
+  - `TreatmentPlans` & `Products`: Đang có **0 bản ghi**.
+  - Đã có 5 file migrations trong `Migrations/` (khởi tạo từ 10/10/2026).
+- **Các nguy cơ kỹ thuật chí mạng cần ngăn chặn**:
+  1. *Nguy cơ nhân đôi dữ liệu (112 $\rightarrow$ 224)*: Bảng `KnowledgeSources` không có ràng buộc Unique theo URL. Nếu script seed tự sinh `Guid.NewGuid()` và `INSERT` vô điều kiện, bảng sẽ bị nhân đôi thành 224 bài mà không hề báo lỗi.
+  2. *Nguy cơ trùng lặp loài cây*: Bảng `PlantCategories` không có ràng buộc Unique theo tên, chạy lặp sẽ tạo 28 loài cây.
+  3. *Nguy cơ lỗi migration*: Tuyệt đối **KHÔNG chạy lệnh `dotnet ef migrations add InitialCreate`** vì migration này đã có sẵn. Chỉ chạy `dotnet ef database update`.
+  4. *Lỗ hổng Pass giả mạo trong `DiagnoseController.cs`*: Code API hiện tại chỉ lưu `DiagnosisRecord` khi tìm thấy `Disease` trong DB (`if (disease != null)`). Nếu bảng `Diseases` trống, API trả 200 OK nhưng không lưu bản ghi và IPM bị rỗng.
+- **Nguyên tắc cốt lõi: Idempotent Seeding (Kế thừa bài học DAY10)**:
+  - Script nạp dữ liệu phải đạt tính chất **Idempotent** (*chạy 1 lần hay chạy 10 lần liên tiếp thì kết quả trong DB vẫn giữ nguyên, không bao giờ bị nhân đôi*).
+  - Dùng an toàn cho cả Supabase Cloud lẫn Docker Postgres cục bộ.
 
 ---
 
@@ -26,30 +30,39 @@
   - `Thư mục seed`: `backend/core-api/seed/` chứa:
     - `Lavitree_Selected_Classes.csv` (38 lớp cây trồng)
     - `KnowledgeSources_rows.csv` (112 bài báo tri thức kiểm chứng)
-    - `sample_treatment_seed.json` (Dữ liệu mẫu đại diện 1-2 ca bệnh để thông luồng Sprint 1)
-  - `Chỉnh sửa`: `backend/core-api/src/Lavitree.Infrastructure/Persistence/LavitreeDbContextSeeder.cs` (nạp dữ liệu ban đầu)
+    - `sample_treatment_seed.json` (Dữ liệu mẫu 1-2 ca bệnh để thông luồng Sprint 1)
+  - `Thêm mới / Chỉnh sửa`: `backend/core-api/src/Lavitree.Infrastructure/Persistence/LavitreeDbContextSeeder.cs`
+- **Quy tắc Logic trong Seeder (Idempotent Rules)**:
+  - `KnowledgeSources`: Kiểm tra `if (await context.KnowledgeSources.AnyAsync())` $\rightarrow$ Đã có 112 bản ghi thì **bỏ qua hoàn toàn**, không nạp lại. Nếu CSDL hoàn toàn trống (chạy Postgres local ban đầu), khi nạp bắt buộc phải **giữ nguyên giá trị `Id` (GUID) có sẵn trong file CSV**, tuyệt đối không tự sinh `Guid.NewGuid()` mới để đảm bảo tính nhất quán dữ liệu giữa các môi trường.
+  - `PlantCategories`: Kiểm tra theo `Name` $\rightarrow$ Nếu chưa có thì mới thêm (14 loài cây).
+  - `Diseases`: Kiểm tra theo `ClassCode` $\rightarrow$ Nếu chưa có thì mới thêm (40 lớp từ CSV: gồm 38 lớp nhận diện AI + 2 lớp cẩm nang canh tác `Orange___healthy` & `Squash___healthy` để khớp 100% với `KnowledgeSources`).
+  - `TreatmentPlans` & `Products`: Nạp ca mẫu đại diện `Tomato___Late_blight` (kèm thuốc Ridomil Gold, Trichoderma) để phục vụ thông luồng `DiagnoseController`.
 
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
-- [ ] **Pha 1**: Cấu hình chuỗi kết nối tới Supabase Cloud (hoặc container Postgres cục bộ nếu chạy offline).
-- [ ] **Pha 2**: Chạy lệnh `dotnet ef database update --project src/Lavitree.Infrastructure --startup-project src/Lavitree.Api` để cập nhật schema 10 bảng.
-- [ ] **Pha 3**: Nạp 38 lớp `Diseases`, 112 bản ghi `KnowledgeSources` và 1–2 ca mẫu `TreatmentPlans` & `Products`.
-- [ ] **Pha 4**: Kiểm tra số lượng bản ghi bằng SQL query.
+- [ ] **Pha 1**: Kiểm tra số lượng bản ghi hiện có bằng câu lệnh SQL:
+  ```sql
+  SELECT 'plants', COUNT(*) FROM "PlantCategories"
+  UNION ALL SELECT 'diseases', COUNT(*) FROM "Diseases"
+  UNION ALL SELECT 'knowledge', COUNT(*) FROM "KnowledgeSources"
+  UNION ALL SELECT 'treatments', COUNT(*) FROM "TreatmentPlans"
+  UNION ALL SELECT 'products', COUNT(*) FROM "Products";
+  ```
+- [ ] **Pha 2**: Chạy lệnh `dotnet ef database update --project src/Lavitree.Infrastructure --startup-project src/Lavitree.Api` để đồng bộ cấu trúc 10 bảng (không tạo thêm migration mới).
+- [ ] **Pha 3**: Cài đặt class `LavitreeDbContextSeeder.cs` với logic kiểm tra tồn tại (Idempotent) trước khi chèn bản ghi.
+- [ ] **Pha 4**: Tích hợp gọi seeder trong `Program.cs` khi khởi động ứng dụng.
+- [ ] **Pha 5**: Chạy kiểm thử seeder 2 lần liên tiếp để xác nhận số lượng bản ghi không đổi.
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Áp dụng đủ 5 migrations thành công không có lỗi, 10 bảng được tạo đầy đủ trên CSDL.
-- [ ] Truy vấn SQL `SELECT COUNT(*) FROM "Diseases"` trả về đủ 38 bản ghi.
-- [ ] Truy vấn SQL `SELECT COUNT(*) FROM "KnowledgeSources"` trả về đủ 112 bản ghi.
-- [ ] Bảng `TreatmentPlans` và `Products` có sẵn dữ liệu mẫu của ca `Tomato___Late_blight` sẵn sàng cho endpoint `POST /api/v1/diagnose` trả về kết quả 200 OK.
+- [ ] Bảng `PlantCategories` có đúng **14 loài cây**.
+- [ ] Bảng `Diseases` có đúng **40 lớp** (38 lớp nhận diện AI + 2 lớp cẩm nang canh tác `Orange___healthy` & `Squash___healthy` để không mồ côi 4 bài báo trong CSDL).
+- [ ] Bảng `KnowledgeSources` giữ nguyên **đúng 112 bản ghi** (tuyệt đối không bị nhân đôi lên 224).
+- [ ] Bảng `TreatmentPlans` và `Products` có dữ liệu mẫu của ca `Tomato___Late_blight` sẵn sàng cho `DiagnoseController` lưu `DiagnosisRecord`.
+- [ ] **Tiêu chí Idempotent**: Chạy lại lệnh seed lần thứ 2 $\rightarrow$ Số lượng bản ghi trong các bảng không thay đổi 100%.
 - [ ] Bằng chứng kiểm thử (Receipts):
   ```bash
-  # Dán stdout kiểm thử SQL query tại đây khi nghiệm thu
+  # Dán stdout kết quả kiểm tra SQL COUNT(*) sau 2 lần chạy seed
   ```
-
----
-
-## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
-- *Ghi nhận sau khi hoàn thành task.*

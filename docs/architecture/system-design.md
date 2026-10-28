@@ -8,7 +8,7 @@
 
 Hệ thống được thiết kế theo mô hình **Microservices định hướng miền (Domain-Driven Microservices)**, hỗ trợ triển khai cục bộ (Local Container Deployment) qua Docker Compose phục vụ môi trường ngoại tuyến.
 
-> **Nguyên tắc Chuẩn hóa Dữ liệu (Single Source of Truth - SSOT)**: Toàn bộ cấu trúc JSON Request và Response giữa các phân hệ (Client $\leftrightarrow$ Core API $\leftrightarrow$ AI Vision & Agent) được quy định thống nhất và duy nhất tại [api-contracts.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/api-contracts.md). Các tài liệu khác chỉ đóng vai trò tham chiếu.
+> **Nguyên tắc Chuẩn hóa Dữ liệu (Single Source of Truth - SSOT)**: Toàn bộ cấu trúc JSON Request và Response giữa các phân hệ (Client $\leftrightarrow$ Core API $\leftrightarrow$ AI Vision & Agent) được quy định thống nhất và duy nhất tại [api-contracts.md](api-contracts.md). Các tài liệu khác chỉ đóng vai trò tham chiếu.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -38,7 +38,7 @@ HTTP / Internal         HTTP / Internal                  S3 API / Internal
 │ (FastAPI:8000)   │ │ - Vòng lặp ReAct (Thought-Action-Obs)     │ │ (Port 9000/9001)│
 │ - ResNet-18      │ │ - MCP Server Tools (Weather, Store, PHI)  │ │ - Bucket:       │
 │ - Grad-CAM XAI   │ │ - Boundary Guardrails (PHI, HITL - DAY 2) │ │   lavitree-     │
-│ - Tier 1 / 2 / 3 │ │ - Waterfall Trace Log & Streaming SSE     │ │   diagnoses     │
+│ - OOD Filter     │ │ - Waterfall Trace Log & Streaming SSE     │ │   diagnoses     │
 └───────┬──────────┘ └─────────────────────┬─────────────────────┘ └─────────┬───────┘
         │                                  │                                 │
         └──────────────────────────────────┼─────────────────────────────────┘
@@ -69,8 +69,8 @@ sequenceDiagram
     Farmer->>Core: 1. Gửi ảnh lá chụp qua khung ngắm (POST /api/v1/diagnose)
     Core->>MinIO: 2. Upload ảnh lá gốc vào bucket 'lavitree-diagnoses'
     Core->>Vision: 3. Chuyển tiếp ảnh (POST /api/v1/predict?include_heatmap=true)
-    Vision->>Vision: 4. ResNet18 suy luận, tính Grad-CAM, gắn cờ Tier 1/2/3
-    Vision-->>Core: 5. Trả về JSON (Top-1, Top-3, Tier, Warning, Base64 Heatmap)
+    Vision->>Vision: 4. ResNet18 suy luận, tính Grad-CAM, gắn cờ OOD / bất định
+    Vision-->>Core: 5. Trả về JSON (Top-1, Top-3, Confusion group, Warning, Base64 Heatmap)
     Core->>MinIO: 6. Giải mã Base64 & Upload ảnh Grad-CAM vào bucket 'lavitree-diagnoses'
     Core->>DB: 7. Truy vấn hướng dẫn xử lý chuẩn IPM & vật tư đặc trị theo ClassCode
     Core->>Agent: 8. [Tùy chọn] Gọi Agent tổng hợp lời khuyên cá nhân hóa
@@ -88,8 +88,8 @@ sequenceDiagram
 2. **Nguyên tắc "Cửa ngõ duy nhất" (Single Entrypoint Gateway)**:
    - Các ứng dụng Client (Web/Mobile) chỉ giao tiếp trực tiếp với `core-api:5000`. 
    - `ai-service` và `agent-service` là các microservices nội bộ (internal services) được bảo vệ, chỉ nhận lời gọi từ Core API.
-3. **Cơ chế Chống Đoán Bừa (Uncertainty & Tiered Safeguard - Task 05)**:
-   - Ảnh có điểm tin cậy $< 70\%$ hoặc thuộc Tier 2/3 bắt buộc phải đính kèm khuyến cáo người dùng chụp lại cận cảnh 15–20cm, không bao giờ khẳng định chắc nịch để bảo vệ mùa màng nông dân.
+3. **Cơ chế Chống Đoán Bừa (Uncertainty Safeguard)**:
+   - Ảnh bị bộ lọc OOD đánh dấu thì không trả kết quả bệnh; ảnh có độ tin cậy $< 70\%$ gắn `is_uncertain` và khuyến nghị chụp lại cận cảnh 15–20cm; lớp dễ nhầm luôn hiện Top-3. Mọi kết quả chỉ là gợi ý tham khảo. Chi tiết: `docs/spec/classes.md`.
 
 ---
 
