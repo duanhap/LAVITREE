@@ -1,0 +1,49 @@
+{
+  "disease_code": "Tomato___Late_blight",
+  "treatment_plans": [
+    {
+      "step_order": 1,
+      "action_title": "1. Cắt tỉa và tiêu hủy lá bệnh (Biện pháp canh tác)",
+      "instructions": "Ngắt bỏ toàn bộ các lá có triệu chứng mốc sương xám/nâu đen và đem tiêu hủy xa vườn (đốt hoặc chôn lấp vôi bột). Không vứt bừa bãi xuống mương nước tưới.",
+      "isolation_days": "Không áp dụng"
+    },
+    {
+      "step_order": 2,
+      "action_title": "2. Phun thuốc đặc trị nấm Phytophthora (Biện pháp Hóa học / Sinh học)",
+      "instructions": "Phun ướt đều 2 mặt lá vào sáng sớm hoặc chiều mát khi thời tiết khô ráo. Luân phiên hoạt chất để tránh kháng thuốc. Nếu gần kỳ thu hoạch (< 7 ngày), chuyển sang chế phẩm sinh học Trichoderma hoặc Nano Bạc.",
+      "isolation_days": "7 ngày"
+    },
+    {
+      "step_order": 3,
+      "action_title": "3. Bón phân phục hồi và cách ly an toàn (Phục hồi sinh trưởng)",
+      "instructions": "Giảm bón đạm (N), tăng cường Kali và Canxi-Bo để làm dày vách tế bào lá, giúp cây tăng đề kháng tự nhiên. Tuân thủ nghiêm ngặt thời gian cách ly an toàn (PHI) trước khi hái quả.",
+      "isolation_days": "7-14 ngày"
+    }
+  ],
+  "products": [
+    {
+      "name": "Ridomil Gold 68WG",
+      "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+      "price": 65000,
+      "dosage_instruction": "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
+      "stock_quantity": 150,
+      "image_url": "https://lavitree.io.vn/images/products/ridomil-gold.png"
+    },
+    {
+      "name": "Antracol 70WP",
+      "active_ingredient": "Propineb 700g/kg + Kẽm (Zn++)",
+      "price": 45000,
+      "dosage_instruction": "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+      "stock_quantity": 120,
+      "image_url": "https://lavitree.io.vn/images/products/antracol.png"
+    },
+    {
+      "name": "Chế phẩm sinh học Trichoderma Bacillus",
+      "active_ingredient": "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+      "price": 55000,
+      "dosage_instruction": "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+      "stock_quantity": 200,
+      "image_url": "https://lavitree.io.vn/images/products/trichoderma.png"
+    }
+  ]
+}
