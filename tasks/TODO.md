@@ -20,10 +20,10 @@
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Trả về ảnh Heatmap phủ lên ảnh gốc để hiển thị vùng nghi vấn nấm bệnh trên giao diện.
-- [ ] **TASK-03: Khởi tạo PostgreSQL 10 bảng chuẩn hóa 3NF & Nạp Seed Data**
+- [ ] **TASK-03: Cập nhật CSDL Supabase / Postgres & Nạp Seed Data Mẫu Thông Luồng**
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Migration EF Core 10 bảng, nạp 38 lớp cây trồng và 112 nguồn tri thức từ `KnowledgeSources_rows.csv` & `Lavitree_Selected_Classes.csv`.
+  - Đầu ra: Áp dụng migration EF Core 10 bảng, nạp 38 lớp cây trồng (`Diseases`), 112 bài báo thô (`KnowledgeSources`), và 1–2 ca bệnh mẫu (`TreatmentPlans` & `Products` cho `Tomato___Late_blight`) để thông luồng kỹ thuật cho endpoint `diagnose`. (Tri thức đầy đủ 38 lớp sẽ do cơ chế Ingestion ở Sprint 2 nạp).
 - [ ] **TASK-04: Xây dựng Core API (.NET 8 Clean Architecture) & Tích hợp MinIO Storage**
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`

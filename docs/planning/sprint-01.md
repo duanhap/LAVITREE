@@ -14,7 +14,7 @@
 
 | Thành viên | Trách nhiệm chính (Owner) | Deliverables Sprint 1 |
 | :--- | :--- | :--- |
-| **Thành viên A (System & Backend)** | • Hạ tầng Docker: PostgreSQL 15 (port 5432) & MinIO (port 9000/9001)<br>• Cập nhật Database: Chạy `dotnet ef database update` từ các migration đã có<br>• Nạp dữ liệu Seed Data (38 lớp, 112 bài báo, TreatmentPlans, Products)<br>• Core API: Cài đặt MinIO Service và hoàn thiện `POST /api/v1/diagnose` | • `docker-compose.yml` có sẵn `postgres` và `minio`<br>• 10 bảng PostgreSQL có đủ dữ liệu Seed<br>• Core API kết nối MinIO và AI Service pass E2E |
+| **Thành viên A (System & Backend)** | • Cập nhật Database: Chạy `dotnet ef database update` trên Supabase Cloud (hoặc Postgres Docker)<br>• Cấu hình MinIO S3 Object Storage (port 9000/9001)<br>• Nạp dữ liệu cốt lõi (38 lớp Diseases, 112 bài báo thô) & 1–2 ca bệnh mẫu đại diện (TreatmentPlans & Products) để thông luồng kỹ thuật<br>• Core API: Cài đặt MinIO Service và hoàn thiện `POST /api/v1/diagnose` | • 10 bảng CSDL có đủ cấu trúc và dữ liệu mẫu thông luồng<br>• MinIO lưu trữ ảnh lá gốc và Grad-CAM<br>• Core API kết nối MinIO và AI Service pass E2E |
 | **Thành viên B (AI Vision)** | • Đồng bộ `backend/ai-service` khớp với `api-contracts.md`<br>• Nạp dữ liệu `Lavitree_Selected_Classes.csv` để trả về tên tiếng Việt & phân cấp Tier 1/2/3<br>• Chuẩn hóa endpoint `POST /api/v1/predict` (hỗ trợ `include_heatmap`, max 10MB)<br>• Tách bạch quy tắc `is_uncertain` (< 0.70) và `warning_message` (theo Tier) | • `backend/ai-service` chạy chuẩn RESTful<br>• Endpoint `POST /api/v1/predict` đạt latency $\le 1.0$s trên CPU<br>• Script kiểm thử `test_predict.py` pass 100% |
 
 ---
@@ -29,10 +29,11 @@
 - [ ] **TASK-02: Chuẩn hóa tham số và tối ưu hóa Grad-CAM (`layer4[-1]`)** *(Owner: Thành viên B)*
   - File tác động: `backend/ai-service/app/services/gradcam.py`, `predictor.py`.
   - Hợp đồng: Bổ sung tham số `include_heatmap: bool = True`. Tối ưu tốc độ sinh heatmap kết hợp ResNet-18 đạt $\le 1.0$s trên CPU.
-- [ ] **TASK-03: Khởi tạo PostgreSQL 15 Container & Nạp đầy đủ Seed Data** *(Owner: Thành viên A)*
+- [ ] **TASK-03: Cập nhật CSDL Supabase / Postgres & Nạp Seed Data Mẫu Thông Luồng** *(Owner: Thành viên A)*
   - File tác động: `docker-compose.yml`, thư mục seed `backend/core-api/seed/`.
-  - Thực thi: Khởi động container `postgres`, chạy `dotnet ef database update` áp dụng 5 migrations đã có sẵn trong `Lavitree.Infrastructure/Migrations/`.
-  - Nạp dữ liệu: 38 lớp cây trồng (`Diseases`), 112 bài báo (`KnowledgeSources`), kèm dữ liệu mẫu `TreatmentPlans` (IPM) và `Products`/`DiseaseProducts`.
+  - Thực thi: Chạy `dotnet ef database update` áp dụng 5 migrations đã có sẵn trong `Lavitree.Infrastructure/Migrations/` lên Supabase Cloud (hoặc container local).
+  - Nạp dữ liệu: 38 lớp cây trồng (`Diseases`), 112 bài báo (`KnowledgeSources`), và 1–2 ca bệnh mẫu (`TreatmentPlans` & `Products` cho `Tomato___Late_blight`) để thông luồng kiểm thử.
+  - *Lưu ý*: Toàn bộ việc nạp tri thức đầy đủ 38 lớp sẽ do cơ chế Ingestion & Curation ở Sprint 2 thực hiện.
 - [ ] **TASK-04: Tích hợp MinIO Storage & Hoàn thiện Core API (`Lavitree.Api`)** *(Owner: Thành viên A)*
   - File tác động: `backend/core-api/src/Lavitree.Infrastructure/Services/MinioStorageService.cs`, `Lavitree.Api/Controllers/DiagnoseController.cs`.
   - Thư viện: Cài đặt NuGet package `Minio` (hoặc `AWSSDK.S3`).
@@ -46,8 +47,8 @@
    - Thời gian suy luận ResNet-18 + sinh Grad-CAM Heatmap: **$\le 1.0$ giây trên CPU** (hoặc $< 0.3$ giây trên GPU).
    - `is_ood` phát hiện và gắn cờ chính xác khi đưa ảnh bàn tay / đồ vật ngoại lai vào hệ thống (thông qua Energy-based OOD Score).
    - `is_uncertain` đánh giá đúng ngưỡng tin cậy $< 0.70$; `tier` trả về đúng chuẩn `"TIER_1_APPROVED"`, `"TIER_2_CONDITIONAL"`, `"TIER_3_EXCLUDED"`.
-2. **Gate 2 - Storage & Persistence (100% Offline Ready)**:
-   - PostgreSQL 15 chạy độc lập trong Docker container (Port 5432), có đủ 10 bảng dữ liệu.
+2. **Gate 2 - Storage & Persistence Pipeline**:
+   - CSDL quan hệ kết nối ổn định, đủ 10 bảng dữ liệu.
    - Ảnh lá gốc và ảnh heatmap Grad-CAM được lưu trên MinIO S3 (`http://localhost:9000/lavitree-diagnoses/...`).
 3. **Gate 3 - E2E Integration Pass**:
    - Gửi request `POST /api/v1/diagnose` với 1 ảnh lá thật $\rightarrow$ Nhận mã `200 OK` trong **$\le 1.5$ giây**.

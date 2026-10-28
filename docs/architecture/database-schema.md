@@ -111,6 +111,8 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `Unit` | `VARCHAR(50)` | DEFAULT 'Gói 100g' | Quy cách đóng gói (Gói / Chai / Can) |
 | `ImageUrl` | `VARCHAR(500)` | NULL | Hình ảnh bao bì sản phẩm |
 | `StockQuantity` | `INT` | DEFAULT 100 | Số lượng tồn kho |
+| `IsAllowed` | `BOOLEAN` | DEFAULT TRUE | Thuốc được phép lưu hành tại VN (Cục BVTV) |
+| `IsolationDays` | `INT` | DEFAULT 7 | Thời gian cách ly an toàn (PHI tính theo ngày) |
 
 #### 7. `DiseaseProducts` (Bảng trung gian: Bệnh $\leftrightarrow$ Thuốc đặc trị)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
