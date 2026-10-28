@@ -23,9 +23,12 @@
 2. **CẤM tự ý xóa bỏ hoặc thay đổi cấu trúc mã nguồn có sẵn**:
    - Phải đọc và hiểu mã nguồn hiện tại trong `backend/` và `frontend/` trước khi bổ sung tính năng mới.
 3. **CẤM sửa đổi cấu trúc Database mà không cập nhật tài liệu**:
-   - Bất kỳ sự thay đổi nào về bảng biểu, quan hệ 3NF trong PostgreSQL đều phải đồng bộ ngược lại vào [docs/architecture/database-schema.md](file:///d:/PTIT%20Do%20An/LAVITREE/docs/architecture/database-schema.md).
+   - Bất kỳ sự thay đổi nào về bảng biểu, quan hệ 3NF trong PostgreSQL đều phải đồng bộ ngược lại vào `docs/architecture/database-schema.md`.
 4. **CẤM commit khi test suite đang bị đỏ (Fail)**:
    - Chỉ được đánh dấu hoàn thành và tạo git commit khi các bài kiểm thử biên đã chạy thành công.
+5. **CẤM sử dụng đường dẫn tuyệt đối của máy cá nhân (Absolute Machine Paths)**:
+   - Tuyệt đối không ghi `file:///`, `C:\...`, `D:\...`, `/Users/...` vào mã nguồn, cấu hình hay tài liệu `.md`.
+   - Mọi đường dẫn trong tài liệu Markdown và source code bắt buộc phải là **đường dẫn tương đối (Relative Path)** tính từ gốc dự án (ví dụ: `docs/architecture/database-schema.md`, `tasks/TODO.md`). Đảm bảo tính tương thích chéo nền tảng (Windows/macOS/Linux), di động khi chạy Docker, CI/CD và trên máy của thành viên khác.
 
 ---
 

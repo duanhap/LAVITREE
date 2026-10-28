@@ -25,10 +25,10 @@ Viewed task-template.md:1-65
 Listed directory tasks
 Viewed TODO.md:1-70
 
-Dựa trên việc kiểm tra cấu trúc mã nguồn, tài liệu kiến trúc tại [docs/architecture/system-design.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/docs/architecture/system-design.md), [docs/spec/vision.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/docs/spec/vision.md) và phân hệ [.harness](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness), khái niệm **"Agent"** trong hệ thống **LAVITREE** được áp dụng ở **2 tầng độc lập nhưng bổ trợ cho nhau**:
+Dựa trên việc kiểm tra cấu trúc mã nguồn, tài liệu kiến trúc tại [docs/architecture/system-design.md](../../docs/architecture/system-design.md), [docs/spec/vision.md](../../docs/spec/vision.md) và phân hệ [.harness](../../.harness), khái niệm **"Agent"** trong hệ thống **LAVITREE** được áp dụng ở **2 tầng độc lập nhưng bổ trợ cho nhau**:
 
-1. **Tầng Nghiệp vụ Sản phẩm**: Tác tử Khuyến nông Tự hành ([backend/agent-service](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/backend/agent-service) vận hành ReAct Loop + MCP Server).
-2. **Tầng Kỹ thuật Phần mềm (SDLC)**: Khung kỷ luật điều phối AI Agent phát triển dự án ([.harness/AGENTS.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness/AGENTS.md) và [.harness/workflow.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness/workflow.md)).
+1. **Tầng Nghiệp vụ Sản phẩm**: Tác tử Khuyến nông Tự hành ([backend/agent-service](../../backend/agent-service) vận hành ReAct Loop + MCP Server).
+2. **Tầng Kỹ thuật Phần mềm (SDLC)**: Khung kỷ luật điều phối AI Agent phát triển dự án ([.harness/AGENTS.md](../../.harness/AGENTS.md) và [.harness/workflow.md](../../.harness/workflow.md)).
 
 Dưới đây là so sánh chi tiết lợi ích của việc áp dụng Agent so với **Baseline thông thường** và **Khi không có**:
 
@@ -74,21 +74,21 @@ flowchart TD
 
 ---
 
-## 2. TẦNG QUY TRÌNH PHÁT TRIỂN: Khung Kỷ Luật Agent SDLC ([.harness](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness))
+## 2. TẦNG QUY TRÌNH PHÁT TRIỂN: Khung Kỷ Luật Agent SDLC ([.harness](../../.harness))
 
-Thư mục [.harness](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness) đóng vai trò là **"Hệ quy tắc & Môi trường nghiệm thu" (Harness)** để lập trình viên con người làm việc phối hợp với AI Coding Agent một cách an toàn, tránh tình trạng AI tự do sinh mã hỏng.
+Thư mục [.harness](../../.harness) đóng vai trò là **"Hệ quy tắc & Môi trường nghiệm thu" (Harness)** để lập trình viên con người làm việc phối hợp với AI Coding Agent một cách an toàn, tránh tình trạng AI tự do sinh mã hỏng.
 
-| Tiêu chí | Khi KHÔNG DÙNG AI (Lập trình thủ công 100%) | BASELINE AI thông thường (Dùng Copilot/ChatGPT tự do không có Harness) | Áp dụng KHUNG HARNESS ([.harness](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness)) |
+| Tiêu chí | Khi KHÔNG DÙNG AI (Lập trình thủ công 100%) | BASELINE AI thông thường (Dùng Copilot/ChatGPT tự do không có Harness) | Áp dụng KHUNG HARNESS ([.harness](../../.harness)) |
 | :--- | :--- | :--- | :--- |
-| **Tốc độ & Năng suất** | 2 thành viên khó có thể hoàn thành Monorepo gồm 5 phân hệ công nghệ lớn (.NET 8, FastAPI PyTorch, Android Jetpack Compose, React Vite, PostgreSQL, AWS EC2) trong 10 tuần. | Viết code nhanh ban đầu, nhưng phát sinh nhiều mã rác, code chắp vá, mất nhiều thời gian fix bug tích hợp về sau. | Tăng tốc độ viết mã vượt trội nhờ chia nhỏ theo [task-template.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness/task-template.md), 1 Task = 1 luồng công việc dứt điểm. |
-| **Hiện tượng Ảo giác (Hallucination / Mocking)** | Không xảy ra (do người tự viết). | **Rất phổ biến**: AI tự ý tạo hàm giả lập (mocking), fake kết quả chẩn đoán, tự ý xóa sửa cấu trúc file có sẵn khi không tìm thấy file. | **Triệt tiêu hoàn toàn**: Quy định cấm trong [AGENTS.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness/AGENTS.md) (CẤM mock core AI, bắt buộc nạp model `best_plant_model.pt` thật và tính Grad-CAM thật). |
+| **Tốc độ & Năng suất** | 2 thành viên khó có thể hoàn thành Monorepo gồm 5 phân hệ công nghệ lớn (.NET 8, FastAPI PyTorch, Android Jetpack Compose, React Vite, PostgreSQL, AWS EC2) trong 10 tuần. | Viết code nhanh ban đầu, nhưng phát sinh nhiều mã rác, code chắp vá, mất nhiều thời gian fix bug tích hợp về sau. | Tăng tốc độ viết mã vượt trội nhờ chia nhỏ theo [task-template.md](../../.harness/task-template.md), 1 Task = 1 luồng công việc dứt điểm. |
+| **Hiện tượng Ảo giác (Hallucination / Mocking)** | Không xảy ra (do người tự viết). | **Rất phổ biến**: AI tự ý tạo hàm giả lập (mocking), fake kết quả chẩn đoán, tự ý xóa sửa cấu trúc file có sẵn khi không tìm thấy file. | **Triệt tiêu hoàn toàn**: Quy định cấm trong [AGENTS.md](../../.harness/AGENTS.md) (CẤM mock core AI, bắt buộc nạp model `best_plant_model.pt` thật và tính Grad-CAM thật). |
 | **Quản lý Ngữ cảnh (Context Window)** | Nằm hoàn toàn trong đầu lập trình viên. | AI đọc tràn lan toàn bộ repo hoặc quên quy tắc dự án, dẫn đến phản hồi lạc đề hoặc vượt ngưỡng token. | **Context Isolation**: Ràng buộc AI chỉ được đọc tài liệu liên quan trực tiếp trong `docs/`, giữ bộ nhớ cho tư duy logic thuật toán. |
-| **Chất lượng bàn giao & Kiểm thử** | Dễ bỏ qua viết unit test khi bị áp lực tiến độ (deadline). | AI sinh code xong tự nhận là "xong" dù chưa bao giờ chạy thử trên môi trường thực tế. | **Kỷ luật Presence Gates & Quy trình 4 chặng ([workflow.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness/workflow.md))**: Phải qua đủ 4 bước *Plan $\rightarrow$ Cook $\rightarrow$ Verify $\rightarrow$ Ship*. Chỉ được coi là `Done` khi có log thực thi lệnh terminal chứng minh `Pass 100%`. |
-| **Tính toàn vẹn hệ thống** | Đòi hỏi trao đổi thủ công giữa các thành viên để không xung đột DB schema. | AI tự tiện đổi schema DB trong code nhưng không cập nhật tài liệu kiến trúc, làm vỡ hệ thống phía frontend/mobile. | Bắt buộc đồng bộ hóa 2 chiều: Mọi thay đổi schema DB phải cập nhật ngược lại [database-schema.md](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/docs/architecture/database-schema.md) trước khi merge. |
+| **Chất lượng bàn giao & Kiểm thử** | Dễ bỏ qua viết unit test khi bị áp lực tiến độ (deadline). | AI sinh code xong tự nhận là "xong" dù chưa bao giờ chạy thử trên môi trường thực tế. | **Kỷ luật Presence Gates & Quy trình 4 chặng ([workflow.md](../../.harness/workflow.md))**: Phải qua đủ 4 bước *Plan $\rightarrow$ Cook $\rightarrow$ Verify $\rightarrow$ Ship*. Chỉ được coi là `Done` khi có log thực thi lệnh terminal chứng minh `Pass 100%`. |
+| **Tính toàn vẹn hệ thống** | Đòi hỏi trao đổi thủ công giữa các thành viên để không xung đột DB schema. | AI tự tiện đổi schema DB trong code nhưng không cập nhật tài liệu kiến trúc, làm vỡ hệ thống phía frontend/mobile. | Bắt buộc đồng bộ hóa 2 chiều: Mọi thay đổi schema DB phải cập nhật ngược lại [database-schema.md](../../docs/architecture/database-schema.md) trước khi merge. |
 
 ---
 
 ## 3. TỔNG KẾT GIÁ TRỊ CỐT LÕI
 
 - **Đối với người dùng cuối (Nông dân & Bác sĩ cây trồng)**: Việc áp dụng Agent biến LAVITREE từ một **"công cụ dán nhãn ảnh tĩnh"** trở thành một **"trợ lý tư vấn có khả năng hành động, có trách nhiệm và giải thích được"**, đảm bảo tuyệt đối an toàn vệ sinh mùa vụ và chống lạm dụng hóa chất.
-- **Đối với nhóm phát triển dự án**: Khung harness ([.harness](file:///Users/nguyenthiphuongdieu/duan/LAVITREE/LAVITREE/.harness)) đóng vai trò như một **bộ khung kỷ luật kỹ thuật (Engineering Safeguard)**, cho phép tận dụng tối đa năng lực tự động hóa của AI mà không làm suy giảm chất lượng kiến trúc mã nguồn.
+- **Đối với nhóm phát triển dự án**: Khung harness ([.harness](../../.harness)) đóng vai trò như một **bộ khung kỷ luật kỹ thuật (Engineering Safeguard)**, cho phép tận dụng tối đa năng lực tự động hóa của AI mà không làm suy giảm chất lượng kiến trúc mã nguồn.
