@@ -52,12 +52,26 @@
     "is_ood": false,
     "is_uncertain": false,
     "warning_message": "Lớp bệnh Tier 2 dễ bị ảnh hưởng bởi phông nền dã ngoại. Khuyến nghị chụp cận cảnh 15-20cm trên nền trơn.",
-    "gradcam_base64": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...",
-    "inference_time_ms": 320
+- **Response Body (`200 OK` - Trường hợp phát hiện ngoại lai `is_ood = true`)**:
+  ```json
+  {
+    "success": true,
+    "top1": null,
+    "top3": [],
+    "is_ood": true,
+    "is_uncertain": false,
+    "warning_message": "Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng không chụp vật thể lạ hoặc ảnh không rõ lá cây.",
+    "gradcam_base64": null,
+    "inference_time_ms": 110
   }
   ```
 
+- **Error Responses**:
+  - `400 Bad Request`: Dung lượng tệp vượt quá 10MB hoặc phần mở rộng/Content-Type không được hỗ trợ (`{"detail": "Tệp vượt quá 10MB hoặc định dạng không hỗ trợ."}`).
+  - `422 Unprocessable Entity`: Tệp ảnh bị hỏng byte, không thể giải mã hình ảnh hoặc bị chặn bởi bộ lọc chống Decompression Bomb (`{"detail": "Tệp hình ảnh bị lỗi cấu trúc hoặc không thể giải mã."}`).
+
 ---
+
 
 ## 3. PHÂN HỆ 2: CORE BUSINESS API (`core-api:5000`)
 *Cửa ngõ chính (Gateway) phục vụ Web Portal và Mobile Android*
@@ -128,7 +142,25 @@
   }
   ```
 
+- **Response Body (`200 OK` - Trường hợp ảnh ngoại lai `is_ood = true`)**:
+  ```json
+  {
+    "success": true,
+    "diagnosis_id": null,
+    "is_ood": true,
+    "is_uncertain": false,
+    "warning": "Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng chụp lại lá cây trong khung ngắm 15–20cm.",
+    "result": null,
+    "visual_evidence": null,
+    "treatment_guidelines": [],
+    "recommended_products": [],
+    "verified_sources": []
+  }
+  ```
+  > **Chính sách Lưu trữ & Quyền riêng tư đối với ảnh OOD**: Khi `is_ood: true`, Core API **tuyệt đối không tải ảnh lên MinIO** và **không tạo bản ghi trong bảng `DiagnosisRecords`**. Điều này giúp loại bỏ rủi ro lưu trữ ảnh khuôn mặt / thông tin nhạy cảm của người dùng và tiết kiệm dung lượng lưu trữ của hệ thống.
+
 ---
+
 
 ### 3.2. `GET /api/v1/diagnose/history` (Lịch sử khám bệnh)
 - **Query Params**: `userId`, `page=1`, `pageSize=10`

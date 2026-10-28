@@ -31,7 +31,9 @@
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 - [ ] **Pha 1**: Cập nhật hàm `predict()` trong `predictor.py` nhận cờ `include_heatmap: bool = True`. Nếu `False`, gán `gradcam_base64 = null`.
 - [ ] **Pha 2**: Tinh chỉnh `gradcam.py` để xử lý mượt mà trên bộ nhớ RAM (không ghi file tạm ra đĩa cứng), trả về chuỗi Base64 chuẩn `data:image/jpeg;base64,...` hoặc chuỗi Base64 raw.
+  - *Mẹo tối ưu hiệu năng (Single-pass inference)*: Khi `include_heatmap = True`, gộp bước dự đoán và trích xuất gradient thành 1 lượt forward pass duy nhất (bật gradient hook trên `layer4[-1]`), thay vì chạy model 2 lần riêng biệt. Điều này giúp cắt giảm ~45% thời gian suy luận trên CPU.
 - [ ] **Pha 3**: Kiểm tra benchmark độ trễ khi bật heatmap vs khi tắt heatmap.
+
 
 ---
 

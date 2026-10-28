@@ -24,20 +24,20 @@
 - [ ] **TASK-01: Đồng bộ `backend/ai-service` (FastAPI), Endpoint dự đoán ResNet-18 & Bộ lọc OOD đa tầng** *(Owner: Thành viên B)*
   - File tác động: `backend/ai-service/app/main.py`, `app/api/endpoints/predict.py`, `app/services/predictor.py`, `app/services/ood_filter.py`.
   - Dữ liệu nạp thêm: Copy `Lavitree_Selected_Classes.csv` vào `app/models/` để ánh xạ Tên tiếng Việt và Tier.
-  - Bộ lọc OOD đa tầng: Tích hợp `ood_filter.py` kết hợp tín hiệu sơ bộ màu thực vật (HSV/ExG, không coi là bằng chứng khẳng định) + Energy-based OOD Score trên logits (ngưỡng 95th percentile ID) để ngăn chặn hiện tượng Softmax Overconfidence trên ảnh bàn tay, mặt người, đồ vật ngoại lai.
+  - Bộ lọc OOD đa tầng: Tích hợp `ood_filter.py` kết hợp tín hiệu sơ bộ màu thực vật (HSV/ExG, không coi là bằng chứng khẳng định) + Energy-based OOD Score trên logits (ngưỡng phân vị thứ 5 - 5th percentile) để ngăn chặn hiện tượng Softmax Overconfidence trên ảnh bàn tay, mặt người, đồ vật ngoại lai.
   - Hợp đồng: Chuẩn hóa URL thành `POST /api/v1/predict`, kiểm tra file $\le 10$MB, trả về đúng định dạng JSON chuẩn (Top-1, Top-3, `tier`, `is_ood`, `is_uncertain`, `warning_message`, `gradcam_base64`).
 - [ ] **TASK-02: Chuẩn hóa tham số và tối ưu hóa Grad-CAM (`layer4[-1]`)** *(Owner: Thành viên B)*
   - File tác động: `backend/ai-service/app/services/gradcam.py`, `predictor.py`.
-  - Hợp đồng: Bổ sung tham số `include_heatmap: bool = True`. Tối ưu tốc độ sinh heatmap kết hợp ResNet-18 đạt $\le 1.0$s trên CPU.
+  - Hợp đồng: Bổ sung tham số `include_heatmap: bool = True`. Tối ưu tốc độ sinh heatmap kết hợp ResNet-18 đạt $\le 1.0$s trên CPU (gợi ý: gộp 1 lần forward pass có gradient khi bật heatmap).
 - [ ] **TASK-03: Cập nhật CSDL Supabase / Postgres & Nạp Seed Data Mẫu Thông Luồng** *(Owner: Thành viên A)*
   - File tác động: `docker-compose.yml`, thư mục seed `backend/core-api/seed/`.
   - Thực thi: Chạy `dotnet ef database update` áp dụng 5 migrations đã có sẵn trong `Lavitree.Infrastructure/Migrations/` lên Supabase Cloud (hoặc container local).
-  - Nạp dữ liệu: 38 lớp cây trồng (`Diseases`), 112 bài báo (`KnowledgeSources`), và 1–2 ca bệnh mẫu (`TreatmentPlans` & `Products` cho `Tomato___Late_blight`) để thông luồng kiểm thử.
+  - Nạp dữ liệu: 14 loài cây, 40 lớp cây trồng (`Diseases`: 38 AI + 2 bổ trợ), bỏ qua 112 bài `KnowledgeSources` nếu đã có (nếu nạp trên DB trống thì giữ nguyên GUID từ CSV), và nạp 1–2 ca bệnh mẫu (`TreatmentPlans` & `Products` cho `Tomato___Late_blight`) để thông luồng kiểm thử.
   - *Lưu ý*: Toàn bộ việc nạp tri thức đầy đủ 38 lớp sẽ do cơ chế Ingestion & Curation ở Sprint 2 thực hiện.
 - [ ] **TASK-04: Tích hợp MinIO Storage & Hoàn thiện Core API (`Lavitree.Api`)** *(Owner: Thành viên A)*
-  - File tác động: `backend/core-api/src/Lavitree.Infrastructure/Services/MinioStorageService.cs`, `Lavitree.Api/Controllers/DiagnoseController.cs`.
+  - File tác động: `backend/core-api/src/Lavitree.Infrastructure/Services/MinioStorageService.cs`, `Lavitree.Api/Controllers/DiagnoseController.cs`, `docker-compose.yml`.
   - Thư viện: Cài đặt NuGet package `Minio` (hoặc `AWSSDK.S3`).
-  - Hợp đồng: Nhận `POST /api/v1/diagnose`, upload ảnh gốc lên MinIO, gọi AI Service, lưu ảnh Grad-CAM vào MinIO, truy vấn DB lấy hướng dẫn IPM & sản phẩm, trả về public URL (`http://localhost:9000/...`).
+  - Hợp đồng & Bảo mật: Nhận `POST /api/v1/diagnose`, upload ảnh gốc lên MinIO (chỉ cấp quyền `s3:GetObject` theo GUID, cấm `s3:ListBucket`), gọi AI Service, lưu ảnh Grad-CAM vào MinIO, truy vấn DB lấy hướng dẫn IPM & sản phẩm, trả về public URL (`http://localhost:9000/...`). Khi `is_ood = true`, **không lưu ảnh lên MinIO và không tạo `DiagnosisRecord`** để bảo vệ riêng tư. Cấu hình `docker-compose.yml` bind `127.0.0.1` cho port 8000/8001/9001 và nạp mật khẩu mới từ `.env`.
 
 ---
 
@@ -45,11 +45,12 @@
 
 1. **Gate 1 - AI Vision Latency, Accuracy & OOD Filtering**:
    - Thời gian suy luận ResNet-18 + sinh Grad-CAM Heatmap: **$\le 1.0$ giây trên CPU** (hoặc $< 0.3$ giây trên GPU).
-   - `is_ood` phát hiện và gắn cờ chính xác khi đưa ảnh bàn tay / đồ vật ngoại lai vào hệ thống (thông qua Energy-based OOD Score).
-   - `is_uncertain` đánh giá đúng ngưỡng tin cậy $< 0.70$; `tier` trả về đúng chuẩn `"TIER_1_APPROVED"`, `"TIER_2_CONDITIONAL"`, `"TIER_3_EXCLUDED"`.
+   - Đo lường OOD: Phát hiện OOD $\ge 80\%$ trên 20 ảnh ngoại lai; tỷ lệ từ chối nhầm $\le 5\%$ trên 50 ảnh lá thật thuộc tập kiểm thử độc lập (không trùng tập chọn ngưỡng $\tau$).
+   - `is_uncertain` phản ánh đúng độ bất định Softmax khi `confidence < 0.70`; `tier` trả về đúng chuẩn `"TIER_1_APPROVED"`, `"TIER_2_CONDITIONAL"`, `"TIER_3_EXCLUDED"`.
 2. **Gate 2 - Storage & Persistence Pipeline**:
    - CSDL quan hệ kết nối ổn định, đủ 10 bảng dữ liệu.
-   - Ảnh lá gốc và ảnh heatmap Grad-CAM được lưu trên MinIO S3 (`http://localhost:9000/lavitree-diagnoses/...`).
+   - Ảnh lá gốc và ảnh heatmap Grad-CAM được lưu trên MinIO S3 (`http://localhost:9000/lavitree-diagnoses/...`) với quyền truy cập file đơn lẻ, không lộ danh sách toàn bộ bucket.
 3. **Gate 3 - E2E Integration Pass**:
-   - Gửi request `POST /api/v1/diagnose` với 1 ảnh lá thật $\rightarrow$ Nhận mã `200 OK` trong **$\le 1.5$ giây**.
+   - Gửi request `POST /api/v1/diagnose` với ảnh bệnh mẫu `Tomato___Late_blight` $\rightarrow$ Nhận mã `200 OK` trong **$\le 1.5$ giây**.
    - Dữ liệu trả về đầy đủ kết quả chẩn đoán, ảnh nhiệt, các bước IPM và sản phẩm gợi ý khớp 100% [api-contracts.md](../architecture/api-contracts.md).
+

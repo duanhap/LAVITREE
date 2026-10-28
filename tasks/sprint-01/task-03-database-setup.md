@@ -33,7 +33,7 @@
     - `sample_treatment_seed.json` (Dữ liệu mẫu 1-2 ca bệnh để thông luồng Sprint 1)
   - `Thêm mới / Chỉnh sửa`: `backend/core-api/src/Lavitree.Infrastructure/Persistence/LavitreeDbContextSeeder.cs`
 - **Quy tắc Logic trong Seeder (Idempotent Rules)**:
-  - `KnowledgeSources`: Kiểm tra `if (await context.KnowledgeSources.AnyAsync())` $\rightarrow$ Đã có 112 bản ghi thì **bỏ qua hoàn toàn**, không nạp lại.
+  - `KnowledgeSources`: Kiểm tra `if (await context.KnowledgeSources.AnyAsync())` $\rightarrow$ Đã có 112 bản ghi thì **bỏ qua hoàn toàn**, không nạp lại. Nếu CSDL hoàn toàn trống (chạy Postgres local ban đầu), khi nạp bắt buộc phải **giữ nguyên giá trị `Id` (GUID) có sẵn trong file CSV**, tuyệt đối không tự sinh `Guid.NewGuid()` mới để đảm bảo tính nhất quán dữ liệu giữa các môi trường.
   - `PlantCategories`: Kiểm tra theo `Name` $\rightarrow$ Nếu chưa có thì mới thêm (14 loài cây).
   - `Diseases`: Kiểm tra theo `ClassCode` $\rightarrow$ Nếu chưa có thì mới thêm (40 lớp từ CSV: gồm 38 lớp nhận diện AI + 2 lớp cẩm nang canh tác `Orange___healthy` & `Squash___healthy` để khớp 100% với `KnowledgeSources`).
   - `TreatmentPlans` & `Products`: Nạp ca mẫu đại diện `Tomato___Late_blight` (kèm thuốc Ridomil Gold, Trichoderma) để phục vụ thông luồng `DiagnoseController`.
