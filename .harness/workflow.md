@@ -17,10 +17,15 @@ flowchart LR
 
 ### CHẶNG 1: PLAN (LẬP KẾ HOẠCH BẮT ĐẦU TASK)
 * **Thời điểm**: Trước khi chạm vào bất kỳ file mã nguồn nào.
-* **Hành động của Agent**:
-  1. Đọc file task tương ứng trong thư mục `tasks/` (ví dụ: `tasks/TASK-01-fastapi-core.md`).
+* **Hành động của Developer / Agent**:
+  1. Đọc file task tương ứng trong thư mục `tasks/` (ví dụ: `tasks/sprint-01/task-03-database-setup.md`).
   2. Đọc file tài liệu đặc tả liên quan trong `docs/spec/` hoặc `docs/architecture/`.
-  3. Trình bày ngắn gọn cho User 4 ý:
+  3. **Tạo nhánh làm việc riêng cho Task**:
+     ```bash
+     git checkout main && git pull origin main
+     git checkout -b <prefix>/task-<mã-số>-<tên-ngắn-gọn>
+     ```
+  4. Trình bày ngắn gọn cho User/Team 4 ý:
      - **Mục tiêu task**: Sẽ tạo/sửa file nào?
      - **Input / Output**: Dữ liệu vào là gì, kết quả ra là gì?
      - **Các trường hợp biên (Edge Cases)**: Nếu lỗi mạng, sai định dạng ảnh thì xử lý sao?
@@ -30,7 +35,7 @@ flowchart LR
 
 ### CHẶNG 2: COOK (VIẾT MÃ NGUỒN THEO PHONG CÁCH TDD)
 * **Thời điểm**: Sau khi User đồng ý với bản Plan ở Chặng 1.
-* **Hành động của Agent**:
+* **Hành động của Developer / Agent**:
   1. Viết code sạch, phân tách rõ ràng các tầng (Controller / Router $\rightarrow$ Service / Handler $\rightarrow$ Repository / Schema).
   2. Bổ sung docstrings giải thích ngắn gọn mục đích hàm.
   3. **Viết ngay script kiểm thử tương ứng** (ví dụ: `test_predict.py` hoặc file cURL / PowerShell test).
@@ -40,7 +45,7 @@ flowchart LR
 
 ### CHẶNG 3: VERIFY (CHẠY NGHIỆM THU THỰC TẾ - PRESENCE GATES)
 * **Thời điểm**: Ngay sau khi viết xong code.
-* **Hành động của Agent**:
+* **Hành động của Developer / Agent**:
   1. Chạy lệnh kiểm thử trực tiếp trong terminal (chạy test suite, gửi request thực tế tới endpoint).
   2. Thu thập bằng chứng thực tế:
      - Log trả về của server.
@@ -50,10 +55,17 @@ flowchart LR
 
 ---
 
-### CHẶNG 4: SHIP (ĐÓNG GÓI, CẬP NHẬT TRẠNG THÁI & COMMIT)
+### CHẶNG 4: SHIP (ĐÓNG GÓI, CẬP NHẬT TRẠNG THÁI & MERGE)
 * **Thời điểm**: Khi mọi bài kiểm thử ở Chặng 3 đã xanh (Pass 100%).
-* **Hành động của Agent**:
-  1. Đánh dấu tick `[x]` vào checklist của file `tasks/TASK-xx.md`.
-  2. Cập nhật trạng thái của task trong [tasks/TODO.md](file:///d:/PTIT%20Do%20An/LAVITREE/tasks/TODO.md) từ `In Progress` sang `Done`.
-  3. Ghi 1 dòng nhật ký vào [tasks/WORKLOG.md](file:///d:/PTIT%20Do%20An/LAVITREE/tasks/WORKLOG.md) ghi nhận kết quả và bằng chứng test.
-  4. Thực hiện git commit theo chuẩn conventional: `feat: [Mã Task] Tên tính năng`.
+* **Hành động của Developer / Agent**:
+  1. Đánh dấu tick `[x]` vào checklist của file `tasks/sprint-xx/task-xx.md`.
+  2. Cập nhật trạng thái của task trong `tasks/TODO.md` từ `In Progress` sang `Done`.
+  3. Ghi 1 dòng nhật ký vào `tasks/WORKLOG.md` ghi nhận kết quả và bằng chứng test.
+  4. Thực hiện git commit theo chuẩn conventional trên nhánh task:
+     ```bash
+     git commit -m "feat: [TASK-XX] Tên tính năng"
+     ```
+  5. Đẩy nhánh lên remote và tạo PR hoặc merge an toàn vào `main`:
+     ```bash
+     git push origin <prefix>/task-<mã-số>-<tên-ngắn-gọn>
+     ```

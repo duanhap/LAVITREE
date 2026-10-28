@@ -36,6 +36,12 @@
 - **Frontend Web**: React 18, Vite, TypeScript, TailwindCSS / CSS Modules, Axios / React Query.
 - **Mobile App**: Android Native, **Kotlin**, **Jetpack Compose**, Material Design 3, CameraX (tích hợp khung ngắm 15–20cm), Retrofit 2, OkHttp, Coil (load ảnh & heatmap Grad-CAM), Coroutines/Flow. Tối ưu UX thao tác 1 tay ngoài đồng ruộng.
 - **Database**: PostgreSQL 15+ (chạy Docker), thiết kế chuẩn hóa 3NF, có script Migration và Seed Data rõ ràng.
+- **Quy chuẩn Đặt tên Nhánh Git (Branch Naming Conventions)**:
+  - Tất cả task mới đều phải rẽ nhánh từ `main`: `git checkout -b <prefix>/task-<mã-số>-<tên-ngắn-gọn>`
+  - Tính năng mới: `feat/task-03-database-setup`
+  - Sửa lỗi / Vá lỗi: `fix/task-xx-fix-description`
+  - Tài liệu / Cấu hình: `docs/task-xx-update-docs` hoặc `chore/task-xx-config`
+  - Tuyệt đối **không push/commit trực tiếp code chưa qua nghiệm thu vào nhánh `main`**.
 - **Quy chuẩn Git Commit Message**:
   - `feat: [Mã Task] Tên tính năng mới` (Ví dụ: `feat: [TASK-01] Xây dựng endpoint POST /predict`)
   - `fix: [Mã Task] Sửa lỗi`
