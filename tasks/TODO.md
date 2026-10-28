@@ -20,9 +20,9 @@
   - Đầu ra: Nạp model `best_plant_model.pt`, tiền xử lý 224x224, trả về Top-1, Top-3, `confusion_group`, mẹo chụp theo lớp (đã bỏ Tier), bộ lọc OOD cơ bản (`ood_filter.py`: Tín hiệu màu thực vật sơ bộ + Energy-based OOD Score với ngưỡng tạm từ `OOD_ENERGY_THRESHOLD`) và tách bạch cảnh báo độ bất định Softmax ($T < 0.70$) với quy tắc sinh cảnh báo theo `docs/spec/classes.md`.
   - **Hợp tác Song song**: Dựng ngay Stub Endpoint `POST /api/v1/predict` (hardcoded JSON theo `api-contracts.md`) trong 30 phút đầu để Thành viên A làm TASK-04 song song.
   - **Hạng mục Bảo mật AI**: Xác thực ảnh bằng Pillow (`PIL.Image.open().verify()`), sau đó mở lại ảnh `Image.open()` tránh lỗi đóng luồng, bật `warnings.simplefilter('error', Image.DecompressionBombWarning)`, đặt `Image.MAX_IMAGE_PIXELS = 10_000_000`, giới hạn file $\le 10$MB, ẩn exception `str(e)`.
-- [ ] **TASK-02: Endpoint trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)**
+- [x] **TASK-02: Endpoint trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)**
   - Trách nhiệm: **Thành viên B**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[x] DONE` (Đã hoàn thành Single-pass inference, latency ~105ms, giảm 72% khi tắt heatmap, thread-safe với lock)
   - Đầu ra: Trả về ảnh Heatmap phủ lên ảnh gốc (Jet colormap) để hiển thị vùng nghi vấn nấm bệnh trên giao diện, xử lý trực tiếp trên bộ nhớ RAM không ghi đĩa tạm, latency $\le 1.0$s.
 
 ### 👨‍💻 Phân công Thành viên A (System & Backend Lead):

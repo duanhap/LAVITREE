@@ -20,7 +20,7 @@ warnings.simplefilter("error", Image.DecompressionBombWarning)
 
 
 @router.post("/predict")
-async def predict_plant_disease(
+def predict_plant_disease(
     file: UploadFile = File(..., description="Tệp hình ảnh lá cây (JPEG, PNG, WEBP, BMP <= 10MB)"),
     include_heatmap: bool = Query(True, description="Có xuất ảnh Grad-CAM không"),
     mock_ood: bool = Query(False, description="Tùy chọn giả lập phản hồi OOD cho testing")
@@ -32,8 +32,8 @@ async def predict_plant_disease(
             detail="Tệp vượt quá 10MB hoặc định dạng không hỗ trợ."
         )
 
-    # 2. Đọc và kiểm tra kích thước tệp
-    contents = await file.read()
+    # 2. Đọc và kiểm tra kích thước tệp (đồng bộ trong threadpool)
+    contents = file.file.read()
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
