@@ -64,7 +64,7 @@
 - [x] **Pha 0 (Day 1 - Unblock Teammate A)**: Tạo stub endpoint giả lập `POST /api/v1/predict` (hardcoded JSON đúng 100% `api-contracts.md`) để Thành viên A tích hợp và kiểm thử Core API E2E ngay trong ngày đầu tiên.
 - [x] **Pha 1**: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`), xây dựng dictionary ánh xạ `class_code` $\rightarrow$ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`; bỏ qua 2 lớp `HANDBOOK_ONLY`.
 - [x] **Pha 2**: Viết module `ood_filter.py` gồm hàm tính Energy Score $S_{energy}(x)$ và hàm `calculate_vegetation_ratio`. Cấu hình ngưỡng đọc linh hoạt từ `OOD_ENERGY_THRESHOLD` (để trống thì tắt kiểm tra Energy theo thiết kế an toàn, việc đo đạc và hiệu chỉnh ngưỡng chính thức chuyển sang Sprint 3).
-- [ ] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, gắn `confusion_group` và sinh `warning_message` theo 4 quy tắc kết hợp.
+- [x] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, gắn `confusion_group` và sinh `warning_message` theo 4 quy tắc kết hợp.
 - [ ] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`:
   - Kiểm tra `len(contents) <= 10 * 1024 * 1024` (10MB).
   - Cấu hình `warnings.simplefilter('error', Image.DecompressionBombWarning)` và đặt `Image.MAX_IMAGE_PIXELS = 10_000_000`.
@@ -109,6 +109,12 @@
   - `[Chưa thực hiện đo thực tế]`: Nhóm chưa tiến hành chạy đo trên ảnh lá mẫu hay vật thể ngoại lai thật trong Sprint 1.
   - Biến môi trường `OOD_ENERGY_THRESHOLD=` hiện được **để trống** theo đúng thiết kế an toàn (`is_ood = false` khi dev).
   - Toàn bộ công tác thu thập 3 tập ảnh tách biệt (Tập A, B, C) và tính toán ngưỡng $\tau_{energy}$ chính thức (theo phân vị thứ 5) được **chuyển trọn vẹn sang Sprint 3** (xem Mục 6).
+- **Hoàn thành Pha 3**: Nâng cấp toàn diện `app/services/predictor.py`:
+  - Trích xuất trực tiếp vector Logits $f(x)$ trước Softmax và đưa vào `ood_filter.evaluate(...)`.
+  - Tích hợp `class_mapping_service` lấy nhãn tiếng Việt (`plant_name`, `disease_name`), mẹo chụp và `confusion_group`.
+  - Chuẩn hóa cấu trúc trả về theo `docs/architecture/api-contracts.md` Mục 2.1 (loại bỏ hoàn toàn các trường cũ `tier`, `predicted_class`).
+  - Hỗ trợ Grad-CAM định dạng Data URI chuẩn (`data:image/jpeg;base64,...`) khi `include_heatmap = True`, tự động bỏ qua khi `is_ood = True` hoặc `include_heatmap = False`.
+  - Đã chạy kiểm thử thực tế `test_predictor_pha3.py` trên terminal: 5/5 test pass, độ trễ suy luận thực tế đạt ~180ms trên CPU.
 
 
 ---
