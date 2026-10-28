@@ -32,24 +32,24 @@
 ---
 
 ## 🧠 SPRINT 2: TRỌNG TÂM TRÍ TUỆ NHÂN TẠO TÁC TỬ (AGRI-AGENT & MCP ECOSYSTEM)
-*Mục tiêu: Hiện thực hóa toàn diện nghiên cứu 27 DAY từ thư mục `extract/` vào `backend/agent-service` (FastAPI).*
+*Mục tiêu: Hiện thực hóa toàn diện nghiên cứu 27 DAY từ thư mục `extract/` vào `backend/agent-service` (FastAPI), kết nối Core API và CSDL Supabase/PostgreSQL.*
 
 - [ ] **TASK-05: Thiết lập `backend/agent-service` & Cấu trúc Model Context Protocol (MCP Server)**
+  - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Data Provider)
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Kiến trúc MCP Server công bố 4 công cụ chuẩn JSON Schema (`lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`), tuân thủ nguyên tắc Read-Only (DAY4), kết nối REST API thật từ Core API (.NET 8).
+- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + Dense Vector) trên 112 Nguồn Khuyến Nông**
+  - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (Database & Chunking)
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Module Hybrid RAG (kế thừa DAY18) kết hợp BM25 (bắt chính xác tên hoạt chất thuốc và tỷ lệ pha) + Dense Vector (ngữ nghĩa triệu chứng bệnh) từ 112 tài liệu khuyến nông, hợp nhất RRF không gây ảo giác.
+- [ ] **TASK-07: Xây dựng ReAct Loop, Bộ Chốt chặn An toàn (Guardrails) & Router Hạ cấp Ngoại tuyến**
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Kiến trúc MCP Server công bố công cụ theo chuẩn JSON Schema, kết nối Core API.
-- [ ] **TASK-06: Triển khai 4 Công cụ MCP Nông nghiệp (`MCP Tools`)**
-  - Trách nhiệm: **Thành viên B** (phối hợp Thành viên A về DB/API)
+  - Đầu ra: Chu trình `Thought → Action → Observation` (kế thừa DAY3), chốt chặn PHI $\le 3$ ngày sát ngày thu hoạch (cảnh báo đỏ & từ chối thuốc độc), gắn nhãn `[DRAFT_RECOMMENDATION]` (HITL DAY11, 27), Circuit Breaker & Router Graceful Degradation tự động hạ cấp offline về CSDL IPM khi rớt mạng (DAY25, 27).
+- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark Nghiệm thu Đồ án**
+  - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: 4 công cụ hoạt động: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`.
-- [ ] **TASK-07: Xây dựng ReAct Loop & Chốt chặn An toàn (Boundary Guardrails - DAY 2, 3)**
-  - Trách nhiệm: **Thành viên B**
-  - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Chu trình `Thought → Action → Observation`, chốt chặn an toàn PHI $\le 3$ ngày sát ngày thu hoạch, Human-in-the-loop duyệt đơn mua thuốc, Graceful Degradation hạ cấp offline.
-- [ ] **TASK-08: Triển khai Streaming SSE & Waterfall Trace Logging (DAY 1, 3)**
-  - Trách nhiệm: **Thành viên B**
-  - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Endpoint `POST /api/v1/agent/chat` truyền phát token thời gian thực và xuất file `trace_waterfall.json` phục vụ minh bạch hóa suy luận.
+  - Đầu ra: Endpoint `POST /api/v1/agent/chat` truyền phát token thời gian thực bằng SSE, xuất file `trace_waterfall.json` đo đạc thời gian từng bước, bộ kịch bản tự động `run_agent_benchmark.py` (DAY26) pass 100% 5 ca lâm sàng phục vụ Hội đồng chấm thi.
 
 ---
 

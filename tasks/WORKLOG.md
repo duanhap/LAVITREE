@@ -19,5 +19,6 @@
 | `2026-10-27 21:40` | `OOD-01` | Tích hợp bộ lọc OOD đa tầng (Energy-based Score + Heuristic Vegetation Pre-check) vào Task 01 | Developer & Antigravity Agent | Cập nhật `task-01-setup-ai-service.md`, `sprint-01.md`, `TODO.md` và `api-contracts.md` giải quyết triệt để Softmax Overconfidence |
 | `2026-10-27 22:15` | `CONTRACT-02` | Khắc phục Contract Drift, chốt `api-contracts.md` làm SSOT duy nhất và hạ tông văn phong quảng cáo | Developer & Antigravity Agent | Xóa bỏ schema trùng lặp tại `task-01`, `task-02`, `task-04`; tiết chế buzzwords tại `vision.md`, `features.md`, `system-design.md` |
 | `2026-10-27 22:35` | `BIZ-01` | Làm rõ mô hình Bác sĩ Cây trồng kiêm Nhà thuốc Chuyên doanh Lavitree | Developer & Antigravity Agent | Cập nhật FEAT-04 trong `features.md` khẳng định vai trò Kỹ sư nông nghiệp quản lý hệ thống kiêm kiểm định xuất kho thuốc |
+| `2026-10-28 13:00` | `PLAN-02` | Quy hoạch toàn diện Sprint 2: Kế thừa 27 DAY từ `extract/`, Hybrid RAG, Guardrails & Phân bổ 2 người | Developer & Antigravity Agent | Tạo `docs/planning/sprint-02.md`, 4 task tickets (`task-05` đến `task-08`), cập nhật `TODO.md` phân bổ đều việc cho Thành viên A & B |
 
 
