@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Lavitree.Api.Filters;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
 
@@ -323,6 +324,7 @@ public class KnowledgeController : ControllerBase
 
     // 4. POST /api/v1/knowledge/sources
     [HttpPost("sources")]
+    [AdminApiKeyAuth]
     public async Task<IActionResult> CreateSource([FromBody] CreateSourceDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.ModelClass) || string.IsNullOrWhiteSpace(dto.SourceUrl))
@@ -393,6 +395,7 @@ public class KnowledgeController : ControllerBase
 
     // 5. DELETE /api/v1/knowledge/sources/{id}
     [HttpDelete("sources/{id:guid}")]
+    [AdminApiKeyAuth]
     public async Task<IActionResult> DeleteSource(Guid id)
     {
         var item = await _dbContext.KnowledgeSources.FindAsync(id);
@@ -405,6 +408,7 @@ public class KnowledgeController : ControllerBase
 
     // 6. GET /api/v1/knowledge/export
     [HttpGet("export")]
+    [AdminApiKeyAuth]
     public async Task<IActionResult> ExportCsv()
     {
         var sources = await _dbContext.KnowledgeSources
