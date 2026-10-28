@@ -42,7 +42,7 @@
       "plant_name": "Cà chua",
       "disease_name": "Bệnh mốc sương cà chua",
       "confidence": 0.9462,
-      "tier": "TIER_2_CONDITIONAL"
+      "confusion_group": null
     },
     "top3": [
       { "class_code": "Tomato___Late_blight", "confidence": 0.9462 },
@@ -51,7 +51,15 @@
     ],
     "is_ood": false,
     "is_uncertain": false,
-    "warning_message": "Lớp bệnh Tier 2 dễ bị ảnh hưởng bởi phông nền dã ngoại. Khuyến nghị chụp cận cảnh 15-20cm trên nền trơn.",
+    "warning_message": "Chụp kỹ cả mặt dưới lá để thấy lớp mốc trắng.",
+    "gradcam_base64": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...",
+    "inference_time_ms": 320
+  }
+  ```
+  - `confusion_group`: mã nhóm lớp dễ nhầm (ví dụ `"TOMATO_LEAF_SPOT"` cho Early blight ↔ Target spot), `null` nếu không thuộc nhóm nào.
+  - `warning_message`: sinh theo thứ tự ưu tiên trong [docs/spec/classes.md](../spec/classes.md#3-quy-tắc-sinh-warning_message-thứ-tự-ưu-tiên) (OOD → bất định → dễ nhầm → mẹo chụp `Capture_Tip`).
+  - **Không còn trường `tier`** (đã bỏ phân cấp Tier 1/2/3, xem `classes.md` mục 1).
+
 - **Response Body (`200 OK` - Trường hợp phát hiện ngoại lai `is_ood = true`)**:
   ```json
   {
@@ -96,7 +104,13 @@
       "confidence": 0.9462,
       "severity_level": "Nghiêm trọng (Cần xử lý trong 24-48h)",
       "is_uncertain": false,
-      "warning": "Khuyến nghị chụp lại cận cảnh 15-20cm nếu ảnh có nhiều cỏ dại xung quanh."
+      "confusion_group": null,
+      "warning": "Chụp kỹ cả mặt dưới lá để thấy lớp mốc trắng.",
+      "top3": [
+        { "class_code": "Tomato___Late_blight", "disease_name": "Bệnh mốc sương cà chua", "confidence": 0.9462 },
+        { "class_code": "Tomato___Early_blight", "disease_name": "Bệnh đốm vòng / Cháy lá sớm", "confidence": 0.0315 },
+        { "class_code": "Tomato___Septoria_leaf_spot", "disease_name": "Bệnh đốm lá Septoria", "confidence": 0.0102 }
+      ]
     },
     "visual_evidence": {
       "original_image_url": "http://localhost:9000/lavitree-diagnoses/a1b2c3d4_orig.jpg",

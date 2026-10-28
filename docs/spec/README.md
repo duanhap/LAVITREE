@@ -3,5 +3,5 @@
 - [roles-usecases.md](roles-usecases.md): Đặc tả tác nhân, ma trận phân quyền (RBAC) và danh mục ca sử dụng (Use Cases chuẩn PTIT).
 - [vision.md](vision.md): Mục tiêu, phạm vi và tuyên ngôn đồ án Lavitree.
 - [features.md](features.md): Danh sách tính năng cốt lõi MVP (Chẩn đoán, Tri thức, Đơn hàng).
-- [classes-tier.md](classes-tier.md): Danh mục 38 lớp cây trồng phân cấp Tier 1, 2, 3 và chính sách cảnh báo.
+- [classes.md](classes.md): Danh mục 38 lớp nhận diện, mức kiểm chứng ngoài đồng, mẹo chụp theo lớp và quy tắc cảnh báo (đã bỏ phân cấp Tier).
 

@@ -24,6 +24,4 @@
 | `2026-10-28 15:30` | `AUDIT-03` | Rà soát CSDL Supabase thực tế, thiết kế Idempotent Seeder chống nhân đôi 112 bài & lỗi InitialCreate | Developer & Antigravity Agent | Đếm thực tế Supabase (112 KnowledgeSources, 0 Diseases/Plants), cập nhật `task-03` (chống nhân đôi dữ liệu), bổ sung Unique index trong `database-schema.md` |
 | `2026-10-28 16:35` | `SPEC-02` | Đặc tả Tác nhân (Actors), Ma trận phân quyền (RBAC) & Danh mục Ca sử dụng (Use Cases) chuẩn PTIT | Developer & Antigravity Agent | Tạo `docs/spec/roles-usecases.md`, cập nhật `docs/spec/README.md`, định hình 3 tác nhân con người (Khách, Nông dân, Admin kiêm Kỹ sư) và lộ trình xác thực |
 | `2026-10-28 16:40` | `SEC-01` | Tích hợp Bảo mật cơ sở & Đồng bộ Kế hoạch phân công 2 người vào Sprint 1 Tasks | Developer & Antigravity Agent | Cập nhật `TODO.md`, `task-01` (Pillow check, max pixels, ẩn `str(e)`, 10MB limit), `task-04` (`[AdminApiKeyAuth]` với `X-Admin-Key`, siết CORS domain, 10MB limit, dọn `appsettings.json`) |
-
-
-
+| `2026-10-28 22:30` | `SPEC-03` | Bỏ phân cấp Tier 1/2/3; thay bằng `is_uncertain` + `Capture_Tip` + `Confusion_Group`; OOD Sprint 1 rút gọn, hiệu chỉnh chính thức chuyển Sprint 3 (TASK-13) | Developer & Claude Code | Đổi `classes-tier.md` thành `classes.md`; cập nhật 2 bản CSV, `api-contracts.md`, `task-01`, `sprint-01.md`, `TODO.md` và các tài liệu spec/architecture |

@@ -17,7 +17,7 @@
 - [ ] **TASK-01: Thiết lập `backend/ai-service` (FastAPI), Endpoint ResNet-18, Bộ lọc OOD đa tầng & Bảo mật AI**
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Nạp model `best_plant_model.pt`, tiền xử lý 224x224, trả về Top-1, Top-3, phân cấp Tier 1/2/3, bộ lọc OOD đa tầng (`ood_filter.py`: Tín hiệu màu thực vật sơ bộ + Energy-based OOD Score trên logits theo **phân vị thứ 5**) và tách bạch cảnh báo độ bất định Softmax ($T < 0.70$) với Tier policy.
+  - Đầu ra: Nạp model `best_plant_model.pt`, tiền xử lý 224x224, trả về Top-1, Top-3, `confusion_group`, mẹo chụp theo lớp (đã bỏ Tier), bộ lọc OOD cơ bản (`ood_filter.py`: Tín hiệu màu thực vật sơ bộ + Energy-based OOD Score với ngưỡng tạm từ `OOD_ENERGY_THRESHOLD`) và tách bạch cảnh báo độ bất định Softmax ($T < 0.70$) với Tier policy.
   - **Hợp tác Song song**: Dựng ngay Stub Endpoint `POST /api/v1/predict` (hardcoded JSON theo `api-contracts.md`) trong 30 phút đầu để Thành viên A làm TASK-04 song song.
   - **Hạng mục Bảo mật AI**: Xác thực ảnh bằng Pillow (`PIL.Image.open().verify()`), sau đó mở lại ảnh `Image.open()` tránh lỗi đóng luồng, bật `warnings.simplefilter('error', Image.DecompressionBombWarning)`, đặt `Image.MAX_IMAGE_PIXELS = 10_000_000`, giới hạn file $\le 10$MB, ẩn exception `str(e)`.
 - [ ] **TASK-02: Endpoint trích xuất bản đồ nhiệt Grad-CAM (`layer4[-1]`)**
@@ -82,3 +82,7 @@
   - Trách nhiệm: **Thành viên A & B**
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Hệ thống khởi động bằng 1 lệnh `docker compose up -d`, vận hành ổn định phục vụ kịch bản demo bảo vệ đồ án.
+- [ ] **TASK-13: Hiệu chỉnh ngưỡng OOD chính thức & Đo lường cho báo cáo** *(chuyển từ Sprint 1)*
+  - Trách nhiệm: **Thành viên B**
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Chọn $\tau_{energy}$ theo phân vị thứ 5 trên tập A; đo từ chối nhầm $\le 5\%$ trên tập B và phát hiện OOD $\ge 80\%$ trên tập C (3 tập không trùng nhau, xem `tasks/sprint-01/task-01-setup-ai-service.md` mục 6); cập nhật `OOD_ENERGY_THRESHOLD` và đưa bảng số liệu vào chương đánh giá.

@@ -15,17 +15,17 @@
 | Thành viên | Trách nhiệm chính (Owner) | Deliverables Sprint 1 |
 | :--- | :--- | :--- |
 | **Thành viên A (System & Backend)** | • Cập nhật Database: Chạy `dotnet ef database update` trên Supabase Cloud (hoặc Postgres Docker)<br>• Cấu hình MinIO S3 Object Storage (port 9000/9001)<br>• Nạp dữ liệu cốt lõi (38 lớp Diseases, 112 bài báo thô) & 1–2 ca bệnh mẫu đại diện (TreatmentPlans & Products) để thông luồng kỹ thuật<br>• Core API: Cài đặt MinIO Service và hoàn thiện `POST /api/v1/diagnose` | • 10 bảng CSDL có đủ cấu trúc và dữ liệu mẫu thông luồng<br>• MinIO lưu trữ ảnh lá gốc và Grad-CAM<br>• Core API kết nối MinIO và AI Service pass E2E |
-| **Thành viên B (AI Vision)** | • Đồng bộ `backend/ai-service` khớp với `api-contracts.md`<br>• Nạp dữ liệu `Lavitree_Selected_Classes.csv` để trả về tên tiếng Việt & phân cấp Tier 1/2/3<br>• Chuẩn hóa endpoint `POST /api/v1/predict` (hỗ trợ `include_heatmap`, max 10MB)<br>• Tách bạch quy tắc `is_uncertain` (< 0.70) và `warning_message` (theo Tier) | • `backend/ai-service` chạy chuẩn RESTful<br>• Endpoint `POST /api/v1/predict` đạt latency $\le 1.0$s trên CPU<br>• Script kiểm thử `test_predict.py` pass 100% |
+| **Thành viên B (AI Vision)** | • Đồng bộ `backend/ai-service` khớp với `api-contracts.md`<br>• Nạp dữ liệu `Lavitree_Selected_Classes.csv` để trả về tên tiếng Việt, mẹo chụp theo lớp & nhóm lớp dễ nhầm<br>• Chuẩn hóa endpoint `POST /api/v1/predict` (hỗ trợ `include_heatmap`, max 10MB)<br>• Tách bạch quy tắc `is_uncertain` (< 0.70) và `warning_message` (theo `docs/spec/classes.md`) | • `backend/ai-service` chạy chuẩn RESTful<br>• Endpoint `POST /api/v1/predict` đạt latency $\le 1.0$s trên CPU<br>• Script kiểm thử `test_predict.py` pass 100% |
 
 ---
 
 ### 3. 📋 DANH SÁCH TASKS CHI TIẾT SPRINT 1 (ĐỒNG BỘ MÃ NGUỒN HIỆN CÓ)
 
-- [ ] **TASK-01: Đồng bộ `backend/ai-service` (FastAPI), Endpoint dự đoán ResNet-18 & Bộ lọc OOD đa tầng** *(Owner: Thành viên B)*
+- [ ] **TASK-01: Đồng bộ `backend/ai-service` (FastAPI), Endpoint dự đoán ResNet-18 & Bộ lọc OOD cơ bản** *(Owner: Thành viên B)*
   - File tác động: `backend/ai-service/app/main.py`, `app/api/endpoints/predict.py`, `app/services/predictor.py`, `app/services/ood_filter.py`.
-  - Dữ liệu nạp thêm: Copy `Lavitree_Selected_Classes.csv` vào `app/models/` để ánh xạ Tên tiếng Việt và Tier.
-  - Bộ lọc OOD đa tầng: Tích hợp `ood_filter.py` kết hợp tín hiệu sơ bộ màu thực vật (HSV/ExG, không coi là bằng chứng khẳng định) + Energy-based OOD Score trên logits (ngưỡng phân vị thứ 5 - 5th percentile) để ngăn chặn hiện tượng Softmax Overconfidence trên ảnh bàn tay, mặt người, đồ vật ngoại lai.
-  - Hợp đồng: Chuẩn hóa URL thành `POST /api/v1/predict`, kiểm tra file $\le 10$MB, trả về đúng định dạng JSON chuẩn (Top-1, Top-3, `tier`, `is_ood`, `is_uncertain`, `warning_message`, `gradcam_base64`).
+  - Dữ liệu: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`) để ánh xạ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`. Đã bỏ phân cấp Tier.
+  - Bộ lọc OOD đa tầng: Tích hợp `ood_filter.py` kết hợp tín hiệu sơ bộ màu thực vật (HSV/ExG, không coi là bằng chứng khẳng định) + Energy-based OOD Score trên logits (ngưỡng tạm thời đọc từ `OOD_ENERGY_THRESHOLD`; hiệu chỉnh chính thức theo phân vị thứ 5 để Sprint 3) để giảm hiện tượng Softmax Overconfidence trên ảnh bàn tay, mặt người, đồ vật ngoại lai.
+  - Hợp đồng: Chuẩn hóa URL thành `POST /api/v1/predict`, kiểm tra file $\le 10$MB, trả về đúng định dạng JSON chuẩn (Top-1, Top-3, `confusion_group`, `is_ood`, `is_uncertain`, `warning_message`, `gradcam_base64`).
 - [ ] **TASK-02: Chuẩn hóa tham số và tối ưu hóa Grad-CAM (`layer4[-1]`)** *(Owner: Thành viên B)*
   - File tác động: `backend/ai-service/app/services/gradcam.py`, `predictor.py`.
   - Hợp đồng: Bổ sung tham số `include_heatmap: bool = True`. Tối ưu tốc độ sinh heatmap kết hợp ResNet-18 đạt $\le 1.0$s trên CPU (gợi ý: gộp 1 lần forward pass có gradient khi bật heatmap).
@@ -45,8 +45,8 @@
 
 1. **Gate 1 - AI Vision Latency, Accuracy & OOD Filtering**:
    - Thời gian suy luận ResNet-18 + sinh Grad-CAM Heatmap: **$\le 1.0$ giây trên CPU** (hoặc $< 0.3$ giây trên GPU).
-   - Đo lường OOD: Phát hiện OOD $\ge 80\%$ trên 20 ảnh ngoại lai; tỷ lệ từ chối nhầm $\le 5\%$ trên 50 ảnh lá thật thuộc tập kiểm thử độc lập (không trùng tập chọn ngưỡng $\tau$).
-   - `is_uncertain` phản ánh đúng độ bất định Softmax khi `confidence < 0.70`; `tier` trả về đúng chuẩn `"TIER_1_APPROVED"`, `"TIER_2_CONDITIONAL"`, `"TIER_3_EXCLUDED"`.
+   - OOD (mức cơ bản): ảnh bàn tay/đồ vật mẫu bị gắn `is_ood: true`, ảnh lá mẫu không bị chặn nhầm; ngưỡng cấu hình qua `.env`. *(Chỉ tiêu định lượng ≥ 80% / ≤ 5% trên tập ảnh tách biệt chuyển sang Sprint 3.)*
+   - `is_uncertain` phản ánh đúng độ bất định Softmax khi `confidence < 0.70`; response không còn trường `tier`; `confusion_group` và `warning_message` sinh đúng theo `docs/spec/classes.md`.
 2. **Gate 2 - Storage & Persistence Pipeline**:
    - CSDL quan hệ kết nối ổn định, đủ 10 bảng dữ liệu.
    - Ảnh lá gốc và ảnh heatmap Grad-CAM được lưu trên MinIO S3 (`http://localhost:9000/lavitree-diagnoses/...`) với quyền truy cập file đơn lẻ, không lộ danh sách toàn bộ bucket.

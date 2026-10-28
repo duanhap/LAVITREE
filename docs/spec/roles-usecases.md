@@ -78,7 +78,7 @@ Bảng phân quyền chi tiết cho toàn bộ các tính năng của hệ thố
 |---|---|:---:|:---:|:---:|---|
 | **Chẩn Đoán & AI Vision** | Chụp/Tải ảnh lá & Nhận kết quả | ✅ | ✅ | ✅ | Lưu MinIO, `UserId` có thể null |
 | | Xem bản đồ nhiệt Grad-CAM | ✅ | ✅ | ✅ | Overlay Jet trên lớp `layer4[-1]` |
-| | Nhận diện OOD & Cảnh báo bất định | ✅ | ✅ | ✅ | Tự động gắn cờ `is_ood` / Tier cảnh báo |
+| | Nhận diện OOD & Cảnh báo bất định | ✅ | ✅ | ✅ | Tự động gắn cờ `is_ood` / `is_uncertain` / lớp dễ nhầm |
 | | Xem hướng dẫn xử lý chuẩn IPM | ✅ | ✅ | ✅ | Trích xuất từ PostgreSQL |
 | **Sổ Tay Bệnh Cây** | Tra cứu 14 loài cây & 40 lớp bệnh | ✅ | ✅ | ✅ | Hỗ trợ tìm kiếm & lọc Offline |
 | | Xem chi tiết triệu chứng & nguồn trích dẫn | ✅ | ✅ | ✅ | Hiển thị link gốc bài báo khoa học |
@@ -146,7 +146,7 @@ flowchart TD
      - Kiểm tra tính hợp lệ của ảnh qua Pillow (chống Decompression Bomb).
      - Chạy bộ lọc OOD đa tầng (`ood_filter.py`): Đánh giá màu sắc và Energy Score trên logits.
      - Suy luận mô hình ResNet-18, trích xuất lớp `layer4[-1]` sinh bản đồ nhiệt Grad-CAM.
-     - Trả về Top-1, Top-3, cờ `is_ood`, nhãn Tier và chuỗi base64 ảnh Grad-CAM.
+     - Trả về Top-1, Top-3, cờ `is_ood`, `is_uncertain`, `confusion_group` và chuỗi base64 ảnh Grad-CAM.
   6. Core API nhận kết quả, lưu ảnh Grad-CAM vào MinIO, truy vấn CSDL PostgreSQL lấy hướng dẫn Quản lý dịch hại tổng hợp (IPM) và thuốc điều trị được cấp phép.
   7. Core API lưu bản ghi vào bảng `DiagnosisRecords` (với `UserId` nếu đã đăng nhập).
   8. Hệ thống trả về kết quả đầy đủ cho Client hiển thị lên màn hình.

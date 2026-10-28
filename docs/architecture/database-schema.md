@@ -93,7 +93,7 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `OriginalImageUrl` | `VARCHAR(500)` | NOT NULL | Đường dẫn ảnh lá gốc người dùng tải lên |
 | `GradCamImageUrl` | `VARCHAR(500)` | NULL | Đường dẫn ảnh nhiệt Grad-CAM do AI sinh |
 | `Confidence` | `FLOAT` | NOT NULL | Điểm tin cậy (Ví dụ: 0.946 = 94.6%) |
-| `IsUncertain` | `BOOLEAN` | DEFAULT FALSE | Cờ cảnh báo bất định ($T < 0.70$ hoặc Tier 2/3) |
+| `IsUncertain` | `BOOLEAN` | DEFAULT FALSE | Cờ cảnh báo bất định (confidence $< 0.70$) |
 | `Notes` | `TEXT` | NULL | Ghi chú của nông dân khi theo dõi |
 | `RecoveryStatus` | `VARCHAR(50)` | DEFAULT 'Đang theo dõi' | 'Đang theo dõi' \| 'Đã phục hồi' \| 'Tái phát' |
 | `CreatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm chẩn đoán |

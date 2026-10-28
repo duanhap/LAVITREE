@@ -35,7 +35,7 @@
 - **Tối ưu hóa chụp cận cảnh**: Hệ thống thiết kế tối ưu cho ảnh chụp cận cảnh 1 phiến lá (15–20cm) có định hướng từ khung ngắm giao diện (Viewport Constraint) để giảm thiểu nhiễu nền dã ngoại.
 - **Kiểm soát ngoại lai & Bất định (OOD & Uncertainty Safeguard)**:
   - Tích hợp bộ lọc OOD đa tầng: Tín hiệu màu thực vật sơ bộ kết hợp Energy-based OOD Score trên model logits.
-  - Cảnh báo nghi vấn khi độ tin cậy $< 70\%$ hoặc rơi vào lớp bệnh Tier 2/3.
+  - Cảnh báo nghi vấn khi độ tin cậy $< 70\%$; cảnh báo riêng cho các lớp dễ nhầm và mẹo chụp theo từng lớp.
 - **Minh bạch hóa vùng chú ý**: Trực quan hóa vùng kích hoạt bằng **Grad-CAM (`layer4[-1]`)**.
 - **Hướng dẫn chăm sóc & điều trị**: Cung cấp **Hướng dẫn xử lý theo tình trạng bệnh chuẩn Khuyến nông & IPM** kèm **112 nguồn bài báo khoa học đối chứng**.
 - **Trợ lý Tác tử Khuyến Nông (Agri-Agent)**: Vòng lặp ReAct, 4 công cụ chuẩn MCP (Thời tiết, Kho thuốc, Tri thức bệnh, Rà soát an toàn PHI), Boundary Guardrails, cơ chế chuyển ca chuyên gia (Human-in-the-loop) và Streaming SSE.
