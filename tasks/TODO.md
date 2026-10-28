@@ -20,10 +20,10 @@
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Trả về ảnh Heatmap phủ lên ảnh gốc để hiển thị vùng nghi vấn nấm bệnh trên giao diện.
-- [ ] **TASK-03: Cập nhật CSDL Supabase / Postgres & Nạp Seed Data Mẫu Thông Luồng**
+- [ ] **TASK-03: Cập nhật CSDL & Nạp Seed Data An toàn theo nguyên tắc Idempotent**
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Áp dụng migration EF Core 10 bảng, nạp 38 lớp cây trồng (`Diseases`), 112 bài báo thô (`KnowledgeSources`), và 1–2 ca bệnh mẫu (`TreatmentPlans` & `Products` cho `Tomato___Late_blight`) để thông luồng kỹ thuật cho endpoint `diagnose`. (Tri thức đầy đủ 38 lớp sẽ do cơ chế Ingestion ở Sprint 2 nạp).
+  - Đầu ra: Áp dụng migration EF Core 10 bảng, nạp 14 loài cây (`PlantCategories`), 38 lớp cây trồng (`Diseases`), bỏ qua `KnowledgeSources` đã có đủ 112 bài (chống nhân đôi lên 224), và nạp 1–2 ca bệnh mẫu (`Tomato___Late_blight`) theo nguyên tắc Idempotent (chạy nhiều lần không bị duplicate) để thông luồng cho endpoint `diagnose`.
 - [ ] **TASK-04: Xây dựng Core API (.NET 8 Clean Architecture) & Tích hợp MinIO Storage**
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`

@@ -31,11 +31,12 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `Id` | `SERIAL` | PK | Mã định danh loài cây |
-| `NameVi` | `VARCHAR(100)` | NOT NULL | Tên tiếng Việt (Ví dụ: "Cà chua", "Khoai tây") |
+| `NameVi` | `VARCHAR(100)` | UNIQUE, NOT NULL | Tên tiếng Việt (Ví dụ: "Cà chua", "Khoai tây") |
 | `ScientificName` | `VARCHAR(150)` | NULL | Tên khoa học |
 | `IconUrl` | `VARCHAR(255)` | NULL | Biểu tượng minh họa |
 
-#### 2. `Diseases` (Danh mục 38 lớp Bệnh & Tình trạng khỏe mạnh)
+#### 2. `Diseases` (Danh mục 40 lớp: 38 lớp AI Vision + 2 lớp Cẩm nang Canh tác Cây khỏe)
+*Lưu ý kiến trúc: Gồm 38 lớp có AI nhận diện tự động + 2 lớp cẩm nang canh tác (`Orange___healthy` & `Squash___healthy`) để đảm bảo toàn bộ 14 loài cây trồng đều có tài liệu hướng dẫn chăm sóc và khớp 100% với 112 bài báo trong KnowledgeSources.*
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `Id` | `SERIAL` | PK | Mã định danh bệnh |
@@ -59,7 +60,7 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `IsolationDays` | `VARCHAR(50)` | NULL | Thời gian cách ly an toàn (PHI: "7-14 ngày", để trống nếu là biện pháp sinh học/canh tác) |
 
 #### 4. `KnowledgeSources` (Kho bài báo đối chứng & Kỹ thuật canh tác)
-*Khớp 100% với dữ liệu thu thập được từ `KnowledgeSources_rows.csv` (112 bản ghi)*
+*Khớp 100% với dữ liệu thu thập được từ `KnowledgeSources_rows.csv` (112 bản ghi). Ràng buộc Unique trên cặp `(ModelClass, SourceUrl)` để ngăn chặn triệt để nguy cơ nhân đôi dữ liệu khi nạp lại.*
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `Id` | `UUID` | PK | Mã nguồn tri thức |
