@@ -65,7 +65,7 @@
 - [x] **Pha 1**: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`), xây dựng dictionary ánh xạ `class_code` $\rightarrow$ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`; bỏ qua 2 lớp `HANDBOOK_ONLY`.
 - [x] **Pha 2**: Viết module `ood_filter.py` gồm hàm tính Energy Score $S_{energy}(x)$ và hàm `calculate_vegetation_ratio`. Cấu hình ngưỡng đọc linh hoạt từ `OOD_ENERGY_THRESHOLD` (để trống thì tắt kiểm tra Energy theo thiết kế an toàn, việc đo đạc và hiệu chỉnh ngưỡng chính thức chuyển sang Sprint 3).
 - [x] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, gắn `confusion_group` và sinh `warning_message` theo 4 quy tắc kết hợp.
-- [ ] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`:
+- [x] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`:
   - Kiểm tra `len(contents) <= 10 * 1024 * 1024` (10MB).
   - Cấu hình `warnings.simplefilter('error', Image.DecompressionBombWarning)` và đặt `Image.MAX_IMAGE_PIXELS = 10_000_000`.
   - Xác thực ảnh bằng `PIL.Image.open().verify()`, sau đó mở lại ảnh bằng `Image.open(io.BytesIO(contents))` để tránh lỗi đóng luồng.
@@ -83,11 +83,11 @@
 - [x] Stub endpoint hoàn thành trong 30 phút đầu để Thành viên A bắt đầu TASK-04 song song.
 - [x] Module `ood_filter.py` chạy được trong `app/services/`, ngưỡng đọc từ `OOD_ENERGY_THRESHOLD` (thiếu biến thì tắt kiểm tra Energy và ghi log cảnh báo).
 - [x] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
-- [ ] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 (khi OOD: `top1: null`, `gradcam_base64: null`).
+- [x] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 (khi OOD: `top1: null`, `gradcam_base64: null`).
 - [ ] Kiểm tra nhanh OOD: ảnh bàn tay mẫu trong `test_predict.py` bị gắn `is_ood: true`; ảnh lá mẫu không bị chặn nhầm. *(Chỉ tiêu định lượng ≥ 80% / ≤ 5% thuộc Sprint 3.)*
-- [ ] Response không còn trường `tier`; có `confusion_group` đúng contract.
-- [ ] Bảo mật: File > 10MB hoặc đuôi file sai bị từ chối 400; ảnh hỏng byte/decompression bomb bị chặn 422; lỗi ngoại lệ không lộ `str(e)`.
-- [ ] Tốc độ suy luận ResNet-18 + OOD Filter đạt $\le 1.0$ giây trên CPU.
+- [x] Response không còn trường `tier`; có `confusion_group` đúng contract.
+- [x] Bảo mật: File > 10MB hoặc đuôi file sai bị từ chối 400; ảnh hỏng byte/decompression bomb bị chặn 422; lỗi ngoại lệ không lộ `str(e)`.
+- [x] Tốc độ suy luận ResNet-18 + OOD Filter đạt $\le 1.0$ giây trên CPU.
 
 
 
@@ -115,6 +115,14 @@
   - Chuẩn hóa cấu trúc trả về theo `docs/architecture/api-contracts.md` Mục 2.1 (loại bỏ hoàn toàn các trường cũ `tier`, `predicted_class`).
   - Hỗ trợ Grad-CAM định dạng Data URI chuẩn (`data:image/jpeg;base64,...`) khi `include_heatmap = True`, tự động bỏ qua khi `is_ood = True` hoặc `include_heatmap = False`.
   - Đã chạy kiểm thử thực tế `test_predictor_pha3.py` trên terminal: 5/5 test pass, độ trễ suy luận thực tế đạt ~180ms trên CPU.
+- **Hoàn thành Pha 4**: Chuẩn hóa endpoint `POST /api/v1/predict` và Hardening an toàn bảo mật:
+  - Đấu nối trực tiếp vào `predictor.predict(...)` chạy mô hình ResNet-18 thật.
+  - Kiểm tra MIME type và dung lượng <= 10MB (HTTP 400).
+  - Cấu hình chặn Decompression Bomb (`Image.MAX_IMAGE_PIXELS = 10_000_000`) và xác thực Pillow verify() (HTTP 422).
+  - Khắc phục bẫy đóng luồng byte của Pillow bằng cách mở lại luồng an toàn.
+  - Bắt ngoại lệ và ẩn `str(e)`, ghi log nội bộ qua logger.
+  - Health check `GET /health` trả về trạng thái nạp mô hình động qua `predictor.is_loaded`.
+  - Đã chạy kiểm thử thực tế `test_endpoint_pha4.py` trên terminal: 7/7 test pass, độ trễ 128ms trên CPU.
 
 
 ---
