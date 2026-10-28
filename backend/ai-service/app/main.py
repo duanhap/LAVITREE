@@ -16,8 +16,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(predict_router, prefix="/api/v1/ai", tags=["AI Vision"])
+app.include_router(predict_router, prefix="/api/v1", tags=["AI Vision"])
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "Lavitree AI Vision Service"}
+    return {"status": "ok", "model_loaded": True}
+
