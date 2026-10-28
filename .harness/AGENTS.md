@@ -18,15 +18,18 @@
 ## 2. NHỮNG ĐIỀU CẤM KỴ (NEGATIVE CONSTRAINTS)
 > ⛔ **VI PHẠM CÁC ĐIỀU SAU ĐỒNG NGHĨA VỚI THẤT BẠI CỦA AGENT:**
 
-1. **CẤM viết mã giả lập (Mock/Placeholder) trong Core AI & Core Logic**:
-   - Model ResNet18 và trọng số `best_plant_model.pt` là thật; dữ liệu kiểm thử là thật. Tuyệt đối không viết hàm random điểm tin cậy hay fake kết quả chẩn đoán khi xây dựng AI Service.
-2. **CẤM tự ý xóa bỏ hoặc thay đổi cấu trúc mã nguồn có sẵn**:
+1. **CẤM bịa đặt / sinh số liệu thực nghiệm giả (Zero Tolerance for Fabricated Data / Hallucinations)**:
+   - Tuyệt đối **KHÔNG tự ý bịa đặt số liệu đo đạc thực nghiệm** (ví dụ: Energy score, độ trễ latency, điểm F1-score, độ chính xác Accuracy, RAM/CPU benchmark, log mẫu) khi chưa có lệnh chạy và kết quả đo đạc thực tế trên dữ liệu thật trong terminal.
+   - Khi lập task hoặc ghi nhật ký: Nếu việc đo đạc chưa diễn ra hoặc đã hoãn sang sprint sau, **bắt buộc phải ghi rõ là `[Chưa thực hiện]` hoặc `[Chuyển sang Sprint X]`**. Tuyệt đối không được "vẽ" số liệu giả vờ như nhóm đã thực nghiệm xong để lừa dối tài liệu.
+2. **CẤM viết mã giả lập (Mock/Placeholder) trong Core AI & Core Logic**:
+   - Model ResNet18 và trọng số `best_plant_model.pt` là thật; dữ liệu kiểm thử là thật. Tuyệt đối không viết hàm random điểm tin cậy hay fake kết quả chẩn đoán khi xây dựng AI Service (ngoại trừ Day 1 stub endpoint đã quy định rõ ràng trong hợp đồng).
+3. **CẤM tự ý xóa bỏ hoặc thay đổi cấu trúc mã nguồn có sẵn**:
    - Phải đọc và hiểu mã nguồn hiện tại trong `backend/` và `frontend/` trước khi bổ sung tính năng mới.
-3. **CẤM sửa đổi cấu trúc Database mà không cập nhật tài liệu**:
+4. **CẤM sửa đổi cấu trúc Database mà không cập nhật tài liệu**:
    - Bất kỳ sự thay đổi nào về bảng biểu, quan hệ 3NF trong PostgreSQL đều phải đồng bộ ngược lại vào `docs/architecture/database-schema.md`.
-4. **CẤM commit khi test suite đang bị đỏ (Fail)**:
+5. **CẤM commit khi test suite đang bị đỏ (Fail)**:
    - Chỉ được đánh dấu hoàn thành và tạo git commit khi các bài kiểm thử biên đã chạy thành công.
-5. **CẤM sử dụng đường dẫn tuyệt đối của máy cá nhân (Absolute Machine Paths)**:
+6. **CẤM sử dụng đường dẫn tuyệt đối của máy cá nhân (Absolute Machine Paths)**:
    - Tuyệt đối không ghi `file:///`, `C:\...`, `D:\...`, `/Users/...` vào mã nguồn, cấu hình hay tài liệu `.md`.
    - Mọi đường dẫn trong tài liệu Markdown và source code bắt buộc phải là **đường dẫn tương đối (Relative Path)** tính từ gốc dự án (ví dụ: `docs/architecture/database-schema.md`, `tasks/TODO.md`). Đảm bảo tính tương thích chéo nền tảng (Windows/macOS/Linux), di động khi chạy Docker, CI/CD và trên máy của thành viên khác.
 

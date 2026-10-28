@@ -62,8 +62,8 @@
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 - [x] **Pha 0 (Day 1 - Unblock Teammate A)**: Tạo stub endpoint giả lập `POST /api/v1/predict` (hardcoded JSON đúng 100% `api-contracts.md`) để Thành viên A tích hợp và kiểm thử Core API E2E ngay trong ngày đầu tiên.
-- [ ] **Pha 1**: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`), xây dựng dictionary ánh xạ `class_code` $\rightarrow$ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`; bỏ qua 2 lớp `HANDBOOK_ONLY`.
-- [ ] **Pha 2**: Viết module `ood_filter.py` gồm hàm tính Energy Score $S_{energy}(x)$ và hàm `calculate_vegetation_ratio`. Ngưỡng đọc từ `OOD_ENERGY_THRESHOLD`; chọn giá trị tạm bằng cách in Energy score của ~20 ảnh lá mẫu và ~10 ảnh vật thể tự chụp (không cần thống kê; ghi các con số vào mục 5 để Sprint 3 dùng tiếp).
+- [x] **Pha 1**: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`), xây dựng dictionary ánh xạ `class_code` $\rightarrow$ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`; bỏ qua 2 lớp `HANDBOOK_ONLY`.
+- [x] **Pha 2**: Viết module `ood_filter.py` gồm hàm tính Energy Score $S_{energy}(x)$ và hàm `calculate_vegetation_ratio`. Cấu hình ngưỡng đọc linh hoạt từ `OOD_ENERGY_THRESHOLD` (để trống thì tắt kiểm tra Energy theo thiết kế an toàn, việc đo đạc và hiệu chỉnh ngưỡng chính thức chuyển sang Sprint 3).
 - [ ] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, gắn `confusion_group` và sinh `warning_message` theo 4 quy tắc kết hợp.
 - [ ] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`:
   - Kiểm tra `len(contents) <= 10 * 1024 * 1024` (10MB).
@@ -81,7 +81,7 @@
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
 - [x] Stub endpoint hoàn thành trong 30 phút đầu để Thành viên A bắt đầu TASK-04 song song.
-- [ ] Module `ood_filter.py` chạy được trong `app/services/`, ngưỡng đọc từ `OOD_ENERGY_THRESHOLD` (thiếu biến thì tắt kiểm tra Energy và ghi log cảnh báo).
+- [x] Module `ood_filter.py` chạy được trong `app/services/`, ngưỡng đọc từ `OOD_ENERGY_THRESHOLD` (thiếu biến thì tắt kiểm tra Energy và ghi log cảnh báo).
 - [x] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
 - [ ] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 (khi OOD: `top1: null`, `gradcam_base64: null`).
 - [ ] Kiểm tra nhanh OOD: ảnh bàn tay mẫu trong `test_predict.py` bị gắn `is_ood: true`; ảnh lá mẫu không bị chặn nhầm. *(Chỉ tiêu định lượng ≥ 80% / ≤ 5% thuộc Sprint 3.)*
@@ -99,8 +99,17 @@
 ---
 
 ## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
-- *Ghi nhận sau khi hoàn thành task.*
-- *Ghi lại Energy score đo được trên ảnh lá mẫu và ảnh vật thể, cùng giá trị `OOD_ENERGY_THRESHOLD` đã chọn, để Sprint 3 hiệu chỉnh tiếp.*
+- **Hoàn thành Pha 1**: Module `app/services/class_mapping.py` nạp thành công 38 lớp từ `Lavitree_Selected_Classes.csv`. Đã loại trừ chính xác 2 lớp `HANDBOOK_ONLY` (`Orange___healthy`, `Squash___healthy`). Hỗ trợ tra cứu `plant_name`, `disease_name`, `capture_tip` và tự động sinh cảnh báo cho `confusion_group` (`TOMATO_LEAF_SPOT` giữa Early blight và Target spot).
+- **Hoàn thành Pha 2**: Module `app/services/ood_filter.py` triển khai xong cấu trúc thuật toán:
+  - Tầng 1: `calculate_vegetation_ratio` kết hợp không gian màu HSV (Hue 25-100) và chỉ số ExG ($2G - R - B$).
+  - Tầng 2: `calculate_energy_score` theo công thức Liu et al. (NeurIPS 2020) với $T = 1.0$ dùng `torch.logsumexp`.
+  - Cơ chế kết hợp: Đầy đủ 4 quy tắc Decision Fusion Policy, đọc ngưỡng `OOD_ENERGY_THRESHOLD` từ môi trường (tự động tắt khi chưa cấu hình).
+  - Đã kiểm thử unit test thuật toán qua `test_pha1_pha2.py` (PASS 100%).
+- **Trạng thái đo thực nghiệm & Cấu hình ngưỡng**:
+  - `[Chưa thực hiện đo thực tế]`: Nhóm chưa tiến hành chạy đo trên ảnh lá mẫu hay vật thể ngoại lai thật trong Sprint 1.
+  - Biến môi trường `OOD_ENERGY_THRESHOLD=` hiện được **để trống** theo đúng thiết kế an toàn (`is_ood = false` khi dev).
+  - Toàn bộ công tác thu thập 3 tập ảnh tách biệt (Tập A, B, C) và tính toán ngưỡng $\tau_{energy}$ chính thức (theo phân vị thứ 5) được **chuyển trọn vẹn sang Sprint 3** (xem Mục 6).
+
 
 ---
 
