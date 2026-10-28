@@ -16,5 +16,5 @@
    - *Điều kiện chuyển tiếp (DoD)*: Agent giải quyết thành công kịch bản ca bệnh phức tạp ngoài vườn: tự động kiểm tra thời tiết $\rightarrow$ tra thuốc phù hợp $\rightarrow$ chặn thuốc có PHI dài sát ngày thu hoạch $\rightarrow$ xuất file `trace_waterfall.json` giải trình minh bạch.
 
 3. **Sprint 3: Tối ưu Giao diện Web/Mobile, Quan sát (Observability) & Đóng gói Demo Offline**
-   - *Mục tiêu*: Hoàn thiện giao diện Web Portal (React 18) & Mobile App (Android Kotlin Jetpack Compose) hiển thị mượt mà cả kết quả Vision lẫn Streaming Agent; Bổ sung Màn hình Quan sát Trace Log trên Admin Dashboard; Đóng gói Docker Compose chạy 100% Offline sẵn sàng bảo vệ đồ án.
-   - *Điều kiện chuyển tiếp (DoD)*: Demo toàn trình thông suốt không cần kết nối mạng ngoài, kịch bản bảo vệ trước Hội đồng chạy trơn tru 100%.
+   - *Mục tiêu*: Hoàn thiện giao diện Web Portal (React 18) & Mobile App (Android Kotlin Jetpack Compose) hiển thị mượt mà cả kết quả Vision lẫn Streaming Agent; Bổ sung Màn hình Quan sát Trace Log trên Admin Dashboard; Đóng gói container Docker dự phòng chạy cục bộ sẵn sàng bảo vệ đồ án.
+   - *Điều kiện chuyển tiếp (DoD)*: Demo toàn trình thông suốt, kịch bản bảo vệ trước Hội đồng chạy trơn tru 100%.

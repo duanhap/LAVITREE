@@ -43,7 +43,7 @@
 - **Kho Vật tư Lavitree Store**: Quản lý danh mục vật tư chính hãng, hỗ trợ đặt hàng giao tận nơi qua thanh toán COD / VietQR.
 - **Màn hình Quan sát (Agent Observability)**: Xuất Waterfall Trace Log phục vụ minh bạch hóa tiến trình lập luận của tác tử.
 - **Nền tảng hỗ trợ**: Web Portal (React Vite) và Mobile App (Android Kotlin Jetpack Compose).
-- **Hạ tầng triển khai**: Đóng gói Docker Compose hỗ trợ triển khai cục bộ (Local Container Deployment), vận hành được khi không có kết nối internet.
+- **Hạ tầng triển khai**: Vận hành thực tế theo kiến trúc **Cloud-first** (kết nối Supabase Cloud, Cloud LLM, Live Weather API); đồng thời đóng gói container Docker dự phòng chạy cục bộ hỗ trợ kịch bản demo khi bảo vệ đồ án.
 
 #### Ngoài phạm vi (Out-of-Scope - Tạm hoãn):
 - Chẩn đoán qua thân, vỏ gỗ, củ ngầm hay hoa quả (chỉ tập trung phiến lá).
