@@ -53,12 +53,13 @@
 
 - [ ] Bài kiểm thử tự động chạy Pass 100% không có cảnh báo nghiêm trọng.
 - [ ] Mã HTTP status code trả về đúng chuẩn RESTful.
-- [ ] Bằng chứng kiểm thử (Receipts):
+- [ ] Bằng chứng kiểm thử (Receipts - *Bắt buộc dán stdout thật từ terminal, cấm tự bịa đặt số liệu/log*):
   ```bash
-  # Dán lệnh cURL / PowerShell và output thực tế chứng minh code hoạt động tại đây
+  # Dán lệnh cURL / PowerShell / Python test và output thực tế chứng minh code hoạt động tại đây
   ```
 
 ---
 
 ## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
-- *[Thời gian]*: Ghi nhận ngắn các quyết định kỹ thuật phát sinh trong quá trình code.
+- *[Thời gian]*: Ghi nhận ngắn các quyết định kỹ thuật phát sinh trong quá trình code. 
+- *Lưu ý*: Nếu phép đo/benchmark chưa diễn ra hoặc dời sang Sprint sau, ghi rõ `[Chưa thực hiện / Dời sang Sprint X]`. Tuyệt đối không sinh số liệu giả lập.

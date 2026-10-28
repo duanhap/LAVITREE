@@ -47,11 +47,12 @@ flowchart LR
 * **Thời điểm**: Ngay sau khi viết xong code.
 * **Hành động của Developer / Agent**:
   1. Chạy lệnh kiểm thử trực tiếp trong terminal (chạy test suite, gửi request thực tế tới endpoint).
-  2. Thu thập bằng chứng thực tế:
-     - Log trả về của server.
+  2. Thu thập bằng chứng thực tế từ stdout terminal:
+     - Log trả về thật của server/script (nghiêm cấm tự bịa log hay tự gõ số liệu kết quả đo đạc vào báo cáo).
      - HTTP Response Status (phải là `200 OK` cho ca đúng và `400/422` cho ca nhập sai).
-     - Thời gian phản hồi latency (đáp ứng tiêu chuẩn $< 1.5$ giây của Lavitree).
+     - Thời gian phản hồi latency đo được thực tế (đáp ứng tiêu chuẩn $< 1.5$ giây của Lavitree).
   3. Nếu xuất hiện bất kỳ lỗi nào $\rightarrow$ Quay lại Chặng 2 để sửa dứt điểm, không được bỏ qua.
+  4. Nếu việc đo đạc chuyển sang Sprint sau hoặc chưa có dữ liệu $\rightarrow$ Ghi rõ trạng thái `[Chưa thực hiện / Hoãn sang Sprint X]`, tuyệt đối không sinh số liệu giả lập.
 
 ---
 

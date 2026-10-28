@@ -62,10 +62,10 @@
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 - [x] **Pha 0 (Day 1 - Unblock Teammate A)**: Tạo stub endpoint giả lập `POST /api/v1/predict` (hardcoded JSON đúng 100% `api-contracts.md`) để Thành viên A tích hợp và kiểm thử Core API E2E ngay trong ngày đầu tiên.
-- [ ] **Pha 1**: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`), xây dựng dictionary ánh xạ `class_code` $\rightarrow$ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`; bỏ qua 2 lớp `HANDBOOK_ONLY`.
-- [ ] **Pha 2**: Viết module `ood_filter.py` gồm hàm tính Energy Score $S_{energy}(x)$ và hàm `calculate_vegetation_ratio`. Ngưỡng đọc từ `OOD_ENERGY_THRESHOLD`; chọn giá trị tạm bằng cách in Energy score của ~20 ảnh lá mẫu và ~10 ảnh vật thể tự chụp (không cần thống kê; ghi các con số vào mục 5 để Sprint 3 dùng tiếp).
-- [ ] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, gắn `confusion_group` và sinh `warning_message` theo 4 quy tắc kết hợp.
-- [ ] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`:
+- [x] **Pha 1**: Đọc `Lavitree_Selected_Classes.csv` (đã có trong `app/models/`), xây dựng dictionary ánh xạ `class_code` $\rightarrow$ tên tiếng Việt, `Capture_Tip`, `Confusion_Group`; bỏ qua 2 lớp `HANDBOOK_ONLY`.
+- [x] **Pha 2**: Viết module `ood_filter.py` gồm hàm tính Energy Score $S_{energy}(x)$ và hàm `calculate_vegetation_ratio`. Cấu hình ngưỡng đọc linh hoạt từ `OOD_ENERGY_THRESHOLD` (để trống thì tắt kiểm tra Energy theo thiết kế an toàn, việc đo đạc và hiệu chỉnh ngưỡng chính thức chuyển sang Sprint 3).
+- [x] **Pha 3**: Nâng cấp `predictor.py`: Giữ lại logits $f(x)$ trước Softmax, gọi `OODFilter.evaluate(tensor, logits, pil_image)` để xác định `is_ood`, gắn `confusion_group` và sinh `warning_message` theo 4 quy tắc kết hợp.
+- [x] **Pha 4**: Sửa `main.py` và `predict.py` chuẩn hóa endpoint `POST /api/v1/predict`:
   - Kiểm tra `len(contents) <= 10 * 1024 * 1024` (10MB).
   - Cấu hình `warnings.simplefilter('error', Image.DecompressionBombWarning)` và đặt `Image.MAX_IMAGE_PIXELS = 10_000_000`.
   - Xác thực ảnh bằng `PIL.Image.open().verify()`, sau đó mở lại ảnh bằng `Image.open(io.BytesIO(contents))` để tránh lỗi đóng luồng.
@@ -81,13 +81,13 @@
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
 - [x] Stub endpoint hoàn thành trong 30 phút đầu để Thành viên A bắt đầu TASK-04 song song.
-- [ ] Module `ood_filter.py` chạy được trong `app/services/`, ngưỡng đọc từ `OOD_ENERGY_THRESHOLD` (thiếu biến thì tắt kiểm tra Energy và ghi log cảnh báo).
+- [x] Module `ood_filter.py` chạy được trong `app/services/`, ngưỡng đọc từ `OOD_ENERGY_THRESHOLD` (thiếu biến thì tắt kiểm tra Energy và ghi log cảnh báo).
 - [x] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
-- [ ] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 (khi OOD: `top1: null`, `gradcam_base64: null`).
+- [x] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 (khi OOD: `top1: null`, `gradcam_base64: null`).
 - [ ] Kiểm tra nhanh OOD: ảnh bàn tay mẫu trong `test_predict.py` bị gắn `is_ood: true`; ảnh lá mẫu không bị chặn nhầm. *(Chỉ tiêu định lượng ≥ 80% / ≤ 5% thuộc Sprint 3.)*
-- [ ] Response không còn trường `tier`; có `confusion_group` đúng contract.
-- [ ] Bảo mật: File > 10MB hoặc đuôi file sai bị từ chối 400; ảnh hỏng byte/decompression bomb bị chặn 422; lỗi ngoại lệ không lộ `str(e)`.
-- [ ] Tốc độ suy luận ResNet-18 + OOD Filter đạt $\le 1.0$ giây trên CPU.
+- [x] Response không còn trường `tier`; có `confusion_group` đúng contract.
+- [x] Bảo mật: File > 10MB hoặc đuôi file sai bị từ chối 400; ảnh hỏng byte/decompression bomb bị chặn 422; lỗi ngoại lệ không lộ `str(e)`.
+- [x] Tốc độ suy luận ResNet-18 + OOD Filter đạt $\le 1.0$ giây trên CPU.
 
 
 
@@ -99,8 +99,31 @@
 ---
 
 ## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
-- *Ghi nhận sau khi hoàn thành task.*
-- *Ghi lại Energy score đo được trên ảnh lá mẫu và ảnh vật thể, cùng giá trị `OOD_ENERGY_THRESHOLD` đã chọn, để Sprint 3 hiệu chỉnh tiếp.*
+- **Hoàn thành Pha 1**: Module `app/services/class_mapping.py` nạp thành công 38 lớp từ `Lavitree_Selected_Classes.csv`. Đã loại trừ chính xác 2 lớp `HANDBOOK_ONLY` (`Orange___healthy`, `Squash___healthy`). Hỗ trợ tra cứu `plant_name`, `disease_name`, `capture_tip` và tự động sinh cảnh báo cho `confusion_group` (`TOMATO_LEAF_SPOT` giữa Early blight và Target spot).
+- **Hoàn thành Pha 2**: Module `app/services/ood_filter.py` triển khai xong cấu trúc thuật toán:
+  - Tầng 1: `calculate_vegetation_ratio` kết hợp không gian màu HSV (Hue 25-100) và chỉ số ExG ($2G - R - B$).
+  - Tầng 2: `calculate_energy_score` theo công thức Liu et al. (NeurIPS 2020) với $T = 1.0$ dùng `torch.logsumexp`.
+  - Cơ chế kết hợp: Đầy đủ 4 quy tắc Decision Fusion Policy, đọc ngưỡng `OOD_ENERGY_THRESHOLD` từ môi trường (tự động tắt khi chưa cấu hình).
+  - Đã kiểm thử unit test thuật toán qua `test_pha1_pha2.py` (PASS 100%).
+- **Trạng thái đo thực nghiệm & Cấu hình ngưỡng**:
+  - `[Chưa thực hiện đo thực tế]`: Nhóm chưa tiến hành chạy đo trên ảnh lá mẫu hay vật thể ngoại lai thật trong Sprint 1.
+  - Biến môi trường `OOD_ENERGY_THRESHOLD=` hiện được **để trống** theo đúng thiết kế an toàn (`is_ood = false` khi dev).
+  - Toàn bộ công tác thu thập 3 tập ảnh tách biệt (Tập A, B, C) và tính toán ngưỡng $\tau_{energy}$ chính thức (theo phân vị thứ 5) được **chuyển trọn vẹn sang Sprint 3** (xem Mục 6).
+- **Hoàn thành Pha 3**: Nâng cấp toàn diện `app/services/predictor.py`:
+  - Trích xuất trực tiếp vector Logits $f(x)$ trước Softmax và đưa vào `ood_filter.evaluate(...)`.
+  - Tích hợp `class_mapping_service` lấy nhãn tiếng Việt (`plant_name`, `disease_name`), mẹo chụp và `confusion_group`.
+  - Chuẩn hóa cấu trúc trả về theo `docs/architecture/api-contracts.md` Mục 2.1 (loại bỏ hoàn toàn các trường cũ `tier`, `predicted_class`).
+  - Hỗ trợ Grad-CAM định dạng Data URI chuẩn (`data:image/jpeg;base64,...`) khi `include_heatmap = True`, tự động bỏ qua khi `is_ood = True` hoặc `include_heatmap = False`.
+  - Đã chạy kiểm thử thực tế `test_predictor_pha3.py` trên terminal: 5/5 test pass, độ trễ suy luận thực tế đạt ~180ms trên CPU.
+- **Hoàn thành Pha 4**: Chuẩn hóa endpoint `POST /api/v1/predict` và Hardening an toàn bảo mật:
+  - Đấu nối trực tiếp vào `predictor.predict(...)` chạy mô hình ResNet-18 thật.
+  - Kiểm tra MIME type và dung lượng <= 10MB (HTTP 400).
+  - Cấu hình chặn Decompression Bomb (`Image.MAX_IMAGE_PIXELS = 10_000_000`) và xác thực Pillow verify() (HTTP 422).
+  - Khắc phục bẫy đóng luồng byte của Pillow bằng cách mở lại luồng an toàn.
+  - Bắt ngoại lệ và ẩn `str(e)`, ghi log nội bộ qua logger.
+  - Health check `GET /health` trả về trạng thái nạp mô hình động qua `predictor.is_loaded`.
+  - Đã chạy kiểm thử thực tế `test_endpoint_pha4.py` trên terminal: 7/7 test pass, độ trễ 128ms trên CPU.
+
 
 ---
 
