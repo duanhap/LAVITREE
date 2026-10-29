@@ -137,7 +137,7 @@ for idx, top in enumerate(result["top3"], 1):
 assert len(result["top3"]) == 3
 
 # Kiểm tra IPM Guidelines
-print(f"\n     Phác đồ xử lý IPM ({len(diag['treatment_guidelines'])} bước):")
+print(f"\n     Hướng dẫn xử lý chuẩn Khuyến nông & IPM ({len(diag['treatment_guidelines'])} bước linh hoạt):")
 for step in diag["treatment_guidelines"]:
     iso = f" (Cách ly: {step['isolation_days']})" if step['isolation_days'] else ""
     print(f"       Bước {step['step_order']}: {step['action_title']}{iso}")

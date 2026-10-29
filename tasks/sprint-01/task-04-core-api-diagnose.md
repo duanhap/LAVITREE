@@ -128,7 +128,7 @@
          2. Bệnh đốm vòng / Cháy lá sớm (Tomato___Early_blight): 0.0315
          3. Bệnh đốm lá Septoria (Tomato___Septoria_leaf_spot): 0.0102
 
-       Phác đồ xử lý IPM (3 bước):
+       Hướng dẫn xử lý chuẩn Khuyến nông & IPM (theo từng tình trạng bệnh, số bước linh hoạt):
          Bước 1: 1. Cắt tỉa và tiêu hủy lá bệnh (Biện pháp canh tác) (Cách ly: Không áp dụng)
          Bước 2: 2. Phun thuốc đặc trị nấm Phytophthora (Biện pháp Hóa học / Sinh học) (Cách ly: 7 ngày)
          Bước 3: 3. Bón phân phục hồi và cách ly an toàn (Phục hồi sinh trưởng) (Cách ly: 7-14 ngày)
