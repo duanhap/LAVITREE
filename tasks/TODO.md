@@ -44,24 +44,28 @@
 ---
 
 ## 🧠 SPRINT 2: TRỌNG TÂM TRÍ TUỆ NHÂN TẠO TÁC TỬ (AGRI-AGENT & MCP ECOSYSTEM)
-*Mục tiêu: Hiện thực hóa toàn diện nghiên cứu 27 DAY từ thư mục `extract/` vào `backend/agent-service` (FastAPI), kết nối Core API và CSDL Supabase/PostgreSQL.*
+*Mục tiêu: Hiện thực hóa toàn diện nghiên cứu 27 DAY từ thư mục `extract/` vào `backend/agent-service` (FastAPI:8001), kết nối Core API và CSDL PostgreSQL SSOT, tập trung chuyên sâu cho 5 ca bệnh lâm sàng demo.*
 
-- [ ] **TASK-05: Thiết lập `backend/agent-service` & Cấu trúc Model Context Protocol (MCP Server)**
-  - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Data Provider)
+- [ ] **BƯỚC 0: Đồng bộ Tài liệu Kỹ thuật & Migration CSDL (Member A & B)**
+  - Trách nhiệm: **Thành viên A & B**
+  - Trạng thái: `[x] DONE` (Tài liệu đã chuẩn hóa 100% về port 8001, hợp đồng SSE Mục 4.1 và mô hình Hybrid Postgres SSOT)
+  - Phía Thành viên A: Migration `IsAllowed (bool)` và `PhiDays (int)` vào bảng `Product`, seed dữ liệu thuốc thật cho 5 bệnh demo.
+- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1)*
+  - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (PostgreSQL Hybrid Schema)
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Kiến trúc MCP Server công bố 4 công cụ chuẩn JSON Schema (`lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`), tuân thủ nguyên tắc Read-Only (DAY4), kết nối REST API thật từ Core API (.NET 8).
-- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + Dense Vector) trên 112 Nguồn Khuyến Nông**
-  - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (Database & Chunking)
+  - Đầu ra: Bảng tri thức PostgreSQL mô hình Hybrid (trường cấu trúc lọc cứng + `full_content TEXT` + `chunks JSONB`), AI Ingestion trích xuất URL có Admin duyệt (HITL), đồng bộ ChromaDB cục bộ + BM25 Okapi cho 5 bệnh demo, đạt Recall@3 đối chứng 100%.
+- [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2)*
+  - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Module Hybrid RAG (kế thừa DAY18) kết hợp BM25 (bắt chính xác tên hoạt chất thuốc và tỷ lệ pha) + Dense Vector (ngữ nghĩa triệu chứng bệnh) từ 112 tài liệu khuyến nông, hợp nhất RRF không gây ảo giác.
-- [ ] **TASK-07: Xây dựng ReAct Loop, Bộ Chốt chặn An toàn (Guardrails) & Router Hạ cấp Ngoại tuyến**
+  - Đầu ra: Service chạy port **`8001`** công bố 4 công cụ chuẩn FastMCP (Read-Only: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`), kết nối RAG Task 06 và REST API thật từ Core API (.NET 8).
+- [ ] **TASK-07: Chu trình ReAct Loop (Gemini 2.0), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3)*
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Chu trình `Thought → Action → Observation` (kế thừa DAY3), chốt chặn PHI $\le 3$ ngày sát ngày thu hoạch (cảnh báo đỏ & từ chối thuốc độc), gắn nhãn `[DRAFT_RECOMMENDATION]` (HITL DAY11, 27), Circuit Breaker & Router Graceful Degradation tự động hạ cấp offline về CSDL IPM khi rớt mạng (DAY25, 27).
-- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark Nghiệm thu Đồ án**
+  - Đầu ra: ReAct loop với Gemini 2.0/2.5 Flash, **Hard Code Guardrail bằng Python** (lọc thuốc cấm và $DaysToHarvest \le PhiDays$ trực tiếp bằng code trước khi đưa vào LLM), gắn nhãn `[DRAFT_RECOMMENDATION]`, Circuit Breaker & Router tự động hạ cấp về tệp phác đồ IPM cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
+- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4)*
   - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Endpoint `POST /api/v1/agent/chat` truyền phát token thời gian thực bằng SSE, xuất file `trace_waterfall.json` đo đạc thời gian từng bước, bộ kịch bản tự động `run_agent_benchmark.py` (DAY26) pass 100% 5 ca lâm sàng phục vụ Hội đồng chấm thi.
+  - Đầu ra: Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`), TTFT $\le 2.0$s, xuất `trace_waterfall.json`, bộ benchmark chạy tự động 5 ca lâm sàng (x3 lần, temp=0) đạt 15/15 PASS.
 
 ---
 
