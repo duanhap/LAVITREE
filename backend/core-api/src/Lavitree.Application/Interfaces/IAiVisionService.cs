@@ -7,5 +7,5 @@ namespace Lavitree.Application.Interfaces;
 
 public interface IAiVisionService
 {
-    Task<AiPredictionResponse> PredictAsync(Stream imageStream, string fileName, CancellationToken cancellationToken = default);
+    Task<AiPredictionResponse> PredictAsync(Stream imageStream, string fileName, bool includeHeatmap = true, CancellationToken cancellationToken = default);
 }

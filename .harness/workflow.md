@@ -56,17 +56,14 @@ flowchart LR
 
 ---
 
-### CHẶNG 4: SHIP (ĐÓNG GÓI, CẬP NHẬT TRẠNG THÁI & MERGE)
+### CHẶNG 4: SHIP (ĐÓNG GÓI, CẬP NHẬT TRẠNG THÁI & CHỜ XÁC NHẬN COMMIT)
 * **Thời điểm**: Khi mọi bài kiểm thử ở Chặng 3 đã xanh (Pass 100%).
 * **Hành động của Developer / Agent**:
   1. Đánh dấu tick `[x]` vào checklist của file `tasks/sprint-xx/task-xx.md`.
   2. Cập nhật trạng thái của task trong `tasks/TODO.md` từ `In Progress` sang `Done`.
   3. Ghi 1 dòng nhật ký vào `tasks/WORKLOG.md` ghi nhận kết quả và bằng chứng test.
-  4. Thực hiện git commit theo chuẩn conventional trên nhánh task:
-     ```bash
-     git commit -m "feat: [TASK-XX] Tên tính năng"
+  4. **Báo cáo và Đề xuất Commit**: Trình bày tóm tắt kết quả kiểm thử (Receipts), hiển thị các file thay đổi (`git status`) và đề xuất nội dung commit message chuẩn conventional:
+     ```text
+     feat: [TASK-XX] Tên tính năng
      ```
-  5. Đẩy nhánh lên remote và tạo PR hoặc merge an toàn vào `main`:
-     ```bash
-     git push origin <prefix>/task-<mã-số>-<tên-ngắn-gọn>
-     ```
+  5. **Chỉ thực hiện `git commit` và `git push` khi Lập trình viên đã xác nhận hoặc ra lệnh trực tiếp**. Tuyệt đối không tự ý commit/push tự động.
