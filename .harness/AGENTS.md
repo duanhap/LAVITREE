@@ -32,6 +32,12 @@
 6. **CẤM sử dụng đường dẫn tuyệt đối của máy cá nhân (Absolute Machine Paths)**:
    - Tuyệt đối không ghi `file:///`, `C:\...`, `D:\...`, `/Users/...` vào mã nguồn, cấu hình hay tài liệu `.md`.
    - Mọi đường dẫn trong tài liệu Markdown và source code bắt buộc phải là **đường dẫn tương đối (Relative Path)** tính từ gốc dự án (ví dụ: `docs/architecture/database-schema.md`, `tasks/TODO.md`). Đảm bảo tính tương thích chéo nền tảng (Windows/macOS/Linux), di động khi chạy Docker, CI/CD và trên máy của thành viên khác.
+7. **CẤM hồi sinh các khái niệm, quy tắc hoặc thuật ngữ ĐÃ BỊ BÃI BỎ (Zero Tolerance for Deprecated / Rejected Concepts)**:
+   - Trước khi sử dụng các thuật ngữ nghiệp vụ (như cách xử lý bệnh, số bước phác đồ, phân cấp AI), Agent bắt buộc phải đối chiếu với tài liệu đặc tả hiện thời (`docs/spec/`, `docs/architecture/api-contracts.md`) và các biên bản cải tổ trong `doc/process/`.
+   - Tuyệt đối KHÔNG được dựa vào thói quen suy diễn hay dữ liệu mẫu cũ để hồi sinh các quan niệm đã bị bãi bỏ (ví dụ: cấm dùng lại "phác đồ 3 bước dập khuôn" đã bị xóa bỏ ngày 26/10; cấm dùng lại "phân cấp Tier 1/2/3" đã bị xóa bỏ ngày 28/10). Tài liệu mới nhất và SSOT luôn luôn có giá trị chi phối cao nhất.
+8. **CẤM tự ý chạy Git Commit / Git Push khi chưa có yêu cầu hoặc xác nhận của Lập trình viên (Explicit Commit Confirmation)**:
+   - Sau khi hoàn thành code và chạy xong bài kiểm thử (Verify), Agent phải hiển thị bằng chứng nghiệm thu, tóm tắt danh sách file thay đổi và ĐỀ XUẤT commit message.
+   - Chỉ được chạy `git commit` và `git push` khi Lập trình viên đã ra lệnh rõ ràng hoặc xác nhận đồng ý. Tuyệt đối không tự tiện commit/push âm thầm sau lưng người dùng.
 
 ---
 
