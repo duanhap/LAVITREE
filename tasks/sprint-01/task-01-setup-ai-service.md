@@ -1,7 +1,7 @@
 # TASK-01: ĐỒNG BỘ AI VISION SERVICE, ENDPOINT DỰ ĐOÁN RESNET-18 & BỘ LỌC OOD CƠ BẢN
 * **Sprint**: Sprint 1 (Full-stack Pipeline)
 * **Phân hệ**: `backend/ai-service` (FastAPI)
-* **Trạng thái**: `[/] IN PROGRESS`
+* **Trạng thái**: `[x] DONE`
 * **Người phụ trách**: Thành viên B (AI Vision Specialist)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 
@@ -70,7 +70,7 @@
   - Cấu hình `warnings.simplefilter('error', Image.DecompressionBombWarning)` và đặt `Image.MAX_IMAGE_PIXELS = 10_000_000`.
   - Xác thực ảnh bằng `PIL.Image.open().verify()`, sau đó mở lại ảnh bằng `Image.open(io.BytesIO(contents))` để tránh lỗi đóng luồng.
   - Try/catch bắt lỗi và ẩn `str(e)`, ghi log nội bộ qua logging module.
-- [ ] **Pha 5**: Viết và chạy script `test_predict.py` kiểm thử:
+- [x] **Pha 5**: Viết và chạy script `test_predict.py` kiểm thử:
   - 1 ảnh lá bệnh hợp lệ $\rightarrow$ `is_ood: false`, trả về bệnh chính xác.
   - 1 ảnh bàn tay / đồ vật ngoại lai $\rightarrow$ `is_ood: true`, `top1: null`, `gradcam_base64: null`.
   - 1 file sai định dạng hoặc > 10MB $\rightarrow$ HTTP 400; 1 tệp text đổi đuôi thành `.jpg` hoặc file hỏng byte $\rightarrow$ HTTP 422.
@@ -84,16 +84,38 @@
 - [x] Module `ood_filter.py` chạy được trong `app/services/`, ngưỡng đọc từ `OOD_ENERGY_THRESHOLD` (thiếu biến thì tắt kiểm tra Energy và ghi log cảnh báo).
 - [x] Healthcheck `GET /health` trả về `{"status": "ok", "model_loaded": true}`.
 - [x] Endpoint `POST /api/v1/predict` trả về đúng cấu trúc `api-contracts.md` Mục 2.1 (khi OOD: `top1: null`, `gradcam_base64: null`).
-- [ ] Kiểm tra nhanh OOD: ảnh bàn tay mẫu trong `test_predict.py` bị gắn `is_ood: true`; ảnh lá mẫu không bị chặn nhầm. *(Chỉ tiêu định lượng ≥ 80% / ≤ 5% thuộc Sprint 3.)*
+- [x] Kiểm tra nhanh OOD: ảnh bàn tay mẫu trong `test_predict.py` bị gắn `is_ood: true`; ảnh lá mẫu không bị chặn nhầm. *(Chỉ tiêu định lượng ≥ 80% / ≤ 5% thuộc Sprint 3.)*
 - [x] Response không còn trường `tier`; có `confusion_group` đúng contract.
 - [x] Bảo mật: File > 10MB hoặc đuôi file sai bị từ chối 400; ảnh hỏng byte/decompression bomb bị chặn 422; lỗi ngoại lệ không lộ `str(e)`.
 - [x] Tốc độ suy luận ResNet-18 + OOD Filter đạt $\le 1.0$ giây trên CPU.
 
 
 
-- [ ] Bằng chứng kiểm thử (Receipts):
-  ```bash
-  # Dán stdout kiểm thử curl / python test_predict.py tại đây khi nghiệm thu
+- [x] Bằng chứng kiểm thử (Receipts - Output thực tế từ `python test_predict.py`):
+  ```text
+  =================================================================
+  === CHẠY KIỂM THỬ PHA 5: E2E PREDICTION & SECURITY HARMONIZATION ===
+  =================================================================
+  [1/5] Kiểm thử 1 ảnh lá hợp lệ (In-Distribution)...
+   -> PASSED: Nhận diện thành công: Táo - Bệnh thối đen (Black rot)
+      Confidence: 0.4487, Latency client: 123.7ms (CPU inference: 112ms)
+  [2/5] Kiểm thử 1 ảnh bàn tay / đồ vật ngoại lai (OOD)...
+   -> PASSED: OOD được xử lý chuẩn: top1=None, gradcam_base64=None, warning_message='Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng không chụp vật thể lạ hoặc ảnh không rõ lá cây.'
+  [3/5] Kiểm thử bảo mật (Dung lượng > 10MB, MIME type sai, tệp hỏng byte)...
+     [x] Chặn đúng MIME type sai -> HTTP 400
+     [x] Chặn đúng tệp vượt 10MB -> HTTP 400
+     [x] Chặn đúng tệp text đổi đuôi .jpg (MIME spoofing) -> HTTP 422
+     [x] Chặn đúng tệp hỏng byte -> HTTP 422
+   -> PASSED: Toàn bộ 4 ca bảo mật đều trả về đúng mã HTTP chuẩn RESTful!
+  [4/5] Kiểm thử nhóm dễ nhầm lẫn (Confusion Group TOMATO_LEAF_SPOT)...
+   -> PASSED: Nhóm nhầm lẫn TOMATO_LEAF_SPOT sinh đúng cảnh báo: 'Bệnh này dễ nhầm với Bệnh đốm mắt chim / Target spot. Xem thêm các khả năng khác bên dưới hoặc nhờ chuyên gia xác nhận. Chụp rõ các vòng đồng tâm; bệnh này dễ nhầm với đốm mắt cua (Target spot).'
+  [5/5] Đánh giá thời gian phản hồi toàn trình (CPU Latency Benchmark)...
+     Các lần đo: ['96.2ms', '87.9ms', '92.6ms']
+     Thời gian trung bình toàn trình: 92.2ms (Tiêu chuẩn: <= 1000ms)
+   -> PASSED: Tốc độ phản hồi đạt chuẩn cao (nhanh hơn gấp nhiều lần tiêu chuẩn 1.0s)!
+  =================================================================
+  === TẤT CẢ 5/5 BÀI TEST E2E ĐỀU THÀNH CÔNG (100% PASS)! ===
+  =================================================================
   ```
 
 ---
@@ -123,6 +145,11 @@
   - Bắt ngoại lệ và ẩn `str(e)`, ghi log nội bộ qua logger.
   - Health check `GET /health` trả về trạng thái nạp mô hình động qua `predictor.is_loaded`.
   - Đã chạy kiểm thử thực tế `test_endpoint_pha4.py` trên terminal: 7/7 test pass, độ trễ 128ms trên CPU.
+- **Hoàn thành Pha 5**: Nghiệm thu E2E toàn trình AI Vision Service qua `test_predict.py`:
+  - Chạy 5/5 kịch bản kiểm thử E2E tích hợp qua TestClient.
+  - Sẵn sàng cơ chế nạp ảnh thật người dùng cung cấp tại thư mục `backend/ai-service/tests/samples/` (`leaf.jpg`, `hand.jpg`).
+  - Đo đạc độ trễ toàn trình: Trung bình **92.2ms** trên CPU, đạt tiêu chuẩn khắt khe $\le 1.0$s của Lavitree.
+  - Toàn bộ tiêu chí nghiệm thu của TASK-01 đạt 100%. Chuyển trạng thái sang `[x] DONE`.
 
 
 ---

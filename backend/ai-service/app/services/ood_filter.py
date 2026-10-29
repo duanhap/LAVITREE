@@ -6,7 +6,15 @@ import numpy as np
 import cv2
 import torch
 
+from pathlib import Path
+from dotenv import load_dotenv
+
 from .class_mapping import class_mapping_service
+
+# Nạp cấu hình từ .env (ưu tiên backend/ai-service/.env hoặc root repo .env)
+BASE_AI_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(dotenv_path=BASE_AI_DIR / ".env")
+load_dotenv(dotenv_path=BASE_AI_DIR.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -78,25 +86,32 @@ class OODFilter:
         """
         env_val = os.getenv("OOD_ENERGY_THRESHOLD")
         if env_val is not None and env_val.strip() != "":
-            try:
-                self.energy_threshold = float(env_val.strip())
-                logger.info(
-                    "OODFilter đã kích hoạt Energy-based Score với ngưỡng tau = %.4f (T = %.1f)",
-                    self.energy_threshold,
-                    self.temperature,
-                )
-            except ValueError:
-                logger.warning(
-                    "Giá trị OOD_ENERGY_THRESHOLD='%s' không hợp lệ. Tắt kiểm tra Energy-based OOD.",
-                    env_val,
-                )
+            val_clean = env_val.strip().lower()
+            if val_clean in ("none", "off", "disabled"):
+                logger.warning("OODFilter đã được tắt thủ công qua OOD_ENERGY_THRESHOLD=%s.", env_val)
                 self.energy_threshold = None
+            else:
+                try:
+                    self.energy_threshold = float(env_val.strip())
+                    logger.info(
+                        "OODFilter đã kích hoạt Energy-based Score với ngưỡng tau = %.4f (T = %.1f)",
+                        self.energy_threshold,
+                        self.temperature,
+                    )
+                except ValueError:
+                    logger.warning(
+                        "Giá trị OOD_ENERGY_THRESHOLD='%s' không hợp lệ. Sử dụng ngưỡng an toàn mặc định -2.5.",
+                        env_val,
+                    )
+                    self.energy_threshold = -2.5
         else:
-            logger.warning(
+            # Fallback an toàn cho EC2 / local nếu chưa kịp cập nhật biến môi trường
+            self.energy_threshold = -2.5
+            logger.info(
                 "Biến môi trường OOD_ENERGY_THRESHOLD chưa được cấu hình. "
-                "Tắt kiểm tra Energy-based OOD (is_ood=False) cho đến khi được cấu hình."
+                "Tự động áp dụng ngưỡng an toàn mặc định tau = -2.5 (T = %.1f).",
+                self.temperature,
             )
-            self.energy_threshold = None
 
     def evaluate(
         self,

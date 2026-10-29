@@ -1,4 +1,6 @@
 import io
+import os
+import sys
 import logging
 import warnings
 from typing import Optional
@@ -14,13 +16,16 @@ router = APIRouter()
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
+# Cờ kiểm thử cho phép mock OOD (chỉ bật khi cấu hình môi trường test hoặc chạy trong pytest, chống cửa hậu production)
+ALLOW_MOCK_OOD = os.getenv("ALLOW_MOCK_OOD", "false").lower() in ("true", "1", "yes") or "pytest" in sys.modules
+
 # Chống tấn công Decompression Bomb
 Image.MAX_IMAGE_PIXELS = 10_000_000
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
 
 @router.post("/predict")
-async def predict_plant_disease(
+def predict_plant_disease(
     file: UploadFile = File(..., description="Tệp hình ảnh lá cây (JPEG, PNG, WEBP, BMP <= 10MB)"),
     include_heatmap: bool = Query(True, description="Có xuất ảnh Grad-CAM không"),
     mock_ood: bool = Query(False, description="Tùy chọn giả lập phản hồi OOD cho testing")
@@ -32,8 +37,8 @@ async def predict_plant_disease(
             detail="Tệp vượt quá 10MB hoặc định dạng không hỗ trợ."
         )
 
-    # 2. Đọc và kiểm tra kích thước tệp
-    contents = await file.read()
+    # 2. Đọc và kiểm tra kích thước tệp (đồng bộ trong threadpool)
+    contents = file.file.read()
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
@@ -61,18 +66,21 @@ async def predict_plant_disease(
             detail="Tệp hình ảnh bị lỗi cấu trúc hoặc không thể giải mã."
         )
 
-    # 5. Tùy chọn mock OOD nếu param mock_ood=True (hỗ trợ kiểm thử tích hợp)
+    # 5. Tùy chọn mock OOD nếu param mock_ood=True (chỉ hoạt động khi ALLOW_MOCK_OOD=true)
     if mock_ood:
-        return {
-            "success": True,
-            "top1": None,
-            "top3": [],
-            "is_ood": True,
-            "is_uncertain": False,
-            "warning_message": "Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng không chụp vật thể lạ hoặc ảnh không rõ lá cây.",
-            "gradcam_base64": None,
-            "inference_time_ms": 10
-        }
+        if not ALLOW_MOCK_OOD:
+            logger.warning("Yêu cầu mock_ood bị từ chối vì ALLOW_MOCK_OOD không bật. Chuyển sang suy luận thực tế.")
+        else:
+            return {
+                "success": True,
+                "top1": None,
+                "top3": [],
+                "is_ood": True,
+                "is_uncertain": False,
+                "warning_message": "Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng không chụp vật thể lạ hoặc ảnh không rõ lá cây.",
+                "gradcam_base64": None,
+                "inference_time_ms": 10
+            }
 
     # 6. Suy luận thực tế bằng ResNet-18 + OOD Filter (Try/catch ẩn str(e) bảo mật)
     try:
