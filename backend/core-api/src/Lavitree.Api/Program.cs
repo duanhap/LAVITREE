@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using Lavitree.Application.Interfaces;
 using Lavitree.Infrastructure.Persistence;
 using Lavitree.Infrastructure.Services;
@@ -45,14 +47,31 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
-// 3. CORS Configuration
+// 3. Register MinIO Object Storage Service
+builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
+
+// 4. Rate Limiting Configuration (diagnose_policy)
+builder.Services.AddRateLimiter(options =>
+{
+    var rateLimit = int.TryParse(Environment.GetEnvironmentVariable("RATE_LIMIT_PER_MINUTE"), out var limit) ? limit : 60;
+    options.AddFixedWindowLimiter("diagnose_policy", opt =>
+    {
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.PermitLimit = rateLimit;
+        opt.QueueLimit = 0;
+    });
+    options.RejectionStatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+});
+
+// 5. CORS Configuration (Restricted to frontend domains)
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -65,7 +84,7 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// 4. HTTP Request Pipeline
+// 6. HTTP Request Pipeline
 if (app.Environment.IsDevelopment() || true)
 {
     app.UseSwagger();
@@ -75,7 +94,8 @@ if (app.Environment.IsDevelopment() || true)
     });
 }
 
-app.UseCors("AllowAll");
+app.UseCors("AllowFrontend");
+app.UseRateLimiter();
 app.UseAuthorization();
 app.MapControllers();
 
