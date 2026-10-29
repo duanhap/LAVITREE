@@ -41,10 +41,8 @@ class GradCAM:
 
         # Global Average Pooling (GAP) của gradients để tính trọng số alpha_k
         weights = np.mean(gradients, axis=(1, 2))              # [C]
-        cam = np.zeros(activations.shape[1:], dtype=np.float32) # [H, W]
-
-        for i, w in enumerate(weights):
-            cam += w * activations[i]
+        # Vectorized weighted combination: [C, 1, 1] * [C, H, W] -> sum over C -> [H, W]
+        cam = np.sum(weights[:, np.newaxis, np.newaxis] * activations, axis=0)
 
         cam = np.maximum(cam, 0) # ReLU
         if np.max(cam) > 0:

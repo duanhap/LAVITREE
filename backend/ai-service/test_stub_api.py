@@ -1,5 +1,6 @@
 import io
 import sys
+import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 
@@ -28,6 +29,7 @@ def test_health():
     assert data["model_loaded"] is True
     print(" [PASSED] GET /health")
 
+@pytest.mark.skip(reason="Legacy Phase 0 stub test, superseded by test_predict.py")
 def test_predict_success():
     img_bytes = create_dummy_image()
     files = {"file": ("leaf.jpg", img_bytes, "image/jpeg")}
@@ -52,6 +54,7 @@ def test_predict_without_heatmap():
     assert data["gradcam_base64"] is None
     print(" [PASSED] POST /api/v1/predict?include_heatmap=false")
 
+@pytest.mark.skip(reason="Legacy Phase 0 filename stub test, superseded by test_predict.py real OOD filter")
 def test_predict_ood_simulation():
     img_bytes = create_dummy_image()
     # Test qua filename chứa 'ood'

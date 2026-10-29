@@ -49,7 +49,7 @@ class PlantPredictor:
         self.model = models.resnet18()
         self.model.fc = torch.nn.Linear(self.model.fc.in_features, self.num_classes)
         self.model.load_state_dict(
-            torch.load(MODEL_PATH, map_location=self.device)
+            torch.load(MODEL_PATH, map_location=self.device, weights_only=True)
         )
         self.model.to(self.device)
         self.model.eval()
@@ -100,10 +100,11 @@ class PlantPredictor:
         with self._lock:
             # 1. Forward Pass (Single-pass inference)
             if include_heatmap and self.grad_cam is not None:
-                self.model.zero_grad()
-                outputs = self.model(tensor)  # Shape: (1, 38)
-                logits_1d = outputs[0]
-                probabilities = F.softmax(outputs, dim=1)[0].detach()
+                with torch.enable_grad():
+                    self.model.zero_grad()
+                    outputs = self.model(tensor)  # Shape: (1, 38)
+                    logits_1d = outputs[0]
+                    probabilities = F.softmax(outputs, dim=1)[0].detach()
             else:
                 with torch.no_grad():
                     outputs = self.model(tensor)

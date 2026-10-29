@@ -8,6 +8,8 @@ services:
       dockerfile: Dockerfile
     container_name: lavitree-ai-service
     restart: always
+    env_file:
+      - .env
     ports:
       - "8000:8000"
 

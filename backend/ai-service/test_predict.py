@@ -79,18 +79,18 @@ def test_2_ood_foreign_object():
     print("[2/5] Kiểm thử 1 ảnh bàn tay / đồ vật ngoại lai (OOD)...")
     ood_bytes = get_ood_image_bytes()
 
-    # Kiểm tra phản hồi chuẩn khi phát hiện OOD (qua mock_ood hoặc OODFilter)
-    res = client.post("/api/v1/predict?mock_ood=true", files={"file": ("hand.jpg", ood_bytes, "image/jpeg")})
-    assert res.status_code == 200
+    # 2.1 Kiểm tra phát hiện OOD THỰC TẾ qua Energy Score (OOD_ENERGY_THRESHOLD = -2.5, KHÔNG mock)
+    res = client.post("/api/v1/predict", files={"file": ("hand.jpg", ood_bytes, "image/jpeg")})
+    assert res.status_code == 200, f"Lỗi dự đoán OOD thật: {res.text}"
     data = res.json()
 
     assert data["success"] is True
-    assert data["is_ood"] is True
+    assert data["is_ood"] is True, "Ảnh hand.jpg (Energy ~ -4.40) phải bị chặn bởi OODFilter thật (ngưỡng -2.5)"
     assert data["top1"] is None, "Khi OOD, top1 bắt buộc phải là None"
     assert data["top3"] == [], "Khi OOD, top3 bắt buộc phải là []"
     assert data["gradcam_base64"] is None, "Khi OOD, gradcam_base64 bắt buộc phải là None"
     assert "Ảnh nằm ngoài phạm vi 38 lớp" in data["warning_message"]
-    print(f" -> PASSED: OOD được xử lý chuẩn: top1=None, gradcam_base64=None, warning_message='{data['warning_message']}'")
+    print(f" -> PASSED: OOD thật được phát hiện xuất sắc: is_ood=True, top1=None, gradcam_base64=None (Không cần mock)")
 
 
 def test_3_security_and_file_validation():
@@ -136,6 +136,7 @@ def test_4_confusion_group_handling():
     warning = class_mapping_service.format_confusion_warning("Tomato___Early_blight")
     assert "dễ nhầm với" in warning
     assert "Target spot" in warning or "đốm mắt" in warning.lower()
+    assert warning.count("dễ nhầm với") == 1, f"Cảnh báo bị lặp lại cụm 'dễ nhầm với': {warning}"
 
     # Kiểm tra evaluate sinh đúng cảnh báo khi confidence >= 0.70
     import torch

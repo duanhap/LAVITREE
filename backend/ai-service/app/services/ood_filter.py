@@ -6,7 +6,15 @@ import numpy as np
 import cv2
 import torch
 
+from pathlib import Path
+from dotenv import load_dotenv
+
 from .class_mapping import class_mapping_service
+
+# Nạp cấu hình từ .env (ưu tiên backend/ai-service/.env hoặc root repo .env)
+BASE_AI_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(dotenv_path=BASE_AI_DIR / ".env")
+load_dotenv(dotenv_path=BASE_AI_DIR.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
