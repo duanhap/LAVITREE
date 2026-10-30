@@ -38,6 +38,13 @@
 8. **CẤM tự ý chạy Git Commit / Git Push khi chưa có yêu cầu hoặc xác nhận của Lập trình viên (Explicit Commit Confirmation)**:
    - Sau khi hoàn thành code và chạy xong bài kiểm thử (Verify), Agent phải hiển thị bằng chứng nghiệm thu, tóm tắt danh sách file thay đổi và ĐỀ XUẤT commit message.
    - Chỉ được chạy `git commit` và `git push` khi Lập trình viên đã ra lệnh rõ ràng hoặc xác nhận đồng ý. Tuyệt đối không tự tiện commit/push âm thầm sau lưng người dùng.
+9. **CẤM hardcode thông tin nhạy cảm / Secrets vào mã nguồn, file test hoặc cấu hình công khai (Zero Tolerance for Hardcoded Secrets)**:
+   - Tuyệt đối KHÔNG viết trực tiếp mật khẩu (database password, minio secret key, JWT secret, admin secret key, API key) vào code C#, Python, script kiểm thử (`test_*.py`), file Dockerfile hoặc commit lên git.
+   - Mọi biến nhạy cảm bắt buộc phải được đọc qua biến môi trường (`os.getenv(...)`, `IConfiguration`, file `.env` đã được liệt kê trong `.gitignore`).
+   - File `.env.example` chỉ chứa tên biến và giá trị placeholder/mẫu giả định an toàn.
+10. **CẤM mở cổng nội bộ (Internal Ports) ra Internet công khai (Zero Public Ports for Internal Services)**:
+   - Các dịch vụ nội bộ (PostgreSQL, Redis, AI Service, Agent Service, MinIO console/API) trong `docker-compose.yml` khi chạy môi trường production hoặc staging tuyệt đối không bind trực tiếp `ports: - "5432:5432"` ra toàn bộ IP công khai (`0.0.0.0`).
+   - Phải bind vào localhost (`127.0.0.1:5432:5432`) hoặc chỉ giao tiếp qua Docker network nội bộ (`lavitree-network`). Cổng duy nhất được công khai là Reverse Proxy (Nginx/API Gateway) hoặc port của Core API được bảo vệ bởi SSL & Rate Limiting.
 
 ---
 

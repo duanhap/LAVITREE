@@ -9,6 +9,7 @@ using System.Threading.RateLimiting;
 using Lavitree.Application.Interfaces;
 using Lavitree.Infrastructure.Persistence;
 using Lavitree.Infrastructure.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 
 // 0. Load .env file (Traverse up to find .env in project or root directory)
 DotNetEnv.Env.TraversePath().Load();
@@ -50,15 +51,26 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
 // 3. Register MinIO Object Storage Service
 builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 
-// 4. Rate Limiting Configuration (diagnose_policy)
+// 4. Rate Limiting Configuration (diagnose_policy partitioned per client IP)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddRateLimiter(options =>
 {
     var rateLimit = int.TryParse(Environment.GetEnvironmentVariable("RATE_LIMIT_PER_MINUTE"), out var limit) ? limit : 60;
-    options.AddFixedWindowLimiter("diagnose_policy", opt =>
+    options.AddPolicy("diagnose_policy", httpContext =>
     {
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.PermitLimit = rateLimit;
-        opt.QueueLimit = 0;
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_client";
+        return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = rateLimit,
+            QueueLimit = 0
+        });
     });
     options.RejectionStatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
 });
@@ -85,7 +97,9 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 // 6. HTTP Request Pipeline
-if (app.Environment.IsDevelopment() || true)
+app.UseForwardedHeaders();
+
+if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>

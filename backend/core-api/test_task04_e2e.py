@@ -3,8 +3,27 @@ import time
 import requests
 from PIL import Image
 
-BASE_URL = "http://localhost:5176"
-ADMIN_KEY = "lavitree_admin_sprint1_secure_key_a9f8e7d6c5b4a321"
+import os
+from pathlib import Path
+
+BASE_URL = os.getenv("CORE_API_URL", "http://localhost:5176")
+
+# Tự động đọc ADMIN_SECRET_KEY từ môi trường hoặc file .env (Tuyệt đối không hardcode)
+ADMIN_KEY = os.getenv("ADMIN_SECRET_KEY")
+if not ADMIN_KEY:
+    for env_candidate in [Path(".env"), Path("../.env"), Path("../../.env")]:
+        if env_candidate.exists():
+            with open(env_candidate, "r", encoding="utf-8") as f:
+                for line in f:
+                    line_s = line.strip()
+                    if line_s.startswith("ADMIN_SECRET_KEY="):
+                        ADMIN_KEY = line_s.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+        if ADMIN_KEY:
+            break
+
+if not ADMIN_KEY:
+    raise RuntimeError("ADMIN_SECRET_KEY không tìm thấy trong biến môi trường hoặc .env! Vui lòng cấu hình biến ADMIN_SECRET_KEY.")
 
 def create_sample_leaf_image():
     buf = io.BytesIO()
