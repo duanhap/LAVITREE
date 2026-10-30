@@ -138,7 +138,9 @@ public static class LavitreeDbContextSeeder
                 {
                     pathogenType = "Khỏe mạnh";
                 }
-                else if (classCode.Contains("Bacterial", StringComparison.OrdinalIgnoreCase))
+                else if (classCode.Contains("Huanglongbing", StringComparison.OrdinalIgnoreCase)
+                         || classCode.Contains("Citrus_greening", StringComparison.OrdinalIgnoreCase)
+                         || classCode.Contains("Bacterial", StringComparison.OrdinalIgnoreCase))
                 {
                     pathogenType = "Vi khuẩn";
                 }
@@ -192,10 +194,11 @@ public static class LavitreeDbContextSeeder
         }
 
         Console.WriteLine("[Seeder] KnowledgeSources table is empty. Seeding from CSV while preserving original GUIDs...");
-        var lines = await File.ReadAllLinesAsync(csvPath, Encoding.UTF8);
-        if (lines.Length <= 1) return;
+        var fullText = await File.ReadAllTextAsync(csvPath, Encoding.UTF8);
+        var rows = ParseRfc4180Csv(fullText);
+        if (rows.Count <= 1) return;
 
-        var header = ParseCsvLine(lines[0]);
+        var header = rows[0];
         int idxId = header.IndexOf("Id");
         int idxModelClass = header.IndexOf("ModelClass");
         int idxPlantName = header.IndexOf("PlantName");
@@ -215,11 +218,9 @@ public static class LavitreeDbContextSeeder
 
         var sourcesToInsert = new List<KnowledgeSource>();
 
-        for (int i = 1; i < lines.Length; i++)
+        for (int i = 1; i < rows.Count; i++)
         {
-            var line = lines[i].Trim();
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var p = ParseCsvLine(line);
+            var p = rows[i];
             if (p.Count < 5) continue;
 
             Guid id = Guid.NewGuid();
@@ -268,41 +269,79 @@ public static class LavitreeDbContextSeeder
             return;
         }
 
+        SeedTreatmentData? seedData = null;
+        if (File.Exists(jsonPath))
+        {
+            try
+            {
+                var jsonContent = await File.ReadAllTextAsync(jsonPath, Encoding.UTF8);
+                seedData = JsonSerializer.Deserialize<SeedTreatmentData>(jsonContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                Console.WriteLine($"[Seeder] Loaded seed data from JSON: {jsonPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Seeder] WARNING: Could not parse {jsonPath}: {ex.Message}. Using fallback.");
+            }
+        }
+
         // 1. Seed TreatmentPlans for Tomato___Late_blight if not exists
         var hasTreatment = await context.TreatmentPlans.AnyAsync(tp => tp.DiseaseId == lateBlight.Id);
         if (!hasTreatment)
         {
-            Console.WriteLine("[Seeder] Seeding 3-step IPM TreatmentPlan for Tomato___Late_blight...");
-            var steps = new List<TreatmentPlan>
+            Console.WriteLine("[Seeder] Seeding IPM TreatmentPlan for Tomato___Late_blight...");
+            var steps = new List<TreatmentPlan>();
+            if (seedData?.treatment_plans != null && seedData.treatment_plans.Count > 0)
             {
-                new TreatmentPlan
+                foreach (var s in seedData.treatment_plans)
                 {
-                    DiseaseId = lateBlight.Id,
-                    StepOrder = 1,
-                    ActionTitle = "1. Cắt tỉa và tiêu hủy lá bệnh (Biện pháp canh tác)",
-                    Instructions = "Ngắt bỏ toàn bộ các lá có triệu chứng mốc sương xám/nâu đen và đem tiêu hủy xa vườn (đốt hoặc chôn lấp vôi bột). Không vứt bừa bãi xuống mương nước tưới.",
-                    IsolationDays = "Không áp dụng",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new TreatmentPlan
-                {
-                    DiseaseId = lateBlight.Id,
-                    StepOrder = 2,
-                    ActionTitle = "2. Phun thuốc đặc trị nấm Phytophthora (Biện pháp Hóa học / Sinh học)",
-                    Instructions = "Phun ướt đều 2 mặt lá vào sáng sớm hoặc chiều mát khi thời tiết khô ráo. Luân phiên hoạt chất để tránh kháng thuốc. Nếu gần kỳ thu hoạch (< 7 ngày), chuyển sang chế phẩm sinh học Trichoderma hoặc Nano Bạc.",
-                    IsolationDays = "7 ngày",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new TreatmentPlan
-                {
-                    DiseaseId = lateBlight.Id,
-                    StepOrder = 3,
-                    ActionTitle = "3. Bón phân phục hồi và cách ly an toàn (Phục hồi sinh trưởng)",
-                    Instructions = "Giảm bón đạm (N), tăng cường Kali và Canxi-Bo để làm dày vách tế bào lá, giúp cây tăng đề kháng tự nhiên. Tuân thủ nghiêm ngặt thời gian cách ly an toàn (PHI) trước khi hái quả.",
-                    IsolationDays = "7-14 ngày",
-                    CreatedAt = DateTime.UtcNow
+                    steps.Add(new TreatmentPlan
+                    {
+                        DiseaseId = lateBlight.Id,
+                        StepOrder = s.step_order,
+                        ActionTitle = s.action_title,
+                        Instructions = s.instructions,
+                        IsolationDays = s.isolation_days,
+                        CreatedAt = DateTime.UtcNow
+                    });
                 }
-            };
+            }
+            else
+            {
+                steps.AddRange(new[]
+                {
+                    new TreatmentPlan
+                    {
+                        DiseaseId = lateBlight.Id,
+                        StepOrder = 1,
+                        ActionTitle = "1. Cắt tỉa và tiêu hủy lá bệnh (Biện pháp canh tác)",
+                        Instructions = "Ngắt bỏ toàn bộ các lá có triệu chứng mốc sương xám/nâu đen và đem tiêu hủy xa vườn (đốt hoặc chôn lấp vôi bột). Không vứt bừa bãi xuống mương nước tưới.",
+                        IsolationDays = "Không áp dụng",
+                        CreatedAt = DateTime.UtcNow
+                    },
+                    new TreatmentPlan
+                    {
+                        DiseaseId = lateBlight.Id,
+                        StepOrder = 2,
+                        ActionTitle = "2. Phun thuốc đặc trị nấm Phytophthora (Biện pháp Hóa học / Sinh học)",
+                        Instructions = "Phun ướt đều 2 mặt lá vào sáng sớm hoặc chiều mát khi thời tiết khô ráo. Luân phiên hoạt chất để tránh kháng thuốc. Nếu gần kỳ thu hoạch (< 7 ngày), chuyển sang chế phẩm sinh học Trichoderma hoặc Nano Bạc.",
+                        IsolationDays = "7 ngày",
+                        CreatedAt = DateTime.UtcNow
+                    },
+                    new TreatmentPlan
+                    {
+                        DiseaseId = lateBlight.Id,
+                        StepOrder = 3,
+                        ActionTitle = "3. Bón phân phục hồi và cách ly an toàn (Phục hồi sinh trưởng)",
+                        Instructions = "Giảm bón đạm (N), tăng cường Kali và Canxi-Bo để làm dày vách tế bào lá, giúp cây tăng đề kháng tự nhiên. Tuân thủ nghiêm ngặt thời gian cách ly an toàn (PHI) trước khi hái quả.",
+                        IsolationDays = "7-14 ngày",
+                        CreatedAt = DateTime.UtcNow
+                    }
+                });
+            }
+
             await context.TreatmentPlans.AddRangeAsync(steps);
             await context.SaveChangesAsync();
         }
@@ -312,39 +351,59 @@ public static class LavitreeDbContextSeeder
         }
 
         // 2. Seed Products
-        var sampleProducts = new List<Product>
+        var sampleProducts = new List<Product>();
+        if (seedData?.products != null && seedData.products.Count > 0)
         {
-            new Product
+            foreach (var p in seedData.products)
             {
-                Name = "Ridomil Gold 68WG",
-                ActiveIngredient = "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
-                Price = 65000m,
-                DosageInstruction = "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
-                StockQuantity = 150,
-                ImageUrl = "https://lavitree.io.vn/images/products/ridomil-gold.png",
-                CreatedAt = DateTime.UtcNow
-            },
-            new Product
-            {
-                Name = "Antracol 70WP",
-                ActiveIngredient = "Propineb 700g/kg + Kẽm (Zn++)",
-                Price = 45000m,
-                DosageInstruction = "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
-                StockQuantity = 120,
-                ImageUrl = "https://lavitree.io.vn/images/products/antracol.png",
-                CreatedAt = DateTime.UtcNow
-            },
-            new Product
-            {
-                Name = "Chế phẩm sinh học Trichoderma Bacillus",
-                ActiveIngredient = "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
-                Price = 55000m,
-                DosageInstruction = "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
-                StockQuantity = 200,
-                ImageUrl = "https://lavitree.io.vn/images/products/trichoderma.png",
-                CreatedAt = DateTime.UtcNow
+                sampleProducts.Add(new Product
+                {
+                    Name = p.name,
+                    ActiveIngredient = p.active_ingredient,
+                    Price = p.price,
+                    DosageInstruction = p.dosage_instruction,
+                    StockQuantity = p.stock_quantity,
+                    ImageUrl = p.image_url ?? "",
+                    CreatedAt = DateTime.UtcNow
+                });
             }
-        };
+        }
+        else
+        {
+            sampleProducts.AddRange(new[]
+            {
+                new Product
+                {
+                    Name = "Ridomil Gold 68WG",
+                    ActiveIngredient = "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+                    Price = 65000m,
+                    DosageInstruction = "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
+                    StockQuantity = 150,
+                    ImageUrl = "https://lavitree.io.vn/images/products/ridomil-gold.png",
+                    CreatedAt = DateTime.UtcNow
+                },
+                new Product
+                {
+                    Name = "Antracol 70WP",
+                    ActiveIngredient = "Propineb 700g/kg + Kẽm (Zn++)",
+                    Price = 45000m,
+                    DosageInstruction = "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+                    StockQuantity = 120,
+                    ImageUrl = "https://lavitree.io.vn/images/products/antracol.png",
+                    CreatedAt = DateTime.UtcNow
+                },
+                new Product
+                {
+                    Name = "Chế phẩm sinh học Trichoderma Bacillus",
+                    ActiveIngredient = "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+                    Price = 55000m,
+                    DosageInstruction = "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+                    StockQuantity = 200,
+                    ImageUrl = "https://lavitree.io.vn/images/products/trichoderma.png",
+                    CreatedAt = DateTime.UtcNow
+                }
+            });
+        }
 
         var productList = new List<Product>();
         foreach (var p in sampleProducts)
@@ -504,5 +563,94 @@ public static class LavitreeDbContextSeeder
             .Replace("ư", "u").Replace("ừ", "u").Replace("ứ", "u").Replace("ự", "u").Replace("ử", "u").Replace("ữ", "u")
             .Replace("ỳ", "y").Replace("ý", "y").Replace("ỵ", "y").Replace("ỷ", "y").Replace("ỹ", "y")
             .Replace("đ", "d");
+    }
+
+    /// <summary>
+    /// RFC 4180 compliant CSV parser supporting quoted multiline fields
+    /// </summary>
+    private static List<List<string>> ParseRfc4180Csv(string fullText)
+    {
+        var records = new List<List<string>>();
+        var currentRecord = new List<string>();
+        var currentField = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < fullText.Length; i++)
+        {
+            char c = fullText[i];
+
+            if (c == '\"')
+            {
+                if (inQuotes && i + 1 < fullText.Length && fullText[i + 1] == '\"')
+                {
+                    currentField.Append('\"');
+                    i++; // skip escaped quote
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                currentRecord.Add(currentField.ToString().Trim());
+                currentField.Clear();
+            }
+            else if ((c == '\r' || c == '\n') && !inQuotes)
+            {
+                if (c == '\r' && i + 1 < fullText.Length && fullText[i + 1] == '\n')
+                {
+                    i++;
+                }
+                currentRecord.Add(currentField.ToString().Trim());
+                currentField.Clear();
+
+                if (currentRecord.Any(field => !string.IsNullOrWhiteSpace(field)))
+                {
+                    records.Add(currentRecord);
+                }
+                currentRecord = new List<string>();
+            }
+            else
+            {
+                currentField.Append(c);
+            }
+        }
+
+        if (currentField.Length > 0 || currentRecord.Count > 0)
+        {
+            currentRecord.Add(currentField.ToString().Trim());
+            if (currentRecord.Any(field => !string.IsNullOrWhiteSpace(field)))
+            {
+                records.Add(currentRecord);
+            }
+        }
+
+        return records;
+    }
+
+    private class SeedTreatmentData
+    {
+        public string? disease_code { get; set; }
+        public List<SeedTreatmentPlanStep>? treatment_plans { get; set; }
+        public List<SeedProductItem>? products { get; set; }
+    }
+
+    private class SeedTreatmentPlanStep
+    {
+        public int step_order { get; set; }
+        public string action_title { get; set; } = "";
+        public string instructions { get; set; } = "";
+        public string isolation_days { get; set; } = "";
+    }
+
+    private class SeedProductItem
+    {
+        public string name { get; set; } = "";
+        public string active_ingredient { get; set; } = "";
+        public decimal price { get; set; }
+        public string dosage_instruction { get; set; } = "";
+        public int stock_quantity { get; set; }
+        public string? image_url { get; set; }
     }
 }

@@ -62,8 +62,11 @@ flowchart LR
   1. Đánh dấu tick `[x]` vào checklist của file `tasks/sprint-xx/task-xx.md`.
   2. Cập nhật trạng thái của task trong `tasks/TODO.md` từ `In Progress` sang `Done`.
   3. Ghi 1 dòng nhật ký vào `tasks/WORKLOG.md` ghi nhận kết quả và bằng chứng test.
-  4. **Báo cáo và Đề xuất Commit**: Trình bày tóm tắt kết quả kiểm thử (Receipts), hiển thị các file thay đổi (`git status`) và đề xuất nội dung commit message chuẩn conventional:
+  4. **Cổng kiểm duyệt Bảo mật trước khi Commit (Pre-Commit Security Gate)**:
+     - Chạy `git diff` và kiểm tra toàn bộ file chuẩn bị commit: Tuyệt đối không chứa secret, API key, password, token thực tế.
+     - Kiểm tra `docker-compose.yml`: Đảm bảo không bind port dịch vụ nội bộ (DB, Redis, AI) ra `0.0.0.0`.
+  5. **Báo cáo và Đề xuất Commit**: Trình bày tóm tắt kết quả kiểm thử (Receipts), hiển thị các file thay đổi (`git status`) và đề xuất nội dung commit message chuẩn conventional:
      ```text
      feat: [TASK-XX] Tên tính năng
      ```
-  5. **Chỉ thực hiện `git commit` và `git push` khi Lập trình viên đã xác nhận hoặc ra lệnh trực tiếp**. Tuyệt đối không tự ý commit/push tự động.
+  6. **Chỉ thực hiện `git commit` và `git push` khi Lập trình viên đã xác nhận hoặc ra lệnh trực tiếp**. Tuyệt đối không tự ý commit/push tự động.

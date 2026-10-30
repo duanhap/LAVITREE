@@ -36,7 +36,7 @@ services:
       - .env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=${SUPABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=postgrespassword123;}
+      - ConnectionStrings__DefaultConnection=${SUPABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=${POSTGRES_PASSWORD:-postgrespassword123};}
       - AiService__BaseUrl=http://ai-service:8000
       - AgentService__BaseUrl=http://agent-service:8001
       - Minio__Endpoint=minio:9000
@@ -71,9 +71,9 @@ services:
     environment:
       POSTGRES_DB: lavitree
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword123
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword123}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -87,7 +87,7 @@ services:
       - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
     ports:
-      - "9000:9000"              # S3 API cho Core API & Client truy cập tải ảnh
+      - "127.0.0.1:9000:9000"    # S3 API bind localhost bảo mật
       - "127.0.0.1:9001:9001"    # Web Dashboard quản trị xem ảnh (chỉ bind localhost bảo mật)
     volumes:
       - minio_data:/data

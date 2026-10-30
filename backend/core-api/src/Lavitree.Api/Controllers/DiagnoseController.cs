@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,6 +30,15 @@ public class DiagnoseController : ControllerBase
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".webp", ".bmp"
+    };
+
+    private static string GetSafeContentType(string extension) => extension.ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".webp" => "image/webp",
+        ".bmp" => "image/bmp",
+        _ => "application/octet-stream"
     };
 
     private const long MaxFileSize = 10 * 1024 * 1024; // 10MB
@@ -81,9 +91,9 @@ public class DiagnoseController : ControllerBase
             await using var imageStream = image.OpenReadStream();
             aiResult = await _aiVisionService.PredictAsync(imageStream, image.FileName, includeHeatmap: true, cancellationToken);
         }
-        catch (HttpRequestException ex) when (ex.Message.Contains("422"))
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.UnprocessableEntity || ex.Message.Contains("422"))
         {
-            _logger.LogWarning(ex, "Ảnh gửi sang AI Service bị lỗi giải mã hoặc decompression bomb.");
+            _logger.LogWarning(ex, "Ảnh gửi sang AI Service bị lỗi giải mã hoặc decompression bomb (HTTP 422).");
             return UnprocessableEntity(new { detail = "Tệp hình ảnh bị lỗi cấu trúc hoặc không thể giải mã." });
         }
         catch (Exception ex)
@@ -118,23 +128,24 @@ public class DiagnoseController : ControllerBase
         // 4. XỬ LÝ ẢNH HỢP LỆ (IN-DISTRIBUTION)
         var diagnosisId = Guid.NewGuid();
 
-        // 4.1. Tải ảnh gốc lên MinIO
+        // 4.1. Tải ảnh gốc lên MinIO (Sử dụng Safe Content-Type suy luận từ file extension)
         string originalImageUrl;
         try
         {
             await using var origStream = image.OpenReadStream();
             var origObjectName = $"{diagnosisId}_orig{fileExtension}";
+            var safeContentType = GetSafeContentType(fileExtension);
             originalImageUrl = await _minioStorageService.UploadFileAsync(
                 BucketName,
                 origObjectName,
                 origStream,
-                image.ContentType ?? "image/jpeg",
+                safeContentType,
                 cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi tải ảnh gốc lên MinIO storage.");
-            originalImageUrl = $"/uploads/{image.FileName}";
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { detail = "Không thể lưu trữ hình ảnh lên hệ thống lưu trữ MinIO. Vui lòng thử lại sau." });
         }
 
         // 4.2. Giải mã và tải ảnh Grad-CAM Heatmap lên MinIO

@@ -64,24 +64,25 @@ public class MinioStorageService : IMinioStorageService
                 var mbArgs = new MakeBucketArgs().WithBucket(bucketName);
                 await _minioClient.MakeBucketAsync(mbArgs, cancellationToken);
                 _logger.LogInformation("Bucket {BucketName} created successfully.", bucketName);
-
-                // Security Policy: Only s3:GetObject allowed for objects, NO s3:ListBucket
-                var policyJson = $@"{{
-                    ""Version"": ""2012-10-17"",
-                    ""Statement"": [
-                        {{
-                            ""Effect"": ""Allow"",
-                            ""Principal"": {{""AWS"": [""*""]}},
-                            ""Action"": [""s3:GetObject""],
-                            ""Resource"": [""arn:aws:s3:::{bucketName}/*""]
-                        }}
-                    ]
-                }}";
-
-                var spArgs = new SetPolicyArgs().WithBucket(bucketName).WithPolicy(policyJson);
-                await _minioClient.SetPolicyAsync(spArgs, cancellationToken);
-                _logger.LogInformation("Bucket policy applied to {BucketName}: s3:GetObject only (ListBucket denied).", bucketName);
             }
+
+            // Security Policy: Only s3:GetObject allowed for objects, NO s3:ListBucket
+            var policyJson = $@"{{
+                ""Version"": ""2012-10-17"",
+                ""Statement"": [
+                    {{
+                        ""Effect"": ""Allow"",
+                        ""Principal"": {{""AWS"": [""*""]}},
+                        ""Action"": [""s3:GetObject""],
+                        ""Resource"": [""arn:aws:s3:::{bucketName}/*""]
+                    }}
+                ]
+            }}";
+
+            var spArgs = new SetPolicyArgs().WithBucket(bucketName).WithPolicy(policyJson);
+            await _minioClient.SetPolicyAsync(spArgs, cancellationToken);
+            _logger.LogInformation("Bucket policy applied to {BucketName}: s3:GetObject only (ListBucket denied).", bucketName);
+
             _initializedBuckets.TryAdd(bucketName, true);
         }
         catch (Exception ex)
