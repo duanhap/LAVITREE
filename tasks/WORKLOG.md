@@ -33,3 +33,5 @@
 | `2026-10-29 17:35` | `PLAN-03` | Tái quy hoạch Sprint 2: Chốt port 8001, mô hình Hybrid Postgres SSOT, AI Ingestion duyệt HITL, Hard Code Guardrails & Đảo thứ tự Task 06 làm đầu | Developer & Antigravity Agent | Đã đồng bộ 100% `docs/planning/sprint-02.md`, `tasks/sprint-02/task-05` đến `task-08` và `TODO.md`. Khắc phục toàn diện 8 điểm phản biện từ `sprint2_assessment.md`. |
 | `2026-10-29 06:40` | `TASK-04` | Tích hợp MinIO, chuẩn hóa Core API `POST /api/v1/diagnose`, chính sách OOD Privacy Policy, Rate Limiting & Admin Key | Thành viên A & Antigravity Agent | Đã kiểm thử E2E 100% pass: Admin Key 401 fail-closed, OOD không lưu MinIO/DB, ca mẫu Tomato Late Blight đầy đủ IPM + thuốc BVTV, SLA ~767ms $\le 1.5$s |
 
+| `2026-10-30 01:05` | `PLAN-04` | Cân bằng 2 Track Sprint 2 (Agent B & Full-stack Web/Auth A), quy tắc Day 1 Stub & Cắt tỉa Scope giải phóng Sprint 3 | Developer & Antigravity Agent | Đã cập nhật `docs/planning/sprint-02.md` và `tasks/TODO.md`: chia 2 track A & B rõ rệt, A làm Auth JWT + Khám lá Web + Store COD + Android sớm; Sprint 3 chuyên sâu Tối ưu & Đóng gói. |
+
