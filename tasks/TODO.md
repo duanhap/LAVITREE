@@ -71,6 +71,10 @@
   - Đầu ra: Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`), TTFT $\le 2.0$s, xuất `trace_waterfall.json`, bộ benchmark chạy tự động 5 ca lâm sàng (x3 lần, temp=0) đạt 15/15 PASS.
 
 ### 👨‍💻 Phân công Thành viên A (System, Auth, Web & Early Mobile):
+- [ ] **TASK-A00: Nền tảng Giao diện — Tailwind v4, shadcn/ui & Design Tokens** *(P0 - Đầu Tuần 1)*
+  - Trách nhiệm: **Thành viên A**
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Tailwind v4 + shadcn/ui, token màu & font Be Vietnam Pro theo `docs/architecture/ui-ux.md`, khung `AppShell`/`AdminShell`, router + trang 404/403, `ResultStatusBadge`, trang `/dev/styleguide`; theme Android đồng bộ. Chi tiết: `tasks/sprint-02/task-A00-ui-foundation.md`.
 - [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`

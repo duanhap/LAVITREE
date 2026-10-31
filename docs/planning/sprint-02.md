@@ -119,6 +119,15 @@ flowchart TD
 
 #### 👨‍💻 NHÓM VIỆC CỦA THÀNH VIÊN A (SYSTEM, AUTH & WEB FRONTEND LEAD)
 
+- [ ] **TASK-A00: Nền tảng Giao diện — Tailwind v4, shadcn/ui & Design Tokens** *(P0 - Đầu Tuần 1, làm trước A02–A04)*
+  - *Nội dung*:
+    1. Cài Tailwind v4 + shadcn/ui, khai báo token màu/chữ, font Be Vietnam Pro tự host.
+    2. Dựng khung trang `AppShell` / `AdminShell`, router, trang 404/403, thành phần dùng chung và `ResultStatusBadge`.
+    3. Đồng bộ theme Android (Material 3) với cùng bảng màu.
+  - *Chi tiết*: [tasks/sprint-02/task-A00-ui-foundation.md](../../tasks/sprint-02/task-A00-ui-foundation.md)
+
+> 📐 **Tài liệu giao diện bắt buộc cho TASK-A00 → A04**: [docs/architecture/ui-ux.md](../architecture/ui-ux.md) (design system) và [docs/spec/screens.md](../spec/screens.md) (màn hình, điều hướng, quy tắc hiển thị).
+
 - [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - *Nội dung*:
     1. Xây dựng `AuthController.cs`: `POST /api/v1/auth/register`, `POST /api/v1/auth/login` (sinh JWT Token, băm mật khẩu bằng BCrypt, phân vai `FARMER` / `ADMIN`).
