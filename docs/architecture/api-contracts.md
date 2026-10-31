@@ -221,6 +221,86 @@
 
 ---
 
+### 3.4. `GET /api/v1/medicines/search` (Tra cứu Danh mục Thuốc BVTV cho Agent MCP & Store)
+*Giao ước Ngày Đầu Tiên (Day 1 Contract) phục vụ công cụ `query_pesticide_store` của FastMCP Server*
+- **Query Params**: 
+  - `diseaseCode` (string, optional, ví dụ `Tomato___Late_blight`)
+  - `requireRainResistant` (boolean, optional, mặc định `false`)
+  - `allowedOnly` (boolean, optional, mặc định `true`)
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "total": 3,
+    "disease_code": "Tomato___Late_blight",
+    "items": [
+      {
+        "id": "11111111-2222-3333-4444-555555555551",
+        "name": "Ridomil Gold 68WG",
+        "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+        "medicine_type": "Hóa học",
+        "price": 65000,
+        "dosage_instruction": "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
+        "phi_days": 7,
+        "is_allowed": true,
+        "rain_resistant": true,
+        "stock_quantity": 150,
+        "image_url": "https://lavitree.io.vn/images/products/ridomil-gold.png"
+      },
+      {
+        "id": "11111111-2222-3333-4444-555555555552",
+        "name": "Antracol 70WP",
+        "active_ingredient": "Propineb 700g/kg + Kẽm (Zn++)",
+        "medicine_type": "Hóa học",
+        "price": 45000,
+        "dosage_instruction": "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+        "phi_days": 7,
+        "is_allowed": true,
+        "rain_resistant": false,
+        "stock_quantity": 120,
+        "image_url": "https://lavitree.io.vn/images/products/antracol.png"
+      },
+      {
+        "id": "11111111-2222-3333-4444-555555555553",
+        "name": "Chế phẩm sinh học Trichoderma Bacillus",
+        "active_ingredient": "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+        "medicine_type": "Sinh học",
+        "price": 55000,
+        "dosage_instruction": "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+        "phi_days": 0,
+        "is_allowed": true,
+        "rain_resistant": true,
+        "stock_quantity": 200,
+        "image_url": "https://lavitree.io.vn/images/products/trichoderma.png"
+      }
+    ]
+  }
+  ```
+
+---
+
+### 3.5. `POST /api/v1/auth/register` & `POST /api/v1/auth/login` (Xác thực JWT Nông dân & Admin)
+- **POST `/api/v1/auth/register`**:
+  - Request: `{ "email": "farmer@lavitree.vn", "password": "secure_password", "full_name": "Nguyễn Văn Nông", "phone_number": "0987654321" }`
+  - Response (`201 Created`):
+    ```json
+    {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "token_type": "Bearer",
+      "expires_in": 86400,
+      "user": {
+        "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+        "email": "farmer@lavitree.vn",
+        "full_name": "Nguyễn Văn Nông",
+        "role": "FARMER"
+      }
+    }
+    ```
+- **POST `/api/v1/auth/login`**:
+  - Request: `{ "email": "farmer@lavitree.vn", "password": "secure_password" }`
+  - Response (`200 OK`): Cấu trúc token tương tự register.
+
+---
+
 ## 4. PHÂN HỆ 3: TÁC TỬ NÔNG NGHIỆP THÔNG MINH (`agent-service:8001`)
 *Tác tử tự hành ReAct Loop kết nối công cụ MCP Tools (Kế thừa toàn diện nghiên cứu 27 DAY từ thư mục `extract/`)*
 
