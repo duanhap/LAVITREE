@@ -31,16 +31,16 @@ services:
     container_name: lavitree-core-api
     restart: always
     ports:
-      - "5000:8080"
+      - "127.0.0.1:5000:8080"
     env_file:
       - .env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=${SUPABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=${POSTGRES_PASSWORD:-postgrespassword123};}
+      - ConnectionStrings__DefaultConnection=${SUPABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set};}
       - AiService__BaseUrl=http://ai-service:8000
       - AgentService__BaseUrl=http://agent-service:8001
       - Minio__Endpoint=minio:9000
-      - Minio__PublicUrl=${MINIO_PUBLIC_URL:-http://localhost:9000}
+      - Minio__PublicUrl=${MINIO_PUBLIC_URL:-http://localhost:3000}
       - Minio__AccessKey=${MINIO_ACCESS_KEY:-minioadmin}
       - Minio__SecretKey=${MINIO_SECRET_KEY}
       - Minio__BucketName=${MINIO_BUCKET_NAME:-lavitree-diagnoses}
@@ -71,7 +71,7 @@ services:
     environment:
       POSTGRES_DB: lavitree
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword123}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -96,5 +96,3 @@ services:
 volumes:
   postgres_data:
   minio_data:
-
-
