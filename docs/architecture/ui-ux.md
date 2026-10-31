@@ -120,8 +120,8 @@ Tên công cụ hiển thị: `lookup_disease_knowledge` → *Tra cứu tri th�
 1. Endpoint là `POST`, nên **không dùng `EventSource`** của trình duyệt (chỉ hỗ trợ GET). Dùng `fetch-event-source`, có nút **Dừng** (`AbortController`).
 2. Câu trả lời render Markdown bằng `react-markdown` **không bật HTML thô** (chặn XSS từ đầu ra LLM).
 3. Mất kết nối giữa chừng → giữ phần chữ đã nhận + dòng "Kết nối bị gián đoạn" + nút "Thử lại". Không tự gửi lại.
-4. **Đường đi mạng** (làm trong TASK-A04): nginx hiện chuyển mọi `/api/` sang core-api, nên phải thêm `location /api/v1/agent/` → `agent-service:8001` với `proxy_buffering off;` và `proxy_read_timeout` đủ dài (thiếu dòng này stream sẽ dồn về một lần). Vite dev proxy thêm rule tương ứng **đặt trước** rule `/api`. Trình duyệt không gọi thẳng cổng 8001 (AGENTS.md điều 10).
-5. Chế độ Agent ngoại tuyến (TASK-07): contract chưa có trường báo hiệu → cần Thành viên B bổ sung (ví dụ `"mode": "offline"` trong `final_answer`) để UI hiện nhãn "Đang dùng hướng dẫn lưu sẵn".
+4. **Đường đi mạng** (đã cấu hình trong `nginx.conf` và `vite.config.ts`): Thêm route riêng `location /api/v1/agent/` → `agent-service:8001` với `proxy_buffering off;`, `proxy_cache off;` và `proxy_read_timeout 300s;` để SSE streaming không bị gom cục. Vite dev proxy đã cấu hình rule `/api/v1/agent` **đặt trước** `/api`. Trình duyệt tuyệt đối không gọi thẳng cổng 8001 (AGENTS.md điều 10).
+5. **Chế độ Agent ngoại tuyến** (TASK-07 & TASK-08): Contract SSE đã bổ sung trường `is_offline_fallback: boolean` trong event payload `final_answer` (theo [api-contracts.md mục 4.1](api-contracts.md#L274)). Khi `is_offline_fallback === true`, UI hiển thị badge nhãn `[Đang dùng hướng dẫn lưu sẵn]` với token `--status-warning` ngay dưới tiêu đề phản hồi.
 
 ---
 
