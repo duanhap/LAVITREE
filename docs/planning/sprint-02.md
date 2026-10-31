@@ -131,10 +131,12 @@ flowchart TD
 
 - [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - *Nội dung*:
-    1. Xây dựng `AuthController.cs`: `POST /api/v1/auth/register`, `POST /api/v1/auth/login` (sinh JWT Token, băm mật khẩu bằng BCrypt, phân vai `FARMER` / `ADMIN`).
+    1. Xây dựng `AuthController.cs`: `POST /api/v1/auth/register` (luôn gán role `FARMER`), `POST /api/v1/auth/login` (sinh JWT Token, băm BCrypt, rate limit chống dò pass; gộp `X-Admin-Key` vào JWT role `ADMIN`).
     2. Bảo mật định danh: Trích xuất `userId` từ JWT Claims cho endpoint chẩn đoán và lịch sử, xóa bỏ lỗ hổng nhận `userId` từ form-data hoặc query params (triệt tiêu IDOR).
     3. Chuẩn hóa endpoint Lịch sử khám: `GET /api/v1/diagnose/history` (Headers: `Authorization: Bearer <jwt_token>`, phân trang `page`/`pageSize`, lọc theo `userId` từ token).
     4. Cung cấp ngay **Stub API Thuốc** `GET /api/v1/medicines/search` cho Thành viên B.
+    5. Cập nhật Entity `Product.cs` (thêm `PhiDays (int)`, `IsAllowed (bool)`, `RainResistant (bool)`, `MedicineType`), migration EF Core và seed thuốc thật cho 5 bệnh demo.
+    6. Xây dựng `WeatherService` tích hợp OpenWeatherMap API + `IMemoryCache` 1h trong Core API phục vụ tool `check_weather_risk`.
 
 - [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - *Nội dung*:

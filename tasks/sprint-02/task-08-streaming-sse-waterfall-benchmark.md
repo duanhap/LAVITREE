@@ -62,7 +62,7 @@
     "trace_id": "tr-987654",
     "answer": "[DRAFT_RECOMMENDATION]\nChào bác! Hệ thống ghi nhận vườn chỉ còn 2 ngày nữa là thu hoạch và chiều nay có mưa to:\n1. ⛔ TUYỆT ĐỐI KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly tối thiểu 7 ngày, vi phạm an toàn thực phẩm.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay chùm lá bị mốc sương, thu dọn xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Sử dụng chế phẩm sinh học Trichoderma hoặc bạt che luống.",
     "draft_order": null,
-    "guardrail_triggered": "PHI_PROTECTION_LESS_THAN_3_DAYS",
+    "guardrail_triggered": "HARVEST_BEFORE_PHI_VIOLATION",
     "is_offline_fallback": false,
     "total_latency_ms": 2150
   }
@@ -98,7 +98,7 @@
 
 - [ ] **Pha 1**: Cài đặt FastAPI Streaming Endpoint `POST /api/v1/agent/chat` sử dụng `StreamingResponse` với media type `text/event-stream`.
 - [ ] **Pha 2**: Tích hợp luồng phát sự kiện Generator: Bắn event `trace_start`, chuyển tiếp các bước suy luận `thought`, `action`, `observation` từ ReAct loop, và stream từng token của `delta`.
-- [ ] **Pha 3**: Viết module ghi nhận `trace_logger.py`: tính toán thời gian chạy từng phase ($ms$), format thành file `trace_waterfall.json` phục vụ vẽ biểu đồ tiến trình.
+- [ ] **Pha 3**: Viết module ghi nhận `trace_logger.py`: tính toán thời gian chạy từng phase ($ms$), lưu xoay vòng (rotating log buffer tối đa 100 phiên gần nhất, tránh đầy ổ đĩa) và format thành `trace_waterfall.json` phục vụ vẽ biểu đồ tiến trình (chỉ Admin được xem).
 - [ ] **Pha 4**: Xây dựng kịch bản kiểm thử tự động `run_agent_benchmark.py`:
   - 5 ca bệnh lâm sàng:
     1. Ca 1 (Cận ngày thu hoạch): Cà chua mốc sương, 2 ngày thu hoạch, trời mưa $\rightarrow$ Bắt buộc chặn thuốc hóa học.

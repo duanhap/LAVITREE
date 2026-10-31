@@ -45,7 +45,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 150,
-                ImageUrl = "https://lavitree.io.vn/images/products/ridomil-gold.png",
+                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/ridomil-gold.png",
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Potato___Late_blight" }
             },
             new MedicineItemDto
@@ -60,8 +60,8 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = false,
                 StockQuantity = 120,
-                ImageUrl = "https://lavitree.io.vn/images/products/antracol.png",
-                TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Pepper__bell___Bacterial_spot" }
+                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/antracol.png",
+                TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Pepper,_bell___Bacterial_spot" }
             },
             new MedicineItemDto
             {
@@ -75,7 +75,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 200,
-                ImageUrl = "https://lavitree.io.vn/images/products/trichoderma.png",
+                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/trichoderma.png",
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Tomato___Target_Spot" }
             },
             new MedicineItemDto
@@ -90,7 +90,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 80,
-                ImageUrl = "https://lavitree.io.vn/images/products/score.png",
+                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/score.png",
                 TargetDiseases = new List<string> { "Tomato___Early_blight", "Corn_(maize)___Common_rust_" }
             },
             new MedicineItemDto

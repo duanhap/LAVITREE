@@ -308,6 +308,78 @@
 
 ---
 
+---
+
+### 3.6. `POST /api/v1/orders` (Tạo đơn hàng Vật tư Nông nghiệp - COD)
+- **Headers**: `Authorization: Bearer <jwt_token>` (Bắt buộc; trích xuất `userId` từ token claims).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "items": [
+      { "product_id": 1, "quantity": 2 },
+      { "product_id": 3, "quantity": 1 }
+    ],
+    "shipping_address": "Xã Nghĩa Bình, Huyện Nghĩa Hưng, Nam Định",
+    "phone_number": "0987654321",
+    "payment_method": "COD"
+  }
+  ```
+- **Quy tắc Nghiệp vụ & Bảo mật**:
+  - Backend Core API **tự truy vấn bảng `Products`** để tính lại đơn giá và tổng tiền, **kiểm tra `IsAllowed == true`** (từ chối bán thuốc bị cấm).
+  - Tuyệt đối không nhận giá tiền (`price`) từ Client hay Agent gửi lên.
+- **Response Body (`201 Created`)**:
+  ```json
+  {
+    "order_id": "ord-778899aa",
+    "total_amount": 185000,
+    "payment_method": "COD",
+    "order_status": "Pending",
+    "created_at": "2026-10-31T14:30:00Z"
+  }
+  ```
+
+---
+
+### 3.7. `PATCH /api/v1/knowledge/sources/{id}/approve` (Duyệt Nguồn Tri thức - HITL)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (Bắt buộc tài khoản có Claim `role: ADMIN`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "is_approved": true,
+    "reviewer_notes": "Đã đối chiếu hoạt chất hợp lệ theo Thông tư Cục BVTV"
+  }
+  ```
+- **Cơ chế Đồng bộ**: Core API cập nhật `IsManualApproved = true` trong PostgreSQL và tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và BM25.
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+    "is_manual_approved": true,
+    "updated_at": "2026-10-31T14:35:00Z"
+  }
+  ```
+
+---
+
+### 3.8. `POST /api/v1/diagnose/{id}/request-expert` (Chuyển ca bệnh khó cho Chuyên gia / Bác sĩ)
+- **Headers**: `Authorization: Bearer <jwt_token>`
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "farmer_notes": "Vết bệnh lan nhanh dù đã cắt tỉa lá và cách ly"
+  }
+  ```
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "diagnosis_id": "a1b2c3d4-...",
+    "requires_expert": true,
+    "message": "Đã gửi thông tin ca bệnh tới Bác sĩ Cây trồng phụ trách khu vực."
+  }
+  ```
+
+---
+
 ## 4. PHÂN HỆ 3: TÁC TỬ NÔNG NGHIỆP THÔNG MINH (`agent-service:8001`)
 *Tác tử tự hành ReAct Loop kết nối công cụ MCP Tools (Kế thừa toàn diện nghiên cứu 27 DAY từ thư mục `extract/`)*
 
@@ -351,7 +423,7 @@
   event: final_answer
   data: {
     "trace_id": "tr-987654",
-    "answer": "[DRAFT_RECOMMENDATION]\nChào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể quét nước vôi trong hoặc dùng chế phẩm Nano Bạc hữu cơ cách ly 0 ngày sau cơn mưa.",
+    "answer": "[DRAFT_RECOMMENDATION]\nChào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác sử dụng chế phẩm sinh học Trichoderma Bacillus (thời gian cách ly 0 ngày) tưới gốc hoặc bọc che luống để ngăn nấm lây lan.",
     "draft_order": null,
     "guardrail_triggered": "PHI_PROTECTION_LESS_THAN_3_DAYS",
     "is_offline_fallback": false,

@@ -18,7 +18,7 @@
 - **Mục tiêu cụ thể của Task**:
   1. **Khung Chat Trợ lý Nông nghiệp trên Web (`ChatWidget.tsx` / `ChatPage.tsx`)**:
      - *Tuần 1*: Kết nối với **Mock SSE Stub** của Thành viên B để dựng giao diện mượt mà.
-     - *Tuần 2*: Ghép nối chính thức với endpoint SSE thật từ Task 08 (`POST /api/v1/agent/chat:8001`).
+     - *Tuần 2*: Ghép nối chính thức với endpoint SSE thật từ Task 08 qua Nginx Reverse Proxy (`POST /api/v1/agent/chat`). Trình duyệt và App mobile tuyệt đối không gọi thẳng port 8001 nội bộ (đã cấu hình proxy trong `nginx.conf` và `vite.config.ts`).
      - Hiển thị tiến trình suy luận: Khối "Trợ lý đang suy nghĩ..." hiển thị các bước ReAct (`thought` $\rightarrow$ `action`), nhãn `[DRAFT_RECOMMENDATION]`, cảnh báo cách ly an toàn PHI và nút "Thêm vào giỏ hàng" đối với đơn thuốc đề xuất.
   2. **Khởi tạo Dự án Android Native (`mobile/android/`)**:
      - Cấu hình Gradle sạch bằng Kotlin DSL, SDK 34, Java 17.

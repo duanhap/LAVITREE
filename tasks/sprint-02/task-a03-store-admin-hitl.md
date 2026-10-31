@@ -33,13 +33,15 @@
 
 ### 2.1. API Đặt hàng Nông nghiệp:
 - `POST /api/v1/orders`:
-  - Request: `{ "items": [{ "product_id": "...", "quantity": 2 }], "shipping_address": "Xã Nghĩa Bình, Huyện Nghĩa Hưng, Nam Định", "phone_number": "0987654321", "payment_method": "COD" }`
+  - Request: `{ "items": [{ "product_id": 1, "quantity": 2 }], "shipping_address": "Xã Nghĩa Bình, Huyện Nghĩa Hưng, Nam Định", "phone_number": "0987654321", "payment_method": "COD" }`
   - Response: `201 Created` kèm `order_id`, tổng tiền, dự kiến giao hàng trong 2-3 ngày.
+  - **Bảo mật & Toàn vẹn**: Core API **tự truy vấn giá từ bảng Products trong DB**, kiểm tra `IsAllowed == true` và trừ tồn kho; tuyệt đối không tin giá tiền gửi từ client hay `draft_order` của Agent.
 
 ### 2.2. API Duyệt Tri thức (HITL):
 - `PATCH /api/v1/knowledge/sources/{id}/approve`:
   - Yêu cầu Header: `Authorization: Bearer <Admin_JWT>`
   - Cập nhật `IsManualApproved = true`, ghi nhận `ReviewerNotes`.
+  - **Đồng bộ RAG**: Gọi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và BM25.
 
 ---
 
