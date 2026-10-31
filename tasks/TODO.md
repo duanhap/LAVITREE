@@ -117,3 +117,7 @@
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Chọn $\tau_{energy}$ theo phân vị thứ 5 trên tập A; đo từ chối nhầm $\le 5\%$ trên tập B và phát hiện OOD $\ge 80\%$ trên tập C; cập nhật `OOD_ENERGY_THRESHOLD` và đưa bảng số liệu vào chương đánh giá.
+- [ ] **TASK-14: Nâng cấp Hệ thống Bộ nhớ Tác tử Toàn diện (Persistent STM & LTM - Kế thừa DAY 17)**
+  - Trách nhiệm: **Thành viên B** (Agent Memory) & **Thành viên A** (Database Schema)
+  - Trạng thái: [ ] PENDING
+  - Đầu ra: Lưu trữ phiên chat bền vững vào PostgreSQL (ChatSessions & ChatMessages), nén ngữ cảnh tự động (Context Compaction khi > 3000 tokens); Tool MCP lookup_farmer_history đọc DiagnosisRecords để theo dõi tiến trình hồi phục cây trồng; Quản lý hồ sơ dài hạn FarmerProfile (địa phương, thổ nhưỡng, tiêu chuẩn VietGAP) phục vụ cá nhân hóa sâu sắc.

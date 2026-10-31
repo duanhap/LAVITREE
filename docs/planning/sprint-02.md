@@ -15,7 +15,7 @@ Xây dựng và kết nối hoàn chỉnh 2 trụ cột của hệ thống Lavit
 >    - Thành viên B cung cấp Stub SSE Chat `POST /api/v1/agent/chat` ngay ngày đầu để A dựng giao diện Web.
 >    - Hai bên code độc lập 100%, cuối tuần 2 ghép nối chính thức.
 > 2. **Cổng dịch vụ chuẩn (Port Binding)**: `backend/agent-service` bind cổng **`8001`** (đồng bộ với `docker-compose.yml` và `api-contracts.md` Mục 4).
-> 3. **PostgreSQL là Nguồn sự thật Duy nhất (SSOT)**: Lưu trữ Hybrid: trường cấu trúc lọc cứng (`phi_days`, `is_allowed`, `active_ingredients`) song song với `full_content TEXT` và `chunks JSONB`. ChromaDB cục bộ và BM25 là chỉ mục phái sinh có thể tái tạo (rebuildable).
+> 3. **PostgreSQL là Nguồn sự thật Duy nhất (SSOT) — Mô hình Curated Semantic Knowledge**: Lưu trữ tri thức tinh chọn gồm: trường cấu trúc lọc cứng (`disease_code`, `active_ingredients`, `phi_days`, `is_allowed`), nội dung tri thức chuẩn hóa (`knowledge_content`), và đoạn bằng chứng trích dẫn (`evidence_text`) kèm `source_url`. Tuyệt đối không sao chép nguyên văn toàn bài thô (full_content) để tránh rác HTML và vi phạm bản quyền. ChromaDB cục bộ (mô hình embedding đa ngôn ngữ `paraphrase-multilingual-MiniLM-L12-v2`) và BM25 là chỉ mục phái sinh có thể tái tạo (rebuildable).
 > 4. **Bảo mật Định danh (Auth Security)**: `userId` bắt buộc trích xuất từ JWT Claims, xóa bỏ hoàn toàn việc truyền `userId` từ form-data.
 > 5. **Chốt chặn an toàn bằng Code (Hard Guardrails)**: Lọc thuốc vi phạm PHI và thuốc bị cấm bằng hàm Python trước khi vào prompt LLM; không trông cậy vào việc LLM tự nhớ gọi tool.
 > 6. **Cắt tỉa Nghiệp vụ Thông minh (Scope Pruning)**:
@@ -89,12 +89,12 @@ flowchart TD
 
 #### 👨‍💻 NHÓM VIỆC CỦA THÀNH VIÊN B (AI AGENT LEAD)
 
-- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
+- [ ] **TASK-06: Tầng Tri thức Hybrid RAG Đa ngôn ngữ (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - *Nội dung*:
-    1. Thiết kế bảng tri thức Postgres mô hình Hybrid (trường cấu trúc lọc cứng + `full_content TEXT` + `chunks JSONB`).
-    2. AI Ingestion hỗ trợ Admin bóc tách bài viết/URL thành bản ghi Staging có duyệt (`IsManualApproved = true`).
-    3. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (Vector Search) và BM25 Okapi (từ khóa hoạt chất) cho 5 bệnh demo.
-    4. Hợp nhất thứ hạng RRF ($k=60$), đạt Recall@3 đối chứng 100%.
+    1. Thiết kế bảng tri thức Postgres mô hình Curated Knowledge (trường lọc cứng + `knowledge_content TEXT` + `evidence_text TEXT` + `source_url TEXT`).
+    2. AI Ingestion hỗ trợ Admin bóc tách bài viết/URL thành các khối tri thức ngữ nghĩa (triệu chứng, nguyên nhân, phòng trừ, hoạt chất/PHI) có duyệt (`IsManualApproved = true`).
+    3. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (mô hình vector đa ngôn ngữ `paraphrase-multilingual-MiniLM-L12-v2`) và BM25 Okapi (từ khóa hoạt chất song ngữ) cho 5 bệnh demo.
+    4. Hợp nhất thứ hạng RRF ($k=60$) và cung cấp endpoint nội bộ `POST /internal/reindex` cho Core API kích hoạt khi duyệt bài.
 
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - *Nội dung*:
@@ -105,9 +105,10 @@ flowchart TD
 - [ ] **TASK-07: Vòng lặp ReAct Loop, Bộ Chốt chặn An toàn (Hard Guardrails) & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
   - *Nội dung*:
     1. Vòng lặp ReAct: `Thought → Action → Observation → Final Answer` với mô hình **Gemini 2.0 / 2.5 Flash** (max iterations = 5).
-    2. **Hard Code Guardrails bằng Python**: Tiền lọc thuốc cấm & vi phạm PHI bằng code cứng trước khi nạp vào prompt LLM; hậu kiểm quét chuỗi câu trả lời cuối cùng.
-    3. Gắn nhãn bản thảo `[DRAFT_RECOMMENDATION]`.
-    4. Circuit Breaker & Router tự động hạ cấp về tệp phác đồ tĩnh IPM lưu cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
+    2. Quản lý Bộ nhớ ngắn hạn STM (In-Memory Rolling Window $K=3$ lượt theo `conversation_id`) giúp duy trì mạch hội thoại mượt mà cho các câu hỏi nối tiếp.
+    3. **Hard Code Guardrails bằng Python**: Tiền lọc thuốc cấm & vi phạm PHI bằng code cứng trước khi nạp vào prompt LLM; hậu kiểm quét chuỗi câu trả lời cuối cùng.
+    4. Gắn nhãn bản thảo `[DRAFT_RECOMMENDATION]`.
+    5. Circuit Breaker & Router tự động hạ cấp về tệp phác đồ tĩnh IPM lưu cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
 
 - [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark Nghiệm thu 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - *Nội dung*:
@@ -161,3 +162,7 @@ Nhờ Sprint 2 đã hoàn thành toàn bộ khung sườn sản phẩm (Vertical
 3. **TASK-11 (Màn hình Admin Observability)**: Trực quan hóa cây suy luận Waterfall Chart phục vụ Hội đồng chấm thi.
 4. **TASK-12 (Docker Compose 1-Click & Diễn tập Bảo vệ)**: Đóng gói container dự phòng demo offline hoàn hảo và diễn tập kịch bản vấn đáp tốt nghiệp.
 5. **TASK-13 (Nghiệm thu OOD)**: Đo đạc số liệu OOD chính thức trên 3 tập dữ liệu độc lập cho quyển báo cáo tốt nghiệp.
+6. **TASK-14 (Hệ thống Bộ nhớ Tác tử Toàn diện — Persistent STM & LTM - Kế thừa DAY 17)**:
+   - **Persistent STM & Compaction**: Lưu trữ bền vững phiên hội thoại vào PostgreSQL (`ChatSessions` & `ChatMessages`), cơ chế nén ngữ cảnh tự động (Context Compaction) khi hội thoại vượt 3.000 tokens.
+   - **Episodic LTM (Kinh nghiệm Ca bệnh)**: Công cụ FastMCP `lookup_farmer_history` truy vấn lịch sử chẩn đoán từ bảng `DiagnosisRecords` để theo dõi tiến trình hồi phục và cảnh báo nguy cơ kháng thuốc.
+   - **Profile LTM (Hồ sơ Nông hộ)**: Quản lý hồ sơ dài hạn (`FarmerProfile`: địa phương, loại đất, diện tích, tiêu chuẩn VietGAP) giúp tư vấn cá nhân hóa cao mà không cần nông dân khai báo lại.

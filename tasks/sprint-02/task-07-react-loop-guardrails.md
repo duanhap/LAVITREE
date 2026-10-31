@@ -17,6 +17,10 @@
      - **Tiền lọc (Pre-filter)**: Khi Agent gọi `query_pesticide_store`, code Python tự động lọc bỏ các loại thuốc có `IsAllowed = false` và thuốc vi phạm thời gian cách ly bảo thủ ($DaysToHarvest \le PhiDays$). LLM chỉ được nhìn thấy danh sách các thuốc an toàn để đưa vào câu trả lời.
      - **Hậu kiểm (Post-filter)**: Trước khi xuất câu trả lời cuối cùng, module `guardrails.py` quét chuỗi văn bản của LLM; nếu phát hiện tên hoạt chất độc hại hoặc thuốc hóa học bị cấm khi sát ngày thu hoạch, hệ thống lập tức chèn cảnh báo đỏ `⛔ NGUY CƠ TỒN DƯ THUỐC BVTV` và chuyển hướng sang biện pháp sinh học/canh tác.
   3. **Chốt chặn HITL (Human-in-the-loop)**: Mọi đơn thuốc đề xuất bắt buộc phải gắn tiền tố `[DRAFT_RECOMMENDATION]` để thể hiện tính chất gợi ý chuyên môn, yêu cầu Bác sĩ phụ trách hoặc Nông dân chủ động bấm nút xác nhận trước khi tạo đơn hàng.
+- **Bộ nhớ Ngắn hạn Phiên hội thoại (In-Memory STM — Rolling Window Context)**:
+  - Khắc phục triệt để điểm yếu "mất trí nhớ từng lượt" (Turn Amnesia) khi nông dân hỏi tiếp nhiều câu trong cùng 1 phiên chat.
+  - Quản lý trạng thái phiên theo `conversation_id` trong module `app/agent/memory.py`: duy trì cửa sổ trượt (Rolling Window) lưu giữ $K = 3$ lượt trao đổi gần nhất trong RAM kèm cơ chế tự hủy (TTL = 1 giờ).
+  - Khi tiếp nhận câu hỏi mới, Agent tự động nạp lịch sử STM vào Prompt ngữ cảnh, giúp Agent xử lý mượt mà các câu hỏi đại từ thay thế (ví dụ: *"Loại này pha mấy nắp?"*, *"Giá bao nhiêu 1 gói?"*).
 - **Cơ chế Tự phục hồi & Hạ cấp Ngoại tuyến Thật sự (Resilience - DAY25, 27)**:
   - Bọc **Circuit Breaker** (3 trạng thái: `CLOSED`, `OPEN`, `HALF-OPEN`) quanh các lời gọi LLM Cloud và Weather API.
   - Khi phát hiện rớt mạng ngoài đồng ruộng, LLM bị lỗi hoặc hết quota: Router tự động chuyển sang chế độ **Graceful Degradation** — truy vấn trực tiếp từ **tệp phác đồ tĩnh IPM lưu cục bộ (Local JSON Cache: `app/agent/offline_ipm_cache.json`)**, tuyệt đối **không gọi Supabase Cloud** khi ngoại tuyến. Thời gian trả lời tức thì $< 1.0$ giây.
@@ -60,7 +64,9 @@ sequenceDiagram
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
 - [ ] **Pha 1**: Cấu hình Client gọi **Google Gemini 2.0 Flash** (`google-genai` SDK hoặc `google-generativeai`), đọc `GEMINI_API_KEY` từ `.env`.
-- [ ] **Pha 2**: Chuyển mã nguồn `extract/DAY3/lavitree_react_agent.py` vào `backend/agent-service/app/agent/react_agent.py`, kết nối 4 công cụ từ `app.mcp.server`.
+- [ ] **Pha 2**:
+  - Chuyển mã nguồn `extract/DAY3/lavitree_react_agent.py` vào `backend/agent-service/app/agent/react_agent.py`, kết nối 4 công cụ từ `app.mcp.server`.
+  - Xây dựng module `app/agent/memory.py` quản lý bộ nhớ ngắn hạn STM (Rolling Window $K=3$ lượt gần nhất theo `conversation_id`, tự dọn dẹp sau 1 giờ).
 - [ ] **Pha 3**: Xây dựng module `guardrails.py` cài đặt Hard Code Guardrail:
   - `pre_filter_medicines(medicines, harvest_days_left)`: Lọc bỏ thuốc có `IsAllowed=False` hoặc `phi_days >= harvest_days_left`.
   - `post_filter_response(response_text, harvest_days_left)`: Quét từ khóa hoạt chất hóa học độc hại khi `harvest_days_left <= 3`.
@@ -72,12 +78,14 @@ sequenceDiagram
 - [ ] **Pha 5**: Viết script kiểm thử độc lập `test_react_guardrails.py`:
   - Test case 1: Ca vi phạm PHI (còn 2 ngày thu hoạch) $\rightarrow$ 100% không được xuất hiện thuốc hóa học PHI=7 ngày.
   - Test case 2: Ca giả lập mất mạng (ngắt API key / mock timeout) $\rightarrow$ kích hoạt router hạ cấp ngoại tuyến, trả về kết quả IPM trong $< 1.0$s.
+  - Test case 3: Ca hội thoại 2 lượt liên tiếp cùng `conversation_id` $\rightarrow$ Agent nhận biết ngữ cảnh câu trước qua STM.
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
 - [ ] Vòng lặp ReAct vận hành ổn định trên Gemini 2.0 Flash, số bước lặp $\le 5$.
+- [ ] Bộ nhớ ngắn hạn STM hoạt động chính xác: Agent duy trì mạch hội thoại mượt mà cho các câu hỏi nối tiếp trong cùng `conversation_id`.
 - [ ] Chốt chặn an toàn bằng Code: Không một câu trả lời nào vi phạm PHI (100% từ chối thuốc hóa học khi $DaysToHarvest \le PhiDays$).
 - [ ] Nhãn `[DRAFT_RECOMMENDATION]` xuất hiện trong 100% các khuyến nghị có kê đơn thuốc.
 - [ ] Tự phục hồi ngoại tuyến: Khi tắt kết nối mạng, Agent trả lời bằng phác đồ IPM tĩnh cục bộ trong $\le 500$ms, không ném exception 500 ra client.
-- [ ] Bằng chứng nghiệm thu: Chạy `python test_react_guardrails.py` đạt PASS cả 2 ca kiểm thử an toàn và khả năng chịu lỗi ngoại tuyến.
+- [ ] Bằng chứng nghiệm thu: Chạy `python test_react_guardrails.py` đạt PASS cả 3 ca kiểm thử: an toàn PHI, chịu lỗi ngoại tuyến, và ghi nhớ ngữ cảnh STM.
