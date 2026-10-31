@@ -1,8 +1,9 @@
-# TASK-06: TẦNG TRI THỨC HYBRID RAG (BM25 + DENSE VECTOR) TRÊN 112 NGUỒN KHUYẾN NÔNG
+# TASK-06: TẦNG TRI THỨC HYBRID RAG (BM25 + CHROMADB) & PIPELINE NẠP DỮ LIỆU KIỂM ĐỊNH (HITL)
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
-* **Phân hệ**: `backend/agent-service/app/rag/`
+* **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 1 (Làm đầu tiên để có dữ liệu cho các Task 05, 07, 08)**
+* **Phân hệ**: `backend/agent-service/app/rag/` & CSDL `backend/core-api`
 * **Trạng thái**: `[ ] PENDING`
-* **Người phụ trách**: Thành viên B (RAG & NLP) & Thành viên A (Database Setup)
+* **Người phụ trách**: Thành viên B (RAG Pipeline & ChromaDB) & Thành viên A (PostgreSQL Schema & Seed)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY18/lavitree_production_rag_pipeline.py` & `extract/KnowledgeSources_rows.csv`
 
@@ -10,67 +11,109 @@
 
 ## 1. BỐI CẢNH & MỤC TIÊU (CONTEXT & OBJECTIVES)
 - **Vấn đề cốt tử**: Khi tư vấn sâu bệnh cho nông dân, các LLM thông thường dễ bị **ảo giác (hallucination)**: bịa đặt tên hoạt chất hóa học, nhầm lẫn tỷ lệ pha chế hoặc gợi ý các loại thuốc đã bị Cục BVTV cấm lưu hành. Nếu chỉ dùng Dense Vector Search thuần túy, các tên thuốc chuyên ngành tiếng Anh/Việt (như *Mancozeb*, *Metalaxyl*, *Difenoconazole*...) rất dễ bị trôi vector embedding và tìm ra đoạn văn không liên quan.
-- **Giải pháp kế thừa từ DAY7, 8, 18**:
-  1. **Kiến trúc Hybrid Retrieval (BM25 + Dense Vector)**:
-     - **BM25 Search (Keyword Matching)**: Bắt chính xác 100% các từ khóa chuyên ngành, tên hoạt chất, liều lượng pha (ví dụ: *50g/bình 16 lít*).
-     - **Dense Vector Search (Semantic Matching)**: Bắt ngữ nghĩa mô tả biểu hiện bệnh tật từ nông dân (ví dụ: *"lá cà chua bị đốm đen úng nước sau mưa"* $\rightarrow$ tìm ra bệnh Mốc sương / Late Blight). Dùng **ChromaDB cục bộ** (lưu trữ dạng file persistent, độc lập, không phụ thuộc dịch vụ ngoài).
-     - **Reciprocal Rank Fusion (RRF)**: Thuật toán hợp nhất thứ hạng chuẩn công nghiệp để lấy ra Top-3 đoạn văn bản khuyến nông chuẩn xác nhất cấp cho Agent.
-  2. **Cơ chế Nạp tri thức có Kiểm định (Human-in-the-loop Ingestion & Dual-Write)**:
-     - Toàn bộ tri thức IPM và thuốc điều trị đầy đủ cho 38 lớp sẽ được bóc tách từ 112 tài liệu khuyến nông (`KnowledgeSources_rows.csv`) hoặc URL bài viết thông qua AI hỗ trợ trích xuất trường.
-     - Sau khi người phụ trách/Bác sĩ kiểm duyệt các trường (tên thuốc, hoạt chất, liều lượng, PHI, cờ `IsAllowed`), hệ thống thực hiện **Lưu kép (Dual-Write)**:
-       - Phần có cấu trúc: Ghi vào PostgreSQL (`TreatmentPlans`, `Products`, `DiseaseProducts`).
-       - Phần văn bản ngữ cảnh: Ghi vào ChromaDB và lập chỉ mục BM25 phục vụ Agent.
-- **Ràng buộc Pháp lý Thuốc BVTV (Legal Compliance)**:
-  - Bảng `Products` bổ sung cột `IsAllowed` (boolean) và `IsolationDays` (PHI).
-  - Thuốc có `IsAllowed = false` hoặc vi phạm PHI sẽ bị loại bỏ hoàn toàn khỏi gợi ý của Agent.
+- **Giải pháp Kiến trúc Chuẩn Doanh nghiệp**:
+  1. **PostgreSQL là Nguồn Sự Thật Duy Nhất (SSOT) — Mô hình Hybrid Document-Relational**:
+     - Thay vì xé nhỏ bài viết thành hàng chục cột quan hệ cứng hoặc lưu rời rạc vào Vector DB dẫn đến mất ngữ cảnh và rủi ro lệch pha (Dual-Write drift), PostgreSQL lưu trữ 2 phần song song:
+       - **Các trường có cấu trúc (Structured Fields)**: Dùng cho lọc cứng SQL (`disease_code`, `active_ingredients TEXT[]`, `phi_days INT`, `is_allowed BOOLEAN`, `status VARCHAR`).
+       - **Trường văn bản thô & Chunks (Unstructured Text & Chunks)**: `full_content TEXT` (lưu trọn vẹn 100% nội dung gốc bài viết từ URL) và `chunks JSONB` (danh sách các đoạn văn bản 300–500 ký tự kèm thứ tự).
+     - **ChromaDB cục bộ và BM25 Okapi** chỉ đóng vai trò là các **chỉ mục phái sinh có thể tái tạo (rebuildable indexes)** từ bảng PostgreSQL bất kỳ lúc nào.
+  2. **Quy trình Nạp Tri thức có Kiểm định (Admin AI Extraction + Human-in-the-loop Ingestion)**:
+     - Admin dán URL/văn bản bài viết khuyến nông $\rightarrow$ AI hỗ trợ trích xuất sơ bộ thành bản ghi dạng bảng tạm (Staging với trạng thái `pending`).
+     - Bác sĩ Cây trồng / Admin rà soát tên hoạt chất, liều lượng và thời gian cách ly PHI $\rightarrow$ Bấm nút `Duyệt` (`IsManualApproved = true`).
+     - Khi bài viết được duyệt, hệ thống tự động băm chunks, sinh vector embeddings và lập chỉ mục vào **ChromaDB cục bộ** (`backend/agent-service/data/chroma_db`) và **BM25 Okapi**.
+  3. **Phạm vi Trọng tâm Demo (5 Ca bệnh Lâm sàng Hạt nhân)**:
+     - Để đảm bảo chất lượng tri thức tuyệt đối và kịp tiến độ tuần 2, toàn bộ dữ liệu RAG tập trung làm sâu và chuẩn xác cho 5 bệnh đại diện:
+       1. `Tomato___Late_blight` (Mốc sương cà chua)
+       2. `Tomato___Early_blight` (Đốm vòng cà chua)
+       3. `Tomato___Target_Spot` (Đốm mục tiêu cà chua)
+       4. `Pepper__bell___Bacterial_spot` (Đốm vi khuẩn / Thán thư ớt)
+       5. `Corn_(maize)___Common_rust_` (Gỉ sắt ngô)
 
 ---
 
 ## 2. ĐẶC TẢ KỸ THUẬT (SPECIFICATIONS)
 
-### Cấu trúc Module RAG:
+### Cấu trúc Module RAG (`backend/agent-service/app/rag/`):
 ```
 backend/agent-service/app/rag/
 ├── __init__.py
-├── ingest.py              # Pipeline đọc bài báo/URL, bóc tách cấu trúc và nạp vào DB + Vector Store
-├── chunker.py             # Phân đoạn tài liệu khuyến nông có giữ metadata (bệnh, hoạt chất, PHI)
-├── bm25_retriever.py      # Bộ tìm kiếm BM25 Okapi trên từ khóa hoạt chất
-├── vector_retriever.py    # Bộ tìm kiếm Vector (sử dụng ChromaDB cục bộ persistent)
-├── hybrid_fusion.py       # Hợp nhất RRF: RRF_score(d) = sum(1 / (60 + rank_i(d)))
-└── pipeline.py            # API cấp cao cho tool lookup_disease_knowledge
+├── schema.py              # Định nghĩa Pydantic Models cho Article, Chunk, StructuredMetadata
+├── ingest.py              # Pipeline trích xuất AI từ URL/Văn bản -> Staging -> Sync Postgres
+├── chunker.py             # Phân đoạn văn bản (Recursive Character 400 chars, overlap 50) kèm metadata
+├── bm25_retriever.py      # Bộ tìm kiếm từ khóa chính xác BM25 Okapi trên hoạt chất & tên bệnh
+├── vector_retriever.py    # Bộ tìm kiếm Vector ngữ nghĩa sử dụng ChromaDB cục bộ (Persistent)
+├── hybrid_fusion.py       # Hợp nhất Reciprocal Rank Fusion: RRF_score(d) = sum(1 / (60 + rank_i(d)))
+├── sync_index.py          # Script đọc Postgres SSOT và tái tạo chỉ mục ChromaDB + BM25 trong 1 lệnh
+└── pipeline.py            # Facade API cấp cao cho MCP Tool lookup_disease_knowledge
 ```
 
-### Tiêu chuẩn đầu ra của RAG Context:
-Mỗi khi Agent tra cứu, RAG trả về đối tượng có cấu trúc:
+### Cấu trúc Metadata trong ChromaDB:
+Mỗi đoạn văn bản (Chunk) được lưu trong ChromaDB với metadata trỏ ngược về PostgreSQL:
 ```json
 {
+  "id": "chunk_tomato_late_blight_01",
+  "document": "Nguyên nhân do nấm Phytophthora infestans phát triển mạnh khi trời mưa ẩm, sương mù nhiều. Triệu chứng lá xuất hiện đốm úng nước...",
+  "metadata": {
+    "postgres_id": "c1f7a83b-9a2e-4b6a-81a1-8d4e9f123456",
+    "disease_code": "Tomato___Late_blight",
+    "crop_type": "Tomato",
+    "active_ingredients": "Mancozeb, Metalaxyl-M, Dimethomorph",
+    "is_allowed": true,
+    "chunk_index": 1
+  }
+}
+```
+
+### Tiêu chuẩn đầu ra của RAG Context cho Agent:
+Mỗi khi Agent tra cứu qua `lookup_disease_knowledge`, RAG trả về đối tượng có cấu trúc kết hợp trích dẫn:
+```json
+{
+  "disease_code": "Tomato___Late_blight",
   "disease_name": "Bệnh Mốc sương cà chua",
   "pathogen": "Phytophthora infestans",
   "approved_ingredients": ["Mancozeb", "Metalaxyl-M", "Dimethomorph"],
-  "standard_phi": 7,
+  "standard_phi_days": 7,
   "is_allowed": true,
-  "prevention_steps": [
-    "Cắt tỉa lá già sát gốc",
-    "Không tưới phun mưa vào chiều tối"
+  "top_chunks": [
+    {
+      "chunk_text": "Phun phòng ngừa bằng Mancozeb khi thời tiết ẩm ướt kéo dài. Nếu đã chớm bệnh chuyển sang Metalaxyl...",
+      "source_title": "Cẩm nang Phòng trừ Sâu bệnh Cà chua - Cục BVTV",
+      "rrf_score": 0.0328
+    }
   ],
-  "source_citation": "Cẩm nang Khuyến nông Quốc gia - Cục Trồng trọt"
+  "prevention_steps": [
+    "Cắt tỉa lá già sát gốc tạo độ thông thoáng",
+    "Không tưới phun mưa vào chiều muộn khi trời sắp mưa"
+  ]
 }
 ```
 
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
-- [ ] **Pha 1 (Thành viên A & B)**: Xây dựng pipeline `ingest.py`: Đọc 112 tài liệu khuyến nông (`KnowledgeSources_rows.csv`), bóc tách các trường có cấu trúc (IPM, thuốc, PHI) để lưu vào PostgreSQL, và phân đoạn text để nạp vào ChromaDB + BM25.
-- [ ] **Pha 2 (Thành viên B)**: Cài đặt `bm25_retriever.py` sử dụng thư viện `rank-bm25`, lập chỉ mục toàn bộ danh mục hoạt chất và tên bệnh.
-- [ ] **Pha 3 (Thành viên B)**: Cài đặt `vector_retriever.py` tạo vector embeddings cho các chunks và lưu trữ trong ChromaDB cục bộ (`backend/agent-service/data/chroma_db`).
-- [ ] **Pha 4 (Thành viên B)**: Viết thuật toán hợp nhất `hybrid_fusion.py` (RRF với hằng số $k = 60$).
-- [ ] **Pha 5 (Thành viên B)**: Tích hợp RAG Pipeline vào MCP Tool `lookup_disease_knowledge`, lọc bỏ các thuốc có `is_allowed = false`.
-- [ ] **Pha 6**: Viết script `test_rag_accuracy.py` kiểm tra 10 câu hỏi thử thách: Bắt buộc tìm ra đúng tên hoạt chất khuyến nghị cho các bệnh nguy hiểm (Đốm lá ngô, Mốc sương cà chua, Thán thư ớt...).
+
+- [ ] **Pha 1 (Thành viên A & B - Postgres SSOT Setup)**:
+  - Thành viên A cập nhật entity `KnowledgeSource` (hoặc bảng chuyên biệt) trong CSDL: thêm `RawContent (TEXT)`, `Chunks (JSONB)`, `ActiveIngredients (TEXT[])`, `DiseaseCode (VARCHAR)`.
+  - Thành viên B tạo `schema.py` định nghĩa các cấu trúc dữ liệu Pydantic.
+- [ ] **Pha 2 (Thành viên B - Ingestion & AI Extraction Script)**:
+  - Viết `ingest.py`: Hàm hỗ trợ Admin nhận URL hoặc bài viết thô, dùng Gemini 2.0 bóc tách các trường lọc cứng và cắt nhỏ văn bản thành chunks JSONB.
+  - Tạo dữ liệu chuẩn hóa và được duyệt (`IsManualApproved = true`) cho 5 bệnh demo hạt nhân.
+- [ ] **Pha 3 (Thành viên B - ChromaDB Vector Store & BM25 Indexer)**:
+  - Cài đặt `vector_retriever.py` sử dụng ChromaDB cục bộ (lưu trữ persistent tại thư mục `backend/agent-service/data/chroma_db/`).
+  - Cài đặt `bm25_retriever.py` sử dụng `rank-bm25` lập chỉ mục trên tập chunks của 5 bệnh demo.
+  - Viết script `sync_index.py` đọc từ Postgres và tự động nạp vào ChromaDB + BM25 (chạy độc lập 1 lệnh).
+- [ ] **Pha 4 (Thành viên B - Hybrid Fusion Algorithm)**:
+  - Cài đặt thuật toán Reciprocal Rank Fusion (RRF) tại `hybrid_fusion.py` với hằng số phạt $k = 60$.
+  - Kiểm thử hợp nhất: câu hỏi chứa tên hoạt chất (*Mancozeb*) ưu tiên BM25; câu hỏi chứa mô tả triệu chứng (*"lá úng nước đốm nâu sau mưa"*) ưu tiên Vector.
+- [ ] **Pha 5 (Thành viên B - Facade Pipeline & Acceptance Testing)**:
+  - Hoàn thiện `pipeline.py` cung cấp interface duy nhất cho MCP Tool: `query_knowledge(disease_code, query_text)`.
+  - Viết script kiểm thử định lượng `test_rag_accuracy.py`: kiểm tra bộ câu hỏi đối chứng cho 5 bệnh demo, đo Recall@3 và kiểm tra không lọt hoạt chất bị cấm.
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Module RAG nạp thành công 112 tài liệu khuyến nông vào hệ thống.
-- [ ] Độ chính xác truy vấn hoạt chất: 10/10 ca thử nghiệm tìm kiếm hoạt chất bằng tên thương phẩm đều trả về đúng hoạt chất đối chứng (Accuracy 100%).
+- [ ] CSDL PostgreSQL lưu trữ đầy đủ dữ liệu Hybrid (trường lọc cứng + `full_content` + `chunks JSONB`) cho 5 bệnh demo.
+- [ ] Script `sync_index.py` tái tạo thành công ChromaDB và BM25 từ Postgres mà không bị lỗi.
+- [ ] Độ chính xác truy vấn: 100% câu hỏi đối chứng về hoạt chất đặc trị của 5 bệnh demo đều trả về đúng hoạt chất chuẩn trong Top-3 kết quả (Recall@3 = 100%).
 - [ ] Thời gian truy xuất Hybrid Retrieval $\le 200$ms trên CPU cục bộ.
-- [ ] Bằng chứng nghiệm thu: Log chạy `test_rag_accuracy.py` thể hiện Top-3 kết quả truy xuất có trích dẫn nguồn văn bản đối chứng.
+- [ ] Bằng chứng nghiệm thu: Log thực thi `test_rag_accuracy.py` thể hiện Top-3 kết quả truy xuất có trích dẫn rõ ràng nguồn tài liệu đối chứng.

@@ -13,14 +13,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup Environment (.env)
+        env:
+          ENV_PROD: ${{ secrets.ENV_PRODUCTION }}
+        run: |
+          if [ -n "$ENV_PROD" ]; then
+            printf "%s\n" "$ENV_PROD" > .env
+            echo "✅ Loaded .env successfully from GitHub Secret ENV_PRODUCTION"
+          elif [ -f /home/ubuntu/.env.backup ] && [ ! -f .env ]; then
+            cp /home/ubuntu/.env.backup .env
+            echo "⚠️ Fallback: Copied .env from /home/ubuntu/.env.backup"
+          else
+            echo "ℹ️ Using existing .env on EC2 host"
+          fi
+
       - name: Deploy Docker Containers
         run: |
           echo "🚀 Starting automated deployment on AWS EC2..."
-          
-          # Ensure .env is present
-          if [ -f /home/ubuntu/.env.backup ] && [ ! -f .env ]; then
-            cp /home/ubuntu/.env.backup .env
-          fi
           
           # Pull base images and build services
           docker compose pull minio postgres || true

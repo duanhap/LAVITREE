@@ -8,8 +8,10 @@ services:
       dockerfile: Dockerfile
     container_name: lavitree-ai-service
     restart: always
+    env_file:
+      - .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
   # 2. Agri-Agent Service (Bonus: FastAPI + RAG Tư vấn khuyến nông)
   agent-service:
@@ -19,7 +21,7 @@ services:
     container_name: lavitree-agent-service
     restart: always
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
 
   # 3. Core Business API (ASP.NET Core 8 Web API - Clean Architecture)
   core-api:
@@ -29,19 +31,21 @@ services:
     container_name: lavitree-core-api
     restart: always
     ports:
-      - "5000:8080"
+      - "127.0.0.1:5000:8080"
     env_file:
       - .env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=postgrespassword123;
+      - ConnectionStrings__DefaultConnection=${SUPABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set};}
       - AiService__BaseUrl=http://ai-service:8000
       - AgentService__BaseUrl=http://agent-service:8001
       - Minio__Endpoint=minio:9000
-      - Minio__PublicUrl=http://localhost:9000
-      - Minio__AccessKey=minioadmin
-      - Minio__SecretKey=miniopassword123
-      - Minio__BucketName=lavitree-diagnoses
+      - Minio__PublicUrl=${MINIO_PUBLIC_URL:-http://localhost:3000}
+      - Minio__AccessKey=${MINIO_ACCESS_KEY:-minioadmin}
+      - Minio__SecretKey=${MINIO_SECRET_KEY}
+      - Minio__BucketName=${MINIO_BUCKET_NAME:-lavitree-diagnoses}
+      - ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
     depends_on:
       - postgres
       - ai-service
@@ -67,9 +71,9 @@ services:
     environment:
       POSTGRES_DB: lavitree
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword123
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -80,11 +84,11 @@ services:
     restart: always
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=miniopassword123
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
     ports:
-      - "9000:9000"       # S3 API cho Core API & AI Service gọi
-      - "9001:9001"       # Web Dashboard quản trị xem ảnh
+      - "127.0.0.1:9000:9000"    # S3 API bind localhost bảo mật
+      - "127.0.0.1:9001:9001"    # Web Dashboard quản trị xem ảnh (chỉ bind localhost bảo mật)
     volumes:
       - minio_data:/data
 
@@ -92,5 +96,3 @@ services:
 volumes:
   postgres_data:
   minio_data:
-
-

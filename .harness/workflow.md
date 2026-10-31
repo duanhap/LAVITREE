@@ -47,25 +47,26 @@ flowchart LR
 * **Thời điểm**: Ngay sau khi viết xong code.
 * **Hành động của Developer / Agent**:
   1. Chạy lệnh kiểm thử trực tiếp trong terminal (chạy test suite, gửi request thực tế tới endpoint).
-  2. Thu thập bằng chứng thực tế:
-     - Log trả về của server.
+  2. Thu thập bằng chứng thực tế từ stdout terminal:
+     - Log trả về thật của server/script (nghiêm cấm tự bịa log hay tự gõ số liệu kết quả đo đạc vào báo cáo).
      - HTTP Response Status (phải là `200 OK` cho ca đúng và `400/422` cho ca nhập sai).
-     - Thời gian phản hồi latency (đáp ứng tiêu chuẩn $< 1.5$ giây của Lavitree).
+     - Thời gian phản hồi latency đo được thực tế (đáp ứng tiêu chuẩn $< 1.5$ giây của Lavitree).
   3. Nếu xuất hiện bất kỳ lỗi nào $\rightarrow$ Quay lại Chặng 2 để sửa dứt điểm, không được bỏ qua.
+  4. Nếu việc đo đạc chuyển sang Sprint sau hoặc chưa có dữ liệu $\rightarrow$ Ghi rõ trạng thái `[Chưa thực hiện / Hoãn sang Sprint X]`, tuyệt đối không sinh số liệu giả lập.
 
 ---
 
-### CHẶNG 4: SHIP (ĐÓNG GÓI, CẬP NHẬT TRẠNG THÁI & MERGE)
+### CHẶNG 4: SHIP (ĐÓNG GÓI, CẬP NHẬT TRẠNG THÁI & CHỜ XÁC NHẬN COMMIT)
 * **Thời điểm**: Khi mọi bài kiểm thử ở Chặng 3 đã xanh (Pass 100%).
 * **Hành động của Developer / Agent**:
   1. Đánh dấu tick `[x]` vào checklist của file `tasks/sprint-xx/task-xx.md`.
   2. Cập nhật trạng thái của task trong `tasks/TODO.md` từ `In Progress` sang `Done`.
   3. Ghi 1 dòng nhật ký vào `tasks/WORKLOG.md` ghi nhận kết quả và bằng chứng test.
-  4. Thực hiện git commit theo chuẩn conventional trên nhánh task:
-     ```bash
-     git commit -m "feat: [TASK-XX] Tên tính năng"
+  4. **Cổng kiểm duyệt Bảo mật trước khi Commit (Pre-Commit Security Gate)**:
+     - Chạy `git diff` và kiểm tra toàn bộ file chuẩn bị commit: Tuyệt đối không chứa secret, API key, password, token thực tế.
+     - Kiểm tra `docker-compose.yml`: Đảm bảo không bind port dịch vụ nội bộ (DB, Redis, AI) ra `0.0.0.0`.
+  5. **Báo cáo và Đề xuất Commit**: Trình bày tóm tắt kết quả kiểm thử (Receipts), hiển thị các file thay đổi (`git status`) và đề xuất nội dung commit message chuẩn conventional:
+     ```text
+     feat: [TASK-XX] Tên tính năng
      ```
-  5. Đẩy nhánh lên remote và tạo PR hoặc merge an toàn vào `main`:
-     ```bash
-     git push origin <prefix>/task-<mã-số>-<tên-ngắn-gọn>
-     ```
+  6. **Chỉ thực hiện `git commit` và `git push` khi Lập trình viên đã xác nhận hoặc ra lệnh trực tiếp**. Tuyệt đối không tự ý commit/push tự động.

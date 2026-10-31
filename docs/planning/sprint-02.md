@@ -1,17 +1,27 @@
-# 🧠 KẾ HOẠCH SPRINT 2: TRỌNG TÂM TRÍ TUỆ NHÂN TẠO TÁC TỬ (AGRI-AGENT & MCP ECOSYSTEM)
-## Thời gian dự kiến: Tuần 2 — Kế hoạch thực thi cho Nhóm 2 Người
-*Hiện thực hóa toàn diện kho nghiên cứu 27 DAY từ `extract/` vào `backend/agent-service` (FastAPI)*
+# 🧠 KẾ HOẠCH SPRINT 2: SONG HÀNH TÁC TỬ NÔNG NGHIỆP (AGENT B) & HÌNH THÀNH HỆ THỐNG TOÀN DIỆN (SYSTEM & WEB A)
+## Thời gian dự kiến: Tuần 2 (2 Tuần thực thi cân bằng cho Nhóm 2 Người)
+*Hiện thực hóa song song: Bộ não AI Agent (FastAPI:8001) & Trục Nghiệp vụ Web/Auth/Store (.NET 8 + React)*
 
 ---
 
 ### 1. 🎯 MỤC TIÊU SPRINT (SPRINT GOAL)
-Xây dựng phân hệ Trợ lý Tác tử Nông nghiệp Thông minh (**Lavitree Agri-Agent**) độc lập dựa trên kiến trúc **ReAct Loop** (`Thought → Action → Observation → Final Answer`) kết nối hệ sinh thái **Model Context Protocol (MCP)**. Tác tử giải quyết các ca bệnh thực tế ngoài vườn thông qua việc tích hợp đa nguồn: Tra cứu tri thức chuẩn khuyến nông (Hybrid RAG trên 112 tài liệu), kiểm tra thời tiết thời gian thực, đối soát kho thuốc BVTV, chốt chặn an toàn thời gian cách ly (PHI $\le 3$ ngày) và tự phục hồi/hạ cấp ngoại tuyến khi rớt mạng.
+Xây dựng và kết nối hoàn chỉnh 2 trụ cột của hệ thống Lavitree:
+1. **Phân hệ Tác tử Nông nghiệp Thông minh (Member B)**: Vận hành độc lập trên cổng **`8001`**, sở hữu chu trình ReAct Loop (Gemini 2.0/2.5 Flash), tầng tri thức Hybrid RAG (PostgreSQL SSOT + ChromaDB + BM25 trên 5 ca bệnh demo), bộ công cụ FastMCP Read-Only, chốt chặn an toàn bằng code cứng (Hard Guardrails $DaysToHarvest \le PhiDays$), router hạ cấp ngoại tuyến cục bộ và streaming SSE thời gian thực.
+2. **Hình thành Hệ thống Web & Nghiệp vụ Nông nghiệp Thực tế (Member A)**: Chuyển hóa toàn bộ kết quả Sprint 1 & các Use Cases cốt lõi thành sản phẩm tương tác thực: Hệ thống Xác thực JWT/BCrypt (bảo mật `userId` từ token), Web Khám lá kèm Heatmap Grad-CAM & Phác đồ IPM, Sổ tay bệnh học, Lịch sử chẩn đoán cá nhân, Cửa hàng & Đơn hàng vật tư nông nghiệp (COD giả lập), Cổng Admin duyệt tri thức (HITL), và khởi tạo dự án Android Native.
 
 > **Quy chuẩn Giao tiếp & Ranh giới Nghiệp vụ (SSOT & Safety Boundaries)**:
-> 1. **Hợp đồng API chuẩn**: Toàn bộ endpoint của `agent-service` tuân thủ Mục 4 trong [docs/architecture/api-contracts.md](../architecture/api-contracts.md).
-> 2. **Nguyên tắc "Chặn ghi" (Read-only Agent - DAY4)**: Agent chỉ được cấp quyền đọc dữ liệu, tuyệt đối không được cấp tool tự động tạo đơn mua hàng hay thay đổi database.
-> 3. **Nhãn khuyến nghị bản thảo (HITL - DAY11, DAY27)**: Mọi đơn thuốc đề xuất phải gắn nhãn `[DRAFT_RECOMMENDATION]` để Bác sĩ Cây trồng hoặc Nông dân chủ động duyệt.
-> 4. **Khả năng tự phục hồi (Resilience - DAY25, DAY27)**: Khi LLM hoặc API thời tiết lỗi/mất mạng, Circuit Breaker kích hoạt Router hạ cấp ngoại tuyến, trả về phác đồ tĩnh IPM từ CSDL Supabase/PostgreSQL.
+> 1. **Nguyên tắc "Ngày Đầu Tiên — 0 Phút Chờ Đợi" (Contract-First & Mock Stub)**:
+>    - Thành viên A cung cấp Stub API Thuốc `GET /api/v1/medicines/search` ngay ngày đầu để B làm RAG & MCP.
+>    - Thành viên B cung cấp Stub SSE Chat `POST /api/v1/agent/chat` ngay ngày đầu để A dựng giao diện Web.
+>    - Hai bên code độc lập 100%, cuối tuần 2 ghép nối chính thức.
+> 2. **Cổng dịch vụ chuẩn (Port Binding)**: `backend/agent-service` bind cổng **`8001`** (đồng bộ với `docker-compose.yml` và `api-contracts.md` Mục 4).
+> 3. **PostgreSQL là Nguồn sự thật Duy nhất (SSOT)**: Lưu trữ Hybrid: trường cấu trúc lọc cứng (`phi_days`, `is_allowed`, `active_ingredients`) song song với `full_content TEXT` và `chunks JSONB`. ChromaDB cục bộ và BM25 là chỉ mục phái sinh có thể tái tạo (rebuildable).
+> 4. **Bảo mật Định danh (Auth Security)**: `userId` bắt buộc trích xuất từ JWT Claims, xóa bỏ hoàn toàn việc truyền `userId` từ form-data.
+> 5. **Chốt chặn an toàn bằng Code (Hard Guardrails)**: Lọc thuốc vi phạm PHI và thuốc bị cấm bằng hàm Python trước khi vào prompt LLM; không trông cậy vào việc LLM tự nhớ gọi tool.
+> 6. **Cắt tỉa Nghiệp vụ Thông minh (Scope Pruning)**:
+>    - *Tạm hoãn / Bỏ qua*: Kho nhiều chi nhánh, thanh toán VietQR thật (dùng COD giả lập là chuẩn đồ án), lập kế hoạch chăm sóc cây khỏe.
+>    - *Thu nhỏ*: Chuyển ca chuyên gia (chỉ gắn cờ `requires_expert: true` trên trang Admin, không làm chat realtime WebSocket).
+>    - *Làm sớm Android*: Khởi tạo project Android Native từ tuần 2 để Sprint 3 không bị quá tải.
 
 ---
 
@@ -19,13 +29,13 @@ Xây dựng phân hệ Trợ lý Tác tử Nông nghiệp Thông minh (**Lavitre
 
 | Hạng mục trong Sprint 2 | DAY kế thừa | Module / File nguyên mẫu cụ thể từ `extract/` | Mục đích & Cách tích hợp vào Lavitree |
 | :--- | :---: | :--- | :--- |
-| **Kiến trúc MCP Server** | **DAY3, DAY26** | `DAY3/lavitree_mcp_server.py`<br>`DAY26/lavitree_mcp_architecture.py` | Xương sống MCP: Tách rời Tools khỏi LLM, công bố 4 Tool Schemas chuẩn JSON Schema, thay thế mock dicts bằng REST API gọi Core API & Supabase. |
-| **Quy tắc An toàn & Ranh giới** | **DAY2, DAY4** | `DAY2/BAOCAO_DAY2.md`<br>`DAY4/prompt.md` | Ranh giới AI: Chặn ghi (Read-only), phát hiện câu hỏi ngoài nông nghiệp, từ chối khẳng định khi thiếu dữ liệu. |
-| **Tầng Tri thức Hybrid RAG** | **DAY7, DAY8, DAY18** | `DAY18/lavitree_production_rag_pipeline.py`<br>`extract/KnowledgeSources_rows.csv` | Kết hợp BM25 (bắt chính xác tên thuốc như *Mancozeb*, tỷ lệ pha) + Dense Vector (ngữ nghĩa triệu chứng) trên 112 tài liệu khuyến nông. |
-| **Chốt chặn PHI & HITL** | **DAY2, DAY11, DAY27** | `DAY3/lavitree_react_agent.py`<br>`DAY27/lavitree_hitl_orchestration.py` | Báo động đỏ khi số ngày đến vụ thu hoạch $\le$ thời gian cách ly của thuốc. Gắn tag `[DRAFT_RECOMMENDATION]`. |
-| **Tự phục hồi & Hạ cấp Ngoại tuyến** | **DAY25, DAY27** | `DAY25/lavitree_reliability_resilience.py`<br>`DAY27/BAOCAO_DAY27.md` | Circuit Breaker & Caching (1h cho thời tiết). Router Graceful Degradation tự động fallback về phác đồ tĩnh IPM khi rớt mạng. |
-| **Streaming & Minh bạch Suy luận** | **DAY1, DAY3, DAY13** | `DAY3/lavitree_trace_waterfall.json`<br>`DAY1/BAOCAO_DAY1.md` | Streaming token thời gian thực bằng SSE (`POST /api/v1/agent/chat`). Xuất file `trace_waterfall.json` đo độ trễ từng bước. |
-| **Đánh giá Định lượng Đồ án** | **DAY14, DAY24, DAY26** | `DAY26/lavitree_mcp_benchmark.py`<br>`DAY27/lavitree_hitl_benchmark.py` | Chạy 5 ca lâm sàng kiểm thử tự động, sinh báo cáo Benchmark phục vụ Hội đồng chấm thi. |
+| **Kiến trúc MCP Server** | **DAY3, DAY26** | `DAY3/lavitree_mcp_server.py`<br>`DAY26/lavitree_mcp_architecture.py` | Xương sống MCP: Tách rời Tools khỏi LLM, công bố 4 Tool Schemas chuẩn JSON Schema / FastMCP, kết nối REST API Core API & Weather Service (cache 1h). |
+| **Quy tắc An toàn & Ranh giới** | **DAY2, DAY4** | `DAY2/BAOCAO_DAY2.md`<br>`DAY4/prompt.md` | Ranh giới AI: Chặn ghi (Read-only), lọc bỏ thuốc cấm, phát hiện câu hỏi ngoài nông nghiệp, từ chối khẳng định khi thiếu dữ liệu. |
+| **Tầng Tri thức Hybrid RAG** | **DAY7, DAY8, DAY18** | `DAY18/lavitree_production_rag_pipeline.py`<br>`extract/KnowledgeSources_rows.csv` | Kết hợp BM25 (bắt chính xác tên thuốc như *Mancozeb*, tỷ lệ pha) + Dense Vector (ChromaDB cục bộ ngữ nghĩa triệu chứng) trên 5 bệnh demo. |
+| **Chốt chặn PHI & HITL** | **DAY2, DAY11, DAY27** | `DAY3/lavitree_react_agent.py`<br>`DAY27/lavitree_hitl_orchestration.py` | Logic code Python kiểm soát $DaysToHarvest \le PhiDays$. Báo động đỏ và loại bỏ thuốc hóa học. Gắn nhãn `[DRAFT_RECOMMENDATION]`. |
+| **Tự phục hồi & Hạ cấp Ngoại tuyến** | **DAY25, DAY27** | `DAY25/lavitree_reliability_resilience.py`<br>`DAY27/BAOCAO_DAY27.md` | Circuit Breaker & Caching (1h cho thời tiết). Router Graceful Degradation tự động fallback về gói phác đồ tĩnh IPM cục bộ khi rớt mạng. |
+| **Streaming & Minh bạch Suy luận** | **DAY1, DAY3, DAY13** | `DAY3/lavitree_trace_waterfall.json`<br>`DAY1/BAOCAO_DAY1.md` | Streaming token thời gian thực bằng SSE (`POST /api/v1/agent/chat`). Xuất file `trace_waterfall.json` đo độ trễ từng bước suy luận. |
+| **Đánh giá Định lượng Đồ án** | **DAY14, DAY24, DAY26** | `DAY26/lavitree_mcp_benchmark.py`<br>`DAY27/lavitree_hitl_benchmark.py` | Chạy bộ 5 ca lâm sàng kiểm thử tự động (mỗi ca 3 lần ở `temperature=0`), sinh báo cáo Benchmark phục vụ Hội đồng chấm thi. |
 
 ---
 
@@ -33,86 +43,111 @@ Xây dựng phân hệ Trợ lý Tác tử Nông nghiệp Thông minh (**Lavitre
 
 ```mermaid
 flowchart TD
-    subgraph Member_A["Thành viên A (System, Core API & DB Provider)"]
-        A1["API Danh mục Thuốc BVTV<br/>GET /api/v1/medicines/search"]
-        A2["API Phác đồ IPM & Tích hợp Weather<br/>GET /api/v1/diseases/{code}/treatment-plan"]
-        A3["Quản lý & Cấu hình 112 Nguồn Tri thức<br/>Supabase / PGvector Index"]
-        A4["Tích hợp Client SSE Stream trên Web Portal"]
+    subgraph Day1["NGÀY ĐẦU TIÊN: THỐNG NHẤT CONTRACT & DỰNG STUB"]
+        D1["Thống nhất api-contracts.md Mục 4"]
+        SA["Thành viên A: Dựng Stub API Thuốc<br/>GET /api/v1/medicines/search"]
+        SB["Thành viên B: Dựng Stub SSE Chat<br/>POST /api/v1/agent/chat"]
+        D1 --> SA
+        D1 --> SB
     end
 
-    subgraph Member_B["Thành viên B (AI Agent Core & MCP Ecosystem)"]
-        B1["FastAPI agent-service + MCP Server<br/>(4 Tools Read-Only theo chuẩn DAY3, DAY26)"]
-        B2["Tầng Tri thức Hybrid RAG Pipeline<br/>(BM25 + Dense Vector trên 112 nguồn - DAY18)"]
-        B3["ReAct Loop + Guardrails + Circuit Breaker<br/>(Chốt chặn PHI, HITL, Fallback Offline - DAY3, 25, 27)"]
-        B4["Streaming SSE + Waterfall Trace + Benchmark<br/>(POST /api/v1/agent/chat & mcp_benchmark.py)"]
+    subgraph Week1["TUẦN 1: CORE AGENT & FULL-STACK NỀN TẢNG"]
+        direction TB
+        subgraph TrackB_W1["Thành viên B (AI Agent Lead)"]
+            B1["TASK-06: Hybrid RAG + AI Ingestion<br/>Postgres Hybrid SSOT + ChromaDB + BM25 (5 bệnh demo)"]
+            B2["TASK-05: FastMCP Server:8001<br/>4 Read-Only Tools gọi API thật Core API & RAG"]
+        end
+        subgraph TrackA_W1["Thành viên A (System & Web Lead)"]
+            A1["Backend Auth: JWT, BCrypt, Role FARMER/ADMIN<br/>Trích xuất userId từ token claims"]
+            A2["Web Auth: Trang Đăng nhập, Đăng ký"]
+            A3["Web Khám lá Sprint 1 + Sổ tay + Lịch sử cá nhân"]
+        end
     end
 
-    A1 -->|HTTP Rest Call| B1
-    A2 -->|HTTP Rest Call| B1
-    A3 -->|Tài liệu đối chứng| B2
-    B1 --> B3
-    B2 --> B3
-    B3 --> B4
-    B4 -->|SSE Stream| A4
+    subgraph Week2["TUẦN 2: HOÀN THIỆN NGHIỆP VỤ & TÍCH HỢP TOÀN TRÌNH"]
+        direction TB
+        subgraph TrackB_W2["Thành viên B (AI Agent Lead)"]
+            B3["TASK-07: ReAct Loop (Gemini 2.0) + Hard Guardrails<br/>Router hạ cấp Offline Local IPM Cache"]
+            B4["TASK-08: Streaming SSE Endpoint (Port 8001)<br/>Waterfall Trace + 5 Ca Benchmark nghiệm thu"]
+        end
+        subgraph TrackA_W2["Thành viên A (System & Web Lead)"]
+            A4["Lavitree Store & Đơn hàng: Giỏ hàng + COD giả lập"]
+            A5["Cổng Admin: Duyệt tri thức (HITL) + Quản trị thuốc"]
+            A6["Khung Chat Web: Nối vào SSE Endpoint thật của B"]
+            A7["Khởi tạo dự án Android Native (Kotlin Compose)"]
+        end
+    end
+
+    Day1 --> Week1
+    Week1 --> Week2
+    B4 -.->|Ghép nối luồng SSE thật| A6
 ```
 
-| Thành viên | Trách nhiệm chính (Owner) | Deliverables Sprint 2 |
-| :--- | :--- | :--- |
-| **Thành viên A (System & Backend / Frontend)** | • Viết các API Endpoint trên Core API (.NET 8) cấp dữ liệu thật về thuốc và phác đồ cho MCP Tools<br>• Tích hợp OpenWeatherMap API với cơ chế Cache 1 giờ trong Memory/Redis<br>• Cấu hình bảng `KnowledgeSources` và hỗ trợ vector storage trên Supabase<br>• Xây dựng giao diện Client nhận SSE Streaming trên Web Portal | • Core API cung cấp 2 endpoints RESTful cho MCP Server<br>• API thời tiết hoạt động ổn định có cache<br>• Khung chat Web Portal nhận stream chữ mượt mà |
-| **Thành viên B (AI Agent & RAG Specialist)** | • Thiết lập `backend/agent-service` (FastAPI) chuẩn hóa 4 MCP Tools (Read-Only)<br>• Xây dựng module Hybrid RAG (BM25 + Vector) trên 112 tài liệu khuyến nông (`KnowledgeSources_rows.csv`)<br>• Cài đặt ReAct Loop hoàn chỉnh kèm bộ 3 chốt chặn an toàn (PHI, HITL, Max Iterations) và Circuit Breaker/Router hạ cấp<br>• Hoàn thiện SSE Streaming `POST /api/v1/agent/chat`, xuất `trace_waterfall.json` và chạy bộ benchmark | • Service `backend/agent-service` vận hành độc lập trên port 8002<br>• 4 MCP Tools gọi dữ liệu thật từ Core API<br>• Bộ chốt chặn PHI từ chối 100% thuốc độc sát ngày thu hoạch<br>• Xuất file `trace_waterfall.json` và bộ kết quả benchmark nghiệm thu |
+---
+
+### 4. 📋 DANH SÁCH TASKS CHI TIẾT SPRINT 2 THEO TỪNG THÀNH VIÊN
+
+#### 👨‍💻 NHÓM VIỆC CỦA THÀNH VIÊN B (AI AGENT LEAD)
+
+- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
+  - *Nội dung*:
+    1. Thiết kế bảng tri thức Postgres mô hình Hybrid (trường cấu trúc lọc cứng + `full_content TEXT` + `chunks JSONB`).
+    2. AI Ingestion hỗ trợ Admin bóc tách bài viết/URL thành bản ghi Staging có duyệt (`IsManualApproved = true`).
+    3. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (Vector Search) và BM25 Okapi (từ khóa hoạt chất) cho 5 bệnh demo.
+    4. Hợp nhất thứ hạng RRF ($k=60$), đạt Recall@3 đối chứng 100%.
+
+- [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
+  - *Nội dung*:
+    1. Khởi tạo FastAPI microservice trên cổng **`8001`**.
+    2. Định nghĩa 4 công cụ chuẩn FastMCP (Read-Only): `lookup_disease_knowledge` (gọi Task 06), `check_weather_risk` (Core API có cache 1h), `query_pesticide_store` (Core API thuốc), `verify_phi_safety` (logic Python an toàn $DaysToHarvest \le PhiDays$).
+    3. Đảm bảo toàn bộ tools đều là Read-only, không có quyền ghi/sửa CSDL.
+
+- [ ] **TASK-07: Vòng lặp ReAct Loop, Bộ Chốt chặn An toàn (Hard Guardrails) & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
+  - *Nội dung*:
+    1. Vòng lặp ReAct: `Thought → Action → Observation → Final Answer` với mô hình **Gemini 2.0 / 2.5 Flash** (max iterations = 5).
+    2. **Hard Code Guardrails bằng Python**: Tiền lọc thuốc cấm & vi phạm PHI bằng code cứng trước khi nạp vào prompt LLM; hậu kiểm quét chuỗi câu trả lời cuối cùng.
+    3. Gắn nhãn bản thảo `[DRAFT_RECOMMENDATION]`.
+    4. Circuit Breaker & Router tự động hạ cấp về tệp phác đồ tĩnh IPM lưu cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
+
+- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark Nghiệm thu 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
+  - *Nội dung*:
+    1. Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`).
+    2. Time-to-First-Thought $\le 2.0$s; xuất file `trace_waterfall.json` đo độ trễ từng bước.
+    3. Chạy tự động bộ benchmark 5 ca lâm sàng (mỗi ca chạy 3 lần ở `temperature=0`) đạt 15/15 PASS.
 
 ---
 
-### 4. 📋 DANH SÁCH TASKS CHI TIẾT SPRINT 2
+#### 👨‍💻 NHÓM VIỆC CỦA THÀNH VIÊN A (SYSTEM, AUTH & WEB FRONTEND LEAD)
 
-- [ ] **TASK-05: Thiết lập `backend/agent-service` & Cấu trúc Model Context Protocol (MCP Server)**
-  - *Trách nhiệm*: **Thành viên B** (phối hợp Thành viên A về API Core)
-  - *Kế thừa*: `extract/DAY3/lavitree_mcp_server.py` & `extract/DAY26/lavitree_mcp_architecture.py`.
+- [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - *Nội dung*:
-    1. Khởi tạo dịch vụ FastAPI tại `backend/agent-service` (port 8002).
-    2. Định nghĩa 4 công cụ theo chuẩn JSON Schema: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`.
-    3. Áp dụng nguyên tắc **Read-Only Tools** (DAY4): Tuyệt đối không cho phép tạo/sửa đơn hàng.
-    4. Thành viên A cung cấp endpoint Core API: `GET /api/v1/medicines/search` và Service thời tiết (kèm cache 1h).
+    1. Xây dựng `AuthController.cs`: `POST /api/v1/auth/register`, `POST /api/v1/auth/login` (sinh JWT Token, băm mật khẩu bằng BCrypt, phân vai `FARMER` / `ADMIN`).
+    2. Bảo mật định danh: Trích xuất `userId` từ JWT Claims cho endpoint chẩn đoán, xóa bỏ lỗ hổng nhận `userId` từ form-data.
+    3. Cung cấp ngay **Stub API Thuốc** `GET /api/v1/medicines/search` cho Thành viên B.
 
-- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + Dense Vector) trên 112 Nguồn Khuyến Nông**
-  - *Trách nhiệm*: **Thành viên B** (phối hợp Thành viên A về CSDL)
-  - *Kế thừa*: `extract/DAY18/lavitree_production_rag_pipeline.py` & `extract/KnowledgeSources_rows.csv`.
+- [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - *Nội dung*:
-    1. Xử lý phân đoạn (Chunking) 112 tài liệu khuyến nông theo tiêu chuẩn nông nghiệp: Tên bệnh, Hoạt chất đặc trị, Liều lượng, Thời gian cách ly PHI.
-    2. Tích hợp chỉ mục **BM25 Okapi** để tìm kiếm chính xác tuyệt đối tên hoạt chất thuốc (*Mancozeb*, *Metalaxyl*, *Difenoconazole*...).
-    3. Tích hợp chỉ mục **Dense Vector** để truy xuất ngữ nghĩa biểu hiện bệnh lý.
-    4. Hợp nhất kết quả bằng **Reciprocal Rank Fusion (RRF)** trả về ngữ cảnh chuẩn xác cho tool `lookup_disease_knowledge`.
+    1. Xây dựng trang Đăng nhập / Đăng ký trên Web (`LoginPage.tsx`, `RegisterPage.tsx`), lưu JWT và phân quyền giao diện.
+    2. Hoàn thiện trang Khám lá (`DiagnosePage.tsx`): Tải ảnh $\rightarrow$ Core API $\rightarrow$ Hiển thị kết quả ResNet-18, Heatmap Grad-CAM, mẹo chụp ảnh khi bất định (`is_uncertain`) và phác đồ IPM.
+    3. Xây dựng trang Lịch sử cá nhân (`HistoryPage.tsx`): Gọi `GET /api/v1/diagnoses/my-history` xem lại danh sách các ca khám lá của nông dân.
+    4. Hoàn thiện trang Sổ tay bệnh học (`HandbookPage.tsx`): Tra cứu 14 loài cây và 40 lớp bệnh học.
 
-- [ ] **TASK-07: Vòng lặp ReAct, Bộ Chốt chặn An toàn (Guardrails) & Router Tự phục hồi / Hạ cấp**
-  - *Trách nhiệm*: **Thành viên B**
-  - *Kế thừa*: `extract/DAY3/lavitree_react_agent.py`, `extract/DAY25/lavitree_reliability_resilience.py`, `extract/DAY27/lavitree_hitl_orchestration.py`.
+- [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - *Nội dung*:
-    1. Vòng lặp ReAct: `Thought → Action → Observation → Final Answer` với giới hạn `max_iterations = 5`.
-    2. **Chốt chặn PHI (DAY2, DAY3)**: Nếu $DaysToHarvest \le PHI$, Agent kích hoạt cảnh báo đỏ, từ chối thuốc hóa học và chuyển sang phác đồ sinh học/canh tác.
-    3. **Chốt chặn HITL (DAY11, DAY27)**: Mọi đơn thuốc phải gắn tag `[DRAFT_RECOMMENDATION]`.
-    4. **Circuit Breaker & Graceful Degradation Router (DAY25, DAY27)**: Khi LLM/API thời tiết lỗi hoặc mất mạng, tự động hạ cấp về phác đồ tĩnh IPM từ CSDL Supabase/PostgreSQL.
+    1. Xây dựng tính năng Cửa hàng Lavitree Store (`StorePage.tsx`): Xem danh mục thuốc BVTV, thêm vào giỏ hàng, tạo đơn hàng với hình thức thanh toán COD giả lập (`POST /api/v1/orders`).
+    2. Xây dựng Cổng Admin Quản trị (`AdminDashboard.tsx`): Xem danh sách bài viết khuyến nông, duyệt bài (`IsManualApproved = true`), cập nhật kho thuốc, và xem danh sách các ca bệnh cần chuyên gia hỗ trợ (`requires_expert = true`).
 
-- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark Nghiệm thu Đồ án**
-  - *Trách nhiệm*: **Thành viên B & Thành viên A**
-  - *Kế thừa*: `extract/DAY1`, `extract/DAY3/lavitree_trace_waterfall.json`, `extract/DAY26/lavitree_mcp_benchmark.py`.
+- [ ] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
   - *Nội dung*:
-    1. Endpoint `POST /api/v1/agent/chat` truyền phát token thời gian thực qua giao thức **Server-Sent Events (SSE)**.
-    2. Module ghi vết suy luận tự động xuất file `trace_waterfall.json` ghi lại thời gian chạy từng tool ($ms$) và số token.
-    3. Chạy bài benchmark tự động trên 5 ca lâm sàng thực tế ngoài vườn để xuất báo cáo nghiệm thu phục vụ Hội đồng chấm thi.
-    4. Thành viên A kiểm thử kết nối E2E giữa Web Client và Agent Service.
+    1. Dựng giao diện Khung chat Trợ lý Cây trồng trên Web: Ban đầu kết nối với Mock SSE Stub của B; đến cuối tuần 2 ghép nối với endpoint SSE thật từ Task 08.
+    2. Khởi tạo cấu trúc dự án Android Native (`mobile/android/`) bằng Kotlin & Jetpack Compose, cấu hình thư viện CameraX và Retrofit, dựng sẵn khung 2 màn hình chính (Khám lá & Chat).
 
 ---
 
-### 5. 🛡️ TIÊU CHÍ NGHIỆM THU SPRINT (QUALITY GATES SPRINT 2)
-
-1. **Gate 1 - Real Data MCP Protocol**:
-   - 4 MCP Tools thực thi 100% trên dữ liệu thật (Core API + Supabase DB + Live Weather API có cache), không còn sử dụng dữ liệu giả lập (mock dicts).
-   - Tuyệt đối không tồn tại tool có quyền ghi/sửa database (Read-only enforcement).
-2. **Gate 2 - Hybrid RAG Accuracy**:
-   - Truy vấn thuốc đặc trị ra đúng 100% hoạt chất đối chứng từ 112 nguồn khuyến nông thông qua cơ chế BM25 kết hợp Vector Search. Không sinh ảo giác hoạt chất bị cấm hoặc sai nồng độ.
-3. **Gate 3 - Zero-Tolerance PHI Safety & Offline Fallback**:
-   - 100% ca thử nghiệm cận ngày thu hoạch ($DaysToHarvest \le PHI$) phải kích hoạt từ chối thuốc hóa học và cảnh báo đỏ.
-   - Khi ngắt kết nối internet hoặc tắt API thời tiết: Agent không crash mà tự kích hoạt Router hạ cấp, trả về kết quả phác đồ IPM từ CSDL trong $< 1.0$ giây.
-4. **Gate 4 - SSE Streaming & Observability**:
-   - `POST /api/v1/agent/chat` truyền phát ký tự đầu tiên (Time-to-First-Token) trong $\le 2.0$ giây.
-   - Xuất file `trace_waterfall.json` với cấu trúc cây suy luận minh bạch 100%.
+### 5. 🎯 BƯỚC ĐỆM CHO SPRINT 3: TỐI ƯU HÓA, ĐÓNG GÓI & DIỄN TẬP BẢO VỆ
+Nhờ Sprint 2 đã hoàn thành toàn bộ khung sườn sản phẩm (Vertical Slices: Web + Auth + Store + Agent), **Sprint 3** sẽ không còn bị dồn việc mà tập trung vào các tiêu chuẩn chất lượng cao:
+1. **TASK-09 (Tối ưu hóa Web Portal)**: Tối ưu UI/UX, responsive mượt mà trên mobile, loading skeleton, bảo mật token chống XSS.
+2. **TASK-10 (Hoàn thiện Android App Native)**: Kết nối trọn vẹn CameraX chụp ảnh lá $\rightarrow$ Core API $\rightarrow$ Hiển thị kết quả và Chat SSE với Agent trên điện thoại Android thật.
+3. **TASK-11 (Màn hình Admin Observability)**: Trực quan hóa cây suy luận Waterfall Chart phục vụ Hội đồng chấm thi.
+4. **TASK-12 (Docker Compose 1-Click & Diễn tập Bảo vệ)**: Đóng gói container dự phòng demo offline hoàn hảo và diễn tập kịch bản vấn đáp tốt nghiệp.
+5. **TASK-13 (Nghiệm thu OOD)**: Đo đạc số liệu OOD chính thức trên 3 tập dữ liệu độc lập cho quyển báo cáo tốt nghiệp.
