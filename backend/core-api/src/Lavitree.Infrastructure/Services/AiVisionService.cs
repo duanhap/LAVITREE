@@ -50,7 +50,7 @@ public class AiVisionService : IAiVisionService
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogWarning("AI Vision Service returned error status {StatusCode}: {ResponseJson}", response.StatusCode, json);
-            throw new HttpRequestException($"AI Vision Service returned {(int)response.StatusCode}: {json}");
+            throw new HttpRequestException($"AI Vision Service returned {(int)response.StatusCode}: {json}", null, response.StatusCode);
         }
 
         var result = JsonSerializer.Deserialize<AiPredictionResponse>(json, JsonOptions);

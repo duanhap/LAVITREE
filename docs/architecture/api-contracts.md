@@ -176,21 +176,28 @@
 ---
 
 
-### 3.2. `GET /api/v1/diagnose/history` (Lịch sử khám bệnh)
-- **Query Params**: `userId`, `page=1`, `pageSize=10`
+### 3.2. `GET /api/v1/diagnose/history` (Lịch sử khám bệnh cá nhân)
+- **Headers**: `Authorization: Bearer <jwt_token>` (Bắt buộc; trích xuất `userId` trực tiếp từ JWT Claims, bảo mật chống rò rỉ dữ liệu chẩn đoán của người dùng khác)
+- **Query Params**: `page=1` (mặc định: 1), `pageSize=10` (mặc định: 10, tối đa: 50)
+- **Lưu ý nghiệp vụ**: Bỏ hẳn tham số `userId` trên Query String để ngăn chặn lỗ hổng IDOR (Insecure Direct Object References).
 - **Response Body (`200 OK`)**:
   ```json
   {
     "total_records": 12,
+    "page": 1,
+    "page_size": 10,
     "items": [
       {
         "id": "a1b2c3d4-...",
         "created_at": "2026-10-26T14:30:00Z",
         "plant_name": "Cà chua",
         "disease_name": "Bệnh mốc sương cà chua",
+        "class_code": "Tomato___Late_blight",
         "confidence": 0.9462,
+        "is_uncertain": false,
         "recovery_status": "Đang theo dõi",
-        "thumbnail_url": "/uploads/diagnoses/20261026_orig.jpg"
+        "original_image_url": "http://localhost:3000/lavitree-diagnoses/a1b2c3d4_orig.jpg",
+        "gradcam_image_url": "http://localhost:3000/lavitree-diagnoses/a1b2c3d4_cam.jpg"
       }
     ]
   }
@@ -344,12 +351,14 @@
   event: final_answer
   data: {
     "trace_id": "tr-987654",
-    "answer": "Chào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể quét nước vôi trong hoặc dùng chế phẩm Nano Bạc hữu cơ cách ly 0 ngày sau cơn mưa.",
+    "answer": "[DRAFT_RECOMMENDATION]\nChào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể quét nước vôi trong hoặc dùng chế phẩm Nano Bạc hữu cơ cách ly 0 ngày sau cơn mưa.",
     "draft_order": null,
     "guardrail_triggered": "PHI_PROTECTION_LESS_THAN_3_DAYS",
+    "is_offline_fallback": false,
     "total_latency_ms": 1150
   }
   ```
+  *(Lưu ý: Khi Circuit Breaker OPEN hoặc mất kết nối mạng, `is_offline_fallback: true` để giao diện hiển thị nhãn "Đang dùng hướng dẫn lưu sẵn")*
 
 ---
 

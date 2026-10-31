@@ -63,9 +63,11 @@
     "answer": "[DRAFT_RECOMMENDATION]\nChào bác! Hệ thống ghi nhận vườn chỉ còn 2 ngày nữa là thu hoạch và chiều nay có mưa to:\n1. ⛔ TUYỆT ĐỐI KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly tối thiểu 7 ngày, vi phạm an toàn thực phẩm.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay chùm lá bị mốc sương, thu dọn xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Sử dụng chế phẩm sinh học Trichoderma hoặc bạt che luống.",
     "draft_order": null,
     "guardrail_triggered": "PHI_PROTECTION_LESS_THAN_3_DAYS",
+    "is_offline_fallback": false,
     "total_latency_ms": 2150
   }
   ```
+  *(Lưu ý: Khi Circuit Breaker OPEN hoặc ngắt kết nối mạng / Supabase Cloud, hệ thống chuyển sang Fallback Local Bundle và trả về `is_offline_fallback: true` để giao diện Web/App hiển thị badge cảnh báo "Đang dùng hướng dẫn lưu sẵn" theo UI-UX mục 6).*
 
 ### Cấu trúc File `trace_waterfall.json` (Xuất sau mỗi phiên chẩn đoán):
 ```json

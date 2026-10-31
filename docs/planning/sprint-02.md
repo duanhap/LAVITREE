@@ -119,17 +119,27 @@ flowchart TD
 
 #### 👨‍💻 NHÓM VIỆC CỦA THÀNH VIÊN A (SYSTEM, AUTH & WEB FRONTEND LEAD)
 
+- [ ] **TASK-A00: Nền tảng Giao diện — Tailwind v4, shadcn/ui & Design Tokens** *(P0 - Đầu Tuần 1, làm trước A02–A04)*
+  - *Nội dung*:
+    1. Cài Tailwind v4 + shadcn/ui, khai báo token màu/chữ, font Be Vietnam Pro tự host.
+    2. Dựng khung trang `AppShell` / `AdminShell`, router, trang 404/403, thành phần dùng chung và `ResultStatusBadge`.
+    3. Đồng bộ theme Android (Material 3) với cùng bảng màu.
+  - *Chi tiết*: [tasks/sprint-02/task-A00-ui-foundation.md](../../tasks/sprint-02/task-A00-ui-foundation.md)
+
+> 📐 **Tài liệu giao diện bắt buộc cho TASK-A00 → A04**: [docs/architecture/ui-ux.md](../architecture/ui-ux.md) (design system) và [docs/spec/screens.md](../spec/screens.md) (màn hình, điều hướng, quy tắc hiển thị).
+
 - [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - *Nội dung*:
     1. Xây dựng `AuthController.cs`: `POST /api/v1/auth/register`, `POST /api/v1/auth/login` (sinh JWT Token, băm mật khẩu bằng BCrypt, phân vai `FARMER` / `ADMIN`).
-    2. Bảo mật định danh: Trích xuất `userId` từ JWT Claims cho endpoint chẩn đoán, xóa bỏ lỗ hổng nhận `userId` từ form-data.
-    3. Cung cấp ngay **Stub API Thuốc** `GET /api/v1/medicines/search` cho Thành viên B.
+    2. Bảo mật định danh: Trích xuất `userId` từ JWT Claims cho endpoint chẩn đoán và lịch sử, xóa bỏ lỗ hổng nhận `userId` từ form-data hoặc query params (triệt tiêu IDOR).
+    3. Chuẩn hóa endpoint Lịch sử khám: `GET /api/v1/diagnose/history` (Headers: `Authorization: Bearer <jwt_token>`, phân trang `page`/`pageSize`, lọc theo `userId` từ token).
+    4. Cung cấp ngay **Stub API Thuốc** `GET /api/v1/medicines/search` cho Thành viên B.
 
 - [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - *Nội dung*:
     1. Xây dựng trang Đăng nhập / Đăng ký trên Web (`LoginPage.tsx`, `RegisterPage.tsx`), lưu JWT và phân quyền giao diện.
     2. Hoàn thiện trang Khám lá (`DiagnosePage.tsx`): Tải ảnh $\rightarrow$ Core API $\rightarrow$ Hiển thị kết quả ResNet-18, Heatmap Grad-CAM, mẹo chụp ảnh khi bất định (`is_uncertain`) và phác đồ IPM.
-    3. Xây dựng trang Lịch sử cá nhân (`HistoryPage.tsx`): Gọi `GET /api/v1/diagnoses/my-history` xem lại danh sách các ca khám lá của nông dân.
+    3. Xây dựng trang Lịch sử cá nhân (`HistoryPage.tsx`): Gọi `GET /api/v1/diagnose/history` (với Header Bearer JWT) xem lại danh sách các ca khám lá của nông dân.
     4. Hoàn thiện trang Sổ tay bệnh học (`HandbookPage.tsx`): Tra cứu 14 loài cây và 40 lớp bệnh học.
 
 - [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
