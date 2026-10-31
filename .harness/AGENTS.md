@@ -52,8 +52,8 @@
 - **Backend AI Vision Service**: Python 3.10+, FastAPI, PyTorch, Torchvision, Pillow. Tuân thủ định dạng kiểu dữ liệu rõ ràng (Type hints với Pydantic v2).
 - **Backend Agent Service**: Python 3.10+, FastAPI, ReAct Loop (Thought-Action-Observation), Model Context Protocol (MCP Server & Tools), Boundary Guardrails (PHI, Human-in-the-loop - Kế thừa DAY 2), Waterfall Trace Logging (DAY 3), Server-Sent Events (SSE) Streaming (DAY 1). Tuân thủ Pydantic v2 schemas.
 - **Backend Core API**: .NET 8 Web API, C# Clean Architecture, CQRS (MediatR), Entity Framework Core.
-- **Frontend Web**: React 18, Vite, TypeScript, TailwindCSS / CSS Modules, Axios / React Query.
-- **Mobile App**: Android Native, **Kotlin**, **Jetpack Compose**, Material Design 3, CameraX (tích hợp khung ngắm 15–20cm), Retrofit 2, OkHttp, Coil (load ảnh & heatmap Grad-CAM), Coroutines/Flow. Tối ưu UX thao tác 1 tay ngoài đồng ruộng.
+- **Frontend Web**: React 18, Vite, TypeScript, **Tailwind CSS v4 + shadcn/ui**, Axios + TanStack Query, react-hook-form + zod. Mọi màu sắc/thành phần tuân thủ `docs/architecture/ui-ux.md`; cấm mã màu hex và inline style trong `.tsx`.
+- **Mobile App**: Android Native, **Kotlin**, **Jetpack Compose**, Material Design 3 (màu & font theo `docs/architecture/ui-ux.md` mục 11), CameraX (tích hợp khung ngắm 15–20cm), Retrofit 2, OkHttp, Coil (load ảnh & heatmap Grad-CAM), Coroutines/Flow. Tối ưu UX thao tác 1 tay ngoài đồng ruộng.
 - **Database**: PostgreSQL 15+ (chạy Docker), thiết kế chuẩn hóa 3NF, có script Migration và Seed Data rõ ràng.
 - **Quy chuẩn Đặt tên Nhánh Git (Branch Naming Conventions)**:
   - Tất cả task mới đều phải rẽ nhánh từ `main`: `git checkout -b <prefix>/task-<mã-số>-<tên-ngắn-gọn>`
