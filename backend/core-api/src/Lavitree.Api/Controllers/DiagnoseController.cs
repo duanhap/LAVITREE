@@ -96,6 +96,12 @@ public class DiagnoseController : ControllerBase
             _logger.LogWarning(ex, "Ảnh gửi sang AI Service bị lỗi giải mã hoặc decompression bomb (HTTP 422).");
             return UnprocessableEntity(new { detail = "Tệp hình ảnh bị lỗi cấu trúc hoặc không thể giải mã." });
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.BadRequest || ex.Message.Contains("400"))
+        {
+            _logger.LogWarning(ex, "AI Service từ chối yêu cầu không hợp lệ (HTTP 400).");
+            return BadRequest(new { detail = "Tệp hình ảnh không hợp lệ hoặc vượt quá kích thước cho phép." });
+        }
+
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi gọi AI Microservice từ Core API.");
