@@ -344,24 +344,46 @@
 
 ---
 
-### 3.7. `PATCH /api/v1/knowledge/sources/{id}/approve` (Duyệt Nguồn Tri thức - HITL)
+### 3.7. `PATCH /api/v1/knowledge/sources/{id}/approve` & `PATCH /api/v1/knowledge/sources/approve-batch` (Duyệt Nguồn Tri thức Đơn lẻ & Hàng loạt - HITL)
 - **Headers**: `Authorization: Bearer <Admin_JWT>` (Bắt buộc tài khoản có Claim `role: ADMIN`).
-- **Request Body (`application/json`)**:
-  ```json
-  {
-    "is_approved": true,
-    "reviewer_notes": "Đã đối chiếu hoạt chất hợp lệ theo Thông tư Cục BVTV"
-  }
-  ```
-- **Cơ chế Đồng bộ**: Core API cập nhật `IsManualApproved = true` trong PostgreSQL và tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và BM25.
-- **Response Body (`200 OK`)**:
-  ```json
-  {
-    "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
-    "is_manual_approved": true,
-    "updated_at": "2026-10-31T14:35:00Z"
-  }
-  ```
+- **Endpoint duyệt 1 bài**: `PATCH /api/v1/knowledge/sources/{id}/approve`
+  - **Request Body (`application/json`)**:
+    ```json
+    {
+      "is_approved": true,
+      "reviewer_notes": "Đã đối chiếu hoạt chất hợp lệ theo Thông tư Cục BVTV"
+    }
+    ```
+  - **Response Body (`200 OK`)**:
+    ```json
+    {
+      "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+      "is_manual_approved": true,
+      "updated_at": "2026-10-31T14:35:00Z"
+    }
+    ```
+- **Endpoint duyệt hàng loạt (Bulk Approve)**: `PATCH /api/v1/knowledge/sources/approve-batch`
+  - *Mục đích*: Cho phép Admin chọn nhiều bài viết (hoặc duyệt toàn bộ bài của 5 bệnh demo hạt nhân) chỉ trong 1 cú click.
+  - **Request Body (`application/json`)**:
+    ```json
+    {
+      "source_ids": [
+        "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+        "11111111-2222-3333-4444-555555555555"
+      ],
+      "is_approved": true,
+      "reviewer_notes": "Duyệt hàng loạt bài viết chuẩn cho 5 bệnh demo hạt nhân"
+    }
+    ```
+  - **Response Body (`200 OK`)**:
+    ```json
+    {
+      "approved_count": 2,
+      "status": "success",
+      "updated_at": "2026-10-31T14:35:00Z"
+    }
+    ```
+- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved = true` trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25.
 
 ---
 

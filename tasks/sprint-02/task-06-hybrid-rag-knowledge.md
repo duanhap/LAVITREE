@@ -59,11 +59,10 @@ Hệ thống lưu trữ nguồn tri thức từ cả **Việt Nam** (Cục BVTV,
 backend/agent-service/app/rag/
 ├── __init__.py
 ├── schema.py              # Định nghĩa Pydantic Models cho CuratedKnowledge, SemanticChunk, RetrievalResult
-├── extractor.py           # Tiện ích bóc tách bài viết/URL thành các khối tri thức ngữ nghĩa
 ├── bm25_retriever.py      # Bộ tìm kiếm từ khóa chính xác BM25 Okapi hỗ trợ tiền xử lý tiếng Việt
 ├── vector_retriever.py    # Bộ tìm kiếm Vector sử dụng paraphrase-multilingual-MiniLM-L12-v2 + ChromaDB
 ├── hybrid_fusion.py       # Thuật toán Reciprocal Rank Fusion (RRF k=60)
-├── sync_index.py          # Script đọc Postgres SSOT và tái tạo toàn bộ chỉ mục ChromaDB + BM25
+├── sync_index.py          # Script đọc Postgres SSOT (KnowledgeSources đã duyệt) và nạp chỉ mục ChromaDB + BM25
 └── pipeline.py            # Facade API cấp cao cho MCP Tool lookup_disease_knowledge & endpoint /internal/reindex
 ```
 
@@ -113,18 +112,18 @@ Khi Agent tra cứu qua `lookup_disease_knowledge(disease_code, query)`:
 
 ## 4. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
-- [ ] **Pha 1 (Thành viên A & B - Postgres SSOT & Schema)**:
-  - Thành viên A cập nhật bảng `KnowledgeSources` trong CSDL: thêm các cột `DiseaseCode (VARCHAR)`, `ActiveIngredients (TEXT[])`, `SemanticUnit (VARCHAR)`, `KnowledgeContent (TEXT)`, `EvidenceText (TEXT)`, `SourceUrl (TEXT)`, `IsManualApproved (BOOLEAN)`. Tuyệt đối không lưu trùng lặp `PhiDays` hay `IsAllowed` tại đây (bảng `Products` do Core API quản lý là nguồn sự thật duy nhất).
-  - Thành viên B tạo `schema.py` định nghĩa các model Pydantic tương ứng.
-- [ ] **Pha 2 (Thành viên B - Module Bóc tách & Chuẩn bị Seed 5 Bệnh Demo)**:
-  - Viết `extractor.py`: Script Python ngoại tuyến cục bộ (chạy trên máy dev, **tuyệt đối không tải URL động trên server**) hỗ trợ bóc tách bài viết hoặc markdown thành các khối tri thức ngữ nghĩa (`symptoms`, `causes`, `prevention`, `treatment`, `evidence`).
-  - Thành viên B soạn thảo file tĩnh `knowledge_seed_5_diseases.json` đã kiểm duyệt (`IsManualApproved = true`) cho 5 bệnh demo hạt nhân.
-  - Thành viên A nạp file này vào PostgreSQL qua `LavitreeDbContextSeeder.cs` (tương tự `sample_treatment_seed.json`). Agent giữ đúng ranh giới chỉ đọc (Read-Only) từ PostgreSQL:
-    1. `Tomato___Late_blight` (Mốc sương cà chua)
-    2. `Tomato___Early_blight` (Đốm vòng cà chua)
-    3. `Tomato___Target_Spot` (Đốm mục tiêu cà chua)
-    4. `Pepper,_bell___Bacterial_spot` (Đốm vi khuẩn ớt)
-    5. `Corn_(maize)___Common_rust_` (Gỉ sắt ngô)
+- [ ] **Pha 1 (Thành viên B - Tận dụng Postgres SSOT Sprint 1 & Định nghĩa Pydantic Schema)**:
+  - Tận dụng 100% bảng `KnowledgeSources` đã nạp sẵn từ Sprint 1 (`KnowledgeSources_rows.csv` gồm các trường `ModelClass`, `EvidenceText`, `ContentType`, `SourceUrl`, `IsManualApproved`, `PlantName`, `DiseaseName`). Không cần migration thêm cột mới vào `KnowledgeSources`.
+  - Thành viên B tạo `schema.py` định nghĩa các model Pydantic tương ứng (`KnowledgeRecord`, `SemanticChunk`, `RetrievalResult`).
+- [ ] **Pha 2 (Thành viên B - Module Đồng bộ Sync Index từ CSDL 5 Bệnh Demo)**:
+  - Viết `sync_index.py`: Kết nối trực tiếp PostgreSQL, truy vấn các bài viết đã duyệt (`IsManualApproved = true`) lọc theo `ModelClass` của 5 bệnh demo hạt nhân:
+    1. `Tomato___Late_blight` (Mốc sương cà chua - 9 bài có sẵn)
+    2. `Tomato___Early_blight` (Đốm vòng cà chua - 5 bài có sẵn)
+    3. `Tomato___Target_Spot` (Đốm mục tiêu cà chua - 1 bài có sẵn, thêm bổ sung qua Web Admin Dashboard A03)
+    4. `Pepper,_bell___Bacterial_spot` (Đốm vi khuẩn ớt - 2 bài có sẵn)
+    5. `Corn_(maize)___Common_rust_` (Gỉ sắt ngô - 2 bài có sẵn, thêm bổ sung qua Web Admin Dashboard A03)
+  - Bỏ hoàn toàn `extractor.py` và file seed tĩnh `knowledge_seed_5_diseases.json`. Thành viên B có thể bắt tay xây dựng chỉ mục ngay từ Ngày đầu tiên mà không bị phụ thuộc.
+  - *(Lưu ý về trạng thái phê duyệt: Trong 19 bài của 5 bệnh demo từ CSV, hiện có 16 bài mang cờ `IsManualApproved = false`. Khi Web Admin A03 hoàn thiện, Admin duyệt qua nút "Duyệt hàng loạt". Để B test RAG ngay mà không phải chờ giao diện, có thể kích hoạt nhanh bằng lệnh SQL trên DB: `UPDATE "KnowledgeSources" SET "IsManualApproved" = true WHERE "ModelClass" IN ('Tomato___Late_blight', 'Tomato___Early_blight', 'Tomato___Target_Spot', 'Pepper,_bell___Bacterial_spot', 'Corn_(maize)___Common_rust_');`)*
 - [ ] **Pha 3 (Thành viên B - ChromaDB Đa ngôn ngữ & BM25 Tiền xử lý)**:
   - Cài đặt `vector_retriever.py` sử dụng `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` và ChromaDB cục bộ (`backend/agent-service/data/chroma_db/`).
   - Cài đặt `bm25_retriever.py` với bộ tiền xử lý chữ thường và token hóa song ngữ tên bệnh/hoạt chất.
