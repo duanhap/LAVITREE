@@ -54,7 +54,7 @@
 - [ ] **Pha 1 — Dọn dẹp**: xóa `style.css` và asset mẫu không dùng; bỏ Google Fonts; tạo nhánh `feat/task-A00-ui-foundation`.
 - [ ] **Pha 2 — Công cụ**: cài Tailwind v4 + plugin Vite, alias `@/`, `shadcn init`, khai báo đủ token & font trong `globals.css`.
 - [ ] **Pha 3 — Khung trang**: `AppShell` (thanh trên ≥ 768px, tab dưới < 768px, 5 mục theo screens.md mục 3), `AdminShell` (thanh bên), router + `RequireRole` + trang 404/403; gắn các trang cũ vào khung.
-- [ ] **Pha 4 — Dùng chung**: `QueryClientProvider`, `Toaster`, `api-client.ts` (`withCredentials: true`, chuyển lỗi HTTP thành câu tiếng Việt theo ui-ux.md mục 7), `format.ts`, `EmptyState` / `ErrorState` / `PageSkeleton`.
+- [ ] **Pha 4 — Dùng chung**: `QueryClientProvider`, `Toaster`, `api-client.ts` (`Authorization: Bearer <token>`, lưu token trong localStorage/memory, chuyển lỗi HTTP thành câu tiếng Việt theo ui-ux.md mục 7), `format.ts`, `EmptyState` / `ErrorState` / `PageSkeleton`.
 - [ ] **Pha 5 — Nhãn trạng thái**: `status.ts` (hàm `getResultStatus`), `constants.ts` (câu miễn trừ + 4 nhãn, khớp nguyên văn classes.md), `ResultStatusBadge`.
 - [ ] **Pha 6 — Styleguide**: trang `/dev/styleguide` hiển thị bảng màu, cỡ chữ, các nút, 4 nhãn trạng thái, Alert, Skeleton.
 - [ ] **Pha 7 — Android theme**: cập nhật `Color.kt`, `Theme.kt`, thêm font; 3 màn hình hiện có (Home/Scan/Result) vẫn build được.

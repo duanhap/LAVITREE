@@ -80,8 +80,7 @@ Mỗi đoạn tri thức được đánh chỉ mục theo từng đơn vị ng�
     "plant_name_vi": "Cà chua",
     "disease_name_vi": "Bệnh mốc sương cà chua",
     "semantic_unit": "treatment",
-    "active_ingredients": "Mancozeb, Metalaxyl-M",
-    "is_allowed": true
+    "active_ingredients": "Mancozeb, Metalaxyl-M"
   }
 }
 ```
@@ -93,9 +92,7 @@ Khi Agent tra cứu qua `lookup_disease_knowledge(disease_code, query)`:
   "disease_code": "Tomato___Late_blight",
   "disease_name": "Bệnh Mốc sương cà chua",
   "pathogen": "Phytophthora infestans",
-  "approved_ingredients": ["Mancozeb", "Metalaxyl-M", "Dimethomorph"],
-  "standard_phi_days": 7,
-  "is_allowed": true,
+  "active_ingredients": ["Mancozeb", "Metalaxyl-M", "Dimethomorph"],
   "top_chunks": [
     {
       "text": "Phun phòng ngừa bằng Mancozeb khi thời tiết ẩm ướt kéo dài. Nếu đã chớm bệnh chuyển sang Metalaxyl...",
@@ -110,17 +107,19 @@ Khi Agent tra cứu qua `lookup_disease_knowledge(disease_code, query)`:
   ]
 }
 ```
+*(Ghi chú an toàn: `PhiDays` và `IsAllowed` tuyệt đối không lấy từ RAG/KnowledgeSources. RAG chỉ trả về tri thức canh tác và tên hoạt chất. Guardrail an toàn bắt buộc phải gọi sang `/api/v1/medicines/search` để kiểm tra thời gian cách ly và trạng thái cấp phép thực tế trong bảng `Products` của Core API).*
 
 ---
 
 ## 4. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
 - [ ] **Pha 1 (Thành viên A & B - Postgres SSOT & Schema)**:
-  - Thành viên A cập nhật bảng `KnowledgeSources` trong CSDL: thêm các cột `DiseaseCode (VARCHAR)`, `ActiveIngredients (TEXT[])`, `PhiDays (INT)`, `IsAllowed (BOOLEAN)`, `KnowledgeContent (TEXT)`, `EvidenceText (TEXT)`, `SourceUrl (TEXT)`, `IsManualApproved (BOOLEAN)`.
+  - Thành viên A cập nhật bảng `KnowledgeSources` trong CSDL: thêm các cột `DiseaseCode (VARCHAR)`, `ActiveIngredients (TEXT[])`, `SemanticUnit (VARCHAR)`, `KnowledgeContent (TEXT)`, `EvidenceText (TEXT)`, `SourceUrl (TEXT)`, `IsManualApproved (BOOLEAN)`. Tuyệt đối không lưu trùng lặp `PhiDays` hay `IsAllowed` tại đây (bảng `Products` do Core API quản lý là nguồn sự thật duy nhất).
   - Thành viên B tạo `schema.py` định nghĩa các model Pydantic tương ứng.
-- [ ] **Pha 2 (Thành viên B - Module Bóc tách & Seed 5 Bệnh Demo)**:
-  - Viết `extractor.py`: Hỗ trợ bóc tách bài viết thành các khối tri thức ngữ nghĩa (`symptoms`, `causes`, `prevention`, `treatment`, `evidence`).
-  - Chuẩn bị dữ liệu mẫu đã kiểm duyệt (`IsManualApproved = true`) cho 5 bệnh demo hạt nhân:
+- [ ] **Pha 2 (Thành viên B - Module Bóc tách & Chuẩn bị Seed 5 Bệnh Demo)**:
+  - Viết `extractor.py`: Script Python ngoại tuyến cục bộ (chạy trên máy dev, **tuyệt đối không tải URL động trên server**) hỗ trợ bóc tách bài viết hoặc markdown thành các khối tri thức ngữ nghĩa (`symptoms`, `causes`, `prevention`, `treatment`, `evidence`).
+  - Thành viên B soạn thảo file tĩnh `knowledge_seed_5_diseases.json` đã kiểm duyệt (`IsManualApproved = true`) cho 5 bệnh demo hạt nhân.
+  - Thành viên A nạp file này vào PostgreSQL qua `LavitreeDbContextSeeder.cs` (tương tự `sample_treatment_seed.json`). Agent giữ đúng ranh giới chỉ đọc (Read-Only) từ PostgreSQL:
     1. `Tomato___Late_blight` (Mốc sương cà chua)
     2. `Tomato___Early_blight` (Đốm vòng cà chua)
     3. `Tomato___Target_Spot` (Đốm mục tiêu cà chua)

@@ -32,11 +32,12 @@
     "current_disease_code": "Tomato___Late_blight"
   }
   ```
+  *(Lưu ý: Nếu `conversation_id` không được gửi, server sẽ tự sinh UUIDv4 và trả về trong event `trace_start`. Nếu `harvest_days_left` bị bỏ trống, server mặc định coi $harvest\_days\_left = 0$ để kích hoạt chốt chặn an toàn nhất).*
 
 - **Streaming Response Payload (`text/event-stream`)**:
   ```text
   event: trace_start
-  data: {"trace_id": "tr-987654", "status": "thinking"}
+  data: {"trace_id": "tr-987654", "conversation_id": "conv-a1b2c3d4", "status": "thinking"}
 
   event: thought
   data: {"step": 1, "thought": "Cần kiểm tra thời tiết tại Hà Nam chiều nay để xem có nguy cơ mưa rửa trôi không."}

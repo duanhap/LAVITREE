@@ -56,7 +56,7 @@
 - [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (PostgreSQL Hybrid Schema)
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Bảng tri thức PostgreSQL mô hình Hybrid (trường cấu trúc lọc cứng + `full_content TEXT` + `chunks JSONB`), AI Ingestion trích xuất URL có Admin duyệt (HITL), đồng bộ ChromaDB cục bộ + BM25 Okapi cho 5 bệnh demo, đạt Recall@3 đối chứng 100%.
+  - Đầu ra: Bảng tri thức PostgreSQL mô hình Curated Knowledge (trường cấu trúc lọc + nội dung tri thức chuẩn hóa + bằng chứng trích dẫn `evidence_text` kèm `source_url`, bỏ `full_content`), dữ liệu seed 5 bệnh demo đã duyệt do A nạp vào Postgres, đồng bộ ChromaDB cục bộ + BM25 Okapi cho 5 bệnh demo, đạt Recall@3 đối chứng 100%.
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
   - Trạng thái: `[ ] PENDING`

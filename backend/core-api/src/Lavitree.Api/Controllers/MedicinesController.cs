@@ -13,10 +13,17 @@ namespace Lavitree.Api.Controllers;
 public class MedicinesController : ControllerBase
 {
     private readonly LavitreeDbContext _dbContext;
+    private readonly string _publicUrl;
 
     public MedicinesController(LavitreeDbContext dbContext)
     {
         _dbContext = dbContext;
+        _publicUrl = Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL")?.TrimEnd('/') ?? "";
+    }
+
+    private string FormatImageUrl(string relativePath)
+    {
+        return string.IsNullOrEmpty(_publicUrl) ? relativePath : $"{_publicUrl}{relativePath}";
     }
 
     /// <summary>
@@ -45,7 +52,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 150,
-                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/ridomil-gold.png",
+                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/ridomil-gold.png"),
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Potato___Late_blight" }
             },
             new MedicineItemDto
@@ -60,7 +67,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = false,
                 StockQuantity = 120,
-                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/antracol.png",
+                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/antracol.png"),
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Pepper,_bell___Bacterial_spot" }
             },
             new MedicineItemDto
@@ -75,7 +82,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 200,
-                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/trichoderma.png",
+                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/trichoderma.png"),
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Tomato___Target_Spot" }
             },
             new MedicineItemDto
@@ -90,7 +97,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 80,
-                ImageUrl = "http://localhost:3000/lavitree-diagnoses/products/score.png",
+                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/score.png"),
                 TargetDiseases = new List<string> { "Tomato___Early_blight", "Corn_(maize)___Common_rust_" }
             },
             new MedicineItemDto

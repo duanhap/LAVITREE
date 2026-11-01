@@ -68,11 +68,12 @@ sequenceDiagram
   - Chuyển mã nguồn `extract/DAY3/lavitree_react_agent.py` vào `backend/agent-service/app/agent/react_agent.py`, kết nối 4 công cụ từ `app.mcp.server`.
   - Xây dựng module `app/agent/memory.py` quản lý bộ nhớ ngắn hạn STM (Rolling Window $K=3$ lượt gần nhất theo `conversation_id`, tự dọn dẹp sau 1 giờ).
 - [ ] **Pha 3**: Xây dựng module `guardrails.py` cài đặt Hard Code Guardrail:
-  - `pre_filter_medicines(medicines, harvest_days_left)`: Lọc bỏ thuốc có `IsAllowed=False` hoặc `phi_days >= harvest_days_left`.
-  - `post_filter_response(response_text, harvest_days_left)`: Quét từ khóa hoạt chất hóa học độc hại khi `harvest_days_left <= 3`.
+  - `pre_filter_medicines(medicines, harvest_days_left)`: Lọc bỏ thuốc có `IsAllowed=False` hoặc $phi\_days \ge harvest\_days\_left$. Nếu `harvest_days_left` là null/omitted, mặc định giả định $harvest\_days\_left = 0$ (kịch bản phòng ngừa tối đa $\rightarrow$ chặn toàn bộ thuốc hóa học) và kích hoạt mã `HARVEST_BEFORE_PHI_VIOLATION`.
+  - `post_filter_response(response_text, harvest_days_left)`: Quét từ khóa hoạt chất hóa học độc hại khi $harvest\_days\_left \le phi\_days$.
   - `apply_hitl_tag(response_text)`: Đảm bảo nhãn `[DRAFT_RECOMMENDATION]` luôn hiện diện.
 - [ ] **Pha 4**: Triển khai `resilience.py` (kế thừa `extract/DAY25`):
   - Circuit Breaker đếm lỗi liên tiếp (ngưỡng 3 lỗi $\rightarrow$ chuyển trạng thái `OPEN`).
+  - Viết script `backend/agent-service/scripts/export_offline_cache.py`: Tự động kết xuất `offline_ipm_cache.json` từ PostgreSQL (tri thức và danh mục thuốc của 5 bệnh demo) thay vì phải tự viết tay thủ công.
   - Chuẩn bị tệp `offline_ipm_cache.json` chứa phác đồ IPM chuẩn cho 5 bệnh demo.
   - Router tự động chuyển sang đọc file cache cục bộ khi Circuit Breaker `OPEN` hoặc khi bắt lỗi `NetworkError`.
 - [ ] **Pha 5**: Viết script kiểm thử độc lập `test_react_guardrails.py`:

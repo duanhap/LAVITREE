@@ -251,7 +251,7 @@
         "is_allowed": true,
         "rain_resistant": true,
         "stock_quantity": 150,
-        "image_url": "https://lavitree.io.vn/images/products/ridomil-gold.png"
+        "image_url": "/lavitree-diagnoses/products/ridomil-gold.png"
       },
       {
         "id": "11111111-2222-3333-4444-555555555552",
@@ -264,7 +264,7 @@
         "is_allowed": true,
         "rain_resistant": false,
         "stock_quantity": 120,
-        "image_url": "https://lavitree.io.vn/images/products/antracol.png"
+        "image_url": "/lavitree-diagnoses/products/antracol.png"
       },
       {
         "id": "11111111-2222-3333-4444-555555555553",
@@ -277,11 +277,15 @@
         "is_allowed": true,
         "rain_resistant": true,
         "stock_quantity": 200,
-        "image_url": "https://lavitree.io.vn/images/products/trichoderma.png"
+        "image_url": "/lavitree-diagnoses/products/trichoderma.png"
       }
     ]
   }
   ```
+
+---
+
+  *(Lưu ý về URL ảnh: Backend trả về đường dẫn tương đối `/lavitree-diagnoses/products/...` hoặc tự động tiền tố từ biến môi trường `MINIO_PUBLIC_URL`. Nginx tự động reverse proxy đường dẫn `/lavitree-diagnoses/` sang MinIO container port 9000. Nhờ đó, cả ở localhost lẫn Production server trên AWS EC2 hay domain thật, ảnh đều hiển thị mượt mà không bị lỗi hardcode localhost).*
 
 ---
 
@@ -380,6 +384,32 @@
 
 ---
 
+### 3.9. `GET /api/v1/weather` (Tra cứu Thời tiết Cục bộ kèm Bộ nhớ đệm 1 Giờ)
+*Phục vụ công cụ `check_weather_risk` của FastMCP Agent và màn hình tra cứu của Nông dân*
+- **Query Params**:
+  - `location` (string, required, ví dụ `Hà Nam` hoặc `Hà Nội`)
+- **Headers**: Tùy chọn `Authorization: Bearer <token>`
+- **Cơ chế Hoạt động**:
+  - Core API đóng vai trò Reverse Proxy gọi tới dịch vụ khí tượng (OpenWeatherMap API hoặc mock provider).
+  - Áp dụng bộ nhớ đệm `IMemoryCache` thời hạn **1 giờ (TTL = 3600s)** theo khóa địa danh chuẩn hóa.
+  - Tránh lãng phí quota API bên ngoài và tối ưu độ trễ phản hồi (< 20ms khi cache hit).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "location": "Hà Nam",
+    "temperature_c": 28.5,
+    "humidity_percent": 92,
+    "rainfall_probability_percent": 85,
+    "rainfall_mm": 20,
+    "is_rain": true,
+    "risk_level": "HIGH",
+    "recommendation": "Nguy cơ mưa rửa trôi cao trong 12 giờ tới. Tuyệt đối không phun thuốc trừ bệnh không kháng nước.",
+    "cached_at": "2026-10-31T14:00:00Z"
+  }
+  ```
+
+---
+
 ## 4. PHÂN HỆ 3: TÁC TỬ NÔNG NGHIỆP THÔNG MINH (`agent-service:8001`)
 *Tác tử tự hành ReAct Loop kết nối công cụ MCP Tools (Kế thừa toàn diện nghiên cứu 27 DAY từ thư mục `extract/`)*
 
@@ -395,11 +425,13 @@
     "current_disease_code": "Tomato___Late_blight"
   }
   ```
+  - `conversation_id`: (string, optional). Nếu Client không gửi, Server Agent tự sinh `UUIDv4` mới và trả về ngay trong sự kiện `trace_start`.
+  - `harvest_days_left`: (int, optional). Nếu Client bỏ trống (null/omitted), Agent mặc định giả định tình huống cận thu hoạch an toàn nhất ($DaysToHarvest = 0 \rightarrow$ chặn toàn bộ thuốc hóa học) và gắn câu hỏi yêu cầu nông dân xác nhận lại số ngày dự kiến thu hoạch trong câu trả lời.
 
 - **Streaming Response (`text/event-stream`)**:
   ```text
   event: trace_start
-  data: {"trace_id": "tr-987654", "status": "thinking"}
+  data: {"trace_id": "tr-987654", "conversation_id": "conv-a1b2c3d4", "status": "thinking"}
 
   event: thought
   data: {"step": 1, "thought": "Cần kiểm tra thời tiết tại Hà Nam chiều nay để xem có nguy cơ mưa rửa trôi không."}
@@ -425,7 +457,7 @@
     "trace_id": "tr-987654",
     "answer": "[DRAFT_RECOMMENDATION]\nChào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác sử dụng chế phẩm sinh học Trichoderma Bacillus (thời gian cách ly 0 ngày) tưới gốc hoặc bọc che luống để ngăn nấm lây lan.",
     "draft_order": null,
-    "guardrail_triggered": "PHI_PROTECTION_LESS_THAN_3_DAYS",
+    "guardrail_triggered": "HARVEST_BEFORE_PHI_VIOLATION",
     "is_offline_fallback": false,
     "total_latency_ms": 1150
   }
@@ -472,5 +504,36 @@
         "duration_ms": 710
       }
     ]
+  }
+  ```
+
+---
+
+### 4.3. `POST /internal/reindex` (Kích hoạt Tái lập Chỉ mục Vector & BM25 Nội bộ)
+*Endpoint nội bộ dành cho Core API thông báo Agent Service khi Admin duyệt bài viết tri thức mới (`PATCH /api/v1/knowledge/sources/{id}/approve`)*
+- **Network Scope**: Chỉ gọi nội bộ giữa các container trong Docker Network. Nginx chặn toàn bộ đường dẫn ngoài `/internal/*`.
+- **Headers**:
+  - `Content-Type: application/json`
+  - `X-Internal-Key: <INTERNAL_API_SECRET>` (Bắt buộc; từ chối `401 Unauthorized` nếu sai key)
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+    "disease_code": "Tomato___Late_blight",
+    "action": "reindex"
+  }
+  ```
+- **Xử lý phía Agent**:
+  - Truy vấn CSDL PostgreSQL đọc bản ghi mới được duyệt (`IsManualApproved == true`).
+  - Tái tạo vector embedding với `paraphrase-multilingual-MiniLM-L12-v2` nạp vào ChromaDB cục bộ.
+  - Cập nhật chỉ mục từ khóa BM25 cho thuật toán Hybrid RRF.
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "status": "success",
+    "message": "Chỉ mục tri thức đã được tái lập thành công",
+    "disease_code": "Tomato___Late_blight",
+    "reindexed_chunks": 4,
+    "timestamp": "2026-10-31T14:35:05Z"
   }
   ```
