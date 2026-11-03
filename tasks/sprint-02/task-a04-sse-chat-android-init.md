@@ -18,8 +18,9 @@
 - **Mục tiêu cụ thể của Task**:
   1. **Khung Chat Trợ lý Nông nghiệp trên Web (`ChatWidget.tsx` / `ChatPage.tsx`)**:
      - *Tuần 1*: Kết nối với **Mock SSE Stub** của Thành viên B để dựng giao diện mượt mà.
-     - *Tuần 2*: Ghép nối chính thức với endpoint SSE thật từ Task 08 (`POST /api/v1/agent/chat:8001`).
+     - *Tuần 2*: Ghép nối chính thức với endpoint SSE thật từ Task 08 qua Nginx Reverse Proxy (`POST /api/v1/agent/chat`). Trình duyệt và App mobile tuyệt đối không gọi thẳng port 8001 nội bộ (đã cấu hình proxy trong `nginx.conf` và `vite.config.ts`).
      - Hiển thị tiến trình suy luận: Khối "Trợ lý đang suy nghĩ..." hiển thị các bước ReAct (`thought` $\rightarrow$ `action`), nhãn `[DRAFT_RECOMMENDATION]`, cảnh báo cách ly an toàn PHI và nút "Thêm vào giỏ hàng" đối với đơn thuốc đề xuất.
+     - **Hiển thị nguồn tham khảo** (bắt buộc — điều kiện ghi nguồn khi trích dẫn, Điều 25 Luật SHTT): dưới mỗi câu trả lời, render danh sách `citations` từ `final_answer` gồm tiêu đề, cơ quan, link mở bài gốc (`target="_blank" rel="noopener noreferrer"`). `is_verbatim = true` → hiển thị `excerpt` trong ngoặc kép kèm nhãn "Trích nguyên văn"; `false` → nhãn "Tóm tắt". `citations` rỗng → dòng "Không có tài liệu tham khảo".
   2. **Khởi tạo Dự án Android Native (`mobile/android/`)**:
      - Cấu hình Gradle sạch bằng Kotlin DSL, SDK 34, Java 17.
      - Tích hợp Jetpack Compose BOM, Material Design 3 (chủ đề màu Lavitree).
@@ -34,7 +35,8 @@
 ### 2.1. Bóc tách Luồng SSE trên Web (`EventSource` / `fetch` Stream):
 - Đọc stream chunk bằng `ReadableStreamDefaultReader` từ `response.body`.
 - Tách dòng theo chuẩn SSE `event: ...` và `data: ...`.
-- Nối các token từ event `delta` vào câu trả lời thời gian thực; khi nhận event `final_answer` thì render Markdown phác đồ điều trị hoàn chỉnh.
+- Nối các token từ event `delta` vào câu trả lời thời gian thực; khi nhận event `final_answer` thì render Markdown phác đồ điều trị hoàn chỉnh kèm khối nguồn tham khảo từ `citations`.
+- **Bảo mật hiển thị**: render Markdown với HTML thô bị tắt (ví dụ `react-markdown` không bật `rehype-raw`); chỉ cho mở link `citations` có `http/https` (chặn `javascript:`), vì nội dung trả lời và đoạn trích có thể đến từ bài báo bên ngoài.
 
 ### 2.2. Cấu trúc Dự án Android (`mobile/android/`):
 ```text
@@ -62,13 +64,14 @@ mobile/android/
 - [ ] Thống nhất danh mục thư viện Android Gradle và kiểm tra phiên bản tương thích với JDK trên máy.
 
 ### Chặng 2: COOK (Web Streaming Client & Android Skeleton)
-- [ ] **Pha 1 (Web SSE Client)**: Xây dựng custom hook `useAgentChat` trong React để đọc stream SSE từ cổng `8001`.
+- [ ] **Pha 1 (Web SSE Client)**: Xây dựng custom hook `useAgentChat` trong React để đọc stream SSE từ đường dẫn tương đối `/api/v1/agent/chat` (qua Nginx khi chạy Docker, qua proxy `vite.config.ts` khi dev). Không gọi thẳng cổng `8001`.
 - [ ] **Pha 2 (Chat UI)**: Dựng giao diện hộp chat nổi (Floating Chat Bubble) hoặc trang trò chuyện chuyên dụng, hỗ trợ hiển thị Markdown và code blocks.
 - [ ] **Pha 3 (Android Init)**: Khởi tạo project Android Studio tại `mobile/android/`, cấu hình dependencies (Compose, CameraX, Retrofit).
 - [ ] **Pha 4 (Android Compose UI)**: Dựng khung giao diện `DiagnoseScreen` và `ChatScreen` chạy mượt mà trên Android Emulator / thiết bị thật.
 
 ### Chặng 3: VERIFY (Nghiệm thu Thực tế - Presence Gates)
 - [ ] Gửi câu hỏi từ Khung Chat Web tới Stub/Endpoint SSE $\rightarrow$ Nhận được các sự kiện stream tuần tự không bị nghẽn buffer.
+- [ ] Câu trả lời hiển thị khối nguồn tham khảo đúng theo `citations` (đoạn nguyên văn có ngoặc kép, đoạn tóm tắt có nhãn "Tóm tắt"); link mở đúng bài gốc ở tab mới.
 - [ ] Chạy lệnh build Android `./gradlew assembleDebug` thành công 100%, không bị lỗi dependency hay xung đột phiên bản JVM.
 - [ ] Ứng dụng Android khởi động hiển thị màn hình Compose chào mừng và sẵn sàng xin quyền Camera.
 

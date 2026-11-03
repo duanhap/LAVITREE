@@ -50,6 +50,14 @@ Một bảng duy nhất cho cả hai nền tảng. Tỉ lệ tương phản đã
 | `--status-ood` / `-bg` | `#475569` / `#F1F5F9` | ⚪ Không nhận diện được lá | 6.9 |
 | `--info` / `--info-bg` | `#1D4ED8` / `#DBEAFE` | Bước suy luận của Agent, thông tin | 5.5 |
 
+**Màu thương hiệu** — lấy mẫu từ logo và mascot Lavi (mục 13). **Chỉ dùng để trang trí**, không dùng làm màu chữ hay nền cho chữ trắng:
+
+| Token | Hex | Dùng cho | Ghi chú |
+|---|---|---|---|
+| `--brand-mint` | `#A6E3CC` | Viền phát sáng, nền minh họa, vòng quanh avatar Lavi | Chữ trắng trên nền này chỉ đạt 1.45 → cấm |
+| `--brand-mint-soft` | `#E6F7F0` | Nền bong bóng chat của Lavi, banner chào mừng | Chữ `--foreground` 14.3 · chữ `--primary` 5.8 |
+| `--brand-glow` | `#5EEAD4` | Đèn LED, hiệu ứng "đang suy nghĩ" | Chỉ dùng cho hiệu ứng, không chứa chữ |
+
 > Ảnh Grad-CAM dùng bảng màu Jet (xanh → đỏ). Không đặt nhãn đỏ/xanh dương sát cạnh ảnh heatmap để tránh đọc nhầm.
 
 ---
@@ -151,7 +159,13 @@ Không bao giờ hiện nguyên văn lỗi kỹ thuật / stack trace cho ngư�
 ---
 
 ## 9. XÁC THỰC PHÍA CLIENT
-- Khuyến nghị cho TASK-A01: Core API trả JWT trong **cookie `HttpOnly; Secure; SameSite=Lax`**, client gọi API với `withCredentials: true`. Không lưu token trong `localStorage` (một lỗi XSS là lộ token).
+- **Quyết định của nhóm (TASK-A01, api-contracts.md)**: Core API trả JWT trong body, client gửi `Authorization: Bearer <token>` qua interceptor của `api-client.ts`.
+- Vì token đọc được bằng JavaScript nên một lỗi XSS là đủ để lộ token. Bắt buộc giảm rủi ro:
+  - Không dùng `dangerouslySetInnerHTML`; Markdown của Agent render không bật HTML thô (mục 6).
+  - nginx đặt header `Content-Security-Policy` chặn script lạ (`script-src 'self'`).
+  - Đăng xuất hoặc nhận lỗi 401 → xóa token và cache của TanStack Query.
+  - Cân nhắc rút `expires_in` (hiện 86400s = 24h) xuống ngắn hơn khi có cơ chế làm mới token.
+- Phương án mạnh hơn nếu còn thời gian ở Sprint 3: chuyển sang cookie `HttpOnly; Secure; SameSite=Lax`.
 - Thông tin hiển thị (tên, vai trò) lấy từ `GET /api/v1/auth/me`, giữ trong TanStack Query; ẩn/hiện menu theo vai trò chỉ để tiện dùng — quyền thật do backend kiểm tra.
 
 ---
@@ -213,3 +227,91 @@ frontend/web/src/
 - [ ] Dùng được hoàn toàn bằng bàn phím (Tab, Enter, Esc) trên các luồng chính.
 - [ ] Màn hình kết quả đúng thứ tự khối & quy tắc ở [screens.md mục 4](../spec/screens.md).
 - [ ] `npm run build` không lỗi; dán ảnh chụp màn hình thật vào phần bằng chứng của task.
+- [ ] Mascot Lavi chỉ xuất hiện ở đúng ngữ cảnh cho phép (mục 13.4); ảnh dùng bản tối ưu trong `assets/brand`, không import file gốc 2048px.
+
+---
+
+## 13. THƯƠNG HIỆU: LOGO & MASCOT LAVI
+
+### 13.1. Câu chuyện nhân vật
+**Lavi** là một chú slime trong suốt màu mint, tượng trưng cho **giọt nước** nuôi cây. Lavi có:
+- **Hai lá mầm** trên đầu: đại diện cho cây trồng.
+- **Tai nghe có mic**: trợ lý AI luôn lắng nghe nhà nông.
+- **Đế công nghệ và vòng sáng**: đang lơ lửng, sẵn sàng hỗ trợ.
+
+Logo là chữ **L** cách điệu từ hai chiếc lá, đặt trong ô vuông bo góc màu mint.
+
+**Tính cách:** thân thiện, khiêm tốn, nói ngắn gọn dễ hiểu. Lavi **không phán quyết**: luôn nói "gợi ý", "nên", "có thể", khớp với tinh thần "kết quả tham khảo" ở classes.md. Lavi xưng "Lavi" hoặc "mình", gọi người dùng là "bạn". → Thành viên B dùng đúng vai này trong system prompt của Agent (TASK-07) để giao diện và giọng trả lời đồng nhất.
+
+### 13.2. Kho ảnh & quy tắc đặt file
+
+```text
+design/brand/                          ← FILE GỐC (PNG 2048px, nền trong suốt) — chỉ để xuất bản mới, KHÔNG import vào app
+├── logo/lavitree-logo.png
+└── mascot/
+    ├── lavi-avatar.png                ← 2D, nét viền rõ — avatar chatbot
+    └── lavi-3d-happy.png              ← 3D, nháy mắt vui — minh họa giao diện
+
+frontend/web/
+├── public/                            ← favicon-32.png · apple-touch-icon.png (180) · icon-512.png
+└── src/assets/brand/                  ← import trong React (Vite tự gắn hash, cache tốt)
+    ├── lavitree-logo-64.webp · lavitree-logo-256.webp
+    ├── lavi-avatar-96.webp · lavi-avatar-192.webp     ← đã cắt chỉ còn đầu + lá
+    ├── lavi-full-512.webp
+    └── lavi-3d-happy-720.webp
+
+mobile/android/app/src/main/res/drawable-nodpi/
+    lavitree_logo.webp · lavi_avatar.webp · lavi_3d_happy.webp
+```
+
+- **Tên file**: `lavi-<kiểu>-<biểu-cảm>-<cỡ>.webp` cho web (gạch ngang); Android bắt buộc chữ thường + gạch dưới (`lavi_3d_thinking.webp`).
+- **Thêm biểu cảm mới** theo 3 bước:
+  1. Lưu file gốc PNG vào `design/brand/mascot/`.
+  2. Xuất bản WebP: cỡ hiển thị lớn nhất ×2, cắt bỏ viền trong suốt.
+  3. Cập nhật bảng 13.4 trong file này.
+- **Icon launcher Android**: dùng Android Studio → *Image Asset* (adaptive icon) từ `design/brand/logo/lavitree-logo.png`, không tự cắt tay.
+- `design/` nằm ngoài `docs/`, vì `docs/brand/*` đang bị `.gitignore` bỏ qua.
+
+### 13.3. Quy tắc dùng logo
+- Cỡ tối thiểu **24px**. Chừa khoảng trống xung quanh ≥ 1/4 chiều rộng logo.
+- Đặt logo trên nền sáng (`--background`, `--card`). Không đổi màu, không kéo méo, không thêm bóng.
+- ⚠️ **Ở cỡ ≤ 32px (favicon, tab trình duyệt), chữ L trắng trên nền mint rất mờ** (tương phản khoảng 1.45:1). Việc cần làm: thiết kế thêm **bản đặc** (nền `--primary` `#2E6B3F`, chữ L trắng) chỉ dùng cho cỡ nhỏ. Cho tới lúc đó, tạm dùng `favicon-32.png` hiện tại.
+- Thanh điều hướng hiển thị logo 32–40px kèm chữ "Lavitree" (Be Vietnam Pro 700, màu `--foreground`).
+
+### 13.4. Lavi xuất hiện ở đâu — và KHÔNG ở đâu
+
+| Ngữ cảnh | Ảnh dùng | Ghi chú |
+|---|---|---|
+| Avatar tin nhắn của trợ lý (W-04, M-04) | `lavi-avatar-96/192` | Hình tròn 32–40px, nền `--brand-mint-soft` |
+| Màn chào khung Chat lúc chưa có tin nhắn | `lavi-3d-happy-720` | Cao khoảng 160px + câu chào + 3 câu hỏi gợi ý |
+| Hero trang chủ / onboarding | `lavi-3d-happy-720` | Tối đa 1 lần mỗi màn hình |
+| Trạng thái rỗng (`EmptyState`), trang 404 | `lavi-full-512` | Cao khoảng 120px |
+| Nút mở nhanh Trợ lý (góc dưới phải) | `lavi-avatar-96` | 56px, kèm `aria-label="Mở trợ lý Lavi"` |
+| ⛔ **Màn kết quả chẩn đoán** | — | Đây là thông tin quan trọng, cần nghiêm túc. Không đặt mascot đang cười cạnh kết quả bệnh |
+| ⛔ Cảnh báo 🔴 / ⚪, guardrail chặn thuốc, trang lỗi hệ thống | — | Chỉ dùng icon + chữ (mục 4, mục 7) cho tới khi có biểu cảm phù hợp |
+| ⛔ Admin Portal | — | Công cụ nội bộ, chỉ dùng logo |
+
+**Quy tắc vàng**: biểu cảm của Lavi phải khớp với nội dung. Chưa có biểu cảm phù hợp thì **không hiện Lavi**, không lấy tạm ảnh vui.
+
+### 13.5. Lộ trình biểu cảm (gắn với sự kiện SSE ở mục 6)
+
+| Biểu cảm | File (dự kiến) | Khi nào dùng | Trạng thái |
+|---|---|---|---|
+| Mặc định – mỉm cười | `lavi-avatar.png` | Avatar, tin nhắn cũ | ✅ Có |
+| Vui – nháy mắt | `lavi-3d-happy.png` | Màn chào, onboarding, `final_answer` thành công | ✅ Có |
+| Đang suy nghĩ | `lavi-3d-thinking` | `trace_start`, `thought`, `action`, `observation` | ⏳ Chưa có — tạm dùng avatar + hiệu ứng nhịp sáng (13.6) |
+| Lo lắng / cảnh báo | `lavi-3d-alert` | `guardrail_triggered`, kết quả 🔴 dẫn sang Chat | ⏳ Chưa có — tạm ẩn mascot |
+| Buồn / xin lỗi | `lavi-3d-sorry` | Lỗi mạng, 5xx, Guest hết lượt hỏi | ⏳ Chưa có |
+| Ngủ gật | `lavi-3d-offline` | Agent chạy chế độ ngoại tuyến (TASK-07) | ⏳ Chưa có |
+| Vẫy tay chào | `lavi-3d-welcome` | Đăng nhập / đăng ký thành công | ⏳ Chưa có |
+
+Khi tạo biểu cảm mới: dùng **cùng công cụ, cùng góc nhìn ¾, cùng ánh sáng** với `lavi-3d-happy.png` (đính kèm ảnh này làm tham chiếu) để bộ ảnh đồng nhất.
+
+### 13.6. Chuyển động
+- **Lơ lửng khi chờ**: dịch lên xuống 4px, chu kỳ 3 giây (`animate-[float_3s_ease-in-out_infinite]`). Chỉ áp dụng cho ảnh lớn ở màn chào, không áp dụng cho avatar trong danh sách tin nhắn.
+- **Đang suy nghĩ**: vòng sáng `--brand-glow` nhịp nhẹ quanh avatar của tin nhắn đang stream. Dừng ngay khi nhận `final_answer`.
+- Tôn trọng `prefers-reduced-motion: reduce` → tắt mọi chuyển động. Không dùng thư viện animation nặng (Lottie) trong Sprint 2.
+
+### 13.7. Khả năng tiếp cận
+- Avatar trong tin nhắn là ảnh trang trí (`alt=""`), vì tên "Lavi" đã có ở dòng tiêu đề tin nhắn. Ảnh minh họa đứng một mình dùng `alt="Lavi – trợ lý cây trồng của Lavitree"`.
+- Mascot **không bao giờ là kênh duy nhất truyền thông tin**: trạng thái luôn có chữ đi kèm.

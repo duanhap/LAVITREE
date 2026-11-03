@@ -15,7 +15,7 @@ Xây dựng và kết nối hoàn chỉnh 2 trụ cột của hệ thống Lavit
 >    - Thành viên B cung cấp Stub SSE Chat `POST /api/v1/agent/chat` ngay ngày đầu để A dựng giao diện Web.
 >    - Hai bên code độc lập 100%, cuối tuần 2 ghép nối chính thức.
 > 2. **Cổng dịch vụ chuẩn (Port Binding)**: `backend/agent-service` bind cổng **`8001`** (đồng bộ với `docker-compose.yml` và `api-contracts.md` Mục 4).
-> 3. **PostgreSQL là Nguồn sự thật Duy nhất (SSOT)**: Lưu trữ Hybrid: trường cấu trúc lọc cứng (`phi_days`, `is_allowed`, `active_ingredients`) song song với `full_content TEXT` và `chunks JSONB`. ChromaDB cục bộ và BM25 là chỉ mục phái sinh có thể tái tạo (rebuildable).
+> 3. **PostgreSQL là Nguồn sự thật Duy nhất (SSOT) — Kế thừa CSDL Sprint 1 & Tinh gọn Ingestion**: Tận dụng 100% dữ liệu đã nạp sẵn từ Sprint 1 trong `KnowledgeSources` (112 bài, các cột `ModelClass`, `EvidenceText`, `ContentType`, `SourceUrl`, `IsManualApproved`). Thành viên B không cần soạn file seed `knowledge_seed_5_diseases.json` hay viết `extractor.py`; script `sync_index.py` đọc trực tiếp các bài đã duyệt (`IsManualApproved = true`) theo `ModelClass` của 5 bệnh demo để nạp vào ChromaDB và BM25. Đối với các bệnh còn mỏng bài (`Tomato___Target_Spot`, `Corn_(maize)___Common_rust_`), Admin bổ sung bài mới trực tiếp qua Form trên Web Admin (A03) và bấm duyệt để kích hoạt webhook `/internal/reindex` (kịch bản demo HITL). Bảng `Products` do Core API quản lý là nguồn sự thật duy nhất cho thời gian cách ly (`PhiDays`) và trạng thái cấp phép (`IsAllowed`); Thành viên A chỉ cần seed thêm dữ liệu thuốc trong A01 Pha 2.
 > 4. **Bảo mật Định danh (Auth Security)**: `userId` bắt buộc trích xuất từ JWT Claims, xóa bỏ hoàn toàn việc truyền `userId` từ form-data.
 > 5. **Chốt chặn an toàn bằng Code (Hard Guardrails)**: Lọc thuốc vi phạm PHI và thuốc bị cấm bằng hàm Python trước khi vào prompt LLM; không trông cậy vào việc LLM tự nhớ gọi tool.
 > 6. **Cắt tỉa Nghiệp vụ Thông minh (Scope Pruning)**:
@@ -89,12 +89,13 @@ flowchart TD
 
 #### 👨‍💻 NHÓM VIỆC CỦA THÀNH VIÊN B (AI AGENT LEAD)
 
-- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
+- [ ] **TASK-06: Tầng Tri thức Hybrid RAG Đa ngôn ngữ (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - *Nội dung*:
-    1. Thiết kế bảng tri thức Postgres mô hình Hybrid (trường cấu trúc lọc cứng + `full_content TEXT` + `chunks JSONB`).
-    2. AI Ingestion hỗ trợ Admin bóc tách bài viết/URL thành bản ghi Staging có duyệt (`IsManualApproved = true`).
-    3. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (Vector Search) và BM25 Okapi (từ khóa hoạt chất) cho 5 bệnh demo.
-    4. Hợp nhất thứ hạng RRF ($k=60$), đạt Recall@3 đối chứng 100%.
+    1. Dùng lại bảng `KnowledgeSources` (112 bài tóm tắt từ Sprint 1 + các đoạn nguyên văn mới do A03 nhập). Mỗi dòng = 1 chunk, metadata gồm `UnitType`, `IsVerbatim` và thông tin nguồn.
+    2. Chỉ nạp vào chỉ mục các dòng đã duyệt (`IsManualApproved = true`). Server không tự tải URL.
+    3. **Mới**: endpoint `POST /internal/knowledge/label-paragraphs` — AI gợi ý đoạn nào của bài báo là triệu chứng / nguyên nhân / phòng ngừa / điều trị, **chỉ trả số đoạn** (không viết chữ) để phục vụ chức năng Nhập bài báo của A03.
+    4. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (mô hình vector đa ngôn ngữ `paraphrase-multilingual-MiniLM-L12-v2`) và BM25 Okapi (từ khóa hoạt chất song ngữ) cho 5 bệnh demo.
+    5. Hợp nhất thứ hạng RRF ($k=60$) và cung cấp endpoint nội bộ `POST /internal/reindex` cho Core API kích hoạt khi duyệt bài.
 
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - *Nội dung*:
@@ -105,15 +106,17 @@ flowchart TD
 - [ ] **TASK-07: Vòng lặp ReAct Loop, Bộ Chốt chặn An toàn (Hard Guardrails) & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
   - *Nội dung*:
     1. Vòng lặp ReAct: `Thought → Action → Observation → Final Answer` với mô hình **Gemini 2.0 / 2.5 Flash** (max iterations = 5).
-    2. **Hard Code Guardrails bằng Python**: Tiền lọc thuốc cấm & vi phạm PHI bằng code cứng trước khi nạp vào prompt LLM; hậu kiểm quét chuỗi câu trả lời cuối cùng.
-    3. Gắn nhãn bản thảo `[DRAFT_RECOMMENDATION]`.
-    4. Circuit Breaker & Router tự động hạ cấp về tệp phác đồ tĩnh IPM lưu cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
+    2. Quản lý Bộ nhớ ngắn hạn STM (In-Memory Rolling Window $K=3$ lượt theo `conversation_id`) giúp duy trì mạch hội thoại mượt mà cho các câu hỏi nối tiếp.
+    3. **Hard Code Guardrails bằng Python**: Tiền lọc thuốc cấm & vi phạm PHI bằng code cứng trước khi nạp vào prompt LLM; hậu kiểm quét chuỗi câu trả lời cuối cùng.
+    4. Gắn nhãn bản thảo `[DRAFT_RECOMMENDATION]`.
+    5. Circuit Breaker & Router tự động hạ cấp về tệp phác đồ tĩnh IPM lưu cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
 
 - [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark Nghiệm thu 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - *Nội dung*:
     1. Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`).
     2. Time-to-First-Thought $\le 2.0$s; xuất file `trace_waterfall.json` đo độ trễ từng bước.
     3. Chạy tự động bộ benchmark 5 ca lâm sàng (mỗi ca chạy 3 lần ở `temperature=0`) đạt 15/15 PASS.
+    4. `final_answer` có trường `citations` (nguồn tham khảo lấy từ kết quả RAG, không để LLM tự viết) — điều kiện ghi nguồn khi trích dẫn.
 
 ---
 
@@ -130,10 +133,12 @@ flowchart TD
 
 - [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - *Nội dung*:
-    1. Xây dựng `AuthController.cs`: `POST /api/v1/auth/register`, `POST /api/v1/auth/login` (sinh JWT Token, băm mật khẩu bằng BCrypt, phân vai `FARMER` / `ADMIN`).
+    1. Xây dựng `AuthController.cs`: `POST /api/v1/auth/register` (luôn gán role `FARMER`), `POST /api/v1/auth/login` (sinh JWT Token, băm BCrypt, rate limit chống dò pass; gộp `X-Admin-Key` vào JWT role `ADMIN`).
     2. Bảo mật định danh: Trích xuất `userId` từ JWT Claims cho endpoint chẩn đoán và lịch sử, xóa bỏ lỗ hổng nhận `userId` từ form-data hoặc query params (triệt tiêu IDOR).
     3. Chuẩn hóa endpoint Lịch sử khám: `GET /api/v1/diagnose/history` (Headers: `Authorization: Bearer <jwt_token>`, phân trang `page`/`pageSize`, lọc theo `userId` từ token).
     4. Cung cấp ngay **Stub API Thuốc** `GET /api/v1/medicines/search` cho Thành viên B.
+    5. Cập nhật Entity `Product.cs` (thêm `PhiDays (int)`, `IsAllowed (bool)`, `RainResistant (bool)`, `MedicineType`), migration EF Core và seed thuốc thật cho 5 bệnh demo.
+    6. Xây dựng `WeatherService` tích hợp OpenWeatherMap API + `IMemoryCache` 1h trong Core API phục vụ tool `check_weather_risk`.
 
 - [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - *Nội dung*:
@@ -145,7 +150,8 @@ flowchart TD
 - [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - *Nội dung*:
     1. Xây dựng tính năng Cửa hàng Lavitree Store (`StorePage.tsx`): Xem danh mục thuốc BVTV, thêm vào giỏ hàng, tạo đơn hàng với hình thức thanh toán COD giả lập (`POST /api/v1/orders`).
-    2. Xây dựng Cổng Admin Quản trị (`AdminDashboard.tsx`): Xem danh sách bài viết khuyến nông, duyệt bài (`IsManualApproved = true`), cập nhật kho thuốc, và xem danh sách các ca bệnh cần chuyên gia hỗ trợ (`requires_expert = true`).
+    2. **Chức năng chính — Nhập bài báo, trích đoạn nguyên văn**: Admin dán văn bản bài báo + URL → AI gợi ý đoạn theo nhãn → Admin tick tối đa 4 đoạn ngắn (tick = duyệt) → lưu nguyên văn kèm nguồn, không lưu toàn văn → reindex (`api-contracts.md` Mục 3.10, 3.11). Thêm cột `UnitType`, `IsVerbatim`; 112 bài cũ đánh dấu là tóm tắt.
+    3. Xây dựng Cổng Admin Quản trị (`AdminDashboard.tsx`): Xem danh sách tri thức, duyệt / bỏ duyệt (`IsManualApproved`), cập nhật kho thuốc, và xem danh sách các ca bệnh cần chuyên gia hỗ trợ (`requires_expert = true`).
 
 - [ ] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
   - *Nội dung*:
@@ -161,3 +167,7 @@ Nhờ Sprint 2 đã hoàn thành toàn bộ khung sườn sản phẩm (Vertical
 3. **TASK-11 (Màn hình Admin Observability)**: Trực quan hóa cây suy luận Waterfall Chart phục vụ Hội đồng chấm thi.
 4. **TASK-12 (Docker Compose 1-Click & Diễn tập Bảo vệ)**: Đóng gói container dự phòng demo offline hoàn hảo và diễn tập kịch bản vấn đáp tốt nghiệp.
 5. **TASK-13 (Nghiệm thu OOD)**: Đo đạc số liệu OOD chính thức trên 3 tập dữ liệu độc lập cho quyển báo cáo tốt nghiệp.
+6. **TASK-14 (Hệ thống Bộ nhớ Tác tử Toàn diện — Persistent STM & LTM - Kế thừa DAY 17)**:
+   - **Persistent STM & Compaction**: Lưu trữ bền vững phiên hội thoại vào PostgreSQL (`ChatSessions` & `ChatMessages`), cơ chế nén ngữ cảnh tự động (Context Compaction) khi hội thoại vượt 3.000 tokens.
+   - **Episodic LTM (Kinh nghiệm Ca bệnh)**: Công cụ FastMCP `lookup_farmer_history` truy vấn lịch sử chẩn đoán từ bảng `DiagnosisRecords` để theo dõi tiến trình hồi phục và cảnh báo nguy cơ kháng thuốc.
+   - **Profile LTM (Hồ sơ Nông hộ)**: Quản lý hồ sơ dài hạn (`FarmerProfile`: địa phương, loại đất, diện tích, tiêu chuẩn VietGAP) giúp tư vấn cá nhân hóa cao mà không cần nông dân khai báo lại.

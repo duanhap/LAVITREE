@@ -68,9 +68,18 @@
 
 ### Chặng 2: COOK (Viết mã nguồn)
 - [ ] **Pha 1 (Day 1 Stub)**: Tạo `MedicinesController.cs` với action `GET /api/v1/medicines/search` trả về mock JSON chuẩn hợp đồng cho ca bệnh `Tomato___Late_blight`.
-- [ ] **Pha 2 (Domain & Database)**: Tạo entity `User`, cấu hình quan hệ với `DiagnosisRecords`, thêm migration EF Core và áp dụng vào CSDL.
-- [ ] **Pha 3 (Services & Logic)**: Cài đặt `IPasswordHasher` (BCrypt), `IJwtTokenGenerator`, và đăng ký Dependency Injection.
-- [ ] **Pha 4 (AuthController & Bảo mật)**: Hoàn thiện `AuthController.cs`, cấu hình JWT Authentication trong `Program.cs`.
+- [ ] **Pha 2 (Domain & Database)**:
+  - Tạo entity `User`, cấu hình quan hệ với `DiagnosisRecords`.
+  - Cập nhật entity `Product`: Thêm `PhiDays (int)`, `IsAllowed (bool)`, `RainResistant (bool)`, `MedicineType (string)`.
+  - Tạo migration EF Core và cập nhật `LavitreeDbContextSeeder.cs`:
+    + Seed tài khoản Admin đầu tiên (`admin@lavitree.vn`, pass băm BCrypt, role `ADMIN`).
+    + Seed danh mục thuốc BVTV chuẩn cho 5 bệnh demo hạt nhân (Late blight, Early blight, Target spot, Bacterial spot, Common rust).
+- [ ] **Pha 3 (Services & Logic)**:
+  - Cài đặt `IPasswordHasher` (BCrypt), `IJwtTokenGenerator`, và đăng ký Dependency Injection.
+  - Xây dựng `WeatherService` tích hợp OpenWeatherMap API kèm bộ đệm `IMemoryCache` 1 giờ phục vụ FastMCP Tool `check_weather_risk`.
+- [ ] **Pha 4 (AuthController & Bảo mật)**:
+  - Hoàn thiện `AuthController.cs`: `POST /api/v1/auth/register` (luôn gán role `FARMER`, không nhận role từ body) và `POST /api/v1/auth/login` (áp dụng Rate Limit chống brute-force).
+  - Cấu hình JWT Bearer Authentication trong `Program.cs`, thay thế `X-Admin-Key` bằng JWT Role `ADMIN`.
 - [ ] **Pha 5 (Vá DiagnoseController)**: Trích xuất `userId` từ `ClaimsPrincipal`, bỏ tham số form-data.
 
 ### Chặng 3: VERIFY (Nghiệm thu Thực tế - Presence Gates)
