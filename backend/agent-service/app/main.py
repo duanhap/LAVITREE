@@ -2,13 +2,18 @@ import asyncio
 import json
 import uuid
 import time
-from typing import Optional, AsyncGenerator
-from fastapi import FastAPI, HTTPException
+import os
+import secrets
+from datetime import datetime, timezone
+from typing import Optional, AsyncGenerator, List
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.rag.knowledge_retriever import AgriKnowledgeRetriever
+from app.rag.schema import LabelParagraphsRequest, LabelParagraphsResponse
+from app.rag.pipeline import rag_pipeline
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
 
 app = FastAPI(
@@ -28,6 +33,20 @@ app.add_middleware(
 
 retriever = AgriKnowledgeRetriever()
 
+def check_internal_auth(request: Request):
+    """
+    Xác thực API Key nội bộ giữa các container (Docker Network).
+    Bảo vệ các endpoint quản trị /internal/* theo chuẩn api-contracts.md Mục 4.3 & 4.4.
+    """
+    key = request.headers.get("x-internal-key") or request.headers.get("X-Internal-Key")
+    expected_key = os.environ.get("INTERNAL_API_SECRET", "lavitree_internal_secret_key_super_secure_32chars!")
+    if not key or not secrets.compare_digest(key, expected_key):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Invalid or missing X-Internal-Key"
+        )
+    return True
+
 class ConsultationRequest(BaseModel):
     disease_code: str
     crop_stage: Optional[str] = "Phát triển thân lá"
@@ -41,9 +60,46 @@ class ChatRequest(BaseModel):
     harvest_days_left: Optional[int] = None
     current_disease_code: Optional[str] = None
 
+class ReindexRequest(BaseModel):
+    source_id: Optional[str] = None
+    action: Optional[str] = "approve"
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "agent-service", "port": 8001}
+
+@app.post("/internal/reindex")
+async def trigger_reindex(request: Request):
+    """
+    POST /internal/reindex
+    Endpoint nội bộ dành cho Core API thông báo khi Admin duyệt bài viết tri thức mới.
+    SSOT: docs/architecture/api-contracts.md Mục 4.3
+    """
+    check_internal_auth(request)
+    res = rag_pipeline.reindex()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    return {
+        "status": "success",
+        "message": "Chỉ mục tri thức đã được tái lập thành công",
+        "indexed_documents": res.indexed_count,
+        "timestamp": now_iso
+    }
+
+@app.post("/internal/knowledge/label-paragraphs")
+async def label_paragraphs(request: Request):
+    """
+    POST /internal/knowledge/label-paragraphs
+    AI gợi ý nhãn cho từng đoạn bài báo (HITL Ingestion).
+    SSOT: docs/architecture/api-contracts.md Mục 4.4
+    """
+    check_internal_auth(request)
+    data = await request.json()
+    req = LabelParagraphsRequest(**data)
+    res = rag_pipeline.label_paragraphs(req)
+    return {
+        "labels": [{"id": s.id, "unit_type": s.unit_type} for s in res.suggestions]
+    }
+
 
 @app.post("/api/v1/agent/consult-treatment")
 def consult_treatment(request: ConsultationRequest):
@@ -162,23 +218,32 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
 
     # 7. Event final_answer
     total_ms = int((time.time() - start_time) * 1000)
+    
+    # Tra cứu trích dẫn học thuật từ Hybrid RAG thực tế (chuẩn SSOT chống LLM bịa nguồn)
+    try:
+        rag_res = rag_pipeline.lookup_disease_knowledge(disease_code, query=request.message, top_k=2)
+        citations = [
+            {
+                "source_id": c.source_id,
+                "source_title": c.source_title,
+                "organization": c.organization,
+                "source_url": c.source_url,
+                "excerpt": c.text[:220] + ("..." if len(c.text) > 220 else ""),
+                "unit_type": c.unit_type,
+                "is_verbatim": c.is_verbatim
+            }
+            for c in rag_res.top_chunks
+        ]
+    except Exception as e:
+        citations = []
+
     yield format_sse("final_answer", {
         "trace_id": trace_id,
         "answer": full_answer_text,
         "draft_order": None,
         "guardrail_triggered": guardrail_triggered,
         "is_offline_fallback": False,
-        "citations": [
-            {
-                "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
-                "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
-                "organization": "Trung tâm Khuyến nông Quốc gia",
-                "source_url": "https://khuyennongvn.gov.vn/tai-lieu-khuyen-nong/ca-chua",
-                "excerpt": "Bệnh sương mai do nấm Phytophthora infestans gây ra, phát triển mạnh trong điều kiện ẩm độ cao...",
-                "unit_type": "SYMPTOMS",
-                "is_verbatim": True
-            }
-        ],
+        "citations": citations,
         "total_latency_ms": max(total_ms, 850)
     })
 

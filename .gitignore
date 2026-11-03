@@ -17,6 +17,9 @@
 .venv/
 venv/
 *.pt.tmp
+**/backend/agent-service/app/data/
+**/data/chroma_db/
+*.pkl
 
 # Node & Frontend
 **/node_modules/
