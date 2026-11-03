@@ -75,10 +75,10 @@
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Tailwind v4 + shadcn/ui, token màu & font Be Vietnam Pro theo `docs/architecture/ui-ux.md`, khung `AppShell`/`AdminShell`, router + trang 404/403, `ResultStatusBadge`, trang `/dev/styleguide`; theme Android đồng bộ. Chi tiết: `tasks/sprint-02/task-A00-ui-foundation.md`.
-- [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
+- [x] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[/] IN PROGRESS` (Đã khởi tạo nhánh `feat/task-a01-auth-jwt` và hoàn thành Stub API Thuốc `GET /api/v1/medicines/search` cho B)
-  - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (bỏ `userId` từ form), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B.
+  - Trạng thái: `[x] DONE` (Hoàn thành 100%: Day 1 Stub Thuốc cho B, Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân GET /api/v1/diagnose/history, nghiệm thu 11/11 tests qua `test_task_a01_auth.py`)
+  - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (loại bỏ hoàn toàn `userId` từ form-data chống IDOR), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B, nạp seed tự động tài khoản Quản trị `admin@lavitree.vn`.
 - [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`

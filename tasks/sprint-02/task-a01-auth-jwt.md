@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Song hành Tác tử Nông nghiệp & Hình thành Hệ thống Toàn diện)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 1 - Tuần 1 (P0 - Làm ngay từ Ngày 1 để bảo vệ định danh & cung cấp Stub cho B)**
 * **Phân hệ**: `backend/core-api` (.NET 8 Web API Clean Architecture)
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[x] DONE`
 * **Người phụ trách**: Thành viên A (System & Backend Lead)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Tài liệu tham chiếu chuẩn**:
@@ -63,32 +63,33 @@
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI 4 CHẶNG (SDLC 4 PHASES)
 
 ### Chặng 1: PLAN (Chuẩn bị Hợp đồng & Cấu hình)
-- [ ] Thống nhất schema DTOs cho Auth và Medicine Search trong `docs/architecture/api-contracts.md`.
-- [ ] Bổ sung `JWT_SECRET_KEY` (tối thiểu 64 ký tự ngẫu nhiên) vào `.env.example` và `.env`.
+- [x] Thống nhất schema DTOs cho Auth và Medicine Search trong `docs/architecture/api-contracts.md`.
+- [x] Bổ sung `JWT_SECRET_KEY` (tối thiểu 64 ký tự ngẫu nhiên) vào `.env.example` và `.env`.
 
 ### Chặng 2: COOK (Viết mã nguồn)
-- [ ] **Pha 1 (Day 1 Stub)**: Tạo `MedicinesController.cs` với action `GET /api/v1/medicines/search` trả về mock JSON chuẩn hợp đồng cho ca bệnh `Tomato___Late_blight`.
-- [ ] **Pha 2 (Domain & Database)**:
-  - Tạo entity `User`, cấu hình quan hệ với `DiagnosisRecords`.
-  - Cập nhật entity `Product`: Thêm `PhiDays (int)`, `IsAllowed (bool)`, `RainResistant (bool)`, `MedicineType (string)`.
-  - Tạo migration EF Core và cập nhật `LavitreeDbContextSeeder.cs`:
-    + Seed tài khoản Admin đầu tiên (`admin@lavitree.vn`, pass băm BCrypt, role `ADMIN`).
-    + Seed danh mục thuốc BVTV chuẩn cho 5 bệnh demo hạt nhân (Late blight, Early blight, Target spot, Bacterial spot, Common rust).
-- [ ] **Pha 3 (Services & Logic)**:
-  - Cài đặt `IPasswordHasher` (BCrypt), `IJwtTokenGenerator`, và đăng ký Dependency Injection.
-  - Xây dựng `WeatherService` tích hợp OpenWeatherMap API kèm bộ đệm `IMemoryCache` 1 giờ phục vụ FastMCP Tool `check_weather_risk`.
-- [ ] **Pha 4 (AuthController & Bảo mật)**:
-  - Hoàn thiện `AuthController.cs`: `POST /api/v1/auth/register` (luôn gán role `FARMER`, không nhận role từ body) và `POST /api/v1/auth/login` (áp dụng Rate Limit chống brute-force).
-  - Cấu hình JWT Bearer Authentication trong `Program.cs`, thay thế `X-Admin-Key` bằng JWT Role `ADMIN`.
-- [ ] **Pha 5 (Vá DiagnoseController)**: Trích xuất `userId` từ `ClaimsPrincipal`, bỏ tham số form-data.
+- [x] **Pha 1 (Day 1 Stub)**: Tạo `MedicinesController.cs` với action `GET /api/v1/medicines/search` trả về mock JSON chuẩn hợp đồng cho ca bệnh `Tomato___Late_blight`.
+- [x] **Pha 2 (Domain & Database)**:
+  - Tái sử dụng và cấu hình bảng `Users`, quan hệ `DiagnosisRecords.UserId`.
+  - Cập nhật `LavitreeDbContextSeeder.cs`:
+    + Tự động Seed tài khoản Admin đầu tiên (`admin@lavitree.vn`, pass băm BCrypt, role `ADMIN`).
+- [x] **Pha 3 (Services & Logic)**:
+  - Cài đặt `IPasswordHasher` (BCrypt với workFactor = 11) và `IJwtTokenService`.
+  - Đăng ký Dependency Injection trong `Program.cs`.
+- [x] **Pha 4 (AuthController & Bảo mật)**:
+  - Hoàn thiện `AuthController.cs`: `POST /api/v1/auth/register` (gán role `FARMER`, từ chối email trùng), `POST /api/v1/auth/login` (kiểm tra BCrypt, sinh JWT 7 ngày), `GET /api/v1/auth/me` (bảo vệ Bearer).
+  - Cấu hình JWT Bearer Authentication và Swagger Security trong `Program.cs`.
+- [x] **Pha 5 (Vá DiagnoseController)**: Trích xuất `userId` an toàn từ Claims (`sub`/`NameIdentifier`), loại bỏ hoàn toàn `[FromForm] Guid? userId` (vá IDOR). Bổ sung `GET /api/v1/diagnose/history` với `[Authorize]`.
 
 ### Chặng 3: VERIFY (Nghiệm thu Thực tế - Presence Gates)
-- [ ] Kiểm thử `GET /api/v1/medicines/search` trả về HTTP 200 OK với đúng schema.
-- [ ] Kiểm thử `POST /api/v1/auth/register` tạo người dùng mới thành công, mật khẩu trong DB được băm an toàn (chuỗi bắt đầu bằng `$2a$` hoặc `$2b$`).
-- [ ] Kiểm thử `POST /api/v1/auth/login` đúng mật khẩu trả về JWT Token; sai mật khẩu trả về HTTP 401 Unauthorized.
-- [ ] Kiểm thử `POST /api/v1/diagnose` có Bearer Token thì lưu đúng `userId` của token; không có token vẫn cho phép khám dạng Khách vãng lai (`userId = null`).
+- [x] Kiểm thử `GET /api/v1/medicines/search` trả về HTTP 200 OK với đúng schema (3 loại thuốc kèm `rain_resistant`, `phi_days`, `is_allowed`).
+- [x] Kiểm thử `POST /api/v1/auth/register` tạo người dùng mới thành công, mật khẩu trong DB được băm an toàn BCrypt, nhận JWT Token 7 ngày.
+- [x] Kiểm thử `POST /api/v1/auth/login` đúng mật khẩu trả về JWT Token; sai mật khẩu trả về HTTP 401 Unauthorized.
+- [x] Kiểm thử tài khoản Admin được seed sẵn `admin@lavitree.vn` đăng nhập thành công với role `ADMIN`.
+- [x] Kiểm thử `GET /api/v1/auth/me` chặn không token/sai token, cho phép token hợp lệ.
+- [x] Kiểm thử `GET /api/v1/diagnose/history` yêu cầu token và trả về danh sách lịch sử cá nhân chuẩn định dạng.
+- [x] Nghiệm thu toàn trình 11/11 tests qua `backend/core-api/test_task_a01_auth.py` đạt 100% PASS.
 
 ### Chặng 4: SHIP (Đóng gói & Chờ xác nhận Commit)
-- [ ] Cập nhật trạng thái `TASK-A01` trong `tasks/TODO.md` sang `[x] DONE`.
-- [ ] Ghi nhận kết quả vào `tasks/WORKLOG.md`.
-- [ ] Chạy `git diff` kiểm tra bảo mật, trình bày tóm tắt cho Developer và chờ xác nhận trước khi commit.
+- [x] Cập nhật trạng thái `TASK-A01` trong `tasks/TODO.md` sang `[x] DONE`.
+- [x] Ghi nhận kết quả vào `tasks/WORKLOG.md`.
+- [x] Chạy `git diff` kiểm tra bảo mật, trình bày tóm tắt cho Developer và chờ xác nhận trước khi commit.
