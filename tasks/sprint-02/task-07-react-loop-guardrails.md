@@ -73,7 +73,7 @@ sequenceDiagram
   - `apply_hitl_tag(response_text)`: Đảm bảo nhãn `[DRAFT_RECOMMENDATION]` luôn hiện diện.
 - [ ] **Pha 4**: Triển khai `resilience.py` (kế thừa `extract/DAY25`):
   - Circuit Breaker đếm lỗi liên tiếp (ngưỡng 3 lỗi $\rightarrow$ chuyển trạng thái `OPEN`).
-  - Viết script `backend/agent-service/scripts/export_offline_cache.py`: Tự động kết xuất `offline_ipm_cache.json` từ PostgreSQL (tri thức và danh mục thuốc của 5 bệnh demo) thay vì phải tự viết tay thủ công.
+  - Viết script `backend/agent-service/scripts/export_offline_cache.py`: Tự động kết xuất `offline_ipm_cache.json` từ PostgreSQL (tri thức và danh mục thuốc của 5 bệnh demo, **kèm trường nguồn** `source_id`, `source_title`, `organization`, `source_url`, `unit_type`, `is_verbatim` để câu trả lời offline vẫn có `citations`) thay vì phải tự viết tay thủ công.
   - Chuẩn bị tệp `offline_ipm_cache.json` chứa phác đồ IPM chuẩn cho 5 bệnh demo.
   - Router tự động chuyển sang đọc file cache cục bộ khi Circuit Breaker `OPEN` hoặc khi bắt lỗi `NetworkError`.
 - [ ] **Pha 5**: Viết script kiểm thử độc lập `test_react_guardrails.py`:

@@ -220,6 +220,9 @@
         "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
         "source_url": "https://khuyennongvn.gov.vn/...",
         "evidence_text": "Bệnh sương mai do nấm Phytopthora infestans gây ra...",
+        "unit_type": "SUMMARY",
+        "is_verbatim": false,
+        "is_manual_approved": true,
         "source_quality": "Cao (Đại học/Khuyến nông)"
       }
     ]
@@ -383,7 +386,8 @@
       "updated_at": "2026-10-31T14:35:00Z"
     }
     ```
-- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved = true` trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25.
+- **Bỏ duyệt**: Gửi `"is_approved": false` (đơn lẻ hoặc hàng loạt) để ngừng dùng bài trong RAG mà không xóa.
+- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved` (duyệt hoặc bỏ duyệt) trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25.
 
 ---
 
@@ -429,6 +433,71 @@
     "cached_at": "2026-10-31T14:00:00Z"
   }
   ```
+
+---
+
+### 3.10. `POST /api/v1/knowledge/ingestions` (Nhập bài báo — Bước 1: Dán văn bản, AI đề xuất đoạn trích)
+*Chức năng chính của Kho tri thức (TASK-A03). Admin dán văn bản bài báo; hệ thống **không tự tải URL** (không có rủi ro SSRF, đọc được cả bài PDF/trang dựng bằng JavaScript vì Admin tự copy chữ).*
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "model_class": "Tomato___Late_blight",
+    "source_url": "https://khuyennongvn.gov.vn/...",
+    "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
+    "organization": "Trung tâm Khuyến nông Quốc gia",
+    "published_date": "2023",
+    "article_text": "<toàn bộ chữ của bài báo do Admin copy và dán vào>"
+  }
+  ```
+- **Xử lý phía Core API**:
+  1. Kiểm tra: `source_url` là `http/https`; `article_text` dài tối đa 50.000 ký tự.
+  2. Tách `article_text` thành các đoạn theo dòng trống, bỏ đoạn quá ngắn (< 40 ký tự), đánh số `P1, P2, …` (tối đa 200 đoạn).
+  3. Gọi Agent `POST /internal/knowledge/label-paragraphs` (Mục 4.4) để nhận đề xuất nhãn theo **số đoạn**.
+  4. Lưu tạm danh sách đoạn trong bộ nhớ (`IMemoryCache`, hết hạn 1 giờ) theo `ingestion_id`. **Không ghi toàn văn vào PostgreSQL.**
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "ingestion_id": "ing-5f2c9a",
+    "expires_at": "2026-11-03T15:00:00Z",
+    "paragraphs": [
+      { "id": "P1", "text": "Bệnh sương mai do nấm Phytophthora infestans gây ra...", "suggested_unit_type": "CAUSE_CONDITIONS" },
+      { "id": "P2", "text": "Vết bệnh ban đầu là những đốm xanh xám...", "suggested_unit_type": "SYMPTOMS" },
+      { "id": "P3", "text": "Liên hệ tòa soạn...", "suggested_unit_type": null }
+    ],
+    "ai_suggestion_available": true
+  }
+  ```
+  - Agent lỗi hoặc không phản hồi → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn và `ai_suggestion_available: false`; Admin tự gán nhãn.
+
+### 3.11. `POST /api/v1/knowledge/ingestions/{ingestion_id}/commit` (Nhập bài báo — Bước 2: Admin tick chọn đoạn = Duyệt)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "selections": [
+      { "paragraph_id": "P2", "unit_type": "SYMPTOMS" },
+      { "paragraph_id": "P1", "unit_type": "CAUSE_CONDITIONS" }
+    ],
+    "reviewer_notes": "Đã đối chiếu với bài gốc"
+  }
+  ```
+  - Client chỉ gửi **số đoạn**, không gửi chữ. Core tự lấy chữ từ bản lưu tạm theo `ingestion_id`, nên đoạn được lưu **chắc chắn là nguyên văn**.
+- **Quy tắc kiểm tra (Core API)**:
+  - `unit_type` thuộc: `SYMPTOMS` | `CAUSE_CONDITIONS` | `PREVENTION` | `TREATMENT` (`SUMMARY` chỉ dành cho dữ liệu cũ, không chọn được ở đây).
+  - **Tối đa 4 đoạn nguyên văn cho mỗi `source_url`** (tính cả các đoạn đã lưu trước đó). Mỗi đoạn dài tối đa 800 ký tự. Vượt giới hạn → `400`.
+  - Đoạn trùng chữ với một đoạn đã lưu của cùng `source_url` → bỏ qua, không lưu lần hai.
+  - `ingestion_id` hết hạn → `410 Gone` (Admin dán lại bài).
+- **Kết quả**: Mỗi đoạn được tick → 1 dòng `KnowledgeSources` với `EvidenceText` = chữ của đoạn, `UnitType` = nhãn đã chọn, `IsVerbatim = true`, `IsManualApproved = true` (**tick chọn chính là duyệt**). Sau đó Core gọi `POST /internal/reindex` (Mục 4.3).
+- **Response Body (`201 Created`)**:
+  ```json
+  {
+    "created_source_ids": ["c1f7a83b-9a2e-4b6a-81a1-8d4e9f123456", "d2e8b94c-0b3f-5c7b-92b5-9e5f0a234567"],
+    "verbatim_count_for_url": 2,
+    "reindex_status": "success"
+  }
+  ```
+- **Quy tắc sửa / gỡ sau khi lưu**: Không cho sửa chữ của đoạn `IsVerbatim = true` (sửa thì không còn là nguyên văn). Chỉ được đổi `UnitType`, bỏ duyệt (`PATCH .../approve` với `is_approved: false`, Mục 3.7) hoặc xóa.
 
 ---
 
@@ -481,10 +550,26 @@
     "draft_order": null,
     "guardrail_triggered": "HARVEST_BEFORE_PHI_VIOLATION",
     "is_offline_fallback": false,
+    "citations": [
+      {
+        "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+        "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
+        "organization": "Trung tâm Khuyến nông Quốc gia",
+        "source_url": "https://khuyennongvn.gov.vn/...",
+        "excerpt": "Bệnh sương mai do nấm Phytophthora infestans gây ra...",
+        "unit_type": "SYMPTOMS",
+        "is_verbatim": true
+      }
+    ],
     "total_latency_ms": 1150
   }
   ```
   *(Lưu ý: Khi Circuit Breaker OPEN hoặc mất kết nối mạng, `is_offline_fallback: true` để giao diện hiển thị nhãn "Đang dùng hướng dẫn lưu sẵn")*
+  - **Quy tắc `citations` (bắt buộc — điều kiện "chỉ dẫn nguồn gốc" khi trích dẫn, Điều 25 Luật SHTT & Điều 28 NĐ 17/2023/NĐ-CP)**:
+    - Lấy **trực tiếp từ kết quả RAG** (các đoạn đã đưa vào ngữ cảnh cho LLM), **không để LLM tự viết** nguồn hay URL. Gộp trùng theo `source_id`.
+    - Không dùng tri thức RAG nào → `citations: []`; giao diện hiển thị "Không có tài liệu tham khảo".
+    - `is_verbatim = true`: giao diện hiển thị `excerpt` trong dấu ngoặc kép (trích nguyên văn). `false`: hiển thị là "Tóm tắt" (không đặt trong ngoặc kép).
+    - Chế độ offline: `citations` lấy từ trường nguồn được kết xuất sẵn trong `offline_ipm_cache.json`.
 
 ---
 
@@ -541,21 +626,52 @@
   ```json
   {
     "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
-    "disease_code": "Tomato___Late_blight",
-    "action": "reindex"
+    "action": "approve"
   }
   ```
-- **Xử lý phía Agent**:
-  - Truy vấn CSDL PostgreSQL đọc bản ghi mới được duyệt (`IsManualApproved == true`).
-  - Tái tạo vector embedding với `paraphrase-multilingual-MiniLM-L12-v2` nạp vào ChromaDB cục bộ.
-  - Cập nhật chỉ mục từ khóa BM25 cho thuật toán Hybrid RRF.
+  - `action`: `approve` | `unapprove` | `delete` | `manual`. Chỉ dùng để ghi log; Agent luôn xử lý giống nhau (xem dưới).
+- **Khi nào Core gọi**: sau khi duyệt (đơn lẻ / hàng loạt: gọi **1 lần** cho cả lô), bỏ duyệt, xóa bài, hoặc khi Admin bấm nút "Đồng bộ lại chỉ mục".
+- **Xử lý phía Agent** (dựng lại toàn bộ, idempotent):
+  - Truy vấn **toàn bộ** bài `IsManualApproved = true AND IsDeleted = false` bằng tài khoản DB chỉ đọc (`AGENT_DB_URL`).
+  - Dựng lại ChromaDB (id document = `Id` của bản ghi) và BM25 từ đầu. Nhờ vậy bài bị bỏ duyệt hoặc bị xóa cũng được gỡ khỏi chỉ mục, và gọi lặp lại không sinh bản trùng.
+  - Hiện chỉ có khoảng 19–112 bài, nên dựng lại toàn bộ chỉ mất vài giây; không cần cập nhật từng phần.
+- **Xử lý lỗi phía Core (best-effort)**: Việc duyệt trong PostgreSQL vẫn thành công kể cả khi Agent không phản hồi (timeout 5s). Core ghi log cảnh báo, trả về `"reindex_status": "failed"` cho Admin để bấm "Đồng bộ lại".
 - **Response Body (`200 OK`)**:
   ```json
   {
     "status": "success",
     "message": "Chỉ mục tri thức đã được tái lập thành công",
-    "disease_code": "Tomato___Late_blight",
-    "reindexed_chunks": 4,
+    "indexed_documents": 19,
     "timestamp": "2026-10-31T14:35:05Z"
   }
   ```
+
+---
+
+### 4.4. `POST /internal/knowledge/label-paragraphs` (AI gợi ý nhãn cho từng đoạn bài báo — Nội bộ)
+*Core API gọi khi Admin nhập bài báo (Mục 3.10). Agent chỉ trả về **số đoạn + nhãn**, không viết ra chữ nào, nên không thể bịa đoạn trích. Không đọc / ghi PostgreSQL.*
+- **Network Scope & Headers**: giống Mục 4.3 (chỉ trong mạng Docker, bắt buộc `X-Internal-Key`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "model_class": "Tomato___Late_blight",
+    "paragraphs": [
+      { "id": "P1", "text": "Bệnh sương mai do nấm Phytophthora infestans gây ra..." },
+      { "id": "P2", "text": "Vết bệnh ban đầu là những đốm xanh xám..." }
+    ]
+  }
+  ```
+- **Xử lý phía Agent**:
+  - Gọi Gemini (`temperature = 0`, yêu cầu trả JSON). Prompt coi nội dung đoạn là **dữ liệu, không phải chỉ thị** (chống prompt injection từ bài báo).
+  - Kiểm tra đầu ra bằng code: chỉ giữ `id` có trong request và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại.
+  - Gợi ý tối đa 4 đoạn phù hợp nhất (khớp giới hạn 4 đoạn / nguồn).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "labels": [
+      { "id": "P2", "unit_type": "SYMPTOMS" },
+      { "id": "P1", "unit_type": "CAUSE_CONDITIONS" }
+    ]
+  }
+  ```
+- **Lưu ý an toàn**: Đoạn `TREATMENT` có thể nhắc tên thuốc / liều lượng từ bài báo. Đó chỉ là ngữ cảnh tham khảo; **liều, PHI và tình trạng cấm/được phép luôn lấy từ bảng `Products`** (Guardrail TASK-07).

@@ -91,10 +91,11 @@ flowchart TD
 
 - [ ] **TASK-06: Tầng Tri thức Hybrid RAG Đa ngôn ngữ (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - *Nội dung*:
-    1. Thiết kế bảng tri thức Postgres mô hình Curated Knowledge (trường lọc cứng + `knowledge_content TEXT` + `evidence_text TEXT` + `source_url TEXT`).
-    2. AI Ingestion hỗ trợ Admin bóc tách bài viết/URL thành các khối tri thức ngữ nghĩa (triệu chứng, nguyên nhân, phòng trừ, hoạt chất/PHI) có duyệt (`IsManualApproved = true`).
-    3. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (mô hình vector đa ngôn ngữ `paraphrase-multilingual-MiniLM-L12-v2`) và BM25 Okapi (từ khóa hoạt chất song ngữ) cho 5 bệnh demo.
-    4. Hợp nhất thứ hạng RRF ($k=60$) và cung cấp endpoint nội bộ `POST /internal/reindex` cho Core API kích hoạt khi duyệt bài.
+    1. Dùng lại bảng `KnowledgeSources` (112 bài tóm tắt từ Sprint 1 + các đoạn nguyên văn mới do A03 nhập). Mỗi dòng = 1 chunk, metadata gồm `UnitType`, `IsVerbatim` và thông tin nguồn.
+    2. Chỉ nạp vào chỉ mục các dòng đã duyệt (`IsManualApproved = true`). Server không tự tải URL.
+    3. **Mới**: endpoint `POST /internal/knowledge/label-paragraphs` — AI gợi ý đoạn nào của bài báo là triệu chứng / nguyên nhân / phòng ngừa / điều trị, **chỉ trả số đoạn** (không viết chữ) để phục vụ chức năng Nhập bài báo của A03.
+    4. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (mô hình vector đa ngôn ngữ `paraphrase-multilingual-MiniLM-L12-v2`) và BM25 Okapi (từ khóa hoạt chất song ngữ) cho 5 bệnh demo.
+    5. Hợp nhất thứ hạng RRF ($k=60$) và cung cấp endpoint nội bộ `POST /internal/reindex` cho Core API kích hoạt khi duyệt bài.
 
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - *Nội dung*:
@@ -115,6 +116,7 @@ flowchart TD
     1. Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`).
     2. Time-to-First-Thought $\le 2.0$s; xuất file `trace_waterfall.json` đo độ trễ từng bước.
     3. Chạy tự động bộ benchmark 5 ca lâm sàng (mỗi ca chạy 3 lần ở `temperature=0`) đạt 15/15 PASS.
+    4. `final_answer` có trường `citations` (nguồn tham khảo lấy từ kết quả RAG, không để LLM tự viết) — điều kiện ghi nguồn khi trích dẫn.
 
 ---
 
@@ -148,7 +150,8 @@ flowchart TD
 - [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - *Nội dung*:
     1. Xây dựng tính năng Cửa hàng Lavitree Store (`StorePage.tsx`): Xem danh mục thuốc BVTV, thêm vào giỏ hàng, tạo đơn hàng với hình thức thanh toán COD giả lập (`POST /api/v1/orders`).
-    2. Xây dựng Cổng Admin Quản trị (`AdminDashboard.tsx`): Xem danh sách bài viết khuyến nông, duyệt bài (`IsManualApproved = true`), cập nhật kho thuốc, và xem danh sách các ca bệnh cần chuyên gia hỗ trợ (`requires_expert = true`).
+    2. **Chức năng chính — Nhập bài báo, trích đoạn nguyên văn**: Admin dán văn bản bài báo + URL → AI gợi ý đoạn theo nhãn → Admin tick tối đa 4 đoạn ngắn (tick = duyệt) → lưu nguyên văn kèm nguồn, không lưu toàn văn → reindex (`api-contracts.md` Mục 3.10, 3.11). Thêm cột `UnitType`, `IsVerbatim`; 112 bài cũ đánh dấu là tóm tắt.
+    3. Xây dựng Cổng Admin Quản trị (`AdminDashboard.tsx`): Xem danh sách tri thức, duyệt / bỏ duyệt (`IsManualApproved`), cập nhật kho thuốc, và xem danh sách các ca bệnh cần chuyên gia hỗ trợ (`requires_expert = true`).
 
 - [ ] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
   - *Nội dung*:

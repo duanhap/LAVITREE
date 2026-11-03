@@ -20,6 +20,13 @@ services:
       dockerfile: Dockerfile
     container_name: lavitree-agent-service
     restart: always
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - CORE_API_URL=http://core-api:8080
+      - AGENT_DB_URL=${AGENT_DB_URL:?AGENT_DB_URL must be set (read-only DB user)}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
+    depends_on:
+      - postgres
     ports:
       - "127.0.0.1:8001:8001"
 
@@ -45,6 +52,7 @@ services:
       - Minio__SecretKey=${MINIO_SECRET_KEY}
       - Minio__BucketName=${MINIO_BUCKET_NAME:-lavitree-diagnoses}
       - ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
     depends_on:
       - postgres
