@@ -22,18 +22,20 @@
 ## 2. ĐẶC TẢ KỸ THUẬT (SPECIFICATIONS)
 
 - **Danh sách file tác động** (`frontend/web/`):
-  - `[Chỉnh sửa]` `package.json`, `vite.config.ts` (plugin `@tailwindcss/vite`, alias `@/`), `tsconfig.json` (`paths`), `index.html` (bỏ link Google Fonts, đổi favicon `vite.svg` → `favicon.svg`)
+  - `[Chỉnh sửa]` `package.json`, `vite.config.ts` (plugin `@tailwindcss/vite`, alias `@/`), `tsconfig.json` (`paths`), `index.html` (bỏ link Google Fonts; favicon trỏ tới `favicon-32.png` + `apple-touch-icon.png` có sẵn trong `public/`)
   - `[Thêm mới]` `components.json` (cấu hình shadcn), `src/styles/globals.css` (token theo ui-ux.md mục 2–3)
   - `[Thêm mới]` `src/app/` — `router.tsx`, `providers.tsx`, `AppShell.tsx`, `AdminShell.tsx`, `RequireRole.tsx`, `NotFoundPage.tsx`, `ForbiddenPage.tsx`
   - `[Thêm mới]` `src/components/ui/*` (sinh bởi shadcn), `src/components/common/` — `EmptyState`, `ErrorState`, `PageSkeleton`
   - `[Thêm mới]` `src/features/diagnose/status.ts`, `constants.ts`, `components/ResultStatusBadge.tsx`
   - `[Thêm mới]` `src/lib/api-client.ts`, `utils.ts` (`cn`), `format.ts` (giá, ngày, % theo `vi-VN`)
   - `[Thêm mới]` `src/dev/StyleguidePage.tsx` — route `/dev/styleguide`, **chỉ đăng ký khi `import.meta.env.DEV`**
-  - `[Xóa]` `src/style.css` (CSS mẫu của Vite, không được import), `src/assets/vite.svg`, `src/assets/typescript.svg` (sau khi grep xác nhận không còn nơi dùng)
+  - `[Sử dụng]` Ảnh thương hiệu đã xuất sẵn trong `src/assets/brand/` (logo, avatar Lavi, Lavi 3D) — xem ui-ux.md mục 13. Logo + chữ "Lavitree" đặt trên `AppShell`/`AdminShell`; `lavi-full-512` cho `EmptyState`/404
+  - `[Xóa]` `src/style.css` (CSS mẫu của Vite, không được import), `src/assets/vite.svg`, `src/assets/typescript.svg`, `src/assets/hero.png`, `public/favicon.svg`, `public/icons.svg` (sau khi grep xác nhận không còn nơi dùng)
   - `[Chỉnh sửa]` `src/index.css` → gộp vào `globals.css`; các trang cũ (`DiagnosePage`, `HandbookPage`, `KnowledgeCollectorPage`, `AdminDashboard`) **giữ nguyên nội dung**, chỉ đặt vào trong `AppShell` / `AdminShell`
 - **Android** (`mobile/android/app/src/main/`):
   - `[Chỉnh sửa]` `ui/theme/Color.kt`, `ui/theme/Theme.kt` theo ui-ux.md mục 11 (tắt Dynamic Color, thêm `LavitreeStatusColors`)
   - `[Thêm mới]` `res/font/` — Be Vietnam Pro 400/500/600/700 + `Type.kt`
+  - `[Sử dụng]` `res/drawable-nodpi/` — `lavitree_logo.webp`, `lavi_avatar.webp`, `lavi_3d_happy.webp` (đã xuất sẵn); icon launcher tạo bằng Android Studio *Image Asset* từ `design/brand/logo/lavitree-logo.png`
 
 - **Gói cần cài**:
   ```bash
@@ -56,7 +58,7 @@
 - [ ] **Pha 3 — Khung trang**: `AppShell` (thanh trên ≥ 768px, tab dưới < 768px, 5 mục theo screens.md mục 3), `AdminShell` (thanh bên), router + `RequireRole` + trang 404/403; gắn các trang cũ vào khung.
 - [ ] **Pha 4 — Dùng chung**: `QueryClientProvider`, `Toaster`, `api-client.ts` (`Authorization: Bearer <token>`, lưu token trong localStorage/memory, chuyển lỗi HTTP thành câu tiếng Việt theo ui-ux.md mục 7), `format.ts`, `EmptyState` / `ErrorState` / `PageSkeleton`.
 - [ ] **Pha 5 — Nhãn trạng thái**: `status.ts` (hàm `getResultStatus`), `constants.ts` (câu miễn trừ + 4 nhãn, khớp nguyên văn classes.md), `ResultStatusBadge`.
-- [ ] **Pha 6 — Styleguide**: trang `/dev/styleguide` hiển thị bảng màu, cỡ chữ, các nút, 4 nhãn trạng thái, Alert, Skeleton.
+- [ ] **Pha 6 — Styleguide**: trang `/dev/styleguide` hiển thị bảng màu (gồm 3 màu thương hiệu), cỡ chữ, các nút, 4 nhãn trạng thái, Alert, Skeleton, logo và Lavi ở các cỡ dùng thật.
 - [ ] **Pha 7 — Android theme**: cập nhật `Color.kt`, `Theme.kt`, thêm font; 3 màn hình hiện có (Home/Scan/Result) vẫn build được.
 
 ---
