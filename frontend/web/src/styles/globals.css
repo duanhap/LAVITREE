@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* Nền & Chữ chính - SSOT: ui-ux.md mục 2 */
+    --background: #FAFAF7;
+    --card: #FFFFFF;
+    --card-foreground: #1C2420;
+    --popover: #FFFFFF;
+    --popover-foreground: #1C2420;
+    --foreground: #1C2420;
+    --muted: #EEF3EC;
+    --muted-foreground: #5B6660;
+    --border: #E3E6E1;
+    --input: #E3E6E1;
+
+    /* Tương tác & Nút */
+    --primary: #2E6B3F;
+    --primary-foreground: #FFFFFF;
+    --primary-hover: #245633;
+    --secondary: #EEF3EC;
+    --secondary-foreground: #2E6B3F;
+    --accent: #E6F7F0;
+    --accent-foreground: #2E6B3F;
+    --destructive: #B91C1C;
+    --destructive-foreground: #FFFFFF;
+    --ring: #2E6B3F;
+    --radius: 0.75rem;
+
+    /* 4 Màu trạng thái chẩn đoán (Tách biệt khỏi nút bấm - SSOT: ui-ux.md mục 2 & classes.md) */
+    --status-ok: #115E59;
+    --status-ok-bg: #CCFBF1;
+    --status-confusion: #92400E;
+    --status-confusion-bg: #FEF3C7;
+    --status-uncertain: #B91C1C;
+    --status-uncertain-bg: #FEE2E2;
+    --status-ood: #475569;
+    --status-ood-bg: #F1F5F9;
+    --info: #1D4ED8;
+    --info-bg: #DBEAFE;
+
+    /* Màu thương hiệu Lavitree (Trang trí / Lavi mascot) */
+    --brand-mint: #A6E3CC;
+    --brand-mint-soft: #E6F7F0;
+    --brand-glow: #5EEAD4;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Status Tokens */
+  --color-status-ok: var(--status-ok);
+  --color-status-ok-bg: var(--status-ok-bg);
+  --color-status-confusion: var(--status-confusion);
+  --color-status-confusion-bg: var(--status-confusion-bg);
+  --color-status-uncertain: var(--status-uncertain);
+  --color-status-uncertain-bg: var(--status-uncertain-bg);
+  --color-status-ood: var(--status-ood);
+  --color-status-ood-bg: var(--status-ood-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+
+  /* Brand Tokens */
+  --color-brand-mint: var(--brand-mint);
+  --color-brand-mint-soft: var(--brand-mint-soft);
+  --color-brand-glow: var(--brand-glow);
+
+  /* Typography */
+  --font-sans: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "rlig" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* Lớp tương thích cho các màn hình nguyên mẫu cũ (DiagnosePage, HandbookPage, KnowledgeCollectorPage, AdminDashboard) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+}
+.btn-outline:hover {
+  background: var(--secondary);
+}
+.badge-success { background: var(--status-ok-bg); color: var(--status-ok); }
+.badge-warning { background: var(--status-confusion-bg); color: var(--status-confusion); }
+.badge-danger { background: var(--status-uncertain-bg); color: var(--status-uncertain); }
