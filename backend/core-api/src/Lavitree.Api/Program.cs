@@ -1,15 +1,19 @@
 using System;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using System.Threading.RateLimiting;
 using Lavitree.Application.Interfaces;
 using Lavitree.Infrastructure.Persistence;
 using Lavitree.Infrastructure.Services;
-using Microsoft.AspNetCore.HttpOverrides;
 
 // 0. Load .env file (Traverse up to find .env in project or root directory)
 DotNetEnv.Env.TraversePath().Load();
@@ -51,7 +55,44 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
 // 3. Register MinIO Object Storage Service
 builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 
-// 4. Rate Limiting Configuration (diagnose_policy partitioned per client IP)
+// 4. Register Auth Services (Password Hasher & JWT Token Service)
+builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
+builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
+// 5. Authentication & JWT Bearer Configuration (Fail-Closed: Tối thiểu 32 ký tự, không hardcode secret)
+var jwtSecretKey = Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
+    ?? builder.Configuration["Jwt:SecretKey"]
+    ?? throw new InvalidOperationException("JWT_SECRET_KEY chưa được cấu hình trong biến môi trường hoặc file .env!");
+
+if (jwtSecretKey.Length < 32)
+{
+    throw new InvalidOperationException("JWT_SECRET_KEY phải có độ dài tối thiểu 32 ký tự để đảm bảo an toàn HMAC-SHA256!");
+}
+
+var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "LavitreeCoreApi";
+var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "LavitreeClients";
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecretKey)),
+        ValidateIssuer = true,
+        ValidIssuer = jwtIssuer,
+        ValidateAudience = true,
+        ValidAudience = jwtAudience,
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.Zero
+    };
+});
+
+// 6. Rate Limiting Configuration (diagnose_policy partitioned per client IP)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
@@ -80,7 +121,7 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
 });
 
-// 5. CORS Configuration (Restricted to frontend domains)
+// 7. CORS Configuration (Restricted to frontend domains)
 builder.Services.AddCors(options =>
 {
     var corsOriginsEnv = Environment.GetEnvironmentVariable("CORS_ALLOWED_ORIGINS");
@@ -102,11 +143,26 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new() { Title = "Lavitree Core Web API", Version = "v1" });
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "Nhập token JWT dạng: Bearer {token}",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+    c.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecuritySchemeReference("Bearer"),
+            new List<string>()
+        }
+    });
 });
 
 var app = builder.Build();
 
-// 6. HTTP Request Pipeline
+// 8. HTTP Request Pipeline
 app.UseForwardedHeaders();
 
 if (app.Environment.IsDevelopment())
@@ -120,6 +176,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowFrontend");
 app.UseRateLimiter();
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 

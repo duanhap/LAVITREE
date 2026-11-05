@@ -205,4 +205,55 @@ public class VerifiedSourceDto
     public string Url { get; set; } = string.Empty;
 }
 
+public class DiagnosisHistoryItemDto
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; set; }
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("plant_name")]
+    public string PlantName { get; set; } = string.Empty;
+
+    [JsonPropertyName("disease_name")]
+    public string DiseaseName { get; set; } = string.Empty;
+
+    [JsonPropertyName("class_code")]
+    public string ClassCode { get; set; } = string.Empty;
+
+    [JsonPropertyName("confidence")]
+    public float Confidence { get; set; }
+
+    [JsonPropertyName("is_uncertain")]
+    public bool IsUncertain { get; set; }
+
+    [JsonPropertyName("recovery_status")]
+    public string RecoveryStatus { get; set; } = "Đang theo dõi";
+
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
+
+    [JsonPropertyName("original_image_url")]
+    public string OriginalImageUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("gradcam_image_url")]
+    public string? GradcamImageUrl { get; set; }
+}
+
+public class DiagnosisHistoryResponseDto
+{
+    [JsonPropertyName("total_records")]
+    public int TotalRecords { get; set; }
+
+    [JsonPropertyName("page")]
+    public int Page { get; set; }
+
+    [JsonPropertyName("page_size")]
+    public int PageSize { get; set; }
+
+    [JsonPropertyName("items")]
+    public List<DiagnosisHistoryItemDto> Items { get; set; } = new();
+}
+
 #endregion

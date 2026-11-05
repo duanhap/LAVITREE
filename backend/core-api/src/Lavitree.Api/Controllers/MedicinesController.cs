@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
 using Lavitree.Infrastructure.Persistence;
 
 namespace Lavitree.Api.Controllers;
@@ -177,17 +178,40 @@ public class MedicinesController : ControllerBase
 
     public class MedicineItemDto
     {
+        [JsonPropertyName("id")]
         public int Id { get; set; }
+
+        [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("active_ingredient")]
         public string ActiveIngredient { get; set; } = string.Empty;
+
+        [JsonPropertyName("medicine_type")]
         public string MedicineType { get; set; } = "Hóa học";
+
+        [JsonPropertyName("price")]
         public decimal Price { get; set; }
+
+        [JsonPropertyName("dosage_instruction")]
         public string DosageInstruction { get; set; } = string.Empty;
+
+        [JsonPropertyName("phi_days")]
         public int PhiDays { get; set; } = 7;
+
+        [JsonPropertyName("is_allowed")]
         public bool IsAllowed { get; set; } = true;
+
+        [JsonPropertyName("rain_resistant")]
         public bool RainResistant { get; set; } = false;
+
+        [JsonPropertyName("stock_quantity")]
         public int StockQuantity { get; set; } = 100;
+
+        [JsonPropertyName("image_url")]
         public string ImageUrl { get; set; } = string.Empty;
+
+        [JsonPropertyName("target_diseases")]
         public List<string> TargetDiseases { get; set; } = new();
     }
 }
