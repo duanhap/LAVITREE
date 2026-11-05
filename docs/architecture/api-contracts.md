@@ -88,9 +88,9 @@
 *Nông dân gửi ảnh $\rightarrow$ Core API gọi AI $\rightarrow$ Lấy hướng dẫn xử lý chuẩn IPM & vật tư từ DB $\rightarrow$ Lưu lịch sử $\rightarrow$ Trả kết quả trọn gói.*
 - **Content-Type**: `multipart/form-data`
 - **Request Form**:
-  - `image`: File ảnh lá chụp từ camera/gallery.
-  - `userId` *(UUID, optional)*: Mã người dùng đăng nhập.
+  - `image`: File ảnh lá chụp từ camera/gallery (Bắt buộc).
   - `notes` *(string, optional)*: Ghi chú của nông dân (Ví dụ: "Vườn cà chua 2 sào").
+  - *(Bảo mật - Vá IDOR)*: Đã loại bỏ hoàn toàn tham số `userId` khỏi Form data. Hệ thống tự động trích xuất `userId` từ Header `Authorization: Bearer <jwt_token>` nếu người dùng đã đăng nhập, hoặc gán `null` cho khách vãng lai.
 
 - **Response Body (`200 OK`)**:
   ```json
@@ -176,21 +176,28 @@
 ---
 
 
-### 3.2. `GET /api/v1/diagnose/history` (Lịch sử khám bệnh)
-- **Query Params**: `userId`, `page=1`, `pageSize=10`
+### 3.2. `GET /api/v1/diagnose/history` (Lịch sử khám bệnh cá nhân)
+- **Headers**: `Authorization: Bearer <jwt_token>` (Bắt buộc; trích xuất `userId` trực tiếp từ JWT Claims, bảo mật chống rò rỉ dữ liệu chẩn đoán của người dùng khác)
+- **Query Params**: `page=1` (mặc định: 1), `pageSize=10` (mặc định: 10, tối đa: 50)
+- **Lưu ý nghiệp vụ**: Bỏ hẳn tham số `userId` trên Query String để ngăn chặn lỗ hổng IDOR (Insecure Direct Object References).
 - **Response Body (`200 OK`)**:
   ```json
   {
     "total_records": 12,
+    "page": 1,
+    "page_size": 10,
     "items": [
       {
         "id": "a1b2c3d4-...",
         "created_at": "2026-10-26T14:30:00Z",
         "plant_name": "Cà chua",
         "disease_name": "Bệnh mốc sương cà chua",
+        "class_code": "Tomato___Late_blight",
         "confidence": 0.9462,
+        "is_uncertain": false,
         "recovery_status": "Đang theo dõi",
-        "thumbnail_url": "/uploads/diagnoses/20261026_orig.jpg"
+        "original_image_url": "http://localhost:3000/lavitree-diagnoses/a1b2c3d4_orig.jpg",
+        "gradcam_image_url": "http://localhost:3000/lavitree-diagnoses/a1b2c3d4_cam.jpg"
       }
     ]
   }
@@ -213,11 +220,284 @@
         "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
         "source_url": "https://khuyennongvn.gov.vn/...",
         "evidence_text": "Bệnh sương mai do nấm Phytopthora infestans gây ra...",
+        "unit_type": "SUMMARY",
+        "is_verbatim": false,
+        "is_manual_approved": true,
         "source_quality": "Cao (Đại học/Khuyến nông)"
       }
     ]
   }
   ```
+
+---
+
+### 3.4. `GET /api/v1/medicines/search` (Tra cứu Danh mục Thuốc BVTV cho Agent MCP & Store)
+*Giao ước Ngày Đầu Tiên (Day 1 Contract) phục vụ công cụ `query_pesticide_store` của FastMCP Server*
+- **Query Params**: 
+  - `diseaseCode` (string, optional, ví dụ `Tomato___Late_blight`)
+  - `requireRainResistant` (boolean, optional, mặc định `false`)
+  - `allowedOnly` (boolean, optional, mặc định `true`)
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "total": 3,
+    "disease_code": "Tomato___Late_blight",
+    "items": [
+      {
+        "id": "11111111-2222-3333-4444-555555555551",
+        "name": "Ridomil Gold 68WG",
+        "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+        "medicine_type": "Hóa học",
+        "price": 65000,
+        "dosage_instruction": "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
+        "phi_days": 7,
+        "is_allowed": true,
+        "rain_resistant": true,
+        "stock_quantity": 150,
+        "image_url": "/lavitree-diagnoses/products/ridomil-gold.png"
+      },
+      {
+        "id": "11111111-2222-3333-4444-555555555552",
+        "name": "Antracol 70WP",
+        "active_ingredient": "Propineb 700g/kg + Kẽm (Zn++)",
+        "medicine_type": "Hóa học",
+        "price": 45000,
+        "dosage_instruction": "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+        "phi_days": 7,
+        "is_allowed": true,
+        "rain_resistant": false,
+        "stock_quantity": 120,
+        "image_url": "/lavitree-diagnoses/products/antracol.png"
+      },
+      {
+        "id": "11111111-2222-3333-4444-555555555553",
+        "name": "Chế phẩm sinh học Trichoderma Bacillus",
+        "active_ingredient": "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+        "medicine_type": "Sinh học",
+        "price": 55000,
+        "dosage_instruction": "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+        "phi_days": 0,
+        "is_allowed": true,
+        "rain_resistant": true,
+        "stock_quantity": 200,
+        "image_url": "/lavitree-diagnoses/products/trichoderma.png"
+      }
+    ]
+  }
+  ```
+
+---
+
+  *(Lưu ý về URL ảnh: Backend trả về đường dẫn tương đối `/lavitree-diagnoses/products/...` hoặc tự động tiền tố từ biến môi trường `MINIO_PUBLIC_URL`. Nginx tự động reverse proxy đường dẫn `/lavitree-diagnoses/` sang MinIO container port 9000. Nhờ đó, cả ở localhost lẫn Production server trên AWS EC2 hay domain thật, ảnh đều hiển thị mượt mà không bị lỗi hardcode localhost).*
+
+---
+
+### 3.5. `POST /api/v1/auth/register` & `POST /api/v1/auth/login` (Xác thực JWT Nông dân & Admin)
+- **POST `/api/v1/auth/register`**:
+  - Request: `{ "email": "farmer@lavitree.vn", "password": "secure_password", "full_name": "Nguyễn Văn Nông", "phone_number": "0987654321" }`
+  - Response (`201 Created`):
+    ```json
+    {
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "token_type": "Bearer",
+      "expires_in": 86400,
+      "user": {
+        "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+        "email": "farmer@lavitree.vn",
+        "full_name": "Nguyễn Văn Nông",
+        "role": "FARMER"
+      }
+    }
+    ```
+- **POST `/api/v1/auth/login`**:
+  - Request: `{ "email": "farmer@lavitree.vn", "password": "secure_password" }`
+  - Response (`200 OK`): Cấu trúc token tương tự register.
+
+---
+
+---
+
+### 3.6. `POST /api/v1/orders` (Tạo đơn hàng Vật tư Nông nghiệp - COD)
+- **Headers**: `Authorization: Bearer <jwt_token>` (Bắt buộc; trích xuất `userId` từ token claims).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "items": [
+      { "product_id": 1, "quantity": 2 },
+      { "product_id": 3, "quantity": 1 }
+    ],
+    "shipping_address": "Xã Nghĩa Bình, Huyện Nghĩa Hưng, Nam Định",
+    "phone_number": "0987654321",
+    "payment_method": "COD"
+  }
+  ```
+- **Quy tắc Nghiệp vụ & Bảo mật**:
+  - Backend Core API **tự truy vấn bảng `Products`** để tính lại đơn giá và tổng tiền, **kiểm tra `IsAllowed == true`** (từ chối bán thuốc bị cấm).
+  - Tuyệt đối không nhận giá tiền (`price`) từ Client hay Agent gửi lên.
+- **Response Body (`201 Created`)**:
+  ```json
+  {
+    "order_id": "ord-778899aa",
+    "total_amount": 185000,
+    "payment_method": "COD",
+    "order_status": "Pending",
+    "created_at": "2026-10-31T14:30:00Z"
+  }
+  ```
+
+---
+
+### 3.7. `PATCH /api/v1/knowledge/sources/{id}/approve` & `PATCH /api/v1/knowledge/sources/approve-batch` (Duyệt Nguồn Tri thức Đơn lẻ & Hàng loạt - HITL)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (Bắt buộc tài khoản có Claim `role: ADMIN`).
+- **Endpoint duyệt 1 bài**: `PATCH /api/v1/knowledge/sources/{id}/approve`
+  - **Request Body (`application/json`)**:
+    ```json
+    {
+      "is_approved": true,
+      "reviewer_notes": "Đã đối chiếu hoạt chất hợp lệ theo Thông tư Cục BVTV"
+    }
+    ```
+  - **Response Body (`200 OK`)**:
+    ```json
+    {
+      "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+      "is_manual_approved": true,
+      "updated_at": "2026-10-31T14:35:00Z"
+    }
+    ```
+- **Endpoint duyệt hàng loạt (Bulk Approve)**: `PATCH /api/v1/knowledge/sources/approve-batch`
+  - *Mục đích*: Cho phép Admin chọn nhiều bài viết (hoặc duyệt toàn bộ bài của 5 bệnh demo hạt nhân) chỉ trong 1 cú click.
+  - **Request Body (`application/json`)**:
+    ```json
+    {
+      "source_ids": [
+        "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+        "11111111-2222-3333-4444-555555555555"
+      ],
+      "is_approved": true,
+      "reviewer_notes": "Duyệt hàng loạt bài viết chuẩn cho 5 bệnh demo hạt nhân"
+    }
+    ```
+  - **Response Body (`200 OK`)**:
+    ```json
+    {
+      "approved_count": 2,
+      "status": "success",
+      "updated_at": "2026-10-31T14:35:00Z"
+    }
+    ```
+- **Bỏ duyệt**: Gửi `"is_approved": false` (đơn lẻ hoặc hàng loạt) để ngừng dùng bài trong RAG mà không xóa.
+- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved` (duyệt hoặc bỏ duyệt) trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25.
+
+---
+
+### 3.8. `POST /api/v1/diagnose/{id}/request-expert` (Chuyển ca bệnh khó cho Chuyên gia / Bác sĩ)
+- **Headers**: `Authorization: Bearer <jwt_token>`
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "farmer_notes": "Vết bệnh lan nhanh dù đã cắt tỉa lá và cách ly"
+  }
+  ```
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "diagnosis_id": "a1b2c3d4-...",
+    "requires_expert": true,
+    "message": "Đã gửi thông tin ca bệnh tới Bác sĩ Cây trồng phụ trách khu vực."
+  }
+  ```
+
+---
+
+### 3.9. `GET /api/v1/weather` (Tra cứu Thời tiết Cục bộ kèm Bộ nhớ đệm 1 Giờ)
+*Phục vụ công cụ `check_weather_risk` của FastMCP Agent và màn hình tra cứu của Nông dân*
+- **Query Params**:
+  - `location` (string, required, ví dụ `Hà Nam` hoặc `Hà Nội`)
+- **Headers**: Tùy chọn `Authorization: Bearer <token>`
+- **Cơ chế Hoạt động**:
+  - Core API đóng vai trò Reverse Proxy gọi tới dịch vụ khí tượng (OpenWeatherMap API hoặc mock provider).
+  - Áp dụng bộ nhớ đệm `IMemoryCache` thời hạn **1 giờ (TTL = 3600s)** theo khóa địa danh chuẩn hóa.
+  - Tránh lãng phí quota API bên ngoài và tối ưu độ trễ phản hồi (< 20ms khi cache hit).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "location": "Hà Nam",
+    "temperature_c": 28.5,
+    "humidity_percent": 92,
+    "rainfall_probability_percent": 85,
+    "rainfall_mm": 20,
+    "is_rain": true,
+    "risk_level": "HIGH",
+    "recommendation": "Nguy cơ mưa rửa trôi cao trong 12 giờ tới. Tuyệt đối không phun thuốc trừ bệnh không kháng nước.",
+    "cached_at": "2026-10-31T14:00:00Z"
+  }
+  ```
+
+---
+
+### 3.10. `POST /api/v1/knowledge/ingestions` (Nhập bài báo — Bước 1: Dán văn bản, AI đề xuất đoạn trích)
+*Chức năng chính của Kho tri thức (TASK-A03). Admin dán văn bản bài báo; hệ thống **không tự tải URL** (không có rủi ro SSRF, đọc được cả bài PDF/trang dựng bằng JavaScript vì Admin tự copy chữ).*
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "model_class": "Tomato___Late_blight",
+    "source_url": "https://khuyennongvn.gov.vn/...",
+    "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
+    "organization": "Trung tâm Khuyến nông Quốc gia",
+    "published_date": "2023",
+    "article_text": "<toàn bộ chữ của bài báo do Admin copy và dán vào>"
+  }
+  ```
+- **Xử lý phía Core API**:
+  1. Kiểm tra: `source_url` là `http/https`; `article_text` dài tối đa 50.000 ký tự.
+  2. Tách `article_text` thành các đoạn theo dòng trống, bỏ đoạn quá ngắn (< 40 ký tự), đánh số `P1, P2, …` (tối đa 200 đoạn).
+  3. Gọi Agent `POST /internal/knowledge/label-paragraphs` (Mục 4.4) để nhận đề xuất nhãn theo **số đoạn**.
+  4. Lưu tạm danh sách đoạn trong bộ nhớ (`IMemoryCache`, hết hạn 1 giờ) theo `ingestion_id`. **Không ghi toàn văn vào PostgreSQL.**
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "ingestion_id": "ing-5f2c9a",
+    "expires_at": "2026-11-03T15:00:00Z",
+    "paragraphs": [
+      { "id": "P1", "text": "Bệnh sương mai do nấm Phytophthora infestans gây ra...", "suggested_unit_type": "CAUSE_CONDITIONS" },
+      { "id": "P2", "text": "Vết bệnh ban đầu là những đốm xanh xám...", "suggested_unit_type": "SYMPTOMS" },
+      { "id": "P3", "text": "Liên hệ tòa soạn...", "suggested_unit_type": null }
+    ],
+    "ai_suggestion_available": true
+  }
+  ```
+  - Agent lỗi hoặc không phản hồi → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn và `ai_suggestion_available: false`; Admin tự gán nhãn.
+
+### 3.11. `POST /api/v1/knowledge/ingestions/{ingestion_id}/commit` (Nhập bài báo — Bước 2: Admin tick chọn đoạn = Duyệt)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "selections": [
+      { "paragraph_id": "P2", "unit_type": "SYMPTOMS" },
+      { "paragraph_id": "P1", "unit_type": "CAUSE_CONDITIONS" }
+    ],
+    "reviewer_notes": "Đã đối chiếu với bài gốc"
+  }
+  ```
+  - Client chỉ gửi **số đoạn**, không gửi chữ. Core tự lấy chữ từ bản lưu tạm theo `ingestion_id`, nên đoạn được lưu **chắc chắn là nguyên văn**.
+- **Quy tắc kiểm tra (Core API)**:
+  - `unit_type` thuộc: `SYMPTOMS` | `CAUSE_CONDITIONS` | `PREVENTION` | `TREATMENT` (`SUMMARY` chỉ dành cho dữ liệu cũ, không chọn được ở đây).
+  - **Tối đa 4 đoạn nguyên văn cho mỗi `source_url`** (tính cả các đoạn đã lưu trước đó). Mỗi đoạn dài tối đa 800 ký tự. Vượt giới hạn → `400`.
+  - Đoạn trùng chữ với một đoạn đã lưu của cùng `source_url` → bỏ qua, không lưu lần hai.
+  - `ingestion_id` hết hạn → `410 Gone` (Admin dán lại bài).
+- **Kết quả**: Mỗi đoạn được tick → 1 dòng `KnowledgeSources` với `EvidenceText` = chữ của đoạn, `UnitType` = nhãn đã chọn, `IsVerbatim = true`, `IsManualApproved = true` (**tick chọn chính là duyệt**). Sau đó Core gọi `POST /internal/reindex` (Mục 4.3).
+- **Response Body (`201 Created`)**:
+  ```json
+  {
+    "created_source_ids": ["c1f7a83b-9a2e-4b6a-81a1-8d4e9f123456", "d2e8b94c-0b3f-5c7b-92b5-9e5f0a234567"],
+    "verbatim_count_for_url": 2,
+    "reindex_status": "success"
+  }
+  ```
+- **Quy tắc sửa / gỡ sau khi lưu**: Không cho sửa chữ của đoạn `IsVerbatim = true` (sửa thì không còn là nguyên văn). Chỉ được đổi `UnitType`, bỏ duyệt (`PATCH .../approve` với `is_approved: false`, Mục 3.7) hoặc xóa.
 
 ---
 
@@ -236,11 +516,13 @@
     "current_disease_code": "Tomato___Late_blight"
   }
   ```
+  - `conversation_id`: (string, optional). Nếu Client không gửi, Server Agent tự sinh `UUIDv4` mới và trả về ngay trong sự kiện `trace_start`.
+  - `harvest_days_left`: (int, optional). Nếu Client bỏ trống (null/omitted), Agent mặc định giả định tình huống cận thu hoạch an toàn nhất ($DaysToHarvest = 0 \rightarrow$ chặn toàn bộ thuốc hóa học) và gắn câu hỏi yêu cầu nông dân xác nhận lại số ngày dự kiến thu hoạch trong câu trả lời.
 
 - **Streaming Response (`text/event-stream`)**:
   ```text
   event: trace_start
-  data: {"trace_id": "tr-987654", "status": "thinking"}
+  data: {"trace_id": "tr-987654", "conversation_id": "conv-a1b2c3d4", "status": "thinking"}
 
   event: thought
   data: {"step": 1, "thought": "Cần kiểm tra thời tiết tại Hà Nam chiều nay để xem có nguy cơ mưa rửa trôi không."}
@@ -264,12 +546,30 @@
   event: final_answer
   data: {
     "trace_id": "tr-987654",
-    "answer": "Chào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể quét nước vôi trong hoặc dùng chế phẩm Nano Bạc hữu cơ cách ly 0 ngày sau cơn mưa.",
+    "answer": "[DRAFT_RECOMMENDATION]\nChào bác! Hệ thống nhận diện vườn cà chua chỉ còn 2 ngày nữa là thu hoạch và chiều nay tại Hà Nam có mưa to (20mm):\n1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Các loại thuốc như Ridomil Gold có thời gian cách ly (PHI) tối thiểu 7 ngày, nếu phun sẽ gây tồn dư độc hại.\n2. ✂️ BIỆN PHÁP CƠ HỌC: Cắt tỉa ngay các lá bị sương mai, cho vào bao kín mang đi tiêu hủy xa vườn.\n3. 🌿 BIỆN PHÁP SINH HỌC: Bác sử dụng chế phẩm sinh học Trichoderma Bacillus (thời gian cách ly 0 ngày) tưới gốc hoặc bọc che luống để ngăn nấm lây lan.",
     "draft_order": null,
-    "guardrail_triggered": "PHI_PROTECTION_LESS_THAN_3_DAYS",
+    "guardrail_triggered": "HARVEST_BEFORE_PHI_VIOLATION",
+    "is_offline_fallback": false,
+    "citations": [
+      {
+        "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+        "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
+        "organization": "Trung tâm Khuyến nông Quốc gia",
+        "source_url": "https://khuyennongvn.gov.vn/...",
+        "excerpt": "Bệnh sương mai do nấm Phytophthora infestans gây ra...",
+        "unit_type": "SYMPTOMS",
+        "is_verbatim": true
+      }
+    ],
     "total_latency_ms": 1150
   }
   ```
+  *(Lưu ý: Khi Circuit Breaker OPEN hoặc mất kết nối mạng, `is_offline_fallback: true` để giao diện hiển thị nhãn "Đang dùng hướng dẫn lưu sẵn")*
+  - **Quy tắc `citations` (bắt buộc — điều kiện "chỉ dẫn nguồn gốc" khi trích dẫn, Điều 25 Luật SHTT & Điều 28 NĐ 17/2023/NĐ-CP)**:
+    - Lấy **trực tiếp từ kết quả RAG** (các đoạn đã đưa vào ngữ cảnh cho LLM), **không để LLM tự viết** nguồn hay URL. Gộp trùng theo `source_id`.
+    - Không dùng tri thức RAG nào → `citations: []`; giao diện hiển thị "Không có tài liệu tham khảo".
+    - `is_verbatim = true`: giao diện hiển thị `excerpt` trong dấu ngoặc kép (trích nguyên văn). `false`: hiển thị là "Tóm tắt" (không đặt trong ngoặc kép).
+    - Chế độ offline: `citations` lấy từ trường nguồn được kết xuất sẵn trong `offline_ipm_cache.json`.
 
 ---
 
@@ -313,3 +613,65 @@
     ]
   }
   ```
+
+---
+
+### 4.3. `POST /internal/reindex` (Kích hoạt Tái lập Chỉ mục Vector & BM25 Nội bộ)
+*Endpoint nội bộ dành cho Core API thông báo Agent Service khi Admin duyệt bài viết tri thức mới (`PATCH /api/v1/knowledge/sources/{id}/approve`)*
+- **Network Scope**: Chỉ gọi nội bộ giữa các container trong Docker Network. Nginx chặn toàn bộ đường dẫn ngoài `/internal/*`.
+- **Headers**:
+  - `Content-Type: application/json`
+  - `X-Internal-Key: <INTERNAL_API_SECRET>` (Bắt buộc; từ chối `401 Unauthorized` nếu sai key)
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",
+    "action": "approve"
+  }
+  ```
+  - `action`: `approve` | `unapprove` | `delete` | `manual`. Chỉ dùng để ghi log; Agent luôn xử lý giống nhau (xem dưới).
+- **Khi nào Core gọi**: sau khi duyệt (đơn lẻ / hàng loạt: gọi **1 lần** cho cả lô), bỏ duyệt, xóa bài, hoặc khi Admin bấm nút "Đồng bộ lại chỉ mục".
+- **Xử lý phía Agent** (dựng lại toàn bộ, idempotent):
+  - Truy vấn **toàn bộ** bài `IsManualApproved = true AND IsDeleted = false` bằng tài khoản DB chỉ đọc (`AGENT_DB_URL`).
+  - Dựng lại ChromaDB (id document = `Id` của bản ghi) và BM25 từ đầu. Nhờ vậy bài bị bỏ duyệt hoặc bị xóa cũng được gỡ khỏi chỉ mục, và gọi lặp lại không sinh bản trùng.
+  - Hiện chỉ có khoảng 19–112 bài, nên dựng lại toàn bộ chỉ mất vài giây; không cần cập nhật từng phần.
+- **Xử lý lỗi phía Core (best-effort)**: Việc duyệt trong PostgreSQL vẫn thành công kể cả khi Agent không phản hồi (timeout 5s). Core ghi log cảnh báo, trả về `"reindex_status": "failed"` cho Admin để bấm "Đồng bộ lại".
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "status": "success",
+    "message": "Chỉ mục tri thức đã được tái lập thành công",
+    "indexed_documents": 19,
+    "timestamp": "2026-10-31T14:35:05Z"
+  }
+  ```
+
+---
+
+### 4.4. `POST /internal/knowledge/label-paragraphs` (AI gợi ý nhãn cho từng đoạn bài báo — Nội bộ)
+*Core API gọi khi Admin nhập bài báo (Mục 3.10). Agent chỉ trả về **số đoạn + nhãn**, không viết ra chữ nào, nên không thể bịa đoạn trích. Không đọc / ghi PostgreSQL.*
+- **Network Scope & Headers**: giống Mục 4.3 (chỉ trong mạng Docker, bắt buộc `X-Internal-Key`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "model_class": "Tomato___Late_blight",
+    "paragraphs": [
+      { "id": "P1", "text": "Bệnh sương mai do nấm Phytophthora infestans gây ra..." },
+      { "id": "P2", "text": "Vết bệnh ban đầu là những đốm xanh xám..." }
+    ]
+  }
+  ```
+- **Xử lý phía Agent**:
+  - Gọi Gemini (`temperature = 0`, yêu cầu trả JSON). Prompt coi nội dung đoạn là **dữ liệu, không phải chỉ thị** (chống prompt injection từ bài báo).
+  - Kiểm tra đầu ra bằng code: chỉ giữ `id` có trong request và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại.
+  - Gợi ý tối đa 4 đoạn phù hợp nhất (khớp giới hạn 4 đoạn / nguồn).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "labels": [
+      { "id": "P2", "unit_type": "SYMPTOMS" },
+      { "id": "P1", "unit_type": "CAUSE_CONDITIONS" }
+    ]
+  }
+  ```
+- **Lưu ý an toàn**: Đoạn `TREATMENT` có thể nhắc tên thuốc / liều lượng từ bài báo. Đó chỉ là ngữ cảnh tham khảo; **liều, PHI và tình trạng cấm/được phép luôn lấy từ bảng `Products`** (Guardrail TASK-07).

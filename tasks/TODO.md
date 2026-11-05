@@ -56,7 +56,7 @@
 - [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (PostgreSQL Hybrid Schema)
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Bảng tri thức PostgreSQL mô hình Hybrid (trường cấu trúc lọc cứng + `full_content TEXT` + `chunks JSONB`), AI Ingestion trích xuất URL có Admin duyệt (HITL), đồng bộ ChromaDB cục bộ + BM25 Okapi cho 5 bệnh demo, đạt Recall@3 đối chứng 100%.
+  - Đầu ra: Tận dụng trực tiếp dữ liệu tri thức đã duyệt của 5 bệnh demo trong `KnowledgeSources` từ Sprint 1 (mỗi dòng = 1 chunk, metadata gồm `UnitType`, `IsVerbatim`), script `sync_index.py` tự động đồng bộ sang ChromaDB cục bộ + BM25 Okapi, đạt Recall@3 đối chứng $\ge 90\%$, endpoint `POST /internal/knowledge/label-paragraphs` gợi ý nhãn đoạn (chỉ trả số đoạn) hỗ trợ A03, endpoint `/internal/reindex` tự động tái tạo chỉ mục khi Admin duyệt/bỏ duyệt bài.
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
   - Trạng thái: `[ ] PENDING`
@@ -68,13 +68,17 @@
 - [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`), TTFT $\le 2.0$s, xuất `trace_waterfall.json`, bộ benchmark chạy tự động 5 ca lâm sàng (x3 lần, temp=0) đạt 15/15 PASS.
+  - Đầu ra: Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`), trường `citations` trích dẫn trực tiếp từ RAG (chống LLM bịa URL), TTFT $\le 2.0$s, xuất `trace_waterfall.json`, bộ benchmark chạy tự động 5 ca lâm sàng (x3 lần, temp=0) đạt 15/15 PASS.
 
 ### 👨‍💻 Phân công Thành viên A (System, Auth, Web & Early Mobile):
-- [ ] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
+- [x] **TASK-A00: Nền tảng Giao diện — Tailwind v4, shadcn/ui & Design Tokens** *(P0 - Đầu Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] PENDING`
-  - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (bỏ `userId` từ form), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B.
+  - Trạng thái: `[x] DONE` (Hoàn thành 7 pha: Tailwind v4 + shadcn/ui Radix, Be Vietnam Pro font nội bộ, token chuẩn hóa ui-ux.md, AppShell/AdminShell responsive, router, ResultStatusBadge theo classes.md, /dev/styleguide, đồng bộ Android theme & fonts, build pass 100%)
+  - Đầu ra: Tailwind v4 + shadcn/ui, token màu & font Be Vietnam Pro theo `docs/architecture/ui-ux.md`, khung `AppShell`/`AdminShell`, router + trang 404/403, `ResultStatusBadge`, trang `/dev/styleguide`; theme Android đồng bộ. Chi tiết: `tasks/sprint-02/task-A00-ui-foundation.md`.
+- [x] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
+  - Trách nhiệm: **Thành viên A**
+  - Trạng thái: `[x] DONE` (Hoàn thành 100%: Day 1 Stub Thuốc cho B, Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân GET /api/v1/diagnose/history, nghiệm thu 11/11 tests qua `test_task_a01_auth.py`)
+  - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (loại bỏ hoàn toàn `userId` từ form-data chống IDOR), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B, nạp seed tự động tài khoản Quản trị `admin@lavitree.vn`.
 - [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
@@ -82,7 +86,7 @@
 - [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Trang Cửa hàng Lavitree Store xem thuốc, giỏ hàng, đặt hàng COD giả lập (`POST /api/v1/orders`); Cổng Admin (`AdminDashboard.tsx`) xem danh sách bài viết, duyệt bài (`IsManualApproved = true`), cập nhật kho thuốc, gắn cờ `requires_expert = true`.
+  - Đầu ra: Trang Cửa hàng Lavitree Store xem thuốc, giỏ hàng, đặt hàng COD giả lập (`POST /api/v1/orders`); Chức năng chính Cổng Admin (`AdminDashboard.tsx`): Nhập bài báo dán văn bản + URL (`POST /ingestions`) $\rightarrow$ AI gợi ý nhãn $\rightarrow$ Admin tick tối đa 4 đoạn ngắn ($\le 800$ ký tự) $\rightarrow$ Core lấy chữ từ RAM lưu nguyên văn (`POST /commit` gán `UnitType`, `IsVerbatim = true`, `IsManualApproved = true`), migration C# gỡ unique `(ModelClass, SourceUrl)` và thêm cột, sửa duplicate check trong `KnowledgeController.cs`, bảng quản lý kho thuốc (`IsAllowed`, `PhiDays`), gắn cờ ca bệnh khó `requires_expert`.
 - [ ] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
@@ -113,3 +117,7 @@
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Chọn $\tau_{energy}$ theo phân vị thứ 5 trên tập A; đo từ chối nhầm $\le 5\%$ trên tập B và phát hiện OOD $\ge 80\%$ trên tập C; cập nhật `OOD_ENERGY_THRESHOLD` và đưa bảng số liệu vào chương đánh giá.
+- [ ] **TASK-14: Nâng cấp Hệ thống Bộ nhớ Tác tử Toàn diện (Persistent STM & LTM - Kế thừa DAY 17)**
+  - Trách nhiệm: **Thành viên B** (Agent Memory) & **Thành viên A** (Database Schema)
+  - Trạng thái: [ ] PENDING
+  - Đầu ra: Lưu trữ phiên chat bền vững vào PostgreSQL (ChatSessions & ChatMessages), nén ngữ cảnh tự động (Context Compaction khi > 3000 tokens); Tool MCP lookup_farmer_history đọc DiagnosisRecords để theo dõi tiến trình hồi phục cây trồng; Quản lý hồ sơ dài hạn FarmerProfile (địa phương, thổ nhưỡng, tiêu chuẩn VietGAP) phục vụ cá nhân hóa sâu sắc.

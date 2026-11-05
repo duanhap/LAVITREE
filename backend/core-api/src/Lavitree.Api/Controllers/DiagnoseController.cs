@@ -6,6 +6,8 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -68,10 +70,21 @@ public class DiagnoseController : ControllerBase
     [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> DiagnoseLeaf(
         [FromForm] IFormFile? image,
-        [FromForm] Guid? userId,
         [FromForm] string? notes,
         CancellationToken cancellationToken)
     {
+        // 0. Trích xuất userId an toàn từ JWT Token (Fix IDOR: Không nhận userId từ form-data)
+        Guid? authenticatedUserId = null;
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var subClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value;
+            if (Guid.TryParse(subClaim, out var parsedGuid))
+            {
+                authenticatedUserId = parsedGuid;
+            }
+        }
+
         // 1. Kiểm tra sự tồn tại của tệp
         if (image == null || image.Length == 0)
         {
@@ -256,7 +269,7 @@ public class DiagnoseController : ControllerBase
             var diagnosisRecord = new DiagnosisRecord
             {
                 Id = diagnosisId,
-                UserId = userId,
+                UserId = authenticatedUserId,
                 DiseaseId = disease.Id,
                 OriginalImageUrl = originalImageUrl,
                 GradCamImageUrl = gradCamImageUrl,
@@ -307,6 +320,69 @@ public class DiagnoseController : ControllerBase
             TreatmentGuidelines = treatmentGuidelines,
             RecommendedProducts = recommendedProducts,
             VerifiedSources = verifiedSources
+        };
+
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// GET /api/v1/diagnose/history - Lịch sử khám bệnh cá nhân (SSOT: api-contracts.md Mục 3.2)
+    /// </summary>
+    [HttpGet("history")]
+    [Authorize]
+    [ProducesResponseType(typeof(DiagnosisHistoryResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetHistory(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var subClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+
+        if (string.IsNullOrEmpty(subClaim) || !Guid.TryParse(subClaim, out var userId))
+        {
+            return Unauthorized(new { detail = "Định danh người dùng trong token không hợp lệ." });
+        }
+
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 10;
+        if (pageSize > 50) pageSize = 50;
+
+        var query = _dbContext.DiagnosisRecords
+            .Where(r => r.UserId == userId && !r.IsDeleted)
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.Plant);
+
+        var totalRecords = await query.CountAsync(cancellationToken);
+
+        var records = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        var items = records.Select(r => new DiagnosisHistoryItemDto
+        {
+            Id = r.Id,
+            CreatedAt = r.CreatedAt,
+            PlantName = r.Disease?.Plant?.Name ?? "Cây trồng",
+            DiseaseName = r.Disease?.CommonNameVi ?? r.Disease?.ClassCode ?? "Bệnh chưa phân loại",
+            ClassCode = r.Disease?.ClassCode ?? string.Empty,
+            Confidence = r.Confidence,
+            IsUncertain = r.IsUncertain,
+            RecoveryStatus = r.RecoveryStatus ?? "Đang theo dõi",
+            Notes = r.Notes,
+            OriginalImageUrl = r.OriginalImageUrl,
+            GradcamImageUrl = r.GradCamImageUrl
+        }).ToList();
+
+        var response = new DiagnosisHistoryResponseDto
+        {
+            TotalRecords = totalRecords,
+            Page = page,
+            PageSize = pageSize,
+            Items = items
         };
 
         return Ok(response);
