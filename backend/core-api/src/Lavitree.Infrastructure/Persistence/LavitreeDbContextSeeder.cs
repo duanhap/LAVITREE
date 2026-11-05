@@ -45,7 +45,33 @@ public static class LavitreeDbContextSeeder
         var treatmentJsonPath = Path.Combine(seedDir, "sample_treatment_seed.json");
         await SeedTreatmentPlansAndProductsAsync(context, treatmentJsonPath);
 
+        // 4. Seed Default Admin User (Idempotent: Only seed if not exists)
+        await SeedDefaultAdminUserAsync(context);
+
         Console.WriteLine("[Seeder] Database seeding completed successfully.");
+    }
+
+    private static async Task SeedDefaultAdminUserAsync(LavitreeDbContext context)
+    {
+        var adminEmail = "admin@lavitree.vn";
+        var exists = await context.Users.AnyAsync(u => u.Email == adminEmail);
+        if (!exists)
+        {
+            var adminPassword = Environment.GetEnvironmentVariable("ADMIN_INITIAL_PASSWORD") ?? "Admin@Lavitree2026!";
+            var adminUser = new User
+            {
+                Id = Guid.NewGuid(),
+                Email = adminEmail,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword, workFactor: 11),
+                FullName = "Hệ thống Quản trị LAVITREE",
+                Phone = "0900000000",
+                Role = "ADMIN",
+                CreatedAt = DateTime.UtcNow
+            };
+            context.Users.Add(adminUser);
+            await context.SaveChangesAsync();
+            Console.WriteLine("[Seeder] Seeded default admin user: admin@lavitree.vn");
+        }
     }
 
     private static async Task SeedPlantCategoriesAndDiseasesAsync(LavitreeDbContext context, string csvPath)

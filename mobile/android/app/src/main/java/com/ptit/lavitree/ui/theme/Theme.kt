@@ -1,37 +1,64 @@
 package com.ptit.lavitree.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(
-    primary = LightLeafGreen,
-    secondary = EmeraldGreen,
-    tertiary = WarningAmber,
-    background = Color(0xFF121212),
-    surface = Color(0xFF1E1E1E)
+// =========================================================================
+// 4 MÀU TRẠNG THÁI CHẨN ĐOÁN CHO ANDROID (SSOT: ui-ux.md mục 2, 4 & 11)
+// =========================================================================
+@Immutable
+data class LavitreeStatusColors(
+    val statusOk: Color = LavitreeStatusOk,
+    val statusOkBg: Color = LavitreeStatusOkBg,
+    val statusConfusion: Color = LavitreeStatusConfusion,
+    val statusConfusionBg: Color = LavitreeStatusConfusionBg,
+    val statusUncertain: Color = LavitreeStatusUncertain,
+    val statusUncertainBg: Color = LavitreeStatusUncertainBg,
+    val statusOod: Color = LavitreeStatusOod,
+    val statusOodBg: Color = LavitreeStatusOodBg,
+    val info: Color = LavitreeInfo,
+    val infoBg: Color = LavitreeInfoBg
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = ForestGreen,
-    secondary = EmeraldGreen,
-    tertiary = WarningAmber,
-    background = LeafBackground,
-    surface = Color.White
+val LocalLavitreeStatusColors = staticCompositionLocalOf { LavitreeStatusColors() }
+
+// =========================================================================
+// BẢNG MÀU MATERIAL 3 CHUẨN HÓA VỚI WEB DESIGN SYSTEM
+// =========================================================================
+private val LavitreeLightColorScheme = lightColorScheme(
+    primary = LavitreePrimary,
+    onPrimary = Color.White,
+    primaryContainer = LavitreeSecondary,
+    onPrimaryContainer = LavitreePrimary,
+    surface = LavitreeCard,
+    onSurface = LavitreeForeground,
+    surfaceVariant = LavitreeSecondary,
+    onSurfaceVariant = LavitreeMutedForeground,
+    background = LavitreeBackground,
+    onBackground = LavitreeForeground,
+    outline = LavitreeBorder,
+    error = LavitreeDestructive,
+    onError = Color.White
 )
 
 @Composable
 fun LavitreeTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    // Tắt dynamic color và dark mode cho Sprint 2 để tối ưu khả năng đọc ngoài trời nắng (ui-ux.md mục 2 & 11)
+    statusColors: LavitreeStatusColors = LavitreeStatusColors(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content
-    )
+    CompositionLocalProvider(
+        LocalLavitreeStatusColors provides statusColors
+    ) {
+        MaterialTheme(
+            colorScheme = LavitreeLightColorScheme,
+            typography = LavitreeTypography,
+            content = content
+        )
+    }
 }
