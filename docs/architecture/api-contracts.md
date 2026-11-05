@@ -88,9 +88,9 @@
 *Nông dân gửi ảnh $\rightarrow$ Core API gọi AI $\rightarrow$ Lấy hướng dẫn xử lý chuẩn IPM & vật tư từ DB $\rightarrow$ Lưu lịch sử $\rightarrow$ Trả kết quả trọn gói.*
 - **Content-Type**: `multipart/form-data`
 - **Request Form**:
-  - `image`: File ảnh lá chụp từ camera/gallery.
-  - `userId` *(UUID, optional)*: Mã người dùng đăng nhập.
+  - `image`: File ảnh lá chụp từ camera/gallery (Bắt buộc).
   - `notes` *(string, optional)*: Ghi chú của nông dân (Ví dụ: "Vườn cà chua 2 sào").
+  - *(Bảo mật - Vá IDOR)*: Đã loại bỏ hoàn toàn tham số `userId` khỏi Form data. Hệ thống tự động trích xuất `userId` từ Header `Authorization: Bearer <jwt_token>` nếu người dùng đã đăng nhập, hoặc gán `null` cho khách vãng lai.
 
 - **Response Body (`200 OK`)**:
   ```json
