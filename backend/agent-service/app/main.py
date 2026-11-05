@@ -4,17 +4,29 @@ import uuid
 import time
 import os
 import secrets
+import logging
+import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional, AsyncGenerator, List
-from fastapi import FastAPI, HTTPException, Header, Depends, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.rag.knowledge_retriever import AgriKnowledgeRetriever
-from app.rag.schema import LabelParagraphsRequest, LabelParagraphsResponse
-from app.rag.pipeline import rag_pipeline
+from app.rag.schema import (
+    LabelParagraphsRequest,
+    LabelParagraphsResponse,
+    ReindexResponse
+)
+from app.rag.pipeline import get_rag_pipeline
+from app.rag.sync_index import sync_knowledge_index
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
+
+logger = logging.getLogger("agent.main")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# Khóa luồng chống xung đột khi có nhiều webhook reindex cùng lúc (Bulk approve + Single approve)
+_reindex_lock = threading.Lock()
 
 app = FastAPI(
     title="Lavitree Agri-Agent Service",
@@ -22,36 +34,27 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware hỗ trợ Web Portal & dev client kết nối trực tiếp
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-retriever = AgriKnowledgeRetriever()
-
 def check_internal_auth(request: Request):
     """
-    Xác thực API Key nội bộ giữa các container (Docker Network).
-    Bảo vệ các endpoint quản trị /internal/* theo chuẩn api-contracts.md Mục 4.3 & 4.4.
+    Xác thực API Key nội bộ giữa các container trong Docker Network.
+    Tuân thủ nguyên tắc Fail-Closed: Nếu chưa cấu hình INTERNAL_API_SECRET, từ chối toàn bộ request.
+    SSOT: docs/architecture/api-contracts.md Mục 4.3 & 4.4
     """
+    expected_key = os.environ.get("INTERNAL_API_SECRET")
+    if not expected_key:
+        logger.error("INTERNAL_API_SECRET is not configured in environment. Rejecting request (fail-closed).")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Internal API secret is not configured"
+        )
+
     key = request.headers.get("x-internal-key") or request.headers.get("X-Internal-Key")
-    expected_key = os.environ.get("INTERNAL_API_SECRET", "lavitree_internal_secret_key_super_secure_32chars!")
     if not key or not secrets.compare_digest(key, expected_key):
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized: Invalid or missing X-Internal-Key"
         )
     return True
-
-class ConsultationRequest(BaseModel):
-    disease_code: str
-    crop_stage: Optional[str] = "Phát triển thân lá"
-    weather_condition: Optional[str] = "Bình thường"
-    user_query: Optional[str] = None
 
 class ChatRequest(BaseModel):
     message: str
@@ -59,10 +62,6 @@ class ChatRequest(BaseModel):
     location: Optional[str] = None
     harvest_days_left: Optional[int] = None
     current_disease_code: Optional[str] = None
-
-class ReindexRequest(BaseModel):
-    source_id: Optional[str] = None
-    action: Optional[str] = "approve"
 
 @app.get("/health")
 def health():
@@ -73,56 +72,60 @@ async def trigger_reindex(request: Request):
     """
     POST /internal/reindex
     Endpoint nội bộ dành cho Core API thông báo khi Admin duyệt bài viết tri thức mới.
+    Có lock chống tranh chấp tài nguyên (tránh reindex đè nhau).
     SSOT: docs/architecture/api-contracts.md Mục 4.3
     """
     check_internal_auth(request)
-    res = rag_pipeline.reindex()
-    now_iso = datetime.now(timezone.utc).isoformat()
-    return {
-        "status": "success",
-        "message": "Chỉ mục tri thức đã được tái lập thành công",
-        "indexed_documents": res.indexed_count,
-        "timestamp": now_iso
-    }
+
+    if not _reindex_lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Conflict: A knowledge reindexing operation is already in progress."
+        )
+
+    try:
+        indexed_count = sync_knowledge_index(False)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        return {
+            "status": "success",
+            "message": "Chỉ mục tri thức đã được tái lập thành công",
+            "indexed_documents": indexed_count,
+            "timestamp": now_iso
+        }
+    except ConnectionError as ce:
+        logger.error(f"Reindex failed due to database connection: {ce}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service Unavailable: Database connection failed. Existing index preserved. ({ce})"
+        )
+    except Exception as e:
+        logger.error(f"Reindex failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal Server Error during reindex: {e}"
+        )
+    finally:
+        _reindex_lock.release()
 
 @app.post("/internal/knowledge/label-paragraphs")
-async def label_paragraphs(request: Request):
+async def label_paragraphs(payload: LabelParagraphsRequest, request: Request):
     """
     POST /internal/knowledge/label-paragraphs
     AI gợi ý nhãn cho từng đoạn bài báo (HITL Ingestion).
+    Pydantic Schema giới hạn độ dài (≤ 200 đoạn, ≤ 2000 ký tự/đoạn).
     SSOT: docs/architecture/api-contracts.md Mục 4.4
     """
     check_internal_auth(request)
-    data = await request.json()
-    req = LabelParagraphsRequest(**data)
-    res = rag_pipeline.label_paragraphs(req)
+    pipeline = get_rag_pipeline()
+    res = pipeline.label_paragraphs(payload)
     return {
         "labels": [{"id": s.id, "unit_type": s.unit_type} for s in res.suggestions]
     }
 
-
-@app.post("/api/v1/agent/consult-treatment")
-def consult_treatment(request: ConsultationRequest):
-    kb_info = retriever.search_guideline(request.disease_code)
-    
-    advice = f"""[Khuyến nghị chuyên gia Lavitree]:
-- Bệnh: {kb_info['vietnamese_name']}
-- Giai đoạn cây: {request.crop_stage}
-- Biện pháp sinh học & canh tác: {kb_info['organic_treatment']}
-- Thuốc BVTV gợi ý: {kb_info['chemical_treatment']}
-- Thời gian cách ly an toàn (PHI): {kb_info['phi_days']}
-Lưu ý: Luôn tuân thủ nguyên tắc '4 Đúng' trong bảo vệ thực vật (Đúng thuốc, đúng liều lượng, đúng lúc, đúng cách)."""
-
-    return {
-        "disease_code": request.disease_code,
-        "knowledge_evidence": kb_info,
-        "consultant_advice": advice
-    }
-
 async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None]:
     """
-    Stub SSE Generator mô phỏng chính xác hợp đồng api-contracts.md Mục 4.1
-    Phục vụ Thành viên A dựng giao diện Web/Mobile mà không bị block.
+    SSE Generator mô phỏng chính xác hợp đồng api-contracts.md Mục 4.1
+    Tích hợp trích dẫn thực tế từ Hybrid RAG.
     """
     start_time = time.time()
     trace_id = f"tr-{uuid.uuid4().hex[:8]}"
@@ -140,14 +143,14 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "conversation_id": conv_id,
         "status": "thinking"
     })
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.05)
 
     # 2. Event thought (Bước 1)
     yield format_sse("thought", {
         "step": 1,
         "thought": f"Cần kiểm tra thời tiết tại {location} chiều nay để xem có nguy cơ mưa rửa trôi thuốc hay phát tán nấm bệnh không."
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 3. Event action (Gọi tool check_weather_risk)
     yield format_sse("action", {
@@ -155,7 +158,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "tool": "check_weather_risk",
         "params": {"location": location, "forecast_hours": 12}
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 4. Event observation
     yield format_sse("observation", {
@@ -167,7 +170,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
             "recommendation": "NGUY CƠ RỬA TRÔI"
         }
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 5. Event thought (Bước 2)
     guardrail_triggered = "HARVEST_BEFORE_PHI_VIOLATION" if harvest_days <= 3 else None
@@ -180,7 +183,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "step": 2,
         "thought": thought_msg
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 6. Event delta (Stream các token văn bản)
     full_answer_text = (
@@ -192,7 +195,6 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể cân nhắc chế phẩm sinh học đối kháng (Trichoderma Bacillus, PHI 0 ngày) để tưới hạn chế nấm lây lan mà không lo tồn dư độc hại."
     )
 
-    # Tách đoạn và stream từng cụm từ
     tokens = [
         "[DRAFT_RECOMMENDATION]\n",
         f"Chào bác! ",
@@ -214,14 +216,15 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
 
     for token in tokens:
         yield format_sse("delta", {"token": token})
-        await asyncio.sleep(0.04)
+        await asyncio.sleep(0.02)
 
     # 7. Event final_answer
     total_ms = int((time.time() - start_time) * 1000)
     
     # Tra cứu trích dẫn học thuật từ Hybrid RAG thực tế (chuẩn SSOT chống LLM bịa nguồn)
     try:
-        rag_res = rag_pipeline.lookup_disease_knowledge(disease_code, query=request.message, top_k=2)
+        pipeline = get_rag_pipeline()
+        rag_res = pipeline.lookup_disease_knowledge(disease_code, query=request.message, top_k=2)
         citations = [
             {
                 "source_id": c.source_id,
@@ -235,6 +238,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
             for c in rag_res.top_chunks
         ]
     except Exception as e:
+        logger.warning(f"Error fetching citations for chat: {e}")
         citations = []
 
     yield format_sse("final_answer", {
@@ -262,4 +266,3 @@ async def chat_agent(request: ChatRequest):
             "X-Accel-Buffering": "no",
         }
     )
-

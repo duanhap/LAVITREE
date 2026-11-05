@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local dev index and databases (prevent shipping local CSV-built or unapproved data)
+app/data/
+data/
+*.pkl
+*.sqlite3
+
+# Git & CI/CD
+.git
+.gitignore
+.github
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env*
+
+# Testing & caches
+.pytest_cache/
+.coverage
+htmlcov/
+test_*.py
+
+# OS generated files
+.DS_Store
+Thumbs.db
