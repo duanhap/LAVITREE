@@ -122,7 +122,9 @@ ok("Đăng nhập thành công, nhận token xác thực Bearer.")
 # 5. Đăng nhập tài khoản Quản trị Admin được Seed sẵn
 # -------------------------------------------------------------
 test("Đăng nhập tài khoản Quản trị viên (Admin Seeded): admin@lavitree.vn")
-admin_password = os.getenv("ADMIN_INITIAL_PASSWORD", "Admin@Lavitree2026!")
+admin_password = os.getenv("ADMIN_INITIAL_PASSWORD")
+if not admin_password:
+    fail("ADMIN_INITIAL_PASSWORD chưa được thiết lập trong biến môi trường hoặc file .env!")
 res = requests.post(f"{BASE_URL}/api/v1/auth/login", json={
     "email": "admin@lavitree.vn",
     "password": admin_password

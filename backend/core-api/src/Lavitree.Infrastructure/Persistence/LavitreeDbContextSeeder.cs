@@ -57,7 +57,11 @@ public static class LavitreeDbContextSeeder
         var exists = await context.Users.AnyAsync(u => u.Email == adminEmail);
         if (!exists)
         {
-            var adminPassword = Environment.GetEnvironmentVariable("ADMIN_INITIAL_PASSWORD") ?? "Admin@Lavitree2026!";
+            var adminPassword = Environment.GetEnvironmentVariable("ADMIN_INITIAL_PASSWORD");
+            if (string.IsNullOrWhiteSpace(adminPassword))
+            {
+                throw new InvalidOperationException("Biến môi trường ADMIN_INITIAL_PASSWORD bắt buộc phải được thiết lập để khởi tạo tài khoản quản trị.");
+            }
             var adminUser = new User
             {
                 Id = Guid.NewGuid(),

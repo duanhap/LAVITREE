@@ -12,16 +12,22 @@ using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
 
+using Microsoft.AspNetCore.RateLimiting;
+
 namespace Lavitree.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/[controller]")]
+[EnableRateLimiting("auth_policy")]
 public class AuthController : ControllerBase
 {
     private readonly LavitreeDbContext _dbContext;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenService _jwtTokenService;
     private readonly ILogger<AuthController> _logger;
+
+    // Hash mẫu cố định dùng để chạy VerifyPassword khi user không tồn tại, chống tấn công dò email qua thời gian (Timing Attack)
+    private static readonly string DummyHash = BCrypt.Net.BCrypt.HashPassword("DummyPasswordForTimingMitigation123!", workFactor: 11);
 
     public AuthController(
         LavitreeDbContext dbContext,
@@ -51,8 +57,8 @@ public class AuthController : ControllerBase
 
         var cleanEmail = dto.Email.Trim().ToLowerInvariant();
 
-        // 1. Kiểm tra email đã tồn tại hay chưa
-        var emailExists = await _dbContext.Users.AnyAsync(u => u.Email == cleanEmail && !u.IsDeleted, cancellationToken);
+        // 1. Kiểm tra email đã tồn tại hay chưa (kể cả bản ghi xóa mềm vì DB unique constraint vẫn chặn)
+        var emailExists = await _dbContext.Users.AnyAsync(u => u.Email == cleanEmail, cancellationToken);
         if (emailExists)
         {
             return BadRequest(new { detail = "Email này đã được sử dụng. Vui lòng đăng nhập hoặc chọn email khác." });
@@ -73,9 +79,17 @@ public class AuthController : ControllerBase
             CreatedAt = DateTime.UtcNow
         };
 
-        _dbContext.Users.Add(newUser);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        _logger.LogInformation("Đã đăng ký tài khoản mới thành công: {Email} (ID: {UserId})", cleanEmail, newUser.Id);
+        try
+        {
+            _dbContext.Users.Add(newUser);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Đã đăng ký tài khoản mới thành công: {Email} (ID: {UserId})", cleanEmail, newUser.Id);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogWarning(ex, "Đăng ký thất bại do trùng email trên CSDL (Race Condition): {Email}", cleanEmail);
+            return BadRequest(new { detail = "Email này đã được sử dụng. Vui lòng đăng nhập hoặc chọn email khác." });
+        }
 
         // 4. Sinh JWT Token
         var token = _jwtTokenService.GenerateToken(newUser);
@@ -117,13 +131,26 @@ public class AuthController : ControllerBase
 
         // 1. Tìm tài khoản theo email
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == cleanEmail && !u.IsDeleted, cancellationToken);
-        if (user == null || !_passwordHasher.VerifyPassword(dto.Password, user.PasswordHash))
+
+        // 2. Chống Timing Attack: Luôn thực thi VerifyPassword kể cả khi user không tồn tại
+        bool isPasswordValid;
+        if (user != null)
+        {
+            isPasswordValid = _passwordHasher.VerifyPassword(dto.Password, user.PasswordHash);
+        }
+        else
+        {
+            _passwordHasher.VerifyPassword(dto.Password, DummyHash);
+            isPasswordValid = false;
+        }
+
+        if (!isPasswordValid || user == null)
         {
             _logger.LogWarning("Đăng nhập thất bại cho email {Email}: Sai email hoặc mật khẩu.", cleanEmail);
             return Unauthorized(new { detail = "Email hoặc mật khẩu không chính xác." });
         }
 
-        // 2. Sinh JWT Token hợp lệ
+        // 3. Sinh JWT Token hợp lệ
         var token = _jwtTokenService.GenerateToken(user);
         _logger.LogInformation("Người dùng {Email} (Role: {Role}) đăng nhập thành công.", user.Email, user.Role);
 

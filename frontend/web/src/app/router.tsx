@@ -114,7 +114,13 @@ export const AppRouter: React.FC = () => {
       </Route>
 
       {/* ================= ADMIN ROUTES (ADMINSHELL) ================= */}
-      <Route element={<AdminShell />}>
+      <Route
+        element={
+          <RequireRole allowedRoles={['ADMIN']}>
+            <AdminShell />
+          </RequireRole>
+        }
+      >
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/admin/knowledge" element={<KnowledgeCollectorPage />} />
         <Route

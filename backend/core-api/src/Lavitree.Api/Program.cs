@@ -64,9 +64,20 @@ var jwtSecretKey = Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
     ?? builder.Configuration["Jwt:SecretKey"]
     ?? throw new InvalidOperationException("JWT_SECRET_KEY chưa được cấu hình trong biến môi trường hoặc file .env!");
 
+if (jwtSecretKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase) || jwtSecretKey.Contains("YOUR_JWT_SECRET"))
+{
+    throw new InvalidOperationException("JWT_SECRET_KEY không được sử dụng khóa mẫu từ .env.example! Vui lòng cấu hình khóa ngẫu nhiên bảo mật.");
+}
+
 if (jwtSecretKey.Length < 32)
 {
     throw new InvalidOperationException("JWT_SECRET_KEY phải có độ dài tối thiểu 32 ký tự để đảm bảo an toàn HMAC-SHA256!");
+}
+
+var adminSecretKeyCheck = Environment.GetEnvironmentVariable("ADMIN_SECRET_KEY");
+if (!string.IsNullOrWhiteSpace(adminSecretKeyCheck) && adminSecretKeyCheck.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("ADMIN_SECRET_KEY không được sử dụng khóa mẫu từ .env.example! Vui lòng cấu hình khóa ngẫu nhiên bảo mật.");
 }
 
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "LavitreeCoreApi";
@@ -118,6 +129,20 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0
         });
     });
+
+    // Rate limit siết chặt cho Auth (Login / Register: 10 requests / phút / IP)
+    var authRateLimit = int.TryParse(Environment.GetEnvironmentVariable("AUTH_RATE_LIMIT_PER_MINUTE"), out var aLimit) ? aLimit : 10;
+    options.AddPolicy("auth_policy", httpContext =>
+    {
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_client";
+        return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = authRateLimit,
+            QueueLimit = 0
+        });
+    });
+
     options.RejectionStatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
 });
 
