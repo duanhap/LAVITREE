@@ -145,53 +145,73 @@ public class DiagnoseController : ControllerBase
         }
 
         // 4. XỬ LÝ ẢNH HỢP LỆ (IN-DISTRIBUTION)
-        var diagnosisId = Guid.NewGuid();
-
-        // 4.1. Tải ảnh gốc lên MinIO (Sử dụng Safe Content-Type suy luận từ file extension)
-        string originalImageUrl;
-        try
-        {
-            await using var origStream = image.OpenReadStream();
-            var origObjectName = $"{diagnosisId}_orig{fileExtension}";
-            var safeContentType = GetSafeContentType(fileExtension);
-            originalImageUrl = await _minioStorageService.UploadFileAsync(
-                BucketName,
-                origObjectName,
-                origStream,
-                safeContentType,
-                cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Lỗi tải ảnh gốc lên MinIO storage.");
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { detail = "Không thể lưu trữ hình ảnh lên hệ thống lưu trữ MinIO. Vui lòng thử lại sau." });
-        }
-
-        // 4.2. Giải mã và tải ảnh Grad-CAM Heatmap lên MinIO
+        bool isGuest = authenticatedUserId == null;
+        Guid? diagnosisId = null;
+        string originalImageUrl = "";
         string? gradCamImageUrl = null;
-        if (!string.IsNullOrWhiteSpace(aiResult.GradcamBase64))
+
+        if (!isGuest)
         {
+            diagnosisId = Guid.NewGuid();
+
+            // 4.1. Tải ảnh gốc lên MinIO (Sử dụng Safe Content-Type suy luận từ file extension)
             try
             {
-                var rawBase64 = aiResult.GradcamBase64;
-                var commaIndex = rawBase64.IndexOf(',');
-                if (commaIndex >= 0)
-                {
-                    rawBase64 = rawBase64.Substring(commaIndex + 1);
-                }
-                var gradcamBytes = Convert.FromBase64String(rawBase64);
-                using var gradcamStream = new MemoryStream(gradcamBytes);
-                var gradcamObjectName = $"{diagnosisId}_gradcam.jpg";
-                gradCamImageUrl = await _minioStorageService.UploadFileAsync(
+                await using var origStream = image.OpenReadStream();
+                var origObjectName = $"{diagnosisId}_orig{fileExtension}";
+                var safeContentType = GetSafeContentType(fileExtension);
+                originalImageUrl = await _minioStorageService.UploadFileAsync(
                     BucketName,
-                    gradcamObjectName,
-                    gradcamStream,
-                    "image/jpeg",
+                    origObjectName,
+                    origStream,
+                    safeContentType,
                     cancellationToken);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi giải mã hoặc tải ảnh Grad-CAM lên MinIO storage.");
+                _logger.LogError(ex, "Lỗi tải ảnh gốc lên MinIO storage.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { detail = "Không thể lưu trữ hình ảnh lên hệ thống lưu trữ MinIO. Vui lòng thử lại sau." });
+            }
+
+            // 4.2. Giải mã và tải ảnh Grad-CAM Heatmap lên MinIO
+            if (!string.IsNullOrWhiteSpace(aiResult.GradcamBase64))
+            {
+                try
+                {
+                    var rawBase64 = aiResult.GradcamBase64;
+                    var commaIndex = rawBase64.IndexOf(',');
+                    if (commaIndex >= 0)
+                    {
+                        rawBase64 = rawBase64.Substring(commaIndex + 1);
+                    }
+                    var gradcamBytes = Convert.FromBase64String(rawBase64);
+                    using var gradcamStream = new MemoryStream(gradcamBytes);
+                    var gradcamObjectName = $"{diagnosisId}_gradcam.jpg";
+                    gradCamImageUrl = await _minioStorageService.UploadFileAsync(
+                        BucketName,
+                        gradcamObjectName,
+                        gradcamStream,
+                        "image/jpeg",
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi giải mã hoặc tải ảnh Grad-CAM lên MinIO storage.");
+                }
+            }
+        }
+        else
+        {
+            // Guest Policy (SSOT: docs/spec/screens.md:98):
+            // "Guest: kết quả chỉ lưu trong phiên trình duyệt; dưới kết quả hiện gợi ý 'Đăng nhập để lưu lịch sử'."
+            // Không lưu ảnh vào MinIO và không lưu lịch sử vào CSDL để bảo vệ quyền riêng tư người dùng.
+            // Cung cấp data URL Grad-CAM để giao diện trình duyệt hiển thị thanh so sánh tức thì.
+            _logger.LogInformation("Khách vãng lai (Guest) thực hiện chẩn đoán: Không lưu ảnh lên MinIO và không ghi CSDL.");
+            if (!string.IsNullOrWhiteSpace(aiResult.GradcamBase64))
+            {
+                gradCamImageUrl = aiResult.GradcamBase64.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                    ? aiResult.GradcamBase64
+                    : $"data:image/jpeg;base64,{aiResult.GradcamBase64}";
             }
         }
 
@@ -263,12 +283,12 @@ public class DiagnoseController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
-        // 4.4. Lưu vết ca chẩn đoán vào DiagnosisRecords trong PostgreSQL
-        if (disease != null)
+        // 4.4. Lưu vết ca chẩn đoán vào DiagnosisRecords trong PostgreSQL (Chỉ lưu khi đã đăng nhập)
+        if (!isGuest && disease != null && diagnosisId.HasValue)
         {
             var diagnosisRecord = new DiagnosisRecord
             {
-                Id = diagnosisId,
+                Id = diagnosisId.Value,
                 UserId = authenticatedUserId,
                 DiseaseId = disease.Id,
                 OriginalImageUrl = originalImageUrl,
@@ -282,7 +302,7 @@ public class DiagnoseController : ControllerBase
 
             _dbContext.DiagnosisRecords.Add(diagnosisRecord);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Saved DiagnosisRecord {DiagnosisId} for disease {ClassCode}.", diagnosisId, predictedClass);
+            _logger.LogInformation("Saved DiagnosisRecord {DiagnosisId} for user {UserId}, disease {ClassCode}.", diagnosisId, authenticatedUserId, predictedClass);
         }
 
         // 4.5. Đóng gói phản hồi trọn gói đúng 100% api-contracts.md Mục 3.1

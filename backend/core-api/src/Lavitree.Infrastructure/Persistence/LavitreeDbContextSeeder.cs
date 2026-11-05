@@ -380,13 +380,13 @@ public static class LavitreeDbContextSeeder
             Console.WriteLine("[Seeder] TreatmentPlans for Tomato___Late_blight already exist. Skipping.");
         }
 
-        // 2. Seed Products
-        var sampleProducts = new List<Product>();
+        // 2. Seed Products (5 clinical demo medicines)
+        var sampleProducts = new List<(Product product, List<string> targetDiseases)>();
         if (seedData?.products != null && seedData.products.Count > 0)
         {
             foreach (var p in seedData.products)
             {
-                sampleProducts.Add(new Product
+                var prod = new Product
                 {
                     Name = p.name,
                     ActiveIngredient = p.active_ingredient,
@@ -394,76 +394,155 @@ public static class LavitreeDbContextSeeder
                     DosageInstruction = p.dosage_instruction,
                     StockQuantity = p.stock_quantity,
                     ImageUrl = p.image_url ?? "",
+                    PhiDays = p.phi_days,
+                    IsAllowed = p.is_allowed,
+                    RainResistant = p.rain_resistant,
+                    MedicineType = string.IsNullOrWhiteSpace(p.medicine_type) ? "Hóa học" : p.medicine_type,
                     CreatedAt = DateTime.UtcNow
-                });
+                };
+                sampleProducts.Add((prod, p.target_diseases ?? new List<string> { "Tomato___Late_blight" }));
             }
         }
         else
         {
-            sampleProducts.AddRange(new[]
+            sampleProducts.AddRange(new (Product, List<string>)[]
             {
-                new Product
-                {
-                    Name = "Ridomil Gold 68WG",
-                    ActiveIngredient = "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
-                    Price = 65000m,
-                    DosageInstruction = "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
-                    StockQuantity = 150,
-                    ImageUrl = "https://lavitree.io.vn/images/products/ridomil-gold.png",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new Product
-                {
-                    Name = "Antracol 70WP",
-                    ActiveIngredient = "Propineb 700g/kg + Kẽm (Zn++)",
-                    Price = 45000m,
-                    DosageInstruction = "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
-                    StockQuantity = 120,
-                    ImageUrl = "https://lavitree.io.vn/images/products/antracol.png",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new Product
-                {
-                    Name = "Chế phẩm sinh học Trichoderma Bacillus",
-                    ActiveIngredient = "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
-                    Price = 55000m,
-                    DosageInstruction = "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
-                    StockQuantity = 200,
-                    ImageUrl = "https://lavitree.io.vn/images/products/trichoderma.png",
-                    CreatedAt = DateTime.UtcNow
-                }
+                (
+                    new Product
+                    {
+                        Name = "Ridomil Gold 68WG",
+                        ActiveIngredient = "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+                        Price = 65000m,
+                        DosageInstruction = "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
+                        StockQuantity = 150,
+                        ImageUrl = "https://lavitree.io.vn/images/products/ridomil-gold.png",
+                        PhiDays = 7,
+                        IsAllowed = true,
+                        RainResistant = true,
+                        MedicineType = "Hóa học",
+                        CreatedAt = DateTime.UtcNow
+                    },
+                    new List<string> { "Tomato___Late_blight", "Potato___Late_blight" }
+                ),
+                (
+                    new Product
+                    {
+                        Name = "Antracol 70WP",
+                        ActiveIngredient = "Propineb 700g/kg + Kẽm (Zn++)",
+                        Price = 45000m,
+                        DosageInstruction = "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+                        StockQuantity = 120,
+                        ImageUrl = "https://lavitree.io.vn/images/products/antracol.png",
+                        PhiDays = 7,
+                        IsAllowed = true,
+                        RainResistant = false,
+                        MedicineType = "Hóa học",
+                        CreatedAt = DateTime.UtcNow
+                    },
+                    new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Pepper,_bell___Bacterial_spot" }
+                ),
+                (
+                    new Product
+                    {
+                        Name = "Chế phẩm sinh học Trichoderma Bacillus",
+                        ActiveIngredient = "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+                        Price = 55000m,
+                        DosageInstruction = "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+                        StockQuantity = 200,
+                        ImageUrl = "https://lavitree.io.vn/images/products/trichoderma.png",
+                        PhiDays = 0,
+                        IsAllowed = true,
+                        RainResistant = true,
+                        MedicineType = "Sinh học",
+                        CreatedAt = DateTime.UtcNow
+                    },
+                    new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Tomato___Target_Spot" }
+                ),
+                (
+                    new Product
+                    {
+                        Name = "Thuốc trừ nấm Score 250EC",
+                        ActiveIngredient = "Difenoconazole 250g/L",
+                        Price = 85000m,
+                        DosageInstruction = "Pha 10ml cho bình 16L nước, phun khi vết đốm vừa xuất hiện",
+                        StockQuantity = 80,
+                        ImageUrl = "https://lavitree.io.vn/images/products/score.png",
+                        PhiDays = 14,
+                        IsAllowed = true,
+                        RainResistant = true,
+                        MedicineType = "Hóa học",
+                        CreatedAt = DateTime.UtcNow
+                    },
+                    new List<string> { "Tomato___Early_blight", "Corn_(maize)___Common_rust_" }
+                ),
+                (
+                    new Product
+                    {
+                        Name = "Thuốc trừ cỏ cấm Paraquat / 2.4-D Cũ (Đã bị Cục BVTV cấm)",
+                        ActiveIngredient = "Paraquat Dichloride",
+                        Price = 30000m,
+                        DosageInstruction = "Bị cấm lưu hành, tuyệt đối không sử dụng",
+                        StockQuantity = 0,
+                        ImageUrl = "",
+                        PhiDays = 999,
+                        IsAllowed = false,
+                        RainResistant = false,
+                        MedicineType = "Hóa chất cấm",
+                        CreatedAt = DateTime.UtcNow
+                    },
+                    new List<string> { "Tomato___Late_blight" }
+                )
             });
         }
 
-        var productList = new List<Product>();
-        foreach (var p in sampleProducts)
+        var allDiseases = await context.Diseases.ToDictionaryAsync(d => d.ClassCode);
+        var productList = new List<(Product prod, List<string> targets)>();
+
+        foreach (var item in sampleProducts)
         {
+            var p = item.product;
             var existingProd = await context.Products.FirstOrDefaultAsync(x => x.Name == p.Name);
             if (existingProd == null)
             {
                 context.Products.Add(p);
-                productList.Add(p);
-                Console.WriteLine($"[Seeder] Adding Product: {p.Name}");
+                productList.Add((p, item.targetDiseases));
+                Console.WriteLine($"[Seeder] Adding Product: {p.Name} ({p.MedicineType}, PHI: {p.PhiDays}d, Allowed: {p.IsAllowed})");
             }
             else
             {
-                productList.Add(existingProd);
+                // Đồng bộ cập nhật các trường bảo vệ thực vật & liều lượng nếu đã tồn tại
+                existingProd.ActiveIngredient = p.ActiveIngredient;
+                existingProd.DosageInstruction = p.DosageInstruction;
+                existingProd.Price = p.Price;
+                existingProd.StockQuantity = p.StockQuantity;
+                existingProd.PhiDays = p.PhiDays;
+                existingProd.IsAllowed = p.IsAllowed;
+                existingProd.RainResistant = p.RainResistant;
+                existingProd.MedicineType = p.MedicineType;
+                if (!string.IsNullOrWhiteSpace(p.ImageUrl)) existingProd.ImageUrl = p.ImageUrl;
+                productList.Add((existingProd, item.targetDiseases));
             }
         }
         await context.SaveChangesAsync();
 
-        // 3. Link DiseaseProducts
-        foreach (var prod in productList)
+        // 3. Link DiseaseProducts theo bảng tra cứu dịch hại
+        foreach (var (prod, targets) in productList)
         {
-            var exists = await context.DiseaseProducts.AnyAsync(dp => dp.DiseaseId == lateBlight.Id && dp.ProductId == prod.Id);
-            if (!exists)
+            foreach (var diseaseCode in targets)
             {
-                context.DiseaseProducts.Add(new DiseaseProduct
+                if (allDiseases.TryGetValue(diseaseCode, out var targetDisease))
                 {
-                    DiseaseId = lateBlight.Id,
-                    ProductId = prod.Id
-                });
-                Console.WriteLine($"[Seeder] Linking DiseaseProduct: {lateBlight.ClassCode} <-> {prod.Name}");
+                    var exists = await context.DiseaseProducts.AnyAsync(dp => dp.DiseaseId == targetDisease.Id && dp.ProductId == prod.Id);
+                    if (!exists)
+                    {
+                        context.DiseaseProducts.Add(new DiseaseProduct
+                        {
+                            DiseaseId = targetDisease.Id,
+                            ProductId = prod.Id
+                        });
+                        Console.WriteLine($"[Seeder] Linking DiseaseProduct: {diseaseCode} <-> {prod.Name}");
+                    }
+                }
             }
         }
         await context.SaveChangesAsync();
@@ -682,5 +761,10 @@ public static class LavitreeDbContextSeeder
         public string dosage_instruction { get; set; } = "";
         public int stock_quantity { get; set; }
         public string? image_url { get; set; }
+        public int phi_days { get; set; } = 7;
+        public bool is_allowed { get; set; } = true;
+        public bool rain_resistant { get; set; } = false;
+        public string medicine_type { get; set; } = "Hóa học";
+        public List<string>? target_diseases { get; set; }
     }
 }

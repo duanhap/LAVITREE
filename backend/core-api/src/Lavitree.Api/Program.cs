@@ -55,6 +55,13 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
 // 3. Register MinIO Object Storage Service
 builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 
+// 3.5. Register Memory Cache & Weather Service (SSOT: api-contracts.md Mục 3.9)
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IWeatherService, WeatherService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 // 4. Register Auth Services (Password Hasher & JWT Token Service)
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();

@@ -24,6 +24,10 @@ public class MedicinesController : ControllerBase
 
     private string FormatImageUrl(string relativePath)
     {
+        if (string.IsNullOrEmpty(relativePath) || relativePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || relativePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return relativePath;
+        }
         return string.IsNullOrEmpty(_publicUrl) ? relativePath : $"{_publicUrl}{relativePath}";
     }
 
@@ -38,8 +42,79 @@ public class MedicinesController : ControllerBase
         [FromQuery] bool? requireRainResistant,
         [FromQuery] bool allowedOnly = true)
     {
-        // 1. Dữ liệu chuẩn mẫu hạt nhân (Tomato___Late_blight & các bệnh lâm sàng demo)
-        var sampleMedicines = new List<MedicineItemDto>
+        List<MedicineItemDto> medicineList;
+
+        try
+        {
+            var dbProducts = await _dbContext.Products
+                .Include(p => p.DiseaseProducts)
+                    .ThenInclude(dp => dp.Disease)
+                .AsNoTracking()
+                .ToListAsync();
+
+            if (dbProducts.Count > 0)
+            {
+                medicineList = dbProducts.Select(p => new MedicineItemDto
+                {
+                    Id = p.Id,
+                    Name = p.Name,
+                    ActiveIngredient = p.ActiveIngredient,
+                    MedicineType = p.MedicineType,
+                    Price = p.Price,
+                    DosageInstruction = p.DosageInstruction,
+                    PhiDays = p.PhiDays,
+                    IsAllowed = p.IsAllowed,
+                    RainResistant = p.RainResistant,
+                    StockQuantity = p.StockQuantity,
+                    ImageUrl = FormatImageUrl(p.ImageUrl ?? ""),
+                    TargetDiseases = p.DiseaseProducts
+                        .Where(dp => dp.Disease != null)
+                        .Select(dp => dp.Disease.ClassCode)
+                        .ToList()
+                }).ToList();
+            }
+            else
+            {
+                medicineList = GetFallbackMedicines();
+            }
+        }
+        catch
+        {
+            // Fallback âm thầm sử dụng danh mục mẫu nếu CSDL đang khởi động
+            medicineList = GetFallbackMedicines();
+        }
+
+        // Áp dụng các bộ lọc nghiệp vụ
+        var query = medicineList.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(diseaseCode))
+        {
+            query = query.Where(m => m.TargetDiseases.Any(d => d.Equals(diseaseCode, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (requireRainResistant.HasValue && requireRainResistant.Value)
+        {
+            query = query.Where(m => m.RainResistant);
+        }
+
+        if (allowedOnly)
+        {
+            query = query.Where(m => m.IsAllowed);
+        }
+
+        var items = query.ToList();
+
+        return Ok(new
+        {
+            total = items.Count,
+            disease_code = diseaseCode ?? "ALL",
+            items
+        });
+    }
+
+    private List<MedicineItemDto> GetFallbackMedicines()
+    {
+        return new List<MedicineItemDto>
         {
             new MedicineItemDto
             {
@@ -104,7 +179,7 @@ public class MedicinesController : ControllerBase
             new MedicineItemDto
             {
                 Id = 5,
-                Name = "Thuốc trừ nấm cấm Paraquat / 2.4-D Cũ (Đã bị Cục BVTV cấm)",
+                Name = "Thuốc trừ cỏ cấm Paraquat / 2.4-D Cũ (Đã bị Cục BVTV cấm)",
                 ActiveIngredient = "Paraquat Dichloride",
                 MedicineType = "Hóa chất cấm",
                 Price = 30000m,
@@ -117,63 +192,6 @@ public class MedicinesController : ControllerBase
                 TargetDiseases = new List<string> { "Tomato___Late_blight" }
             }
         };
-
-        // 2. Nếu CSDL đã có sản phẩm thật trong bảng Products, đồng bộ dữ liệu
-        try
-        {
-            var dbProducts = await _dbContext.Products
-                .Include(p => p.DiseaseProducts)
-                    .ThenInclude(dp => dp.Disease)
-                .AsNoTracking()
-                .ToListAsync();
-
-            if (dbProducts.Any())
-            {
-                foreach (var p in dbProducts)
-                {
-                    var existing = sampleMedicines.FirstOrDefault(m => m.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase));
-                    if (existing != null)
-                    {
-                        existing.Id = p.Id;
-                        existing.Price = p.Price;
-                        existing.StockQuantity = p.StockQuantity;
-                        if (!string.IsNullOrWhiteSpace(p.ImageUrl)) existing.ImageUrl = p.ImageUrl;
-                        if (!string.IsNullOrWhiteSpace(p.DosageInstruction)) existing.DosageInstruction = p.DosageInstruction;
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Fallback âm thầm sử dụng danh mục mẫu nếu CSDL đang khởi động
-        }
-
-        // 3. Áp dụng các bộ lọc nghiệp vụ
-        var query = sampleMedicines.AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(diseaseCode))
-        {
-            query = query.Where(m => m.TargetDiseases.Any(d => d.Equals(diseaseCode, StringComparison.OrdinalIgnoreCase)));
-        }
-
-        if (requireRainResistant.HasValue && requireRainResistant.Value)
-        {
-            query = query.Where(m => m.RainResistant);
-        }
-
-        if (allowedOnly)
-        {
-            query = query.Where(m => m.IsAllowed);
-        }
-
-        var items = query.ToList();
-
-        return Ok(new
-        {
-            total = items.Count,
-            disease_code = diseaseCode ?? "ALL",
-            items
-        });
     }
 
     public class MedicineItemDto

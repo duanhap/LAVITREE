@@ -78,7 +78,7 @@ Vì vậy, thời gian cách ly thuốc mà Guardrail của B sẽ dùng vẫn l
 ---
 
 ### 📦 BƯỚC 2: Hoàn thiện Dữ liệu Thuốc DB & WeatherService (Đưa A01 đạt chuẩn SSOT)
-- [ ] **2.1. Cập nhật Entity `Product.cs`**: Thêm `PhiDays (int)`, `IsAllowed (bool)`, `RainResistant (bool)`, `MedicineType (string)`.
-- [ ] **2.2. Migration EF Core & Seed thuốc thật**: Thay thế dữ liệu mock trong `MedicinesController.cs` bằng dữ liệu query từ CSDL PostgreSQL.
-- [ ] **2.3. Xây dựng `WeatherService`**: Tích hợp OpenWeatherMap API + `IMemoryCache` 1h trong Core API phục vụ tool `check_weather_risk`.
-- [ ] **2.4. Chính sách lưu trữ ảnh khách**: Không lưu ảnh và lịch sử nếu là Guest theo `screens.md:98`.
+- [x] **2.1. Cập nhật Entity `Product.cs`**: Thêm `PhiDays (int)`, `IsAllowed (bool)`, `RainResistant (bool)`, `MedicineType (string)`.
+- [x] **2.2. Migration EF Core & Seed thuốc thật**: Thay thế dữ liệu mock trong `MedicinesController.cs` bằng dữ liệu query từ CSDL PostgreSQL.
+- [x] **2.3. Xây dựng `WeatherService`**: Tích hợp OpenWeatherMap API + `IMemoryCache` 1h trong Core API phục vụ tool `check_weather_risk`.
+- [x] **2.4. Chính sách lưu trữ ảnh khách**: Không lưu ảnh và lịch sử nếu là Guest theo `screens.md:98`.
