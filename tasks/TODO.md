@@ -53,9 +53,9 @@
 > - Hai bên phát triển độc lập không bị chặn, cuối tuần 2 ghép nối chính thức.
 
 ### 👨‍💻 Phân công Thành viên B (AI Agent Lead):
-- [ ] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
+- [x] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (PostgreSQL Hybrid Schema)
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: [x] DONE (Nghiệm thu 4/4 test qua 	est_rag_accuracy.py: Recall@3 = 100%, SLA 196.8ms, bảo mật X-Internal-Key 401 & chống Prompt Injection PASS)
   - Đầu ra: Tận dụng trực tiếp dữ liệu tri thức đã duyệt của 5 bệnh demo trong `KnowledgeSources` từ Sprint 1 (mỗi dòng = 1 chunk, metadata gồm `UnitType`, `IsVerbatim`), script `sync_index.py` tự động đồng bộ sang ChromaDB cục bộ + BM25 Okapi, đạt Recall@3 đối chứng $\ge 90\%$, endpoint `POST /internal/knowledge/label-paragraphs` gợi ý nhãn đoạn (chỉ trả số đoạn) hỗ trợ A03, endpoint `/internal/reindex` tự động tái tạo chỉ mục khi Admin duyệt/bỏ duyệt bài.
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)

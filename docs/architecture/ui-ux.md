@@ -50,7 +50,7 @@ Một bảng duy nhất cho cả hai nền tảng. Tỉ lệ tương phản đã
 | `--status-ood` / `-bg` | `#475569` / `#F1F5F9` | ⚪ Không nhận diện được lá | 6.9 |
 | `--info` / `--info-bg` | `#1D4ED8` / `#DBEAFE` | Bước suy luận của Agent, thông tin | 5.5 |
 
-**Màu thương hiệu** — lấy mẫu từ logo và mascot Lavi (mục 13). **Chỉ dùng để trang trí**, không dùng làm màu chữ hay nền cho chữ trắng:
+**Màu thương hiệu** — lấy mẫu từ mascot Lavi (mục 13). **Chỉ dùng để trang trí**, không dùng làm màu chữ hay nền cho chữ trắng:
 
 | Token | Hex | Dùng cho | Ghi chú |
 |---|---|---|---|
@@ -227,7 +227,7 @@ frontend/web/src/
 - [ ] Dùng được hoàn toàn bằng bàn phím (Tab, Enter, Esc) trên các luồng chính.
 - [ ] Màn hình kết quả đúng thứ tự khối & quy tắc ở [screens.md mục 4](../spec/screens.md).
 - [ ] `npm run build` không lỗi; dán ảnh chụp màn hình thật vào phần bằng chứng của task.
-- [ ] Mascot Lavi chỉ xuất hiện ở đúng ngữ cảnh cho phép (mục 13.4); ảnh dùng bản tối ưu trong `assets/brand`, không import file gốc 2048px.
+- [ ] Mascot Lavi chỉ xuất hiện ở đúng ngữ cảnh cho phép (mục 13.4); ảnh dùng bản tối ưu trong `assets/brand`, không import file gốc trong `design/brand/`.
 
 ---
 
@@ -239,14 +239,14 @@ frontend/web/src/
 - **Tai nghe có mic**: trợ lý AI luôn lắng nghe nhà nông.
 - **Đế công nghệ và vòng sáng**: đang lơ lửng, sẵn sàng hỗ trợ.
 
-Logo là chữ **L** cách điệu từ hai chiếc lá, đặt trong ô vuông bo góc màu mint.
+Logo là chữ **L** cách điệu từ hai chiếc lá, màu trắng, đặt trong ô vuông bo góc màu xanh lá đậm.
 
 **Tính cách:** thân thiện, khiêm tốn, nói ngắn gọn dễ hiểu. Lavi **không phán quyết**: luôn nói "gợi ý", "nên", "có thể", khớp với tinh thần "kết quả tham khảo" ở classes.md. Lavi xưng "Lavi" hoặc "mình", gọi người dùng là "bạn". → Thành viên B dùng đúng vai này trong system prompt của Agent (TASK-07) để giao diện và giọng trả lời đồng nhất.
 
 ### 13.2. Kho ảnh & quy tắc đặt file
 
 ```text
-design/brand/                          ← FILE GỐC (PNG 2048px, nền trong suốt) — chỉ để xuất bản mới, KHÔNG import vào app
+design/brand/                          ← FILE GỐC (PNG 1024–2400px, nền trong suốt) — chỉ để xuất bản mới, KHÔNG import vào app
 ├── logo/lavitree-logo.png
 └── mascot/
     ├── lavi-avatar.png                ← 2D, nét viền rõ — avatar chatbot
@@ -275,7 +275,7 @@ mobile/android/app/src/main/res/drawable-nodpi/
 ### 13.3. Quy tắc dùng logo
 - Cỡ tối thiểu **24px**. Chừa khoảng trống xung quanh ≥ 1/4 chiều rộng logo.
 - Đặt logo trên nền sáng (`--background`, `--card`). Không đổi màu, không kéo méo, không thêm bóng.
-- ⚠️ **Ở cỡ ≤ 32px (favicon, tab trình duyệt), chữ L trắng trên nền mint rất mờ** (tương phản khoảng 1.45:1). Việc cần làm: thiết kế thêm **bản đặc** (nền `--primary` `#2E6B3F`, chữ L trắng) chỉ dùng cho cỡ nhỏ. Cho tới lúc đó, tạm dùng `favicon-32.png` hiện tại.
+- Dùng một bản logo cho mọi cỡ, kể cả favicon: logo nền xanh đậm giữ được chữ L trắng ở 16–32px.
 - Thanh điều hướng hiển thị logo 32–40px kèm chữ "Lavitree" (Be Vietnam Pro 700, màu `--foreground`).
 
 ### 13.4. Lavi xuất hiện ở đâu — và KHÔNG ở đâu
