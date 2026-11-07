@@ -12,6 +12,21 @@ public class AdminApiKeyAuthAttribute : Attribute, IAsyncAuthorizationFilter
 {
     private const string ApiKeyHeaderName = "X-Admin-Key";
 
+    /// <summary>Cho endpoint public có tuỳ chọn chỉ Admin được dùng: true khi header X-Admin-Key hợp lệ.</summary>
+    public static bool HasValidKey(Microsoft.AspNetCore.Http.HttpRequest request)
+    {
+        var configuredKey = Environment.GetEnvironmentVariable("ADMIN_SECRET_KEY");
+        if (string.IsNullOrWhiteSpace(configuredKey) || configuredKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return request.Headers.TryGetValue(ApiKeyHeaderName, out var provided)
+            && CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(provided.ToString()),
+                Encoding.UTF8.GetBytes(configuredKey));
+    }
+
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         // 1. Read secret key from environment

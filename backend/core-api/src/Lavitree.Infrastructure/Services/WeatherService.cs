@@ -15,7 +15,7 @@ namespace Lavitree.Infrastructure.Services;
 
 /// <summary>
 /// WeatherService: Tra cứu thời tiết cục bộ và đánh giá rủi ro rửa trôi thuốc BVTV (SSOT: api-contracts.md Mục 3.9).
-/// Áp dụng IMemoryCache TTL = 1 giờ (3600s) theo location để tránh lãng phí quota và giảm độ trễ (< 20ms cache hit).
+/// Áp dụng IMemoryCache TTL = 1 giờ (3600s) theo location và forecastHours để tránh lãng phí quota và giảm độ trễ (< 20ms cache hit).
 /// </summary>
 public class WeatherService : IWeatherService
 {
@@ -33,54 +33,66 @@ public class WeatherService : IWeatherService
         _logger = logger;
     }
 
-    public async Task<WeatherForecastDto> GetWeatherForecastAsync(string location, CancellationToken cancellationToken = default)
+    public async Task<WeatherForecastDto> GetWeatherForecastAsync(string location, int forecastHours = 12, CancellationToken cancellationToken = default)
     {
+        if (forecastHours <= 0) forecastHours = 12;
         var displayLocation = string.IsNullOrWhiteSpace(location) ? "Hà Nam" : location.Trim();
-        var cacheKey = $"weather_{Regex.Replace(displayLocation.ToLowerInvariant(), @"\s+", "_")}";
+        var cacheKey = $"weather_{Regex.Replace(displayLocation.ToLowerInvariant(), @"\s+", "_")}_{forecastHours}";
 
         if (_cache.TryGetValue<WeatherForecastDto>(cacheKey, out var cachedResult) && cachedResult != null)
         {
-            _logger.LogInformation("Weather cache hit for location '{Location}'.", displayLocation);
+            _logger.LogInformation("Weather cache hit for location '{Location}' (Forecast: {Hours}h).", displayLocation, forecastHours);
             return cachedResult;
         }
 
-        WeatherForecastDto forecast;
-
-        // BUG-04: Đọc cả 3 biến môi trường tương thích
+        // Đọc các biến môi trường tương thích
         var apiKey = Environment.GetEnvironmentVariable("OPENWEATHER_API_KEY")
             ?? Environment.GetEnvironmentVariable("OPENWEATHERMAP_API_KEY")
             ?? Environment.GetEnvironmentVariable("WEATHER_API_KEY");
 
-        if (!string.IsNullOrWhiteSpace(apiKey) && !apiKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(apiKey) || apiKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
         {
-            try
-            {
-                forecast = await FetchFromOpenWeatherMapAsync(displayLocation, apiKey, cancellationToken);
-                // BUG-05: Chỉ cache 1 giờ khi kết quả từ API thời tiết thật thành công
-                _cache.Set(cacheKey, forecast, TimeSpan.FromHours(1));
-                _logger.LogInformation("Cached live weather forecast for '{Location}' with TTL 1 hour.", displayLocation);
-                return forecast;
-            }
-            catch (OperationCanceledException)
-            {
-                // BUG-05: Client hủy request thì ném tiếp, không fallback giả mạo
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "OpenWeatherMap API error for '{Location}'. Falling back to local meteorological engine.", displayLocation);
-                forecast = GenerateSimulatedForecast(displayLocation);
-                // Dữ liệu giả lập chỉ lưu đệm ngắn hạn (1 phút) để sớm retry kết nối thật
-                _cache.Set(cacheKey, forecast, TimeSpan.FromMinutes(1));
-                return forecast;
-            }
+            _logger.LogWarning("OPENWEATHER_API_KEY is not configured.");
+            return SimulateOrThrow(displayLocation, forecastHours, cacheKey);
         }
-        else
+
+        try
         {
-            forecast = GenerateSimulatedForecast(displayLocation);
-            _cache.Set(cacheKey, forecast, TimeSpan.FromMinutes(1));
+            var forecast = await FetchFromOpenWeatherMapAsync(displayLocation, forecastHours, apiKey, cancellationToken);
+            // Chỉ cache 1 giờ khi kết quả từ API thời tiết thật thành công
+            _cache.Set(cacheKey, forecast, TimeSpan.FromHours(1));
+            _logger.LogInformation("Cached live weather forecast for '{Location}' ({Hours}h) with TTL 1 hour.", displayLocation, forecastHours);
             return forecast;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Client tự huỷ request. HttpClient hết giờ chờ thì không vào đây mà xử lý như lỗi API.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "OpenWeatherMap API error for '{Location}'.", displayLocation);
+            return SimulateOrThrow(displayLocation, forecastHours, cacheKey);
+        }
+    }
+
+    /// <summary>
+    /// Production không được trả thời tiết giả: nông dân có thể phun thuốc ngay trước cơn mưa.
+    /// Chỉ giả lập khi chạy Development hoặc bật rõ ENABLE_DEV_FALLBACK=true (giống danh mục thuốc).
+    /// </summary>
+    private WeatherForecastDto SimulateOrThrow(string location, int forecastHours, string cacheKey)
+    {
+        var isDevelopment = string.Equals(
+            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
+        if (!isDevelopment && Environment.GetEnvironmentVariable("ENABLE_DEV_FALLBACK") != "true")
+        {
+            throw new WeatherUnavailableException();
+        }
+
+        var forecast = GenerateSimulatedForecast(location, forecastHours);
+        // Dữ liệu giả lập chỉ lưu đệm ngắn hạn (1 phút) để sớm retry kết nối thật
+        _cache.Set(cacheKey, forecast, TimeSpan.FromMinutes(1));
+        return forecast;
     }
 
     private static string MapLocationToOpenWeatherQuery(string location)
@@ -100,105 +112,133 @@ public class WeatherService : IWeatherService
         return $"{Uri.EscapeDataString(location.Trim())},VN";
     }
 
-    private async Task<WeatherForecastDto> FetchFromOpenWeatherMapAsync(string location, string apiKey, CancellationToken cancellationToken)
+    private async Task<WeatherForecastDto> FetchFromOpenWeatherMapAsync(string location, int forecastHours, string apiKey, CancellationToken cancellationToken)
     {
         var queryCity = MapLocationToOpenWeatherQuery(location);
-        var url = $"https://api.openweathermap.org/data/2.5/weather?q={queryCity}&appid={apiKey}&units=metric&lang=vi";
-        using var response = await _httpClient.GetAsync(url, cancellationToken);
+
+        // 5-day / 3-hour Forecast API: mỗi mục cách nhau 3 giờ, tối đa 40 mục.
+        // Không dùng Current Weather làm dự phòng: "đang khô" không có nghĩa là khô trong các giờ tới.
+        var forecastUrl = $"https://api.openweathermap.org/data/2.5/forecast?q={queryCity}&appid={apiKey}&units=metric&lang=vi";
+        using var response = await _httpClient.GetAsync(forecastUrl, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         using var jsonDoc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
-        var root = jsonDoc.RootElement;
+        var listElement = jsonDoc.RootElement.GetProperty("list");
 
-        double tempC = 28.0;
-        int humidity = 80;
-        double rainMm = 0.0;
-        int rainProb = 30;
+        int intervalsCount = Math.Clamp((int)Math.Ceiling(forecastHours / 3.0), 1, 40);
+        double totalRainMm = 0.0;
+        int maxRainProb = 0;
+        double sumTemp = 0.0;
+        int maxHumidity = 0;
+        int counted = 0;
 
-        if (root.TryGetProperty("main", out var main))
+        foreach (var item in listElement.EnumerateArray())
         {
-            if (main.TryGetProperty("temp", out var tempProp)) tempC = Math.Round(tempProp.GetDouble(), 1);
-            if (main.TryGetProperty("humidity", out var humProp)) humidity = humProp.GetInt32();
+            if (counted >= intervalsCount) break;
+
+            var main = item.GetProperty("main");
+            sumTemp += main.GetProperty("temp").GetDouble();
+            maxHumidity = Math.Max(maxHumidity, main.GetProperty("humidity").GetInt32());
+
+            // pop: probability of precipitation (0.0 -> 1.0)
+            if (item.TryGetProperty("pop", out var popProp))
+            {
+                maxRainProb = Math.Max(maxRainProb, (int)Math.Round(popProp.GetDouble() * 100));
+            }
+
+            // rain.3h: lượng mưa 3 giờ
+            if (item.TryGetProperty("rain", out var rainProp) && rainProp.TryGetProperty("3h", out var r3h))
+            {
+                totalRainMm += r3h.GetDouble();
+            }
+
+            counted++;
         }
 
-        if (root.TryGetProperty("rain", out var rain))
+        if (counted == 0)
         {
-            if (rain.TryGetProperty("1h", out var r1h)) rainMm = Math.Round(r1h.GetDouble(), 1);
-            else if (rain.TryGetProperty("3h", out var r3h)) rainMm = Math.Round(r3h.GetDouble() / 3.0, 1);
+            throw new InvalidOperationException("OpenWeatherMap returned an empty forecast list.");
         }
 
-        if (root.TryGetProperty("clouds", out var clouds) && clouds.TryGetProperty("all", out var allProp))
-        {
-            rainProb = Math.Clamp((int)(allProp.GetInt32() * 0.9), 0, 100);
-        }
-
-        return BuildForecastResult(location, tempC, humidity, rainProb, rainMm, isSimulated: false);
+        return BuildForecastResult(location, Math.Round(sumTemp / counted, 1), maxHumidity, maxRainProb, Math.Round(totalRainMm, 1), forecastHours, isSimulated: false);
     }
 
-    private WeatherForecastDto GenerateSimulatedForecast(string location)
+    /// <summary>
+    /// Thuật toán FNV-1a Hash cố định (deterministic) an toàn, không bị biến đổi giữa các lần restart server.
+    /// </summary>
+    private static uint ComputeDeterministicHash(string input)
+    {
+        uint hash = 2166136261;
+        foreach (char c in input)
+        {
+            hash = (hash ^ c) * 16777619;
+        }
+        return hash;
+    }
+
+    private WeatherForecastDto GenerateSimulatedForecast(string location, int forecastHours)
     {
         var normalized = location.Trim().ToLowerInvariant();
 
         // Mẫu chuẩn đặc thù vùng nông nghiệp Việt Nam
         if (normalized.Contains("hà nam") || normalized.Contains("ha nam"))
         {
-            return BuildForecastResult(location, 28.5, 92, 85, 20.0, isSimulated: true);
+            return BuildForecastResult(location, 28.5, 92, 85, 20.0, forecastHours, isSimulated: true);
         }
         if (normalized.Contains("hà nội") || normalized.Contains("ha noi"))
         {
-            return BuildForecastResult(location, 29.0, 88, 75, 15.0, isSimulated: true);
+            return BuildForecastResult(location, 29.0, 88, 75, 15.0, forecastHours, isSimulated: true);
         }
         if (normalized.Contains("lâm đồng") || normalized.Contains("đà lạt") || normalized.Contains("lam dong") || normalized.Contains("da lat"))
         {
-            return BuildForecastResult(location, 22.0, 85, 55, 8.0, isSimulated: true);
+            return BuildForecastResult(location, 22.0, 85, 55, 8.0, forecastHours, isSimulated: true);
         }
         if (normalized.Contains("cần thơ") || normalized.Contains("can tho") || normalized.Contains("tiền giang"))
         {
-            return BuildForecastResult(location, 31.0, 82, 45, 5.0, isSimulated: true);
+            return BuildForecastResult(location, 31.0, 82, 45, 5.0, forecastHours, isSimulated: true);
         }
         if (normalized.Contains("sơn la") || normalized.Contains("son la") || normalized.Contains("bắc giang"))
         {
-            return BuildForecastResult(location, 25.5, 70, 20, 0.0, isSimulated: true);
+            return BuildForecastResult(location, 25.5, 70, 20, 0.0, forecastHours, isSimulated: true);
         }
         if (normalized.Contains("gia lai") || normalized.Contains("đắk lắk") || normalized.Contains("dak lak"))
         {
-            return BuildForecastResult(location, 26.5, 68, 15, 0.0, isSimulated: true);
+            return BuildForecastResult(location, 26.5, 68, 15, 0.0, forecastHours, isSimulated: true);
         }
 
-        // BUG-06: Thuật toán băm an toàn (uint & Math.Clamp), tuyệt đối không tràn số âm
-        uint hash = (uint)normalized.GetHashCode();
+        // Băm FNV-1a ổn định tuyệt đối
+        uint hash = ComputeDeterministicHash(normalized);
         double temp = 25.0 + (hash % 90) / 10.0; // 25.0 -> 34.0 C
         int hum = 65 + (int)(hash % 30); // 65 -> 95 %
-        int rainProb = Math.Clamp((int)((hash * 7u) % 100u), 0, 100); // 0 -> 99 %
-        double rainMm = rainProb > 60 ? Math.Round((rainProb - 50) * 0.4, 1) : 0.0;
+        int rainProb = Math.Clamp((int)((hash * 7u) % 100u), 0, 100);
+        double rainMm = rainProb > 60 ? Math.Round((rainProb - 50) * 0.4 * (forecastHours / 12.0), 1) : 0.0;
 
-        return BuildForecastResult(location, Math.Round(temp, 1), hum, rainProb, rainMm, isSimulated: true);
+        return BuildForecastResult(location, Math.Round(temp, 1), hum, rainProb, rainMm, forecastHours, isSimulated: true);
     }
 
-    private static WeatherForecastDto BuildForecastResult(string location, double tempC, int humidity, int rainProb, double rainMm, bool isSimulated = false)
+    private static WeatherForecastDto BuildForecastResult(string location, double tempC, int humidity, int rainProb, double rainMm, int forecastHours, bool isSimulated = false)
     {
         bool isRain;
         string riskLevel;
         string recommendation;
 
-        // BUG-07: Nội dung khuyến nghị chuẩn xác theo độ che phủ mây và xác suất mưa hiện thời
         if (rainProb >= 70 || rainMm >= 10.0)
         {
             riskLevel = "HIGH";
             isRain = true;
-            recommendation = $"Thời tiết nhiều mây/mưa ẩm (Xác suất mưa {rainProb}%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.";
+            recommendation = $"Thời tiết nhiều mây/mưa ẩm trong {forecastHours} giờ tới (Xác suất mưa {rainProb}%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.";
         }
         else if (rainProb >= 40 || rainMm >= 2.0)
         {
             riskLevel = "MEDIUM";
-            isRain = false;
-            recommendation = $"Thời tiết có thể có mưa rải rác (Xác suất mưa {rainProb}%). Nên ưu tiên chọn thuốc có tính bám dính tốt hoặc hoạt chất kháng mưa rửa trôi.";
+            isRain = rainMm > 0;
+            recommendation = $"Thời tiết có thể có mưa rải rác trong {forecastHours} giờ tới (Xác suất mưa {rainProb}%). Nên ưu tiên chọn thuốc có tính bám dính tốt hoặc hoạt chất kháng mưa rửa trôi.";
         }
         else
         {
             riskLevel = "LOW";
             isRain = false;
-            recommendation = $"Thời tiết khô ráo, thuận lợi (Xác suất mưa {rainProb}%). Thích hợp phun phòng trừ bệnh hại vào sáng sớm hoặc chiều mát.";
+            recommendation = $"Thời tiết khô ráo, thuận lợi trong {forecastHours} giờ tới (Xác suất mưa {rainProb}%). Thích hợp phun phòng trừ bệnh hại vào sáng sớm hoặc chiều mát.";
         }
 
         return new WeatherForecastDto
@@ -211,6 +251,7 @@ public class WeatherService : IWeatherService
             IsRain = isRain,
             RiskLevel = riskLevel,
             Recommendation = recommendation,
+            ForecastHours = forecastHours,
             IsSimulated = isSimulated,
             CachedAt = DateTime.UtcNow
         };

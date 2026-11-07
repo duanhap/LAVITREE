@@ -16,6 +16,7 @@ from app.rag.schema import LabelParagraphsRequest
 from app.rag.pipeline import get_rag_pipeline
 from app.rag.reindex_worker import ReindexCoordinator
 from app.rag.sync_index import sync_knowledge_index
+from app.mcp import mcp_router
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
 
 logger = logging.getLogger("agent.main")
@@ -41,6 +42,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
 def check_internal_auth(request: Request):
     """
     Xác thực API Key nội bộ giữa các container trong Docker Network.
@@ -63,6 +65,9 @@ def check_internal_auth(request: Request):
             detail="Unauthorized: Invalid or missing X-Internal-Key"
         )
     return True
+
+# Bảo vệ toàn bộ endpoint MCP bằng khóa API nội bộ X-Internal-Key (SSOT: api-contracts.md)
+app.include_router(mcp_router, dependencies=[Depends(check_internal_auth)])
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
