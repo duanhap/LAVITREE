@@ -15,6 +15,8 @@ export function formatCurrency(value: number | null | undefined): string {
   }).format(value);
 }
 
+export const formatVND = formatCurrency;
+
 /**
  * Định dạng ngày giờ: ví dụ "31/10/2026 14:30"
  */

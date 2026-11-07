@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 2 (Triển khai sau khi Task 06 đã có Module RAG và dữ liệu 5 bệnh demo)**
 * **Phân hệ**: `backend/agent-service` (FastAPI:8001) & `backend/core-api` (.NET 8)
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[x] DONE` (10/10 PASS với Core, PostgreSQL và OpenWeather thật, ngày 2026-11-07. Image agent-service build và chạy được dưới user thường; chưa chạy cả hệ thống bằng docker compose.)
 * **Người phụ trách**: Thành viên B (Agent Core & FastMCP) & Thành viên A (Core API Data Provider)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY3/lavitree_mcp_server.py` & `extract/DAY26/lavitree_mcp_architecture.py`
@@ -48,24 +48,24 @@
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
 ### Phía Thành viên A (Core API & Data Provider):
-- [ ] **Pha 1A**: Hoàn thiện endpoint `GET /api/v1/medicines/search` trong `backend/core-api` truy vấn bảng `Products` và `DiseaseProducts` theo `diseaseCode`, trả về danh sách thuốc bao gồm `Id`, `Name`, `ActiveIngredient`, `Price`, `DosageInstruction`, `PhiDays (int)`, `IsAllowed (bool)` và cờ chống rửa trôi.
-- [ ] **Pha 1B**: Hoàn thiện Service thời tiết trong Core API tích hợp OpenWeatherMap API, áp dụng Memory Cache 1 giờ để tiết kiệm quota gọi API ngoài.
+- [x] **Pha 1A**: Hoàn thiện endpoint `GET /api/v1/medicines/search` trong `backend/core-api` truy vấn bảng `Products` và `DiseaseProducts` theo `diseaseCode`, trả về danh sách thuốc bao gồm `Id`, `Name`, `ActiveIngredient`, `Price`, `DosageInstruction`, `PhiDays (int)`, `IsAllowed (bool)` và cờ chống rửa trôi.
+- [x] **Pha 1B**: Hoàn thiện Service thời tiết trong Core API tích hợp OpenWeatherMap API, áp dụng Memory Cache 1 giờ để tiết kiệm quota gọi API ngoài.
 
 ### Phía Thành viên B (Agent Core & MCP Server):
-- [ ] **Pha 2A**: Khởi tạo cấu trúc microservice tại `backend/agent-service/` với FastAPI, Pydantic v2, Python 3.10+, bind cổng **`8001`**.
-- [ ] **Pha 2B**: Cài đặt `backend/agent-service/app/mcp/server.py` sử dụng chuẩn FastMCP hoặc dispatcher JSON Schema.
-- [ ] **Pha 2C**: Kết nối `lookup_disease_knowledge` trực tiếp với Facade `app.rag.pipeline` (Task 06).
-- [ ] **Pha 2D**: Cài đặt HTTP Client (dùng `httpx`) trong `app.mcp.client` gọi Core API `GET /api/v1/medicines/search` và Service thời tiết.
-- [ ] **Pha 2E**: Viết script kiểm thử độc lập `test_mcp_tools.py` để verify cả 4 công cụ phản hồi dữ liệu thật với status 200 OK.
+- [x] **Pha 2A**: Khởi tạo cấu trúc microservice tại `backend/agent-service/` với FastAPI, Pydantic v2, Python 3.10+, bind cổng **`8001`**.
+- [x] **Pha 2B**: Cài đặt `backend/agent-service/app/mcp/server.py` sử dụng chuẩn FastMCP / dispatcher JSON Schema.
+- [x] **Pha 2C**: Kết nối `lookup_disease_knowledge` trực tiếp với Facade `app.rag.pipeline` (Task 06).
+- [x] **Pha 2D**: Cài đặt HTTP Client (dùng `httpx`) trong `app.mcp.client` gọi Core API `GET /api/v1/medicines/search` và Service thời tiết (cache 1 giờ nằm ở Core, Agent không cache).
+- [x] **Pha 2E**: Viết script kiểm thử độc lập `test_mcp_tools.py` để verify cả 4 công cụ phản hồi dữ liệu thật với status 200 OK.
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Service `backend/agent-service` khởi động thành công trên cổng **`8001`**, endpoint `GET /health` trả về `{"status": "ok", "service": "agent-service", "port": 8001}`.
-- [ ] Cả 4 MCP Tools phản hồi với dữ liệu thật (không dùng mock dicts trong bộ nhớ):
+- [x] Service `backend/agent-service` khởi động thành công trên cổng **`8001`**, endpoint `GET /health` trả về `{"status": "ok", "service": "agent-service", "port": 8001}`.
+- [x] Cả 4 MCP Tools phản hồi với dữ liệu thật (không dùng mock dicts trong bộ nhớ):
   - `lookup_disease_knowledge` trả về kết quả RAG cho `Tomato___Late_blight`.
   - `query_pesticide_store` trả về danh sách thuốc từ Core API có đầy đủ `PhiDays` và `IsAllowed`.
-  - `check_weather_risk` trả về thông tin thời tiết trong $\le 300$ms khi cache hit.
+  - `check_weather_risk` trả về thông tin thời tiết trong $\le 300$ms khi cache hit (đo qua `CoreApiClient` tới Core thật: 1-2ms).
   - `verify_phi_safety` trả về `CRITICAL_VIOLATION` khi `harvest_days_left=2` và `phi_days=7`.
-- [ ] Toàn bộ 4 tools tuân thủ nguyên tắc Read-Only 100%, không tồn tại mutation/write endpoint.
-- [ ] Bằng chứng nghiệm thu: Log chạy `python test_mcp_tools.py` pass 4/4 công cụ với status 200 OK.
+- [x] Toàn bộ 4 tools tuân thủ nguyên tắc Read-Only 100%, không tồn tại mutation/write endpoint.
+- [x] Bằng chứng nghiệm thu: `MCP_E2E_CORE_URL=<Core URL> python test_mcp_tools.py` cho kết luận `10/10 PASS, gồm thuốc từ DB thật và thời tiết thật`.

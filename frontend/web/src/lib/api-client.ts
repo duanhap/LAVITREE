@@ -49,10 +49,12 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       // Nếu không phải đang ở trang login và không phải là request đăng nhập
       const isLoginRequest = error.config?.url?.includes('/auth/login');
-      if (!isLoginRequest) {
+      const isRegisterRequest = error.config?.url?.includes('/auth/register');
+      if (!isLoginRequest && !isRegisterRequest) {
         try {
           localStorage.removeItem(TOKEN_STORAGE_KEY);
           localStorage.removeItem('lavitree_user');
+          window.dispatchEvent(new CustomEvent('auth:unauthorized'));
         } catch {
           // ignore
         }
@@ -61,6 +63,19 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/**
+ * Trích xuất lỗi validation chi tiết theo từng trường từ response 400 của ASP.NET Core
+ */
+export function getValidationErrors(error: unknown): Record<string, string[]> {
+  if (axios.isAxiosError(error) && error.response?.status === 400) {
+    const data = error.response.data as { errors?: Record<string, string[]> };
+    if (data?.errors && typeof data.errors === 'object') {
+      return data.errors;
+    }
+  }
+  return {};
+}
 
 /**
  * Ánh xạ mã lỗi HTTP sang thông điệp tiếng Việt thân thiện theo ngữ cảnh

@@ -113,7 +113,7 @@
 - *05/11/2026 — Kết quả review lại*: Tồn đọng 11 lỗi chặn thuộc Đợt 0 trong `tasks/sprint-02/task-a02-web-diagnose-handbook.md`.
 - *07/11/2026 — Khắc phục triệt để 11 lỗi chặn Đợt 0 & Nghiệm thu Thực nghiệm 100%*:
   - Cấu hình biến môi trường PATH trên macOS arm64, kích hoạt .NET 8 SDK (`8.0.427`) và `dotnet-ef` toàn cục.
-  - **BUG-01**: Thay mật khẩu Admin mới `Adm!n@Lavitree_2026#Secure`, cập nhật cả hai file `.env`, sửa seeder tự động cập nhật hash vào Supabase DB. Nghiệm thu: mật khẩu cũ bị từ chối HTTP 401 Unauthorized, mật khẩu mới trả HTTP 200 OK.
+  - **BUG-01**: Cập nhật mật khẩu Admin mới qua biến môi trường `ADMIN_INITIAL_PASSWORD` trong cả hai file `.env`, sửa seeder tự động cập nhật hash vào Supabase DB. Nghiệm thu: mật khẩu cũ bị từ chối HTTP 401 Unauthorized, mật khẩu mới trả HTTP 200 OK.
   - **BUG-02**: Thêm bộ lọc `dp.Product.IsAllowed && !dp.Product.IsDeleted` trong `DiagnoseController.cs`, xóa bỏ liên kết Paraquat trong seed và xóa sạch liên kết cũ trong CSDL.
   - **BUG-03**: Khắc phục seeder không ghi đè giá, tồn kho, PHI, IsAllowed của sản phẩm đã có.
   - **BUG-04 - BUG-07**: Chuẩn hóa biến `OPENWEATHER_API_KEY` / `OPENWEATHERMAP_API_KEY`, gọi trực tiếp OpenWeather API trả về dữ liệu thật (`is_simulated: false`), thuật toán băm an toàn chống tràn số âm xác suất mưa.

@@ -40,14 +40,15 @@ const navItems: NavItem[] = [
   { name: 'Tài khoản', to: '/account', icon: UserIcon },
 ];
 
+import { useAuth } from '@/context/AuthContext';
+
 export const AppShell: React.FC = () => {
-  const { user, isAuthenticated } = useCurrentUser();
+  const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    localStorage.removeItem('lavitree_token');
-    localStorage.removeItem('lavitree_user');
-    window.location.href = '/login';
+    logout();
+    navigate('/login');
   };
 
   return (

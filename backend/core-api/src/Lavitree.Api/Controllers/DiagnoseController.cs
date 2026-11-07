@@ -17,6 +17,7 @@ using Lavitree.Application.DTOs;
 using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
+using Lavitree.Infrastructure.Services;
 
 namespace Lavitree.Api.Controllers;
 
@@ -84,6 +85,15 @@ public class DiagnoseController : ControllerBase
                 authenticatedUserId = parsedGuid;
             }
         }
+        else if (Request.Headers.TryGetValue("Authorization", out var authHeaderValues))
+        {
+            var authHeader = authHeaderValues.ToString();
+            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(authHeader["Bearer ".Length..]))
+            {
+                // Client gửi Bearer Token nhưng không hợp lệ hoặc đã hết hạn: trả về 401 chứ không âm thầm coi là Guest
+                return Unauthorized(new { detail = "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại." });
+            }
+        }
 
         // 1. Kiểm tra sự tồn tại của tệp
         if (image == null || image.Length == 0)
@@ -96,6 +106,12 @@ public class DiagnoseController : ControllerBase
         if (string.IsNullOrEmpty(fileExtension) || !AllowedExtensions.Contains(fileExtension) || image.Length > MaxFileSize)
         {
             return BadRequest(new { detail = "Tệp vượt quá 10MB hoặc định dạng không hỗ trợ." });
+        }
+
+        // 2.1. Kiểm tra độ dài ghi chú (tối đa 1000 ký tự - BUG-22)
+        if (!string.IsNullOrEmpty(notes) && notes.Length > 1000)
+        {
+            return BadRequest(new { detail = "Ghi chú không được vượt quá 1000 ký tự." });
         }
 
         AiPredictionResponse aiResult;
@@ -150,20 +166,41 @@ public class DiagnoseController : ControllerBase
         string originalImageUrl = "";
         string? gradCamImageUrl = null;
 
-        if (!isGuest)
+        // 4.1. BUG-23: Truy vấn Tri thức CSDL theo ClassCode trước khi upload MinIO để tránh ảnh mồ côi
+        var predictedClass = aiResult.Top1?.ClassCode ?? "";
+        var disease = await _dbContext.Diseases
+            .Include(d => d.Plant)
+            .Include(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
+            .Include(d => d.DiseaseProducts)
+                .ThenInclude(dp => dp.Product)
+            .FirstOrDefaultAsync(d => d.ClassCode == predictedClass, cancellationToken);
+
+        if (!isGuest && disease != null)
         {
             diagnosisId = Guid.NewGuid();
 
-            // 4.1. Tải ảnh gốc lên MinIO (Sử dụng Safe Content-Type suy luận từ file extension)
+            // 4.2. BUG-23: Xóa metadata trước khi lưu. Ảnh không phân tích được thì không lưu.
+            byte[] cleanImage;
             try
             {
                 await using var origStream = image.OpenReadStream();
+                cleanImage = await ImageMetadataStripper.StripAsync(origStream, cancellationToken);
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogWarning(ex, "Không thể xóa metadata của ảnh tải lên.");
+                return UnprocessableEntity(new { detail = "Tệp hình ảnh bị lỗi cấu trúc hoặc không thể giải mã." });
+            }
+
+            try
+            {
+                using var sanitizedStream = new MemoryStream(cleanImage);
                 var origObjectName = $"{diagnosisId}_orig{fileExtension}";
                 var safeContentType = GetSafeContentType(fileExtension);
                 originalImageUrl = await _minioStorageService.UploadFileAsync(
                     BucketName,
                     origObjectName,
-                    origStream,
+                    sanitizedStream,
                     safeContentType,
                     cancellationToken);
             }
@@ -173,7 +210,7 @@ public class DiagnoseController : ControllerBase
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new { detail = "Không thể lưu trữ hình ảnh lên hệ thống lưu trữ MinIO. Vui lòng thử lại sau." });
             }
 
-            // 4.2. Giải mã và tải ảnh Grad-CAM Heatmap lên MinIO
+            // 4.3. Giải mã và tải ảnh Grad-CAM Heatmap lên MinIO
             if (!string.IsNullOrWhiteSpace(aiResult.GradcamBase64))
             {
                 try
@@ -206,7 +243,7 @@ public class DiagnoseController : ControllerBase
             // "Guest: kết quả chỉ lưu trong phiên trình duyệt; dưới kết quả hiện gợi ý 'Đăng nhập để lưu lịch sử'."
             // Không lưu ảnh vào MinIO và không lưu lịch sử vào CSDL để bảo vệ quyền riêng tư người dùng.
             // Cung cấp data URL Grad-CAM để giao diện trình duyệt hiển thị thanh so sánh tức thì.
-            _logger.LogInformation("Khách vãng lai (Guest) thực hiện chẩn đoán: Không lưu ảnh lên MinIO và không ghi CSDL.");
+            _logger.LogInformation("Khách vãng lai (Guest) hoặc chưa tìm thấy bệnh trong DB: Không lưu ảnh lên MinIO và không ghi CSDL.");
             if (!string.IsNullOrWhiteSpace(aiResult.GradcamBase64))
             {
                 gradCamImageUrl = aiResult.GradcamBase64.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
@@ -214,15 +251,6 @@ public class DiagnoseController : ControllerBase
                     : $"data:image/jpeg;base64,{aiResult.GradcamBase64}";
             }
         }
-
-        // 4.3. Truy vấn Tri thức CSDL theo ClassCode dự đoán
-        var predictedClass = aiResult.Top1?.ClassCode ?? "";
-        var disease = await _dbContext.Diseases
-            .Include(d => d.Plant)
-            .Include(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
-            .Include(d => d.DiseaseProducts)
-                .ThenInclude(dp => dp.Product)
-            .FirstOrDefaultAsync(d => d.ClassCode == predictedClass, cancellationToken);
 
         // Fallback metadata nếu lớp bệnh chưa có trong DB
         var plantName = disease?.Plant?.Name ?? aiResult.Top1?.EffectivePlantName ?? "Cây trồng";
@@ -272,9 +300,9 @@ public class DiagnoseController : ControllerBase
             DosageInstruction = dp.Product.DosageInstruction
         }).ToList() ?? new List<ProductDto>();
 
-        // Trích xuất 1-3 tài liệu khuyến nông đối chứng từ KnowledgeSources
+        // Trích xuất 1-3 tài liệu khuyến nông đối chứng từ KnowledgeSources (BUG-25)
         var verifiedSources = await _dbContext.KnowledgeSources
-            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass)
+            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && s.IsManualApproved)
             .OrderByDescending(s => s.CreatedAt)
             .Take(3)
             .Select(s => new VerifiedSourceDto
@@ -283,6 +311,7 @@ public class DiagnoseController : ControllerBase
                 Title = s.SourceTitle,
                 Url = s.SourceUrl
             })
+            .AsNoTracking()
             .ToListAsync(cancellationToken);
 
         // 4.4. Lưu vết ca chẩn đoán vào DiagnosisRecords trong PostgreSQL (Chỉ lưu khi đã đăng nhập)
@@ -367,14 +396,14 @@ public class DiagnoseController : ControllerBase
             return Unauthorized(new { detail = "Định danh người dùng trong token không hợp lệ." });
         }
 
-        if (page < 1) page = 1;
-        if (pageSize < 1) pageSize = 10;
-        if (pageSize > 50) pageSize = 50;
+        page = Math.Clamp(page, 1, 10000);
+        pageSize = Math.Clamp(pageSize, 1, 50);
 
         var query = _dbContext.DiagnosisRecords
             .Where(r => r.UserId == userId && !r.IsDeleted)
             .Include(r => r.Disease)
-                .ThenInclude(d => d.Plant);
+                .ThenInclude(d => d.Plant)
+            .AsNoTracking();
 
         var totalRecords = await query.CountAsync(cancellationToken);
 
@@ -405,6 +434,170 @@ public class DiagnoseController : ControllerBase
             Page = page,
             PageSize = pageSize,
             Items = items
+        };
+
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// GET /api/v1/diagnose/history/{id} - Chi tiết hồ sơ khám bệnh cá nhân (SSOT: screens.md W-08 & BUG-17)
+    /// </summary>
+    [HttpGet("history/{id:guid}")]
+    [Authorize]
+    [ProducesResponseType(typeof(DiagnoseResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetHistoryDetail(Guid id, CancellationToken cancellationToken)
+    {
+        var subClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+        var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value ?? "FARMER";
+
+        if (string.IsNullOrEmpty(subClaim) || !Guid.TryParse(subClaim, out var userId))
+        {
+            return Unauthorized(new { detail = "Định danh người dùng trong token không hợp lệ." });
+        }
+
+        var record = await _dbContext.DiagnosisRecords
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.Plant)
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.DiseaseProducts.Where(dp => dp.Product != null && dp.Product.IsAllowed && !dp.Product.IsDeleted))
+                    .ThenInclude(dp => dp.Product)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == id && !r.IsDeleted, cancellationToken);
+
+        if (record == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy hồ sơ chẩn đoán yêu cầu." });
+        }
+
+        // Quyền truy cập: Chỉ chủ sở hữu ca khám hoặc ADMIN mới được xem (BUG-17)
+        if (record.UserId != userId && !string.Equals(roleClaim, "ADMIN", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound(new { detail = "Không tìm thấy hồ sơ chẩn đoán yêu cầu." });
+        }
+
+        var disease = record.Disease;
+        var predictedClass = disease?.ClassCode ?? string.Empty;
+
+        // Trích xuất phác đồ xử lý IPM
+        var treatmentGuidelines = disease?.TreatmentPlans.Select(tp => new TreatmentStepDto
+        {
+            StepOrder = tp.StepOrder,
+            ActionTitle = tp.ActionTitle,
+            Instructions = tp.Instructions,
+            IsolationDays = tp.IsolationDays
+        }).ToList() ?? new List<TreatmentStepDto>();
+
+        // Trích xuất danh mục thuốc gợi ý
+        var recommendedProducts = disease?.DiseaseProducts
+            .Where(dp => dp.Product != null && dp.Product.IsAllowed && !dp.Product.IsDeleted)
+            .Select(dp => new ProductDto
+            {
+                Id = dp.Product.Id,
+                Name = dp.Product.Name,
+                ActiveIngredient = dp.Product.ActiveIngredient,
+                Price = dp.Product.Price,
+                Unit = "Gói / Chai chuẩn",
+                ImageUrl = dp.Product.ImageUrl,
+                DosageInstruction = dp.Product.DosageInstruction
+            }).ToList() ?? new List<ProductDto>();
+
+        // Trích xuất tài liệu khuyến nông đối chứng
+        var verifiedSources = await _dbContext.KnowledgeSources
+            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && s.IsManualApproved)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(3)
+            .Select(s => new VerifiedSourceDto
+            {
+                Organization = s.Organization,
+                Title = s.SourceTitle,
+                Url = s.SourceUrl
+            })
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        string severityLevel;
+        if (predictedClass.EndsWith("___healthy", StringComparison.OrdinalIgnoreCase))
+        {
+            severityLevel = "Cây khỏe mạnh (Không phát hiện bệnh)";
+        }
+        else
+        {
+            severityLevel = (disease?.SeverityLevel ?? 2) switch
+            {
+                1 => "Nhẹ (Theo dõi định kỳ)",
+                3 => "Khẩn cấp (Cần xử lý ngay lập tức)",
+                _ => "Nghiêm trọng (Cần xử lý trong 24-48h)"
+            };
+        }
+
+        // SSOT: docs/spec/classes.md. Nhóm dễ nhầm suy từ class_code vì DB chưa lưu trường này.
+        var confusionAltClass = predictedClass switch
+        {
+            "Tomato___Early_blight" => "Tomato___Target_Spot",
+            "Tomato___Target_Spot" => "Tomato___Early_blight",
+            _ => null
+        };
+        var confusionGroup = confusionAltClass != null ? "TOMATO_LEAF_SPOT" : null;
+
+        string? warningMessage = null;
+        if (record.IsUncertain)
+        {
+            warningMessage = "Mô hình chưa chắc chắn về kết quả này. Hãy chụp lại cận cảnh vết bệnh dưới đủ ánh sáng.";
+        }
+        else if (confusionAltClass != null)
+        {
+            var altName = await _dbContext.Diseases.AsNoTracking()
+                .Where(d => d.ClassCode == confusionAltClass)
+                .Select(d => d.CommonNameVi)
+                .FirstOrDefaultAsync(cancellationToken);
+            warningMessage = $"Bệnh này dễ nhầm với {altName ?? confusionAltClass}. Nên nhờ chuyên gia xác nhận trước khi xử lý.";
+        }
+
+        // DB chỉ lưu độ tin cậy Top-1 nên hồ sơ cũ chỉ trả đúng 1 dòng, không suy diễn xác suất của lớp khác.
+        var top3 = new List<Top3ItemDto>
+        {
+            new()
+            {
+                ClassCode = predictedClass,
+                DiseaseName = disease?.CommonNameVi ?? predictedClass,
+                Confidence = record.Confidence
+            }
+        };
+
+        var response = new DiagnoseResponseDto
+        {
+            Success = true,
+            DiagnosisId = record.Id,
+            IsOod = false,
+            IsUncertain = record.IsUncertain,
+            Warning = warningMessage,
+            Notes = record.Notes,
+            Result = new DiagnoseResultDataDto
+            {
+                PlantName = disease?.Plant?.Name ?? "Cây trồng",
+                DiseaseName = disease?.CommonNameVi ?? predictedClass,
+                ClassCode = predictedClass,
+                Confidence = record.Confidence,
+                SeverityLevel = severityLevel,
+                IsUncertain = record.IsUncertain,
+                ConfusionGroup = confusionGroup,
+                Warning = warningMessage,
+                Notes = record.Notes,
+                Top3 = top3
+            },
+            VisualEvidence = new VisualEvidenceDto
+            {
+                OriginalImageUrl = record.OriginalImageUrl,
+                GradcamImageUrl = record.GradCamImageUrl
+            },
+            TreatmentGuidelines = treatmentGuidelines,
+            RecommendedProducts = recommendedProducts,
+            VerifiedSources = verifiedSources
         };
 
         return Ok(response);
