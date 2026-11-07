@@ -18,6 +18,7 @@ from app.rag.reindex_worker import ReindexCoordinator
 from app.rag.sync_index import sync_knowledge_index
 from app.mcp import mcp_router
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
+from app.agent.react_agent import react_agent
 
 logger = logging.getLogger("agent.main")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -265,6 +266,23 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "citations": citations,
         "total_latency_ms": max(total_ms, 850)
     })
+
+@app.post("/api/v1/agent/run", dependencies=[Depends(check_internal_auth)])
+def run_agent_turn(request: ChatRequest):
+    """
+    POST /api/v1/agent/run
+    Thực thi chu trình ReAct Loop đầy đủ (Gemini + FastMCP Tools + Hard Code Guardrails + STM).
+    Trả về cấu trúc AgentResponse đầy đủ (steps, citations, fallback status, latency).
+    """
+    response = react_agent.run(
+        message=request.message,
+        conversation_id=request.conversation_id,
+        disease_code=request.current_disease_code,
+        location=request.location,
+        harvest_days_left=request.harvest_days_left
+    )
+    return response.to_dict()
+
 
 @app.post("/api/v1/agent/chat")
 async def chat_agent(request: ChatRequest):

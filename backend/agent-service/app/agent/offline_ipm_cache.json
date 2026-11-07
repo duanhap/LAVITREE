@@ -1,0 +1,169 @@
+{
+  "Tomato___Late_blight": {
+    "disease_code": "Tomato___Late_blight",
+    "disease_name_vi": "Bệnh mốc sương / sương mai cà chua",
+    "plant_name": "Cà chua",
+    "pathogen": "Nấm Phytophthora infestans",
+    "cultural_measures": [
+      "Cắt tỉa toàn bộ lá gốc, cành sát đất và chùm quả bị nhiễm bệnh gom vào túi đem tiêu hủy.",
+      "Tạo rãnh thoát nước sâu giữa các luống, tránh ngập úng gốc khi trời mưa ẩm kéo dài.",
+      "Tuyệt đối không tưới phun mưa lên tán lá vào chiều tối để giảm thời gian ẩm ướt bề mặt lá."
+    ],
+    "biological_measures": [],
+    "chemical_measures": [
+      {
+        "product_name": "Ridomil Gold 68WG",
+        "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
+        "phi_days": 7,
+        "is_allowed": true
+      },
+      {
+        "product_name": "Antracol 70WP",
+        "active_ingredient": "Propineb 700g/kg + Kẽm (Zn++)",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+        "phi_days": 7,
+        "is_allowed": true
+      },
+      {
+        "product_name": "Chế phẩm sinh học Trichoderma Bacillus",
+        "active_ingredient": "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+        "phi_days": 7,
+        "is_allowed": true
+      }
+    ],
+    "citations": []
+  },
+  "Tomato___Early_blight": {
+    "disease_code": "Tomato___Early_blight",
+    "disease_name_vi": "Bệnh đốm vòng / cháy lá sớm cà chua",
+    "plant_name": "Cà chua",
+    "pathogen": "Nấm Alternaria solani",
+    "cultural_measures": [
+      "Vệ sinh đồng ruộng, ngắt bỏ toàn bộ lá già nhiễm đốm vòng dưới gốc và chôn hủy xa vườn.",
+      "Tăng cường bón phân hữu cơ hoai mục, cân đối NPK, tránh bón thừa đạm gây vóng cây.",
+      "Luân canh với cây trồng khác họ cà (như ngô, lúa, hành tỏi) ít nhất 2 vụ."
+    ],
+    "biological_measures": [],
+    "chemical_measures": [
+      {
+        "product_name": "Antracol 70WP",
+        "active_ingredient": "Propineb 700g/kg + Kẽm (Zn++)",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+        "phi_days": 7,
+        "is_allowed": true
+      },
+      {
+        "product_name": "Chế phẩm sinh học Trichoderma Bacillus",
+        "active_ingredient": "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+        "phi_days": 7,
+        "is_allowed": true
+      },
+      {
+        "product_name": "Thuốc trừ nấm Score 250EC",
+        "active_ingredient": "Difenoconazole 250g/L",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 10ml cho bình 16L nước, phun khi vết đốm vừa xuất hiện",
+        "phi_days": 14,
+        "is_allowed": true
+      }
+    ],
+    "citations": [
+      {
+        "source_id": "3732b3f5-0976-4527-8e0a-e7c388657513",
+        "source_title": "Cà chua mất mùa vì bệnh đốm vòng. Nguyên nhân và cách xử lý triệt để",
+        "organization": "Nông Nghiệp Phố (Tác giả: My Trần)",
+        "source_url": "https://nongnghieppho.vn/blogs/news/benh-dom-vong-tren-ca-chua",
+        "unit_type": "SUMMARY",
+        "is_verbatim": false,
+        "excerpt": "Bệnh đốm vòng (cháy lá sớm) trên cà chua do nấm Alternaria solani gây ra, tạo ra các đốm nâu trên lá già rồi lan rộng thành hình tròn có vòng đồng tâm, làm lá vàng rụng sớm, đồng thời gây hại trên thân và quả. Biện pháp ...",
+        "full_text": "Bệnh đốm vòng (cháy lá sớm) trên cà chua do nấm Alternaria solani gây ra, tạo ra các đốm nâu trên lá già rồi lan rộng thành hình tròn có vòng đồng tâm, làm lá vàng rụng sớm, đồng thời gây hại trên thân và quả. Biện pháp quản lý bao gồm chọn giống kháng bệnh, luân canh cây trồng, vệ sinh tàn dư thực vật, trồng mật độ vừa phải, tưới tiêu hợp lý (tránh tưới ướt lá) và sử dụng nấm đối kháng Trichoderma kết hợp các hoạt chất thuốc bảo vệ thực vật phù hợp."
+      }
+    ]
+  },
+  "Tomato___Target_Spot": {
+    "disease_code": "Tomato___Target_Spot",
+    "disease_name_vi": "Bệnh đốm mục tiêu cà chua",
+    "plant_name": "Cà chua",
+    "pathogen": "Nấm Corynespora cassiicola",
+    "cultural_measures": [
+      "Tỉa cành thông thoáng, giữ mật độ trồng vừa phải để ánh nắng xuyên đều vào tán cây.",
+      "Thu dọn và tiêu hủy triệt để tàn dư cây trồng sau mỗi vụ thu hoạch."
+    ],
+    "biological_measures": [],
+    "chemical_measures": [
+      {
+        "product_name": "Chế phẩm sinh học Trichoderma Bacillus",
+        "active_ingredient": "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
+        "phi_days": 7,
+        "is_allowed": true
+      }
+    ],
+    "citations": []
+  },
+  "Pepper,_bell___Bacterial_spot": {
+    "disease_code": "Pepper,_bell___Bacterial_spot",
+    "disease_name_vi": "Bệnh đốm vi khuẩn trên ớt chuông",
+    "plant_name": "Ớt chuông",
+    "pathogen": "Vi khuẩn Xanthomonas campestris pv. vesicatoria",
+    "cultural_measures": [
+      "Không làm việc hoặc tỉa cành khi tán lá ớt còn ướt sương để tránh vi khuẩn phát tán.",
+      "Xử lý hạt giống bằng nước ấm 50 độ C trong 25 phút trước khi gieo trồng."
+    ],
+    "biological_measures": [],
+    "chemical_measures": [
+      {
+        "product_name": "Antracol 70WP",
+        "active_ingredient": "Propineb 700g/kg + Kẽm (Zn++)",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
+        "phi_days": 7,
+        "is_allowed": true
+      }
+    ],
+    "citations": []
+  },
+  "Corn_(maize)___Common_rust_": {
+    "disease_code": "Corn_(maize)___Common_rust_",
+    "disease_name_vi": "Bệnh gỉ sắt ngô / bắp",
+    "plant_name": "Ngô (Bắp)",
+    "pathogen": "Nấm Puccinia sorghi",
+    "cultural_measures": [
+      "Sử dụng giống ngô lai kháng hoặc chống chịu tốt với bệnh gỉ sắt.",
+      "Gieo trồng đúng khung thời vụ để tránh giai đoạn cây con trùng với thời tiết sương mù ẩm kéo dài.",
+      "Bón phân cân đối đạm, lân, kali; tránh bón đạm muộn làm lá xanh tốt quá mức."
+    ],
+    "biological_measures": [],
+    "chemical_measures": [
+      {
+        "product_name": "Thuốc trừ nấm Score 250EC",
+        "active_ingredient": "Difenoconazole 250g/L",
+        "medicine_type": "Hóa học",
+        "dosage": "Pha 10ml cho bình 16L nước, phun khi vết đốm vừa xuất hiện",
+        "phi_days": 14,
+        "is_allowed": true
+      }
+    ],
+    "citations": [
+      {
+        "source_id": "cb2a69b3-cca5-4605-b2f5-4f1b1ad9e8cb",
+        "source_title": "Bệnh gỉ sắt ở cây bắp ngô và cách phòng trị",
+        "organization": "PHạm Văn Nam (Bắc Trung Nam Group)",
+        "source_url": "https://nongnghiepbactrungnam.vn/benh-gi-sat-o-cay-bap-ngo-va-cach-phong-tri",
+        "unit_type": "SUMMARY",
+        "is_verbatim": false,
+        "excerpt": "Vết bệnh ban đầu là chấm nhỏ màu vàng nhạt, lớn dần tạo ổ chứa bào tử vàng nâu rồi chuyển sang nâu đen như gỉ sắt; bệnh nặng làm lá khô cháy, lan sang thân, bẹ lá và áo bắp. Phòng trừ bằng cách dùng giống chống chịu, xử ...",
+        "full_text": "Vết bệnh ban đầu là chấm nhỏ màu vàng nhạt, lớn dần tạo ổ chứa bào tử vàng nâu rồi chuyển sang nâu đen như gỉ sắt; bệnh nặng làm lá khô cháy, lan sang thân, bẹ lá và áo bắp. Phòng trừ bằng cách dùng giống chống chịu, xử lý hạt giống bằng Rovrral (2g/10kg hạt), luân canh, vệ sinh đồng ruộng, tỉa lá già và phun thuốc Tilt 250ND hoặc Anvil 5SC nồng độ 0,1%."
+      }
+    ]
+  }
+}

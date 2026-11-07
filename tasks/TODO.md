@@ -61,9 +61,9 @@
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
   - Trạng thái: `[x] DONE` (`test_mcp_tools.py` 10/10 PASS với Core, PostgreSQL và OpenWeather thật. Image agent-service build và chạy được dưới user thường; chưa chạy cả hệ thống bằng docker compose.)
   - Đầu ra: Service chạy port **`8001`** công bố 4 công cụ chuẩn FastMCP (Read-Only: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`), kết nối RAG Task 06 và REST API thật từ Core API (.NET 8).
-- [ ] **TASK-07: Chu trình ReAct Loop (Gemini), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
+- [/] **TASK-07: Chu trình ReAct Loop (Gemini), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
   - Trách nhiệm: **Thành viên B**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] IN PROGRESS` (Code xong và đã review lại ngày 08/11/2026: `test_react_guardrails.py` 25/25 PASS, thử phá 12/12 kiểu đều bị test phát hiện, `test_react_gemini_live.py` 3/3 PASS với Gemini thật nhưng kho thuốc giả lập. Còn: sửa dữ liệu Trichoderma trên CSDL rồi xuất lại cache, Admin duyệt tri thức cho bệnh demo, chạy với Core thật.)
   - Đầu ra: ReAct loop với Gemini (model theo env `GEMINI_MODEL`), **Hard Code Guardrail bằng Python** (lọc thuốc cấm và $DaysToHarvest \le PhiDays$ trực tiếp bằng code trước khi đưa vào LLM), gắn nhãn `[DRAFT_RECOMMENDATION]`, Circuit Breaker & Router tự động hạ cấp về tệp phác đồ IPM cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
 - [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)

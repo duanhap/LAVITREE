@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 3 (Triển khai sau khi Task 06 và Task 05 đã hoàn thành)**
 * **Phân hệ**: `backend/agent-service/app/agent/`
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[/] IN PROGRESS` (code xong; còn sửa dữ liệu CSDL, duyệt tri thức bệnh demo và chạy với Core thật, xem mục 4)
 * **Người phụ trách**: Thành viên B (Agent Core & AI Safety)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY3/lavitree_react_agent.py`, `extract/DAY25/lavitree_reliability_resilience.py`, `extract/DAY27/lavitree_hitl_orchestration.py`
@@ -63,20 +63,20 @@ sequenceDiagram
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
-- [ ] **Pha 1**: Cấu hình Client gọi **Google Gemini** bằng SDK `google-genai` (`google-generativeai` đã ngừng hỗ trợ), đọc `GEMINI_API_KEY` và tên model `GEMINI_MODEL` từ `.env`. Không viết cứng tên model: Gemini 1.5 và 2.0 đã bị Google tắt, `gemini-2.5-flash` có lịch tắt sớm nhất 01/12/2026. Chọn model có Function Calling phù hợp và ghi vào báo cáo.
-- [ ] **Pha 2**:
+- [x] **Pha 1**: Cấu hình Client gọi **Google Gemini** bằng SDK `google-genai` (`google-generativeai` đã ngừng hỗ trợ), đọc `GEMINI_API_KEY` và tên model `GEMINI_MODEL` từ `.env`. Không viết cứng tên model: Gemini 1.5 và 2.0 đã bị Google tắt, `gemini-2.5-flash` có lịch tắt sớm nhất 01/12/2026. Chọn model có Function Calling phù hợp và ghi vào báo cáo.
+- [x] **Pha 2**:
   - Chuyển mã nguồn `extract/DAY3/lavitree_react_agent.py` vào `backend/agent-service/app/agent/react_agent.py`, kết nối 4 công cụ từ `app.mcp.server`.
   - Xây dựng module `app/agent/memory.py` quản lý bộ nhớ ngắn hạn STM (Rolling Window $K=3$ lượt gần nhất theo `conversation_id`, tự dọn dẹp sau 1 giờ).
-- [ ] **Pha 3**: Xây dựng module `guardrails.py` cài đặt Hard Code Guardrail:
+- [x] **Pha 3**: Xây dựng module `guardrails.py` cài đặt Hard Code Guardrail:
   - `pre_filter_medicines(medicines, harvest_days_left)`: Lọc bỏ thuốc có `IsAllowed=False` hoặc $phi\_days \ge harvest\_days\_left$. Nếu `harvest_days_left` là null/omitted, mặc định giả định $harvest\_days\_left = 0$ (kịch bản phòng ngừa tối đa $\rightarrow$ chặn toàn bộ thuốc hóa học) và kích hoạt mã `HARVEST_BEFORE_PHI_VIOLATION`.
   - `post_filter_response(response_text, harvest_days_left)`: Quét từ khóa hoạt chất hóa học độc hại khi $harvest\_days\_left \le phi\_days$.
   - `apply_hitl_tag(response_text)`: Đảm bảo nhãn `[DRAFT_RECOMMENDATION]` luôn hiện diện.
-- [ ] **Pha 4**: Triển khai `resilience.py` (kế thừa `extract/DAY25`):
+- [x] **Pha 4**: Triển khai `resilience.py` (kế thừa `extract/DAY25`):
   - Circuit Breaker đếm lỗi liên tiếp (ngưỡng 3 lỗi $\rightarrow$ chuyển trạng thái `OPEN`).
   - Viết script `backend/agent-service/scripts/export_offline_cache.py`: Tự động kết xuất `offline_ipm_cache.json` từ PostgreSQL (tri thức và danh mục thuốc của 5 bệnh demo, **kèm trường nguồn** `source_id`, `source_title`, `organization`, `source_url`, `unit_type`, `is_verbatim` để câu trả lời offline vẫn có `citations`) thay vì phải tự viết tay thủ công.
   - Chuẩn bị tệp `offline_ipm_cache.json` chứa phác đồ IPM chuẩn cho 5 bệnh demo.
   - Router tự động chuyển sang đọc file cache cục bộ khi Circuit Breaker `OPEN` hoặc khi bắt lỗi `NetworkError`.
-- [ ] **Pha 5**: Viết script kiểm thử độc lập `test_react_guardrails.py`:
+- [x] **Pha 5**: Viết script kiểm thử độc lập `test_react_guardrails.py`:
   - Test case 1: Ca vi phạm PHI (còn 2 ngày thu hoạch) $\rightarrow$ 100% không được xuất hiện thuốc hóa học PHI=7 ngày.
   - Test case 2: Ca giả lập mất mạng (ngắt API key / mock timeout) $\rightarrow$ kích hoạt router hạ cấp ngoại tuyến, trả về kết quả IPM trong $< 1.0$s.
   - Test case 3: Ca hội thoại 2 lượt liên tiếp cùng `conversation_id` $\rightarrow$ Agent nhận biết ngữ cảnh câu trước qua STM.
@@ -84,9 +84,14 @@ sequenceDiagram
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Vòng lặp ReAct vận hành ổn định trên model Gemini đang cấu hình, số bước lặp $\le 5$.
-- [ ] Bộ nhớ ngắn hạn STM hoạt động chính xác: Agent duy trì mạch hội thoại mượt mà cho các câu hỏi nối tiếp trong cùng `conversation_id`.
-- [ ] Chốt chặn an toàn bằng Code: Không một câu trả lời nào vi phạm PHI (100% từ chối thuốc hóa học khi $DaysToHarvest \le PhiDays$).
-- [ ] Nhãn `[DRAFT_RECOMMENDATION]` xuất hiện trong 100% các khuyến nghị có kê đơn thuốc.
-- [ ] Tự phục hồi ngoại tuyến: Khi tắt kết nối mạng, Agent trả lời bằng phác đồ IPM tĩnh cục bộ trong $\le 500$ms, không ném exception 500 ra client.
-- [ ] Bằng chứng nghiệm thu: Chạy `python test_react_guardrails.py` đạt PASS cả 3 ca kiểm thử: an toàn PHI, chịu lỗi ngoại tuyến, và ghi nhớ ngữ cảnh STM.
+- [x] Vòng lặp ReAct vận hành ổn định trên model Gemini đang cấu hình, số bước lặp $\le 5$.
+- [x] Bộ nhớ ngắn hạn STM hoạt động chính xác: Agent duy trì mạch hội thoại mượt mà cho các câu hỏi nối tiếp trong cùng `conversation_id`.
+- [x] Chốt chặn an toàn bằng Code: Không một câu trả lời nào vi phạm PHI (100% từ chối thuốc hóa học khi $DaysToHarvest \le PhiDays$).
+- [x] Nhãn `[DRAFT_RECOMMENDATION]` xuất hiện trong 100% các khuyến nghị có kê đơn thuốc.
+- [x] Tự phục hồi ngoại tuyến: Khi tắt kết nối mạng, Agent trả lời bằng phác đồ IPM tĩnh cục bộ trong $\le 500$ms, không ném exception 500 ra client.
+- [x] Bằng chứng nghiệm thu (chạy ngày 2026-11-08): `python test_react_guardrails.py` đạt 25/25 PASS gồm an toàn PHI, chịu lỗi ngoại tuyến, ghi nhớ ngữ cảnh STM. Thử phá 12 kiểu (bỏ hậu kiểm, đưa danh sách chưa lọc cho AI, tăng vòng lặp...) đều làm test đỏ.
+- [x] `python test_react_gemini_live.py`: 3/3 PASS với Gemini thật (`gemini-3.5-flash-lite`), kho thuốc và tài liệu giả lập; câu trả lời của 4 lượt hỏi không còn Ridomil khi sát ngày thu hoạch hoặc chưa rõ ngày.
+- [ ] Sửa `Products` trên CSDL: Trichoderma đang là `Hóa học`, PHI=7 nên bị chặn như thuốc hóa học; sau đó chạy lại `scripts/export_offline_cache.py`.
+- [ ] Admin duyệt tri thức cho 5 bệnh demo: CSDL hiện chỉ có 14/112 bài đã duyệt, `Tomato___Late_blight` có 0 bài.
+- [ ] Chạy cả luồng với Core và PostgreSQL thật `[Chưa thực hiện]`.
+- [ ] `/api/v1/agent/chat` nối vào ReAct thật `[Chuyển sang TASK-08]`; gắn `conversation_id` với người dùng `[Chuyển sang TASK-08]`.
