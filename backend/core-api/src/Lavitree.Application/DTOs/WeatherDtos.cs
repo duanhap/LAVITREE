@@ -32,6 +32,9 @@ public class WeatherForecastDto
     [JsonPropertyName("recommendation")]
     public string Recommendation { get; set; } = string.Empty;
 
+    [JsonPropertyName("is_simulated")]
+    public bool IsSimulated { get; set; } = false;
+
     [JsonPropertyName("cached_at")]
     public DateTime CachedAt { get; set; } = DateTime.UtcNow;
 }

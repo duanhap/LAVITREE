@@ -54,14 +54,15 @@ public static class LavitreeDbContextSeeder
     private static async Task SeedDefaultAdminUserAsync(LavitreeDbContext context)
     {
         var adminEmail = "admin@lavitree.vn";
-        var exists = await context.Users.AnyAsync(u => u.Email == adminEmail);
-        if (!exists)
+        var adminPassword = Environment.GetEnvironmentVariable("ADMIN_INITIAL_PASSWORD");
+        if (string.IsNullOrWhiteSpace(adminPassword))
         {
-            var adminPassword = Environment.GetEnvironmentVariable("ADMIN_INITIAL_PASSWORD");
-            if (string.IsNullOrWhiteSpace(adminPassword))
-            {
-                throw new InvalidOperationException("Biến môi trường ADMIN_INITIAL_PASSWORD bắt buộc phải được thiết lập để khởi tạo tài khoản quản trị.");
-            }
+            throw new InvalidOperationException("Biến môi trường ADMIN_INITIAL_PASSWORD bắt buộc phải được thiết lập để khởi tạo tài khoản quản trị.");
+        }
+
+        var existingAdmin = await context.Users.FirstOrDefaultAsync(u => u.Email == adminEmail);
+        if (existingAdmin == null)
+        {
             var adminUser = new User
             {
                 Id = Guid.NewGuid(),
@@ -75,6 +76,18 @@ public static class LavitreeDbContextSeeder
             context.Users.Add(adminUser);
             await context.SaveChangesAsync();
             Console.WriteLine("[Seeder] Seeded default admin user: admin@lavitree.vn");
+        }
+        else
+        {
+            // BUG-01: Nếu mật khẩu admin đã đổi trong cấu hình, cập nhật lại hash mới vào CSDL
+            if (!BCrypt.Net.BCrypt.Verify(adminPassword, existingAdmin.PasswordHash))
+            {
+                Console.WriteLine("[Seeder] Phát hiện mật khẩu mới cho admin@lavitree.vn. Đang cập nhật hash...");
+                existingAdmin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword, workFactor: 11);
+                existingAdmin.Role = "ADMIN";
+                await context.SaveChangesAsync();
+                Console.WriteLine("[Seeder] Mật khẩu quản trị viên đã được cập nhật thành công.");
+            }
         }
     }
 
@@ -400,7 +413,7 @@ public static class LavitreeDbContextSeeder
                     MedicineType = string.IsNullOrWhiteSpace(p.medicine_type) ? "Hóa học" : p.medicine_type,
                     CreatedAt = DateTime.UtcNow
                 };
-                sampleProducts.Add((prod, p.target_diseases ?? new List<string> { "Tomato___Late_blight" }));
+                sampleProducts.Add((prod, p.is_allowed ? (p.target_diseases ?? new List<string>()) : new List<string>()));
             }
         }
         else
@@ -481,7 +494,7 @@ public static class LavitreeDbContextSeeder
                         Name = "Thuốc trừ cỏ cấm Paraquat / 2.4-D Cũ (Đã bị Cục BVTV cấm)",
                         ActiveIngredient = "Paraquat Dichloride",
                         Price = 30000m,
-                        DosageInstruction = "Bị cấm lưu hành, tuyệt đối không sử dụng",
+                        DosageInstruction = "Bị cấm lưu hành theo QĐ 278/QĐ-BNN-BVTV, tuyệt đối không sử dụng",
                         StockQuantity = 0,
                         ImageUrl = "",
                         PhiDays = 999,
@@ -490,7 +503,7 @@ public static class LavitreeDbContextSeeder
                         MedicineType = "Hóa chất cấm",
                         CreatedAt = DateTime.UtcNow
                     },
-                    new List<string> { "Tomato___Late_blight" }
+                    new List<string>() // BUG-02: Không liên kết thuốc cấm với bất kỳ dịch hại nào
                 )
             });
         }
@@ -510,20 +523,24 @@ public static class LavitreeDbContextSeeder
             }
             else
             {
-                // Đồng bộ cập nhật các trường bảo vệ thực vật & liều lượng nếu đã tồn tại
-                existingProd.ActiveIngredient = p.ActiveIngredient;
-                existingProd.DosageInstruction = p.DosageInstruction;
-                existingProd.Price = p.Price;
-                existingProd.StockQuantity = p.StockQuantity;
-                existingProd.PhiDays = p.PhiDays;
-                existingProd.IsAllowed = p.IsAllowed;
-                existingProd.RainResistant = p.RainResistant;
-                existingProd.MedicineType = p.MedicineType;
-                if (!string.IsNullOrWhiteSpace(p.ImageUrl)) existingProd.ImageUrl = p.ImageUrl;
+                // BUG-03: Nếu sản phẩm đã tồn tại trong CSDL, KHÔNG ghi đè giá, tồn kho, PHI và IsAllowed!
+                // Giữ nguyên thiết lập do Quản trị viên cập nhật và tồn kho thực tế của cửa hàng.
                 productList.Add((existingProd, item.targetDiseases));
             }
         }
         await context.SaveChangesAsync();
+
+        // BUG-02: Dọn dẹp triệt để bất kỳ liên kết DiseaseProducts nào của thuốc cấm bị nạp nhầm trước đây
+        var bannedDiseaseLinks = await context.DiseaseProducts
+            .Include(dp => dp.Product)
+            .Where(dp => dp.Product != null && !dp.Product.IsAllowed)
+            .ToListAsync();
+        if (bannedDiseaseLinks.Count > 0)
+        {
+            context.DiseaseProducts.RemoveRange(bannedDiseaseLinks);
+            await context.SaveChangesAsync();
+            Console.WriteLine($"[Seeder] Đã xóa {bannedDiseaseLinks.Count} liên kết bệnh học của thuốc cấm khỏi CSDL.");
+        }
 
         // 3. Link DiseaseProducts theo bảng tra cứu dịch hại
         foreach (var (prod, targets) in productList)

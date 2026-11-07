@@ -212,10 +212,22 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// 5. Automatic Database Seeding (Idempotent)
+// 5. Automatic Database Migration & Seeding (Idempotent - BUG-08)
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<LavitreeDbContext>();
+    try
+    {
+        Console.WriteLine("[App] Đang kiểm tra và tự động áp dụng Migration Entity Framework...");
+        await dbContext.Database.MigrateAsync();
+        Console.WriteLine("[App] Áp dụng Migration thành công.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[App] Lỗi khi chạy migration CSDL: {ex.Message}");
+        throw;
+    }
+
     await LavitreeDbContextSeeder.SeedAsync(dbContext);
 }
 

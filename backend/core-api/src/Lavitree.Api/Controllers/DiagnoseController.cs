@@ -258,8 +258,10 @@ public class DiagnoseController : ControllerBase
             IsolationDays = tp.IsolationDays
         }).ToList() ?? new List<TreatmentStepDto>();
 
-        // Trích xuất danh mục thuốc BVTV đặc trị
-        var recommendedProducts = disease?.DiseaseProducts.Select(dp => new ProductDto
+        // Trích xuất danh mục thuốc BVTV đặc trị (BUG-02: Bắt buộc lọc IsAllowed và !IsDeleted)
+        var recommendedProducts = disease?.DiseaseProducts
+            .Where(dp => dp.Product != null && dp.Product.IsAllowed && !dp.Product.IsDeleted)
+            .Select(dp => new ProductDto
         {
             Id = dp.Product.Id,
             Name = dp.Product.Name,

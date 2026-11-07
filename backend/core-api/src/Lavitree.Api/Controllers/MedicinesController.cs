@@ -2,8 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
 using Lavitree.Infrastructure.Persistence;
 
@@ -15,10 +19,17 @@ public class MedicinesController : ControllerBase
 {
     private readonly LavitreeDbContext _dbContext;
     private readonly string _publicUrl;
+    private readonly ILogger<MedicinesController> _logger;
+    private readonly IWebHostEnvironment _env;
 
-    public MedicinesController(LavitreeDbContext dbContext)
+    public MedicinesController(
+        LavitreeDbContext dbContext,
+        ILogger<MedicinesController> logger,
+        IWebHostEnvironment env)
     {
         _dbContext = dbContext;
+        _logger = logger;
+        _env = env;
         _publicUrl = Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL")?.TrimEnd('/') ?? "";
     }
 
@@ -43,6 +54,7 @@ public class MedicinesController : ControllerBase
         [FromQuery] bool allowedOnly = true)
     {
         List<MedicineItemDto> medicineList;
+        bool isFallback = false;
 
         try
         {
@@ -75,13 +87,36 @@ public class MedicinesController : ControllerBase
             }
             else
             {
-                medicineList = GetFallbackMedicines();
+                // BUG-09: Khi CSDL trống, chỉ fallback sang mẫu nếu ở môi trường Dev hoặc có cờ rõ ràng
+                if (_env.IsDevelopment() || Environment.GetEnvironmentVariable("ENABLE_DEV_FALLBACK") == "true")
+                {
+                    _logger.LogWarning("[MedicinesController] CSDL Products rỗng, kích hoạt fallback cho Development.");
+                    medicineList = GetFallbackMedicines();
+                    isFallback = true;
+                }
+                else
+                {
+                    medicineList = new List<MedicineItemDto>();
+                }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Fallback âm thầm sử dụng danh mục mẫu nếu CSDL đang khởi động
-            medicineList = GetFallbackMedicines();
+            _logger.LogError(ex, "[MedicinesController] Lỗi khi truy vấn CSDL danh mục thuốc.");
+            if (_env.IsDevelopment() || Environment.GetEnvironmentVariable("ENABLE_DEV_FALLBACK") == "true")
+            {
+                _logger.LogWarning("[MedicinesController] Fallback sang danh mục mẫu do lỗi kết nối CSDL trong chế độ Dev.");
+                medicineList = GetFallbackMedicines();
+                isFallback = true;
+            }
+            else
+            {
+                // BUG-09: Ở môi trường Production không nuốt lỗi, trả HTTP 503 Service Unavailable
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                {
+                    message = "Dịch vụ tra cứu thuốc BVTV tạm thời không khả dụng do gián đoạn cơ sở dữ liệu."
+                });
+            }
         }
 
         // Áp dụng các bộ lọc nghiệp vụ
@@ -108,6 +143,7 @@ public class MedicinesController : ControllerBase
         {
             total = items.Count,
             disease_code = diseaseCode ?? "ALL",
+            is_fallback = isFallback,
             items
         });
     }

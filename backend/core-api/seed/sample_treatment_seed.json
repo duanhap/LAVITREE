@@ -32,6 +32,7 @@
       "rain_resistant": true,
       "stock_quantity": 150,
       "image_url": "https://lavitree.io.vn/images/products/ridomil-gold.png",
+      "provenance_source": "Danh mục thuốc BVTV được phép sử dụng tại VN (Thông tư 03/2017/TT-BNNPTNT)",
       "target_diseases": [
         "Tomato___Late_blight",
         "Potato___Late_blight"
@@ -48,6 +49,7 @@
       "rain_resistant": false,
       "stock_quantity": 120,
       "image_url": "https://lavitree.io.vn/images/products/antracol.png",
+      "provenance_source": "Danh mục thuốc BVTV được phép sử dụng tại VN (Thông tư 03/2017/TT-BNNPTNT)",
       "target_diseases": [
         "Tomato___Late_blight",
         "Tomato___Early_blight",
@@ -65,6 +67,7 @@
       "rain_resistant": true,
       "stock_quantity": 200,
       "image_url": "https://lavitree.io.vn/images/products/trichoderma.png",
+      "provenance_source": "Danh mục vi sinh vật đối kháng được phép lưu hành - Viện BVTV Việt Nam",
       "target_diseases": [
         "Tomato___Late_blight",
         "Tomato___Early_blight",
@@ -82,6 +85,7 @@
       "rain_resistant": true,
       "stock_quantity": 80,
       "image_url": "https://lavitree.io.vn/images/products/score.png",
+      "provenance_source": "Danh mục thuốc BVTV được phép sử dụng tại VN (Thông tư 03/2017/TT-BNNPTNT)",
       "target_diseases": [
         "Tomato___Early_blight",
         "Corn_(maize)___Common_rust_"
@@ -92,15 +96,14 @@
       "active_ingredient": "Paraquat Dichloride",
       "medicine_type": "Hóa chất cấm",
       "price": 30000,
-      "dosage_instruction": "Bị cấm lưu hành, tuyệt đối không sử dụng",
+      "dosage_instruction": "Bị cấm lưu hành theo QĐ 278/QĐ-BNN-BVTV, tuyệt đối không sử dụng",
       "phi_days": 999,
       "is_allowed": false,
       "rain_resistant": false,
       "stock_quantity": 0,
       "image_url": "",
-      "target_diseases": [
-        "Tomato___Late_blight"
-      ]
+      "provenance_source": "[CẤM LƯU HÀNH] Quyết định 278/QĐ-BNN-BVTV loại bỏ thuốc BVTV chứa Paraquat khỏi Danh mục tại VN",
+      "target_diseases": []
     }
   ]
 }
