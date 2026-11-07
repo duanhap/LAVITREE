@@ -20,29 +20,45 @@ DEMO_DISEASE_CODES = {
 def load_records_from_postgres(db_url: str, demo_only: bool = False) -> List[KnowledgeRecord]:
     """
     Đọc tri thức khuyến nông từ CSDL PostgreSQL (SSOT) bằng tài khoản read-only.
+    TUÂN THỦ 100% QUY TẮC HITL: Chỉ nạp các bài đã được Kỹ sư/Admin duyệt (IsManualApproved = true).
     """
     import psycopg2
-    logger.info(f"Connecting to PostgreSQL (Read-Only) via AGENT_DB_URL...")
-    conn = psycopg2.connect(db_url)
-    cursor = conn.cursor()
+    logger.info("Connecting to PostgreSQL (Read-Only) via AGENT_DB_URL...")
+    conn = psycopg2.connect(db_url, connect_timeout=5)
+    try:
+        conn.set_session(readonly=True)
+        with conn.cursor() as cursor:
+            # Tạm thời: A03 chưa có migration UnitType/IsVerbatim. Bỏ kiểm tra này sau khi migration chạy xong.
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'KnowledgeSources'
+                  AND column_name IN ('UnitType', 'IsVerbatim')
+            """)
+            cols = {r[0] for r in cursor.fetchall()}
+            if len(cols) < 2:
+                logger.warning("KnowledgeSources is missing UnitType/IsVerbatim (A03 migration). Using SUMMARY/false.")
+            unit_type_expr = '"UnitType"' if "UnitType" in cols else "'SUMMARY' AS \"UnitType\""
+            is_verbatim_expr = '"IsVerbatim"' if "IsVerbatim" in cols else "false AS \"IsVerbatim\""
 
-    query = """
-    SELECT "Id", "ModelClass", "PlantName", "DiseaseName", "SourceUrl", 
-           "SourceTitle", "Organization", "EvidenceText", "IsManualApproved"
-    FROM "KnowledgeSources"
-    WHERE "IsDeleted" = false
-    """
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    conn.close()
+            cursor.execute(f"""
+                SELECT "Id", "ModelClass", "PlantName", "DiseaseName", "SourceUrl",
+                       "SourceTitle", "Organization", "EvidenceText", "IsManualApproved",
+                       {unit_type_expr}, {is_verbatim_expr}
+                FROM "KnowledgeSources"
+                WHERE "IsDeleted" = false AND "IsManualApproved" = true
+            """)
+            rows = cursor.fetchall()
+    finally:
+        conn.close()
 
     records: List[KnowledgeRecord] = []
     for r in rows:
-        r_id, model_class, plant_name, disease_name, source_url, source_title, org, text, is_approved = r
+        r_id, model_class, plant_name, disease_name, source_url, source_title, org, text, is_approved, unit_type, is_verbatim = r
         if demo_only and model_class not in DEMO_DISEASE_CODES:
             continue
         
-        # Chỉ nạp bài đã duyệt (hoặc bài demo hạt nhân cho dev)
         records.append(
             KnowledgeRecord(
                 id=str(r_id),
@@ -53,22 +69,22 @@ def load_records_from_postgres(db_url: str, demo_only: bool = False) -> List[Kno
                 organization=org or "",
                 source_url=source_url or "",
                 evidence_text=text or "",
-                unit_type="SUMMARY",
-                is_verbatim=False,
+                unit_type=unit_type or "SUMMARY",
+                is_verbatim=bool(is_verbatim),
                 is_manual_approved=bool(is_approved)
             )
         )
 
-    logger.info(f"Loaded {len(records)} records from PostgreSQL.")
+    logger.info(f"Loaded {len(records)} approved records from PostgreSQL.")
     return records
 
 
 def load_records_from_csv(csv_path: Optional[str] = None, demo_only: bool = False) -> List[KnowledgeRecord]:
     """
-    Fallback nạp tri thức từ file CSV seed nếu CSDL PostgreSQL chưa khởi chạy trong môi trường local dev.
+    Nạp tri thức từ file CSV seed khi ở môi trường dev có RAG_ALLOW_CSV_FALLBACK=1.
+    TUÂN THỦ NGUYÊN TẮC HITL: Tuyệt đối không nạp bài chưa duyệt (IsManualApproved = false).
     """
     if not csv_path:
-        # Đường dẫn mặc định tới file CSV trong core-api/seed
         current_dir = os.path.dirname(os.path.abspath(__file__))
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
         csv_path = os.path.join(backend_dir, "core-api", "seed", "KnowledgeSources_rows.csv")
@@ -85,13 +101,13 @@ def load_records_from_csv(csv_path: Optional[str] = None, demo_only: bool = Fals
             if row.get("IsDeleted", "false").lower() == "true":
                 continue
             
-            model_class = row.get("ModelClass", "")
-            if demo_only and model_class not in DEMO_DISEASE_CODES:
+            # Kiểm tra trạng thái duyệt - Bắt buộc IsManualApproved = true
+            is_approved = row.get("IsManualApproved", "false").lower() == "true"
+            if not is_approved:
                 continue
 
-            is_approved = row.get("IsManualApproved", "false").lower() == "true"
-            # Lưu ý dev: Với 5 bệnh demo, nạp đầy đủ để phục vụ kiểm thử RAG
-            if not is_approved and model_class not in DEMO_DISEASE_CODES:
+            model_class = row.get("ModelClass", "")
+            if demo_only and model_class not in DEMO_DISEASE_CODES:
                 continue
 
             records.append(
@@ -106,63 +122,48 @@ def load_records_from_csv(csv_path: Optional[str] = None, demo_only: bool = Fals
                     evidence_text=row.get("EvidenceText", ""),
                     unit_type=row.get("UnitType", "SUMMARY"),
                     is_verbatim=row.get("IsVerbatim", "false").lower() == "true",
-                    is_manual_approved=is_approved or (model_class in DEMO_DISEASE_CODES)
+                    is_manual_approved=True
                 )
             )
 
-    logger.info(f"Loaded {len(records)} records from CSV.")
+    logger.info(f"Loaded {len(records)} approved records from CSV.")
     return records
 
 
 def sync_knowledge_index(demo_only: bool = False) -> int:
     """
-    Hàm thực thi đồng bộ: Đọc dữ liệu từ DB (hoặc CSV fallback),
-    sau đó nạp chỉ mục vào ChromaDB và BM25.
+    Hàm thực thi đồng bộ: Đọc dữ liệu từ DB (hoặc CSV nếu bật RAG_ALLOW_CSV_FALLBACK=1).
+    Nếu lỗi DB và không cho phép fallback, ném ngoại lệ để API trả 503 và BẢO TOÀN chỉ mục hiện tại.
     """
-    from app.rag.vector_retriever import VectorRetriever
-    from app.rag.bm25_retriever import BM25Retriever
-    import pickle
+    from app.rag.pipeline import get_rag_pipeline
 
     db_url = os.environ.get("AGENT_DB_URL")
+    allow_csv_fallback = os.environ.get("RAG_ALLOW_CSV_FALLBACK", "0").lower() in ("1", "true", "yes")
+
     records: List[KnowledgeRecord] = []
 
     if db_url:
         try:
             records = load_records_from_postgres(db_url, demo_only=demo_only)
         except Exception as e:
-            logger.warning(f"PostgreSQL sync failed ({e}). Falling back to local CSV seed.")
-            records = load_records_from_csv(demo_only=demo_only)
+            logger.error(f"PostgreSQL connection failed: {e}")
+            if allow_csv_fallback:
+                logger.warning("RAG_ALLOW_CSV_FALLBACK=1: Falling back to local CSV seed.")
+                records = load_records_from_csv(demo_only=demo_only)
+            else:
+                logger.error("RAG_ALLOW_CSV_FALLBACK is disabled. Aborting sync to keep existing index intact.")
+                raise ConnectionError(f"Database sync failed and fallback is disabled: {e}")
     else:
-        logger.info("AGENT_DB_URL not set. Using local CSV seed.")
-        records = load_records_from_csv(demo_only=demo_only)
+        if allow_csv_fallback:
+            logger.info("AGENT_DB_URL not set but RAG_ALLOW_CSV_FALLBACK=1: Loading CSV seed.")
+            records = load_records_from_csv(demo_only=demo_only)
+        else:
+            raise ValueError("AGENT_DB_URL is not set and RAG_ALLOW_CSV_FALLBACK is disabled. Cannot reindex.")
 
-    if not records:
-        logger.warning("No records to index!")
-        return 0
-
-    # 1. Đồng bộ ChromaDB
-    logger.info("Indexing into ChromaDB...")
-    vector_retriever = VectorRetriever()
-    count = vector_retriever.reindex(records)
-    logger.info(f"Indexed {count} documents into ChromaDB.")
-
-    # 2. Đồng bộ BM25
-    logger.info("Building BM25 Okapi Index...")
-    bm25_retriever = BM25Retriever()
-    bm25_retriever.fit(records)
-
-    # Lưu cache BM25 xuống đĩa để pipeline nạp nhanh khi khởi động
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    bm25_cache_file = os.path.join(base_dir, "data", "bm25_index.pkl")
-    os.makedirs(os.path.dirname(bm25_cache_file), exist_ok=True)
-    with open(bm25_cache_file, "wb") as f:
-        pickle.dump(bm25_retriever, f)
-    logger.info(f"BM25 index saved to {bm25_cache_file}.")
-
-    return count
+    pipeline = get_rag_pipeline()
+    return pipeline.reindex(records)
 
 
 if __name__ == "__main__":
     count = sync_knowledge_index(demo_only=False)
-    print(f"\n🎉 Successfully synced {count} knowledge articles into Hybrid RAG index!")
-
+    print(f"[OK] Successfully synchronized and indexed {count} approved documents.")

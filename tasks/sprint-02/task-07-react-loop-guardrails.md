@@ -10,7 +10,7 @@
 ---
 
 ## 1. BỐI CẢNH & MỤC TIÊU (CONTEXT & OBJECTIVES)
-- **Mô tả ngắn**: Xây dựng bộ não suy luận trung tâm của Agent theo chu trình **ReAct Loop** (`Thought → Action → Observation → Final Answer`) sử dụng mô hình **Google Gemini 2.0 / 2.5 Flash** (thay thế Gemini 1.5 Flash đã deprecated). Agent tiếp nhận chẩn đoán từ Vision Service hoặc câu hỏi trực tiếp từ nông dân, tự động lập luận và gọi các công cụ MCP phù hợp để đưa ra giải pháp điều trị toàn diện.
+- **Mô tả ngắn**: Xây dựng bộ não suy luận trung tâm của Agent theo chu trình **ReAct Loop** (`Thought → Action → Observation → Final Answer`) sử dụng mô hình **Google Gemini** (thay thế Gemini 1.5 Flash đã deprecated). Agent tiếp nhận chẩn đoán từ Vision Service hoặc câu hỏi trực tiếp từ nông dân, tự động lập luận và gọi các công cụ MCP phù hợp để đưa ra giải pháp điều trị toàn diện.
 - **Bộ 3 Chốt chặn An toàn Cốt tử (Safety Guardrails)**:
   1. **Khống chế lặp vô hạn**: Giới hạn cứng `max_iterations = 5`. Nếu sau 5 vòng chưa kết luận, Agent buộc phải dừng lại và tổng hợp thông tin hiện có kèm cảnh báo cần tham vấn chuyên gia.
   2. **Chốt chặn an toàn bằng Code (Hard Guardrails - Không phụ thuộc LLM)**:
@@ -34,7 +34,7 @@
 sequenceDiagram
     autonumber
     actor Farmer as Nông dân / Bác sĩ
-    participant Agent as ReAct Loop Agent (Gemini 2.0)
+    participant Agent as ReAct Loop Agent (Gemini)
     participant CodeGuard as Hard Code Guardrail (Python)
     participant MCP as FastMCP Tools
     participant LocalCache as Local Offline IPM Bundle
@@ -63,7 +63,7 @@ sequenceDiagram
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
-- [ ] **Pha 1**: Cấu hình Client gọi **Google Gemini 2.0 Flash** (`google-genai` SDK hoặc `google-generativeai`), đọc `GEMINI_API_KEY` từ `.env`.
+- [ ] **Pha 1**: Cấu hình Client gọi **Google Gemini** bằng SDK `google-genai` (`google-generativeai` đã ngừng hỗ trợ), đọc `GEMINI_API_KEY` và tên model `GEMINI_MODEL` từ `.env`. Không viết cứng tên model: Gemini 1.5 và 2.0 đã bị Google tắt, `gemini-2.5-flash` có lịch tắt sớm nhất 01/12/2026. Chọn model có Function Calling phù hợp và ghi vào báo cáo.
 - [ ] **Pha 2**:
   - Chuyển mã nguồn `extract/DAY3/lavitree_react_agent.py` vào `backend/agent-service/app/agent/react_agent.py`, kết nối 4 công cụ từ `app.mcp.server`.
   - Xây dựng module `app/agent/memory.py` quản lý bộ nhớ ngắn hạn STM (Rolling Window $K=3$ lượt gần nhất theo `conversation_id`, tự dọn dẹp sau 1 giờ).
@@ -84,7 +84,7 @@ sequenceDiagram
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Vòng lặp ReAct vận hành ổn định trên Gemini 2.0 Flash, số bước lặp $\le 5$.
+- [ ] Vòng lặp ReAct vận hành ổn định trên model Gemini đang cấu hình, số bước lặp $\le 5$.
 - [ ] Bộ nhớ ngắn hạn STM hoạt động chính xác: Agent duy trì mạch hội thoại mượt mà cho các câu hỏi nối tiếp trong cùng `conversation_id`.
 - [ ] Chốt chặn an toàn bằng Code: Không một câu trả lời nào vi phạm PHI (100% từ chối thuốc hóa học khi $DaysToHarvest \le PhiDays$).
 - [ ] Nhãn `[DRAFT_RECOMMENDATION]` xuất hiện trong 100% các khuyến nghị có kê đơn thuốc.

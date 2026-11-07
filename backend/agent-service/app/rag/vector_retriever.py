@@ -1,131 +1,220 @@
 import os
 import logging
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional
 import chromadb
-from chromadb.config import Settings
 from app.rag.schema import KnowledgeRecord
 
 logger = logging.getLogger("rag.vector")
 
+
+def rag_data_dir() -> str:
+    """Thư mục lưu chỉ mục. Trong Docker là volume agent_data; test trỏ RAG_DATA_DIR sang thư mục tạm."""
+    configured = os.environ.get("RAG_DATA_DIR")
+    if configured:
+        return configured
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
+
 class MultilingualEmbeddingFunction:
     """
     Embedding Function đa ngôn ngữ cho ChromaDB.
-    Ưu tiên BAAI/bge-m3 (đã tải sẵn offline) hoặc paraphrase-multilingual-MiniLM-L12-v2.
+    Tuân thủ nguyên tắc Fail-Closed: Tuyệt đối không trả về all-zeros vector nếu không load được model.
     """
     def __init__(self, model_name: Optional[str] = None):
         self.model = None
         self.model_name = model_name or os.environ.get("EMBEDDING_MODEL_NAME", "BAAI/bge-m3")
+        self.dimension: int = 1024
         self._init_model()
 
     def _init_model(self):
-        # Đảm bảo nạp từ cache offline nếu không có kết nối internet
-        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        # Đảm bảo nạp từ cache offline nếu TRANSFORMERS_OFFLINE được bật
         try:
             from sentence_transformers import SentenceTransformer
             logger.info(f"Loading SentenceTransformer: {self.model_name}...")
             self.model = SentenceTransformer(self.model_name)
-            logger.info("SentenceTransformer loaded successfully.")
+            self.dimension = self.model.get_sentence_embedding_dimension()
+            logger.info(f"SentenceTransformer loaded successfully. Model: {self.model_name}, Dimension: {self.dimension}")
         except Exception as e:
-            logger.warning(f"Could not load {self.model_name}: {e}. Trying fallback...")
-            try:
-                from sentence_transformers import SentenceTransformer
-                self.model = SentenceTransformer("all-MiniLM-L6-v2")
-                logger.info("Fallback to all-MiniLM-L6-v2.")
-            except Exception as e2:
-                logger.error(f"Fallback failed: {e2}. ChromaDB default embedding will be used.")
-                self.model = None
+            logger.critical(f"Failed to load required embedding model '{self.model_name}': {e}")
+            raise RuntimeError(
+                f"CRITICAL: Cannot load embedding model '{self.model_name}'. "
+                f"Agent Service cannot operate with missing or zero-vector embeddings. Error: {e}"
+            )
 
     def __call__(self, input: List[str]) -> List[List[float]]:
-        if self.model:
-            embeddings = self.model.encode(
-                input,
-                convert_to_numpy=True,
-                normalize_embeddings=True,
-                show_progress_bar=False
-            )
-            return embeddings.tolist()
-        return [[0.0] * 384 for _ in input]
+        if not self.model:
+            raise RuntimeError("CRITICAL: SentenceTransformer model is None. Zero-vector fallback is strictly forbidden.")
+
+        embeddings = self.model.encode(
+            input,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False
+        )
+        return embeddings.tolist()
 
 
 class VectorRetriever:
     """
     Quản lý lưu trữ và truy vấn Dense Vector Semantic Search trên ChromaDB cục bộ.
+    Áp dụng kiến trúc Blue-Green Atomic Swap khi reindex để chống rỗng chỉ mục (downtime).
     """
-    COLLECTION_NAME = "agri_knowledge"
+    COLLECTION_BLUE = "agri_knowledge_blue"
+    COLLECTION_GREEN = "agri_knowledge_green"
 
     def __init__(self, persist_dir: Optional[str] = None):
         if not persist_dir:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            persist_dir = os.path.join(base_dir, "data", "chroma_db")
-        
+            persist_dir = os.path.join(rag_data_dir(), "chroma_db")
+
         os.makedirs(persist_dir, exist_ok=True)
         self.persist_dir = persist_dir
         self.client = chromadb.PersistentClient(path=self.persist_dir)
         self.embedding_fn = MultilingualEmbeddingFunction()
-        
+
+        self.pointer_file = os.path.join(self.persist_dir, "active_collection.txt")
+        self.active_collection_name = self._get_active_collection_name()
         self.collection = self.client.get_or_create_collection(
-            name=self.COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"}
+            name=self.active_collection_name,
+            metadata=self._collection_metadata()
         )
+        self.index_compatible = self._is_compatible(self.collection)
+
+    def _collection_metadata(self) -> dict:
+        return {
+            "hnsw:space": "cosine",
+            "model_name": self.embedding_fn.model_name,
+            "dimension": self.embedding_fn.dimension
+        }
+
+    def _is_compatible(self, collection) -> bool:
+        """Chỉ mục dựng bằng model khác thì không truy vấn được; chờ reindex dựng lại thay vì lỗi ngầm."""
+        metadata = collection.metadata or {}
+        compatible = (
+            metadata.get("model_name") == self.embedding_fn.model_name
+            and metadata.get("dimension") == self.embedding_fn.dimension
+        )
+        if not compatible:
+            logger.error(
+                f"Vector index was built with {metadata.get('model_name')} ({metadata.get('dimension')}d), "
+                f"running model is {self.embedding_fn.model_name} ({self.embedding_fn.dimension}d). "
+                "Vector search is disabled until the next reindex."
+            )
+        return compatible
+
+    def _get_active_collection_name(self) -> str:
+        if os.path.exists(self.pointer_file):
+            try:
+                with open(self.pointer_file, "r", encoding="utf-8") as f:
+                    name = f.read().strip()
+                    if name in (self.COLLECTION_BLUE, self.COLLECTION_GREEN):
+                        return name
+            except Exception:
+                pass
+        return self.COLLECTION_BLUE
+
+    def _set_active_collection_name(self, name: str) -> None:
+        tmp_file = f"{self.pointer_file}.tmp"
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            f.write(name)
+        os.replace(tmp_file, self.pointer_file)
+        self.active_collection_name = name
 
     def get_collection(self):
-        """Luôn lấy collection hiện tại, tránh lỗi stale UUID khi reindex."""
-        return self.client.get_or_create_collection(
-            name=self.COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"}
-        )
+        """Luôn lấy active collection hiện tại."""
+        return self.collection
 
     def reindex(self, records: List[KnowledgeRecord]) -> int:
         """
-        Xóa và nạp lại toàn bộ chỉ mục ChromaDB từ danh sách bản ghi đã duyệt.
-        Đảm bảo không sinh bản ghi trùng và loại bỏ các bản ghi đã bị gỡ.
+        Blue-Green Atomic Reindex:
+        1. Tạo chỉ mục trên staging collection (nếu đang là Blue thì nạp Green, và ngược lại).
+        2. Nếu nạp lỗi giữa chừng, huỷ bỏ staging collection; collection cũ vẫn phục vụ bình thường.
+        3. Chỉ khi nạp 100% thành công mới trỏ pointer sang collection mới và xoá collection cũ.
+        Danh sách rỗng vẫn đi qua các bước này để gỡ hết bài khỏi chỉ mục.
         """
+        target_collection_name = (
+            self.COLLECTION_GREEN if self.active_collection_name == self.COLLECTION_BLUE
+            else self.COLLECTION_BLUE
+        )
+        old_collection_name = self.active_collection_name
+
+        logger.info(f"Starting Blue-Green reindex into candidate: {target_collection_name}...")
+
+        # 1. Làm sạch target collection nếu đã tồn tại trước đó
         try:
-            self.client.delete_collection(name=self.COLLECTION_NAME)
+            self.client.delete_collection(name=target_collection_name)
         except Exception:
             pass
 
-        collection = self.get_collection()
+        target_collection = self.client.create_collection(
+            name=target_collection_name,
+            metadata=self._collection_metadata()
+        )
 
-        if not records:
-            return 0
+        try:
+            if records:
+                ids = []
+                documents = []
+                metadatas = []
 
-        ids = []
-        documents = []
-        metadatas = []
+                for r in records:
+                    # Kỹ thuật Contextual Prepending: Ghép rõ tên loài cây và tên bệnh
+                    doc_text = f"Cây {r.plant_name} - {r.disease_name} ({r.model_class}): {r.evidence_text}"
+                    ids.append(r.id)
+                    documents.append(doc_text)
+                    metadatas.append({
+                        "model_class": r.model_class,
+                        "plant_name": r.plant_name,
+                        "disease_name": r.disease_name,
+                        "source_title": r.source_title,
+                        "organization": r.organization,
+                        "source_url": r.source_url,
+                        "unit_type": r.unit_type,
+                        "is_verbatim": str(r.is_verbatim).lower(),
+                        "raw_evidence": r.evidence_text
+                    })
 
-        for r in records:
-            ids.append(r.id)
-            # Contextual Enrichment: gắn kèm ngữ cảnh Cây trồng & Bệnh học vào document vector
-            doc_context = f"Cây {r.plant_name} - {r.disease_name} ({r.model_class}): {r.evidence_text}"
-            documents.append(doc_context)
-            metadatas.append({
-                "disease_code": r.model_class,
-                "plant_name": r.plant_name,
-                "disease_name": r.disease_name,
-                "source_title": r.source_title,
-                "organization": r.organization,
-                "source_url": r.source_url,
-                "unit_type": r.unit_type,
-                "is_verbatim": r.is_verbatim,
-            })
+                embeddings = self.embedding_fn(documents)
 
-        # Tạo embeddings
-        embeddings = self.embedding_fn(documents)
+                target_collection.add(
+                    ids=ids,
+                    embeddings=embeddings,
+                    documents=documents,
+                    metadatas=metadatas
+                )
 
-        # Batch upsert vào ChromaDB
-        batch_size = 64
-        for i in range(0, len(ids), batch_size):
-            end = i + batch_size
-            collection.add(
-                ids=ids[i:end],
-                documents=documents[i:end],
-                embeddings=embeddings[i:end],
-                metadatas=metadatas[i:end]
-            )
+            # 2. Hoán đổi nguyên tử (Atomic Switch)
+            self._set_active_collection_name(target_collection_name)
+            self.collection = target_collection
+            self.index_compatible = True
+            logger.info(f"Atomic switch completed! Active collection is now {target_collection_name} ({len(records)} records).")
 
-        return len(ids)
+            # 3. Dọn dẹp collection cũ
+            try:
+                self.client.delete_collection(name=old_collection_name)
+                logger.info(f"Old collection {old_collection_name} cleaned up.")
+            except Exception as ex_clean:
+                logger.warning(f"Could not delete old collection {old_collection_name}: {ex_clean}")
+
+            return len(records)
+
+        except Exception as e:
+            logger.error(f"Reindex failed halfway: {e}. Discarding candidate collection {target_collection_name}. Old index {old_collection_name} remains intact.")
+            try:
+                self.client.delete_collection(name=target_collection_name)
+            except Exception:
+                pass
+            raise e
+
+    def _query(self, collection, query_embedding: List[float], where_filter: Optional[dict], top_k: int):
+        count = collection.count()
+        if count == 0:
+            return None
+        return collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(top_k, count),
+            where=where_filter,
+            include=["metadatas", "distances"]
+        )
 
     def search(
         self,
@@ -134,53 +223,47 @@ class VectorRetriever:
         top_k: int = 10
     ) -> List[Tuple[KnowledgeRecord, float, int]]:
         """
-        Tìm kiếm ngữ nghĩa (Dense Vector Search) trên ChromaDB.
-        Trả về danh sách tuples: (record, similarity_score, rank_0_indexed).
+        Truy vấn Dense Vector Semantic Search từ ChromaDB theo Cosine Distance.
         """
-        collection = self.get_collection()
-        query_embedding = self.embedding_fn([query])[0]
-        
-        where_filter = None
-        if disease_code:
-            where_filter = {"disease_code": disease_code}
-
-        total_docs = collection.count()
-        if total_docs == 0:
+        if not self.index_compatible:
             return []
 
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(top_k, total_docs),
-            where=where_filter,
-            include=["documents", "metadatas", "distances"]
-        )
+        where_filter = {"model_class": {"$eq": disease_code}} if disease_code else None
+        query_embedding = self.embedding_fn([query])[0]
+
+        collection = self.collection
+        try:
+            results = self._query(collection, query_embedding, where_filter, top_k)
+        except Exception:
+            # Collection cũ có thể vừa bị xoá sau khi reindex đổi chỉ mục: thử lại trên chỉ mục mới
+            if self.collection is collection:
+                raise
+            results = self._query(self.collection, query_embedding, where_filter, top_k)
 
         output: List[Tuple[KnowledgeRecord, float, int]] = []
         if not results or not results["ids"] or not results["ids"][0]:
             return output
 
         ids = results["ids"][0]
-        docs = results["documents"][0]
-        metas = results["metadatas"][0]
-        distances = results["distances"][0] if "distances" in results else [0.0] * len(ids)
+        metadatas = results["metadatas"][0]
+        distances = results["distances"][0]
 
-        for rank, (doc_id, text, meta, dist) in enumerate(zip(ids, docs, metas, distances)):
-            # Cosine distance sang similarity: sim = 1.0 - dist
-            sim_score = max(0.0, 1.0 - dist)
+        for rank, (doc_id, meta, dist) in enumerate(zip(ids, metadatas, distances)):
+            # Cosine similarity = 1 - cosine distance
+            similarity = 1.0 - dist
             rec = KnowledgeRecord(
                 id=doc_id,
-                model_class=meta.get("disease_code", ""),
+                model_class=meta.get("model_class", ""),
                 plant_name=meta.get("plant_name", ""),
                 disease_name=meta.get("disease_name", ""),
                 source_title=meta.get("source_title", ""),
                 organization=meta.get("organization", ""),
                 source_url=meta.get("source_url", ""),
-                evidence_text=text,
+                evidence_text=meta.get("raw_evidence", ""),
                 unit_type=meta.get("unit_type", "SUMMARY"),
-                is_verbatim=meta.get("is_verbatim", False),
+                is_verbatim=meta.get("is_verbatim", "false") == "true",
                 is_manual_approved=True
             )
-            output.append((rec, round(sim_score, 4), rank))
+            output.append((rec, round(similarity, 4), rank))
 
         return output
-

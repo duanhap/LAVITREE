@@ -4,125 +4,133 @@ import uuid
 import time
 import os
 import secrets
+import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Optional, AsyncGenerator, List
-from fastapi import FastAPI, HTTPException, Header, Depends, Request
+from typing import Literal, Optional, AsyncGenerator
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.rag.knowledge_retriever import AgriKnowledgeRetriever
-from app.rag.schema import LabelParagraphsRequest, LabelParagraphsResponse
-from app.rag.pipeline import rag_pipeline
+from app.rag.schema import LabelParagraphsRequest
+from app.rag.pipeline import get_rag_pipeline
+from app.rag.reindex_worker import ReindexCoordinator
+from app.rag.sync_index import sync_knowledge_index
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
+
+logger = logging.getLogger("agent.main")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# Reindex chạy nền, nhiều yêu cầu cùng lúc được gộp lại (Bulk approve + Single approve)
+reindex_coordinator = ReindexCoordinator(lambda: sync_knowledge_index(False))
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Model lỗi thì service dừng ngay (fail-closed), không chạy tiếp với tìm kiếm hỏng
+    get_rag_pipeline()
+    # Container mới phải tự có dữ liệu; DB chưa sẵn sàng thì worker tự thử lại
+    reindex_coordinator.request()
+    yield
+
 
 app = FastAPI(
     title="Lavitree Agri-Agent Service",
     description="Agentic RAG & FastMCP trợ lý tư vấn nông nghiệp bảo vệ thực vật",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
-
-# CORS middleware hỗ trợ Web Portal & dev client kết nối trực tiếp
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-retriever = AgriKnowledgeRetriever()
 
 def check_internal_auth(request: Request):
     """
-    Xác thực API Key nội bộ giữa các container (Docker Network).
-    Bảo vệ các endpoint quản trị /internal/* theo chuẩn api-contracts.md Mục 4.3 & 4.4.
+    Xác thực API Key nội bộ giữa các container trong Docker Network.
+    Tuân thủ nguyên tắc Fail-Closed: Nếu chưa cấu hình INTERNAL_API_SECRET, từ chối toàn bộ request.
+    SSOT: docs/architecture/api-contracts.md Mục 4.3 & 4.4
     """
-    key = request.headers.get("x-internal-key") or request.headers.get("X-Internal-Key")
-    expected_key = os.environ.get("INTERNAL_API_SECRET", "lavitree_internal_secret_key_super_secure_32chars!")
-    if not key or not secrets.compare_digest(key, expected_key):
+    expected_key = os.environ.get("INTERNAL_API_SECRET")
+    if not expected_key:
+        logger.error("INTERNAL_API_SECRET is not configured in environment. Rejecting request (fail-closed).")
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Internal API secret is not configured"
+        )
+
+    key = request.headers.get("x-internal-key")
+    # So sánh trên bytes: compare_digest báo lỗi với chuỗi có ký tự ngoài ASCII
+    if not key or not secrets.compare_digest(key.encode("utf-8"), expected_key.encode("utf-8")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized: Invalid or missing X-Internal-Key"
         )
     return True
 
-class ConsultationRequest(BaseModel):
-    disease_code: str
-    crop_stage: Optional[str] = "Phát triển thân lá"
-    weather_condition: Optional[str] = "Bình thường"
-    user_query: Optional[str] = None
-
 class ChatRequest(BaseModel):
-    message: str
-    conversation_id: Optional[str] = None
-    location: Optional[str] = None
-    harvest_days_left: Optional[int] = None
-    current_disease_code: Optional[str] = None
+    message: str = Field(..., min_length=1, max_length=2000)
+    conversation_id: Optional[str] = Field(None, max_length=64)
+    location: Optional[str] = Field(None, max_length=120)
+    harvest_days_left: Optional[int] = Field(None, ge=0, le=3650)
+    current_disease_code: Optional[str] = Field(None, max_length=100)
 
 class ReindexRequest(BaseModel):
-    source_id: Optional[str] = None
-    action: Optional[str] = "approve"
+    source_id: Optional[str] = Field(None, max_length=64)
+    action: Optional[Literal["approve", "unapprove", "delete", "manual"]] = None
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "agent-service", "port": 8001}
-
-@app.post("/internal/reindex")
-async def trigger_reindex(request: Request):
-    """
-    POST /internal/reindex
-    Endpoint nội bộ dành cho Core API thông báo khi Admin duyệt bài viết tri thức mới.
-    SSOT: docs/architecture/api-contracts.md Mục 4.3
-    """
-    check_internal_auth(request)
-    res = rag_pipeline.reindex()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    reindex = reindex_coordinator.status()
+    index_ready = get_rag_pipeline().vector_retriever.get_collection().count() > 0
+    healthy = index_ready and not reindex["last_error"]
     return {
-        "status": "success",
-        "message": "Chỉ mục tri thức đã được tái lập thành công",
-        "indexed_documents": res.indexed_count,
-        "timestamp": now_iso
+        "status": "ok" if healthy else "degraded",
+        "service": "agent-service",
+        "port": 8001,
+        "index_ready": index_ready
     }
 
-@app.post("/internal/knowledge/label-paragraphs")
-async def label_paragraphs(request: Request):
+@app.post("/internal/reindex", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(check_internal_auth)])
+def trigger_reindex(payload: Optional[ReindexRequest] = None):
+    """
+    POST /internal/reindex
+    Core API gọi khi Admin duyệt / bỏ duyệt / xoá bài. Nhận yêu cầu rồi trả về ngay,
+    dựng chỉ mục ở luồng nền để không làm đứng chat và không vượt timeout 5s của Core.
+    SSOT: docs/architecture/api-contracts.md Mục 4.3
+    """
+    logger.info(f"Reindex requested (action={payload.action if payload else None}).")
+    reindex_coordinator.request()
+    return {
+        "status": "accepted",
+        "message": "Đã nhận yêu cầu tái lập chỉ mục tri thức",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+@app.get("/internal/reindex/status", dependencies=[Depends(check_internal_auth)])
+def reindex_status():
+    """Kết quả reindex gần nhất, để Admin biết lượt chạy nền thành công hay thất bại."""
+    return reindex_coordinator.status()
+
+@app.post("/internal/knowledge/label-paragraphs", dependencies=[Depends(check_internal_auth)])
+def label_paragraphs(payload: LabelParagraphsRequest):
     """
     POST /internal/knowledge/label-paragraphs
     AI gợi ý nhãn cho từng đoạn bài báo (HITL Ingestion).
+    Pydantic Schema giới hạn độ dài (≤ 200 đoạn, ≤ 2000 ký tự/đoạn).
+    Gemini lỗi thì trả 503 để Core báo ai_suggestion_available = false.
     SSOT: docs/architecture/api-contracts.md Mục 4.4
     """
-    check_internal_auth(request)
-    data = await request.json()
-    req = LabelParagraphsRequest(**data)
-    res = rag_pipeline.label_paragraphs(req)
+    res = get_rag_pipeline().label_paragraphs(payload)
+    if not res.ai_suggestion_available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI suggestion is unavailable"
+        )
     return {
         "labels": [{"id": s.id, "unit_type": s.unit_type} for s in res.suggestions]
     }
 
-
-@app.post("/api/v1/agent/consult-treatment")
-def consult_treatment(request: ConsultationRequest):
-    kb_info = retriever.search_guideline(request.disease_code)
-    
-    advice = f"""[Khuyến nghị chuyên gia Lavitree]:
-- Bệnh: {kb_info['vietnamese_name']}
-- Giai đoạn cây: {request.crop_stage}
-- Biện pháp sinh học & canh tác: {kb_info['organic_treatment']}
-- Thuốc BVTV gợi ý: {kb_info['chemical_treatment']}
-- Thời gian cách ly an toàn (PHI): {kb_info['phi_days']}
-Lưu ý: Luôn tuân thủ nguyên tắc '4 Đúng' trong bảo vệ thực vật (Đúng thuốc, đúng liều lượng, đúng lúc, đúng cách)."""
-
-    return {
-        "disease_code": request.disease_code,
-        "knowledge_evidence": kb_info,
-        "consultant_advice": advice
-    }
-
 async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None]:
     """
-    Stub SSE Generator mô phỏng chính xác hợp đồng api-contracts.md Mục 4.1
-    Phục vụ Thành viên A dựng giao diện Web/Mobile mà không bị block.
+    SSE Generator mô phỏng chính xác hợp đồng api-contracts.md Mục 4.1
+    Tích hợp trích dẫn thực tế từ Hybrid RAG.
     """
     start_time = time.time()
     trace_id = f"tr-{uuid.uuid4().hex[:8]}"
@@ -140,14 +148,14 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "conversation_id": conv_id,
         "status": "thinking"
     })
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.05)
 
     # 2. Event thought (Bước 1)
     yield format_sse("thought", {
         "step": 1,
         "thought": f"Cần kiểm tra thời tiết tại {location} chiều nay để xem có nguy cơ mưa rửa trôi thuốc hay phát tán nấm bệnh không."
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 3. Event action (Gọi tool check_weather_risk)
     yield format_sse("action", {
@@ -155,7 +163,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "tool": "check_weather_risk",
         "params": {"location": location, "forecast_hours": 12}
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 4. Event observation
     yield format_sse("observation", {
@@ -167,7 +175,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
             "recommendation": "NGUY CƠ RỬA TRÔI"
         }
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 5. Event thought (Bước 2)
     guardrail_triggered = "HARVEST_BEFORE_PHI_VIOLATION" if harvest_days <= 3 else None
@@ -180,7 +188,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "step": 2,
         "thought": thought_msg
     })
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.05)
 
     # 6. Event delta (Stream các token văn bản)
     full_answer_text = (
@@ -192,7 +200,6 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
         "3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể cân nhắc chế phẩm sinh học đối kháng (Trichoderma Bacillus, PHI 0 ngày) để tưới hạn chế nấm lây lan mà không lo tồn dư độc hại."
     )
 
-    # Tách đoạn và stream từng cụm từ
     tokens = [
         "[DRAFT_RECOMMENDATION]\n",
         f"Chào bác! ",
@@ -214,14 +221,20 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
 
     for token in tokens:
         yield format_sse("delta", {"token": token})
-        await asyncio.sleep(0.04)
+        await asyncio.sleep(0.02)
 
     # 7. Event final_answer
     total_ms = int((time.time() - start_time) * 1000)
     
     # Tra cứu trích dẫn học thuật từ Hybrid RAG thực tế (chuẩn SSOT chống LLM bịa nguồn)
     try:
-        rag_res = rag_pipeline.lookup_disease_knowledge(disease_code, query=request.message, top_k=2)
+        # Embedding tốn CPU: chạy ở luồng khác để không làm đứng các luồng SSE đang mở
+        rag_res = await asyncio.to_thread(
+            get_rag_pipeline().lookup_disease_knowledge,
+            disease_code,
+            query=request.message,
+            top_k=2
+        )
         citations = [
             {
                 "source_id": c.source_id,
@@ -235,6 +248,7 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
             for c in rag_res.top_chunks
         ]
     except Exception as e:
+        logger.warning(f"Error fetching citations for chat: {e}")
         citations = []
 
     yield format_sse("final_answer", {
@@ -262,4 +276,3 @@ async def chat_agent(request: ChatRequest):
             "X-Accel-Buffering": "no",
         }
     )
-
