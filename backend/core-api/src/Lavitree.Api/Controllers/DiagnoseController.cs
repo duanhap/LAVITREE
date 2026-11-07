@@ -17,6 +17,7 @@ using Lavitree.Application.DTOs;
 using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
+using Lavitree.Infrastructure.Services;
 
 namespace Lavitree.Api.Controllers;
 
@@ -82,6 +83,15 @@ public class DiagnoseController : ControllerBase
             if (Guid.TryParse(subClaim, out var parsedGuid))
             {
                 authenticatedUserId = parsedGuid;
+            }
+        }
+        else if (Request.Headers.TryGetValue("Authorization", out var authHeaderValues))
+        {
+            var authHeader = authHeaderValues.ToString();
+            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(authHeader["Bearer ".Length..]))
+            {
+                // Client gửi Bearer Token nhưng không hợp lệ hoặc đã hết hạn: trả về 401 chứ không âm thầm coi là Guest
+                return Unauthorized(new { detail = "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại." });
             }
         }
 
@@ -156,20 +166,41 @@ public class DiagnoseController : ControllerBase
         string originalImageUrl = "";
         string? gradCamImageUrl = null;
 
-        if (!isGuest)
+        // 4.1. BUG-23: Truy vấn Tri thức CSDL theo ClassCode trước khi upload MinIO để tránh ảnh mồ côi
+        var predictedClass = aiResult.Top1?.ClassCode ?? "";
+        var disease = await _dbContext.Diseases
+            .Include(d => d.Plant)
+            .Include(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
+            .Include(d => d.DiseaseProducts)
+                .ThenInclude(dp => dp.Product)
+            .FirstOrDefaultAsync(d => d.ClassCode == predictedClass, cancellationToken);
+
+        if (!isGuest && disease != null)
         {
             diagnosisId = Guid.NewGuid();
 
-            // 4.1. Tải ảnh gốc lên MinIO (Sử dụng Safe Content-Type suy luận từ file extension)
+            // 4.2. BUG-23: Xóa metadata trước khi lưu. Ảnh không phân tích được thì không lưu.
+            byte[] cleanImage;
             try
             {
                 await using var origStream = image.OpenReadStream();
+                cleanImage = await ImageMetadataStripper.StripAsync(origStream, cancellationToken);
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogWarning(ex, "Không thể xóa metadata của ảnh tải lên.");
+                return UnprocessableEntity(new { detail = "Tệp hình ảnh bị lỗi cấu trúc hoặc không thể giải mã." });
+            }
+
+            try
+            {
+                using var sanitizedStream = new MemoryStream(cleanImage);
                 var origObjectName = $"{diagnosisId}_orig{fileExtension}";
                 var safeContentType = GetSafeContentType(fileExtension);
                 originalImageUrl = await _minioStorageService.UploadFileAsync(
                     BucketName,
                     origObjectName,
-                    origStream,
+                    sanitizedStream,
                     safeContentType,
                     cancellationToken);
             }
@@ -179,7 +210,7 @@ public class DiagnoseController : ControllerBase
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new { detail = "Không thể lưu trữ hình ảnh lên hệ thống lưu trữ MinIO. Vui lòng thử lại sau." });
             }
 
-            // 4.2. Giải mã và tải ảnh Grad-CAM Heatmap lên MinIO
+            // 4.3. Giải mã và tải ảnh Grad-CAM Heatmap lên MinIO
             if (!string.IsNullOrWhiteSpace(aiResult.GradcamBase64))
             {
                 try
@@ -212,7 +243,7 @@ public class DiagnoseController : ControllerBase
             // "Guest: kết quả chỉ lưu trong phiên trình duyệt; dưới kết quả hiện gợi ý 'Đăng nhập để lưu lịch sử'."
             // Không lưu ảnh vào MinIO và không lưu lịch sử vào CSDL để bảo vệ quyền riêng tư người dùng.
             // Cung cấp data URL Grad-CAM để giao diện trình duyệt hiển thị thanh so sánh tức thì.
-            _logger.LogInformation("Khách vãng lai (Guest) thực hiện chẩn đoán: Không lưu ảnh lên MinIO và không ghi CSDL.");
+            _logger.LogInformation("Khách vãng lai (Guest) hoặc chưa tìm thấy bệnh trong DB: Không lưu ảnh lên MinIO và không ghi CSDL.");
             if (!string.IsNullOrWhiteSpace(aiResult.GradcamBase64))
             {
                 gradCamImageUrl = aiResult.GradcamBase64.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
@@ -220,15 +251,6 @@ public class DiagnoseController : ControllerBase
                     : $"data:image/jpeg;base64,{aiResult.GradcamBase64}";
             }
         }
-
-        // 4.3. Truy vấn Tri thức CSDL theo ClassCode dự đoán
-        var predictedClass = aiResult.Top1?.ClassCode ?? "";
-        var disease = await _dbContext.Diseases
-            .Include(d => d.Plant)
-            .Include(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
-            .Include(d => d.DiseaseProducts)
-                .ThenInclude(dp => dp.Product)
-            .FirstOrDefaultAsync(d => d.ClassCode == predictedClass, cancellationToken);
 
         // Fallback metadata nếu lớp bệnh chưa có trong DB
         var plantName = disease?.Plant?.Name ?? aiResult.Top1?.EffectivePlantName ?? "Cây trồng";
@@ -280,7 +302,7 @@ public class DiagnoseController : ControllerBase
 
         // Trích xuất 1-3 tài liệu khuyến nông đối chứng từ KnowledgeSources (BUG-25)
         var verifiedSources = await _dbContext.KnowledgeSources
-            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && (s.SourceQuality.StartsWith("Cao") || s.IsManualApproved))
+            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && s.IsManualApproved)
             .OrderByDescending(s => s.CreatedAt)
             .Take(3)
             .Select(s => new VerifiedSourceDto
@@ -486,7 +508,7 @@ public class DiagnoseController : ControllerBase
 
         // Trích xuất tài liệu khuyến nông đối chứng
         var verifiedSources = await _dbContext.KnowledgeSources
-            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && (s.SourceQuality.StartsWith("Cao") || s.IsManualApproved))
+            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && s.IsManualApproved)
             .OrderByDescending(s => s.CreatedAt)
             .Take(3)
             .Select(s => new VerifiedSourceDto
@@ -513,13 +535,48 @@ public class DiagnoseController : ControllerBase
             };
         }
 
+        // SSOT: docs/spec/classes.md. Nhóm dễ nhầm suy từ class_code vì DB chưa lưu trường này.
+        var confusionAltClass = predictedClass switch
+        {
+            "Tomato___Early_blight" => "Tomato___Target_Spot",
+            "Tomato___Target_Spot" => "Tomato___Early_blight",
+            _ => null
+        };
+        var confusionGroup = confusionAltClass != null ? "TOMATO_LEAF_SPOT" : null;
+
+        string? warningMessage = null;
+        if (record.IsUncertain)
+        {
+            warningMessage = "Mô hình chưa chắc chắn về kết quả này. Hãy chụp lại cận cảnh vết bệnh dưới đủ ánh sáng.";
+        }
+        else if (confusionAltClass != null)
+        {
+            var altName = await _dbContext.Diseases.AsNoTracking()
+                .Where(d => d.ClassCode == confusionAltClass)
+                .Select(d => d.CommonNameVi)
+                .FirstOrDefaultAsync(cancellationToken);
+            warningMessage = $"Bệnh này dễ nhầm với {altName ?? confusionAltClass}. Nên nhờ chuyên gia xác nhận trước khi xử lý.";
+        }
+
+        // DB chỉ lưu độ tin cậy Top-1 nên hồ sơ cũ chỉ trả đúng 1 dòng, không suy diễn xác suất của lớp khác.
+        var top3 = new List<Top3ItemDto>
+        {
+            new()
+            {
+                ClassCode = predictedClass,
+                DiseaseName = disease?.CommonNameVi ?? predictedClass,
+                Confidence = record.Confidence
+            }
+        };
+
         var response = new DiagnoseResponseDto
         {
             Success = true,
             DiagnosisId = record.Id,
             IsOod = false,
             IsUncertain = record.IsUncertain,
-            Warning = record.IsUncertain ? "Độ tin cậy chưa đạt ngưỡng tối ưu, nên chụp lại trong điều kiện ánh sáng tốt hơn." : null,
+            Warning = warningMessage,
+            Notes = record.Notes,
             Result = new DiagnoseResultDataDto
             {
                 PlantName = disease?.Plant?.Name ?? "Cây trồng",
@@ -528,17 +585,10 @@ public class DiagnoseController : ControllerBase
                 Confidence = record.Confidence,
                 SeverityLevel = severityLevel,
                 IsUncertain = record.IsUncertain,
-                ConfusionGroup = null,
-                Warning = record.Notes,
-                Top3 = new List<Top3ItemDto>
-                {
-                    new()
-                    {
-                        ClassCode = predictedClass,
-                        DiseaseName = disease?.CommonNameVi ?? predictedClass,
-                        Confidence = record.Confidence
-                    }
-                }
+                ConfusionGroup = confusionGroup,
+                Warning = warningMessage,
+                Notes = record.Notes,
+                Top3 = top3
             },
             VisualEvidence = new VisualEvidenceDto
             {

@@ -90,7 +90,10 @@
 - **Request Form**:
   - `image`: File ảnh lá chụp từ camera/gallery (Bắt buộc).
   - `notes` *(string, optional)*: Ghi chú của nông dân (Ví dụ: "Vườn cà chua 2 sào").
-  - *(Bảo mật - Vá IDOR)*: Đã loại bỏ hoàn toàn tham số `userId` khỏi Form data. Hệ thống tự động trích xuất `userId` từ Header `Authorization: Bearer <jwt_token>` nếu người dùng đã đăng nhập, hoặc gán `null` cho khách vãng lai.
+  - *(Bảo mật - Vá IDOR)*: Đã loại bỏ hoàn toàn tham số `userId` khỏi Form data. Hệ thống tự động trích xuất `userId` từ Header `Authorization: Bearer <jwt_token>` nếu người dùng đã đăng nhập, hoặc xử lý như khách vãng lai nếu không gửi token. Khách vãng lai không được lưu ảnh và lịch sử (`diagnosis_id = null`). Gửi Bearer token sai hoặc hết hạn sẽ nhận `401`, không bị hạ thành khách.
+  - *(Giới hạn tần suất)*: Khách vãng lai `GUEST_DIAGNOSE_RATE_LIMIT_PER_MINUTE` lượt/phút/IP (mặc định 10), tài khoản `RATE_LIMIT_PER_MINUTE` lượt/phút/tài khoản (mặc định 60). Vượt hạn mức nhận `429`.
+  - *(Quyền riêng tư)*: Metadata ảnh (EXIF/GPS, XMP, IPTC) bị xóa trước khi lưu. Ảnh không phân tích được cấu trúc nhận `422`.
+  - *(Nguồn kiểm chứng)*: `verified_sources` chỉ gồm bài có `IsManualApproved = true`.
 
 - **Response Body (`200 OK`)**:
   ```json
@@ -203,6 +206,53 @@
   }
   ```
 
+### 3.2.1. `GET /api/v1/diagnose/history/{id}` (Chi tiết ca khám bệnh cá nhân - Màn hình W-08)
+- **Headers**: `Authorization: Bearer <jwt_token>` (Bắt buộc; xác thực quyền sở hữu ca khám của user)
+- **Bảo vệ IDOR**: Nếu ca khám không thuộc `userId` của token hoặc không tồn tại, trả về `404 Not Found` (không làm lộ sự tồn tại của bản ghi người khác). Tài khoản `ADMIN` được xem mọi ca khám.
+- **Giới hạn dữ liệu**: DB chỉ lưu kết quả Top-1 nên `result.top3` của ca cũ có đúng 1 phần tử; không suy diễn xác suất của lớp khác. `confusion_group` suy từ `class_code`.
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "created_at": "2026-10-26T14:30:00Z",
+    "plant_name": "Cà chua",
+    "disease_name": "Bệnh mốc sương cà chua",
+    "class_code": "Tomato___Late_blight",
+    "confidence": 0.9462,
+    "severity_level": "Nghiêm trọng (Cần xử lý trong 24-48h)",
+    "is_uncertain": false,
+    "confusion_group": null,
+    "warning": "Chụp kỹ cả mặt dưới lá để thấy lớp mốc trắng.",
+    "top3": [
+      { "class_code": "Tomato___Late_blight", "disease_name": "Bệnh mốc sương cà chua", "confidence": 0.9462 }
+    ],
+    "notes": "Vườn cà chua 3 sào tại Nam Định",
+    "recovery_status": "Đang theo dõi",
+    "original_image_url": "http://localhost:9000/lavitree-diagnoses/a1b2c3d4_orig.jpg",
+    "gradcam_image_url": "http://localhost:9000/lavitree-diagnoses/a1b2c3d4_gradcam.jpg",
+    "treatment_guidelines": [
+      {
+        "step_order": 1,
+        "action_title": "Biện pháp Canh tác & Cơ học",
+        "instructions": "Cắt tỉa lá bệnh, tiêu hủy xa vườn."
+      }
+    ],
+    "recommended_products": [
+      {
+        "id": "11111111-2222-3333-4444-555555555551",
+        "name": "Ridomil Gold 68WG",
+        "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+        "medicine_type": "Hóa học",
+        "price": 65000,
+        "dosage_instruction": "Pha 50g cho bình 16L nước",
+        "phi_days": 7,
+        "is_allowed": true,
+        "rain_resistant": true
+      }
+    ]
+  }
+  ```
+
 ---
 
 ### 3.3. `GET /api/v1/knowledge/sources` (Kho tri thức bài báo kiểm chứng)
@@ -292,9 +342,63 @@
 
 ---
 
+### 3.4.1. `GET /api/v1/diseases` (Danh mục Sổ tay Bệnh học & Cây trồng)
+*Phục vụ màn hình W-07 Sổ tay Bệnh học 14 loài cây & 40 danh mục chẩn đoán chuẩn Khuyến nông*
+- **Query Params**: `plantId` (GUID, optional), `search` (string, optional)
+- **Response Body (`200 OK`)**:
+  ```json
+  [
+    {
+      "id": "22222222-0000-0000-0000-000000000001",
+      "plant_id": "11111111-0000-0000-0000-000000000001",
+      "plant_name": "Táo",
+      "class_code": "Apple___Apple_scab",
+      "common_name_vi": "Bệnh vảy táo (Scab)",
+      "symptoms": "Vết bệnh hình tròn màu ô liu hoặc nâu nhung trên mặt lá...",
+      "prevention": "Thu gom lá rụng, cắt tỉa cành thông thoáng, phun thuốc phòng định kỳ.",
+      "severity_level": "Trung bình"
+    }
+  ]
+  ```
+
+### 3.4.2. `GET /api/v1/diseases/by-class/{classCode}` (Chi tiết bệnh học theo mã lớp AI)
+*Tra cứu chi tiết phác đồ IPM và danh mục thuốc đặc trị theo mã class Model AI (ví dụ `Tomato___Late_blight`)*
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "id": "22222222-0000-0000-0000-000000000010",
+    "plant_name": "Cà chua",
+    "class_code": "Tomato___Late_blight",
+    "common_name_vi": "Bệnh mốc sương (Late blight)",
+    "symptoms": "Vết bệnh úng nước màu nâu xám trên mép lá, mặt dưới có lớp mốc trắng...",
+    "prevention": "Chọn giống kháng, trồng luống cao thoát nước, luân canh cây trồng khác họ cà.",
+    "severity_level": "Nghiêm trọng",
+    "treatment_guidelines": [
+      {
+        "step_order": 1,
+        "action_title": "Biện pháp Canh tác & Cơ học",
+        "instructions": "Cắt tỉa lá bệnh, tiêu hủy xa vườn."
+      }
+    ],
+    "recommended_products": [
+      {
+        "id": "11111111-2222-3333-4444-555555555551",
+        "name": "Ridomil Gold 68WG",
+        "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+        "price": 65000,
+        "phi_days": 7,
+        "is_allowed": true
+      }
+    ]
+  }
+  ```
+
+---
+
 ### 3.5. `POST /api/v1/auth/register` & `POST /api/v1/auth/login` (Xác thực JWT Nông dân & Admin)
 - **POST `/api/v1/auth/register`**:
   - Request: `{ "email": "farmer@lavitree.vn", "password": "secure_password", "full_name": "Nguyễn Văn Nông", "phone_number": "0987654321" }`
+  - *(Tính tương thích hai chiều)*: Trường số điện thoại hỗ trợ đồng thời cả hai khóa JSON `phone` và `phone_number`. Số điện thoại di động Việt Nam gồm 10 chữ số (đầu số 03, 05, 07, 08, 09).
   - Response (`201 Created`):
     ```json
     {
@@ -305,6 +409,8 @@
         "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
         "email": "farmer@lavitree.vn",
         "full_name": "Nguyễn Văn Nông",
+        "phone": "0987654321",
+        "phone_number": "0987654321",
         "role": "FARMER"
       }
     }

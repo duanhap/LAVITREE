@@ -54,6 +54,7 @@ export interface DiagnoseResponse {
   is_ood: boolean;
   is_uncertain: boolean;
   warning?: string | null;
+  notes?: string | null;
   result?: DiagnoseResultData | null;
   visual_evidence?: VisualEvidence | null;
   treatment_guidelines: TreatmentStep[];

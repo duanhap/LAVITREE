@@ -74,14 +74,20 @@ export const ImageCompare: React.FC<ImageCompareProps> = ({
         aria-valuemax={100}
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        onMouseDown={() => setIsDragging(true)}
+        onMouseDown={(e) => {
+          setIsDragging(true);
+          handleMove(e.clientX);
+        }}
         onMouseUp={() => setIsDragging(false)}
         onMouseLeave={() => setIsDragging(false)}
         onMouseMove={handleMouseMove}
-        onTouchStart={() => setIsDragging(true)}
+        onTouchStart={(e) => {
+          setIsDragging(true);
+          if (e.touches[0]) handleMove(e.touches[0].clientX);
+        }}
         onTouchEnd={() => setIsDragging(false)}
         onTouchMove={handleTouchMove}
-        className="relative aspect-4/3 w-full select-none overflow-hidden rounded-xl border border-border bg-muted cursor-ew-resize focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+        className="relative aspect-4/3 w-full select-none overflow-hidden rounded-xl border border-border bg-muted cursor-ew-resize touch-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
       >
         {/* Layer 1: Ảnh Grad-CAM Heatmap (Dưới cùng) */}
         <img
@@ -96,20 +102,15 @@ export const ImageCompare: React.FC<ImageCompareProps> = ({
           <span>Grad-CAM</span>
         </div>
 
-        {/* Layer 2: Ảnh gốc (Được cắt theo vị trí slider) */}
-        <div
-          className="absolute inset-0 overflow-hidden"
-          style={{ width: `${sliderPosition}%` }}
-        >
-          <img
-            src={originalUrl}
-            alt={`Ảnh gốc: ${altText}`}
-            className="absolute inset-0 h-full w-full object-cover max-w-none"
-            style={{
-              width: containerRef.current ? `${containerRef.current.clientWidth}px` : '100%',
-            }}
-          />
-        </div>
+        {/* Layer 2: Ảnh gốc (Được cắt bằng clip-path hoàn hảo 1:1, không lệch ở lần render đầu) */}
+        <img
+          src={originalUrl}
+          alt={`Ảnh gốc: ${altText}`}
+          className="absolute inset-0 h-full w-full object-cover pointer-events-none"
+          style={{
+            clipPath: `inset(0 calc(100% - ${sliderPosition}%) 0 0)`,
+          }}
+        />
 
         {/* Nhãn chú thích Ảnh gốc góc trái */}
         <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">

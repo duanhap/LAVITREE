@@ -113,7 +113,7 @@ public class WeatherService : IWeatherService
         double tempC = 28.0;
         int humidity = 80;
         double rainMm = 0.0;
-        int rainProb = 30;
+        bool hasRainCondition = false;
 
         if (root.TryGetProperty("main", out var main))
         {
@@ -127,12 +127,48 @@ public class WeatherService : IWeatherService
             else if (rain.TryGetProperty("3h", out var r3h)) rainMm = Math.Round(r3h.GetDouble() / 3.0, 1);
         }
 
-        if (root.TryGetProperty("clouds", out var clouds) && clouds.TryGetProperty("all", out var allProp))
+        if (root.TryGetProperty("weather", out var weatherArr) && weatherArr.GetArrayLength() > 0)
         {
-            rainProb = Math.Clamp((int)(allProp.GetInt32() * 0.9), 0, 100);
+            var firstWeather = weatherArr[0];
+            if (firstWeather.TryGetProperty("id", out var wId))
+            {
+                int conditionId = wId.GetInt32();
+                // 2xx = Giông bão, 3xx = Mưa phùn, 5xx = Mưa
+                if (conditionId >= 200 && conditionId < 600)
+                {
+                    hasRainCondition = true;
+                }
+            }
+        }
+
+        int rainProb;
+        if (rainMm > 0 || hasRainCondition)
+        {
+            rainProb = Math.Clamp(70 + (int)(rainMm * 5), 70, 95);
+        }
+        else
+        {
+            // BUG-07: Không đồng nhất độ phủ mây với xác suất mưa. Trời nhiều mây không có nghĩa là chắc chắn mưa.
+            int cloudiness = 0;
+            if (root.TryGetProperty("clouds", out var clouds) && clouds.TryGetProperty("all", out var allProp))
+            {
+                cloudiness = allProp.GetInt32();
+            }
+            rainProb = Math.Clamp((int)(cloudiness * 0.35 + (humidity > 85 ? 15 : 5)), 5, 45);
         }
 
         return BuildForecastResult(location, tempC, humidity, rainProb, rainMm, isSimulated: false);
+    }
+
+    private static uint ComputeFnv1aHash(string text)
+    {
+        uint hash = 2166136261u;
+        foreach (var c in text)
+        {
+            hash ^= (byte)c;
+            hash *= 16777619u;
+        }
+        return hash;
     }
 
     private WeatherForecastDto GenerateSimulatedForecast(string location)
@@ -165,8 +201,8 @@ public class WeatherService : IWeatherService
             return BuildForecastResult(location, 26.5, 68, 15, 0.0, isSimulated: true);
         }
 
-        // BUG-06: Thuật toán băm an toàn (uint & Math.Clamp), tuyệt đối không tràn số âm
-        uint hash = (uint)normalized.GetHashCode();
+        // BUG-06: Thuật toán băm FNV-1a chuẩn xác tuyệt đối không phụ thuộc process seed và không bao giờ tràn số âm
+        uint hash = ComputeFnv1aHash(normalized);
         double temp = 25.0 + (hash % 90) / 10.0; // 25.0 -> 34.0 C
         int hum = 65 + (int)(hash % 30); // 65 -> 95 %
         int rainProb = Math.Clamp((int)((hash * 7u) % 100u), 0, 100); // 0 -> 99 %
@@ -181,18 +217,18 @@ public class WeatherService : IWeatherService
         string riskLevel;
         string recommendation;
 
-        // BUG-07: Nội dung khuyến nghị chuẩn xác theo độ che phủ mây và xác suất mưa hiện thời
-        if (rainProb >= 70 || rainMm >= 10.0)
+        // BUG-07: Khuyến nghị và xác định is_rain theo lượng mưa và xác suất mưa thực tế
+        if (rainMm >= 2.0 || (rainMm > 0 && rainProb >= 60))
         {
             riskLevel = "HIGH";
             isRain = true;
-            recommendation = $"Thời tiết nhiều mây/mưa ẩm (Xác suất mưa {rainProb}%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.";
+            recommendation = $"Thời tiết đang có mưa (Lượng mưa {rainMm}mm, xác suất {rainProb}%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.";
         }
-        else if (rainProb >= 40 || rainMm >= 2.0)
+        else if (rainProb >= 50 || rainMm > 0)
         {
             riskLevel = "MEDIUM";
             isRain = false;
-            recommendation = $"Thời tiết có thể có mưa rải rác (Xác suất mưa {rainProb}%). Nên ưu tiên chọn thuốc có tính bám dính tốt hoặc hoạt chất kháng mưa rửa trôi.";
+            recommendation = $"Thời tiết nhiều mây, có thể có mưa rải rác (Xác suất mưa {rainProb}%). Nên ưu tiên chọn thuốc có tính bám dính tốt hoặc hoạt chất kháng mưa rửa trôi.";
         }
         else
         {

@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { useAuth } from '@/context/AuthContext';
 import { DIAGNOSIS_DISCLAIMER } from '@/features/diagnose/constants';
 import { getResultStatus } from '@/features/diagnose/status';
+import { prepareImageForUpload } from '@/features/diagnose/prepare-image';
 import type { DiagnoseResponse } from '@/features/diagnose/types';
 import ResultStatusBadge from '@/features/diagnose/components/ResultStatusBadge';
 import ImageCompare from '@/features/diagnose/components/ImageCompare';
@@ -26,8 +27,13 @@ import {
   Sparkles,
   Info,
   HelpCircle,
+  UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+// Upload và suy luận AI trên mạng yếu cần lâu hơn timeout chung của API
+const DIAGNOSE_TIMEOUT_MS = 90_000;
 
 export const DiagnosePage: React.FC = () => {
   const navigate = useNavigate();
@@ -42,33 +48,41 @@ export const DiagnosePage: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error('Kích thước tệp vượt quá 10MB. Vui lòng chọn ảnh nhẹ hơn.');
-        return;
-      }
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
-      setDiagnoseData(null);
-      setErrorMessage(null);
+  const selectFile = (file: File) => {
+    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      toast.error('Chỉ hỗ trợ ảnh JPG, PNG hoặc WEBP.');
+      return;
     }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Kích thước tệp vượt quá 10MB. Vui lòng chọn ảnh nhẹ hơn.');
+      return;
+    }
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setDiagnoseData(null);
+    setErrorMessage(null);
+  };
+
+  // Thu hồi object URL cũ khi đổi ảnh hoặc rời trang để không giữ ảnh trong bộ nhớ
+  useEffect(() => {
+    if (!previewUrl) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) selectFile(file);
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error('Kích thước tệp vượt quá 10MB. Vui lòng chọn ảnh nhẹ hơn.');
-        return;
-      }
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
-      setDiagnoseData(null);
-      setErrorMessage(null);
-    }
+    const file = e.dataTransfer.files?.[0];
+    if (file) selectFile(file);
+  };
+
+  const handleExpertReview = () => {
+    const chatPath = `/chat?class_code=${encodeURIComponent(diagnoseData?.result?.class_code || '')}`;
+    navigate(isAuthenticated ? chatPath : `/login?next=${encodeURIComponent(chatPath)}`);
   };
 
   const handleDiagnose = async () => {
@@ -82,13 +96,15 @@ export const DiagnosePage: React.FC = () => {
 
     const formData = new FormData();
     // Khớp 100% với api-contracts.md Mục 3.1: trường 'image'
-    formData.append('image', selectedFile);
+    formData.append('image', await prepareImageForUpload(selectedFile));
     if (notes.trim()) {
       formData.append('notes', notes.trim());
     }
 
     try {
-      const res = await apiClient.post<DiagnoseResponse>('/diagnose', formData);
+      const res = await apiClient.post<DiagnoseResponse>('/diagnose', formData, {
+        timeout: DIAGNOSE_TIMEOUT_MS,
+      });
       setDiagnoseData(res.data);
       if (res.data.is_ood) {
         toast.warning('Ảnh nằm ngoài 38 lớp sâu bệnh được hỗ trợ (OOD).');
@@ -142,7 +158,7 @@ export const DiagnosePage: React.FC = () => {
           Khám Bệnh Lá Cây Trồng Toàn Trình
         </h1>
         <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto">
-          Chụp hoặc tải ảnh lá cây để nhận diện nhanh 38 bệnh hại phổ biến trên 14 loài cây trồng. Hệ thống cung cấp bản đồ nhiệt nghi vấn và phác đồ xử lý IPM chuẩn khuyến nông.
+          Chụp hoặc tải ảnh lá cây để nhận diện 38 lớp lá khỏe và bệnh hại trên 14 loài cây trồng. Hệ thống cung cấp bản đồ nhiệt nghi vấn và phác đồ xử lý IPM chuẩn khuyến nông.
         </p>
       </div>
 
@@ -436,7 +452,7 @@ export const DiagnosePage: React.FC = () => {
                 </Card>
               )}
 
-              {/* 8. HÀNH ĐỘNG TIẾP THEO (HỎI TRỢ LÝ / KHÁM ẢNH KHÁC) */}
+              {/* 8. HÀNH ĐỘNG TIẾP THEO (HỎI TRỢ LÝ / KHÁM ẢNH KHÁC / THẨM ĐỊNH) */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <Button
                   type="button"
@@ -444,23 +460,45 @@ export const DiagnosePage: React.FC = () => {
                   onClick={handleReset}
                   className="border-border text-xs h-10 px-4"
                 >
-                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Khám ảnh khác
+                  {diagnoseData.is_uncertain ? (
+                    <>
+                      <Camera className="h-3.5 w-3.5 mr-1.5" /> Chụp lại
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Khám ảnh khác
+                    </>
+                  )}
                 </Button>
 
-                <Button
-                  type="button"
-                  onClick={() =>
-                    navigate(
-                      `/chat?class_code=${encodeURIComponent(
-                        diagnoseData.result?.class_code || ''
-                      )}`
-                    )
-                  }
-                  className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold h-10 px-5 shadow-xs"
-                >
-                  <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
-                  Hỏi Trợ lý Lavi về ca bệnh này
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {diagnoseData.is_uncertain && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleExpertReview}
+                      className="border-primary/40 text-primary hover:bg-primary/5 text-xs font-semibold h-10 px-4"
+                    >
+                      <UserCheck className="h-3.5 w-3.5 mr-1.5" />
+                      Nhờ chuyên gia thẩm định
+                    </Button>
+                  )}
+
+                  <Button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/chat?class_code=${encodeURIComponent(
+                          diagnoseData.result?.class_code || ''
+                        )}`
+                      )
+                    }
+                    className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold h-10 px-5 shadow-xs"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                    Hỏi Trợ lý Lavi về ca bệnh này
+                  </Button>
+                </div>
               </div>
             </div>
           )}

@@ -189,6 +189,9 @@ if code == 200 and data.get("success"):
     has_gradcam = bool(data.get("visual_evidence", {}).get("gradcam_image_url"))
     guidelines_count = len(data.get("treatment_guidelines", []))
     products_count = len(data.get("recommended_products", []))
+    banned = [p.get("name") for p in data.get("recommended_products", []) if "paraquat" in f"{p.get('name')} {p.get('active_ingredient')}".lower()]
+    if banned:
+        log_fail(f"Gợi ý chứa thuốc cấm Paraquat: {banned}")
     sources_count = len(data.get("verified_sources", []))
     if is_guest_privacy_ok and has_gradcam and guidelines_count > 0:
         log_success(f"Guest Policy hoàn hảo: diagnosis_id=null; Grad-CAM data URL trả về; {guidelines_count} bước IPM; {products_count} thuốc đặc trị; {sources_count} nguồn khuyến nông.")
@@ -233,7 +236,7 @@ if code == 200 and data.get("total_records", 0) >= 1:
     if first_item.get("id") == saved_diagnosis_id:
         log_success(f"Hồ sơ vừa khám hiển thị ngay đầu danh sách: {first_item.get('disease_name')} ({first_item.get('plant_name')}) - Ghi chú: '{first_item.get('notes')}'")
     else:
-        log_success(f"Tìm thấy {data.get('total_records')} bản ghi trong lịch sử.")
+        log_fail(f"Hồ sơ đầu danh sách không phải ca vừa khám: {first_item.get('id')} != {saved_diagnosis_id}")
 else:
     log_fail(f"Không tìm thấy lịch sử: HTTP {code}, {data}")
 
@@ -259,7 +262,9 @@ other_farmer_payload = {
     "phone": "0912345679"
 }
 code, reg_other = http_json("POST", "/api/v1/auth/register", other_farmer_payload)
-if code == 201 and "token" in reg_other:
+if not saved_diagnosis_id:
+    log_fail("Không có saved_diagnosis_id nên không kiểm tra được IDOR.")
+elif code == 201 and "token" in reg_other:
     other_token = reg_other["token"]
     code_leak, _ = http_json("GET", f"/api/v1/diagnose/history/{saved_diagnosis_id}", token=other_token)
     if code_leak == 404:
@@ -285,6 +290,40 @@ if code == 400:
     log_success("Hệ thống từ chối chính xác request thiếu ảnh (HTTP 400 Bad Request).")
 else:
     log_fail(f"Không chặn thiếu ảnh: HTTP {code}, {data}")
+
+# 14. Kiểm tra token hết hạn / không hợp lệ khi khám lá (Không âm thầm coi là Guest)
+test_step(14, "Chặn token giả mạo/hết hạn khi khám lá: POST /api/v1/diagnose (Bearer invalid)")
+fake_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OCIsImV4cCI6MTUxNjIzOTAyMn0.invalid_signature"
+code, data = http_upload("/api/v1/diagnose", LEAF_PATH, token=fake_token)
+if code == 401:
+    log_success("Hệ thống từ chối chính xác token không hợp lệ/hết hạn (HTTP 401 Unauthorized), không hạ cấp lén lút thành Guest.")
+else:
+    log_fail(f"Hệ thống không chặn token giả mạo: HTTP {code}, {data}")
+
+# 15. Kiểm tra Regex số điện thoại chặt chẽ (Chặn ký tự pipe literal 0|12345678)
+test_step(15, "Kiểm tra chặn số điện thoại chứa ký tự pipe '|': POST /api/v1/auth/register")
+bad_phone_payload = {
+    "email": f"bad_phone_{uuid.uuid4().hex[:8]}@lavitree.vn",
+    "password": "Password123#",
+    "full_name": "Kiểm Thử Phone",
+    "phone": "0|12345678"
+}
+code, data = http_json("POST", "/api/v1/auth/register", bad_phone_payload)
+if code == 400:
+    log_success("Hệ thống từ chối chính xác số điện thoại chứa ký tự pipe '0|12345678' (HTTP 400 Bad Request).")
+else:
+    log_fail(f"Regex sai cho phép số điện thoại có pipe: HTTP {code}, {data}")
+
+# 16. Kiểm tra Claim Email trong JWT token là chuỗi đơn, không phải mảng
+test_step(16, "Kiểm tra claim email trong JWT token không bị trùng lặp (không thành mảng)")
+parts = farmer_token.split(".")
+b64 = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+claims_payload = json.loads(base64.urlsafe_b64decode(b64).decode("utf-8"))
+email_claim = claims_payload.get("email")
+if isinstance(email_claim, str) and email_claim == test_email:
+    log_success(f"Claim email trong JWT là chuỗi đơn chuẩn xác: '{email_claim}' (Không bị duplicate thành mảng).")
+else:
+    log_fail(f"Claim email bị lỗi định dạng hoặc thành mảng: {email_claim}")
 
 print("\n" + "=" * 70)
 print(f" KẾT QUẢ KIỂM THỬ: {passed} PASSED / {failed} FAILED (Tổng số: {passed + failed} bài test)")

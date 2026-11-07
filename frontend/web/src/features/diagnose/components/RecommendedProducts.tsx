@@ -28,7 +28,7 @@ export const RecommendedProducts: React.FC<RecommendedProductsProps> = ({
           Vật tư & Thuốc BVTV Đặc trị Gợi ý
         </h3>
         <span className="ml-auto text-xs text-muted-foreground font-medium">
-          {products.length} sản phẩm hợp quy
+          {products.length} sản phẩm
         </span>
       </div>
 

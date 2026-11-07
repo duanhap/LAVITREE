@@ -60,6 +60,7 @@ export const HistoryPage: React.FC = () => {
   const [page, setPage] = useState<number>(1);
   const [pageSize] = useState<number>(9);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Modal xem chi tiết một ca khám cũ (W-08)
   const [detailData, setDetailData] = useState<DiagnoseResponse | null>(null);
@@ -68,6 +69,7 @@ export const HistoryPage: React.FC = () => {
 
   const fetchHistory = async (targetPage: number) => {
     setIsLoading(true);
+    setError(null);
     try {
       const res = await apiClient.get<HistoryResponse>(
         `/diagnose/history?page=${targetPage}&pageSize=${pageSize}`
@@ -76,7 +78,9 @@ export const HistoryPage: React.FC = () => {
       setTotalRecords(res.data.total_records);
       setPage(res.data.page);
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err));
+      const msg = getErrorMessage(err);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
@@ -102,6 +106,7 @@ export const HistoryPage: React.FC = () => {
     } catch (err: unknown) {
       toast.error('Không tìm thấy chi tiết ca khám bệnh hoặc bạn không có quyền truy cập.');
       setIsDetailOpen(false);
+      if (id) navigate('/history', { replace: true });
     } finally {
       setIsDetailLoading(false);
     }
@@ -144,6 +149,24 @@ export const HistoryPage: React.FC = () => {
             </div>
           ))}
         </div>
+      ) : error ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center space-y-4 max-w-lg mx-auto">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <AlertCircle className="h-6 w-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-bold text-foreground">Không thể tải lịch sử ca khám</h3>
+            <p className="text-xs text-muted-foreground">{error}</p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => fetchHistory(page)}
+            className="border-border text-xs h-9 px-4"
+          >
+            Thử tải lại
+          </Button>
+        </div>
       ) : items.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center space-y-4 max-w-lg mx-auto">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-primary">
@@ -179,11 +202,17 @@ export const HistoryPage: React.FC = () => {
                   className="flex flex-col justify-between border-border bg-card hover:border-primary/50 transition-all hover:shadow-xs rounded-2xl overflow-hidden"
                 >
                   <div className="relative aspect-4/3 w-full overflow-hidden bg-muted">
-                    <img
-                      src={item.original_image_url || item.gradcam_image_url || '/placeholder.png'}
-                      alt={item.disease_name}
-                      className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                    />
+                    {item.original_image_url || item.gradcam_image_url ? (
+                      <img
+                        src={item.original_image_url || item.gradcam_image_url || undefined}
+                        alt={item.disease_name}
+                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                        <Sprout className="h-10 w-10" />
+                      </div>
+                    )}
                     <div className="absolute top-2.5 left-2.5">
                       <Badge
                         variant="secondary"
@@ -327,6 +356,19 @@ export const HistoryPage: React.FC = () => {
                   </span>
                 </div>
               </div>
+
+              {detailData.warning && (
+                <p className="rounded-xl border border-status-confusion/30 bg-status-confusion-bg/30 p-3 text-xs text-foreground">
+                  {detailData.warning}
+                </p>
+              )}
+
+              {detailData.notes && (
+                <p className="rounded-xl bg-secondary/40 p-3 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">Ghi chú của bạn: </span>
+                  {detailData.notes}
+                </p>
+              )}
 
               {/* So sánh ảnh gốc & Grad-CAM */}
               <div className="space-y-2">

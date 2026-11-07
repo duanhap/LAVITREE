@@ -12,19 +12,6 @@ export function useCurrentUser(): { user: CurrentUser | null; isAuthenticated: b
   return { user, isAuthenticated };
 }
 
-/**
- * Kiểm tra và chuẩn hóa đường dẫn nội bộ để ngăn ngừa Open Redirect Attack (BUG-16)
- * Chỉ chấp nhận đường dẫn bắt đầu bằng một dấu '/', không có '//' hay '\'
- */
-export function sanitizeInternalRedirect(path: string | null | undefined, fallback: string = '/'): string {
-  if (!path) return fallback;
-  const decoded = decodeURIComponent(path).trim();
-  if (decoded.startsWith('/') && !decoded.startsWith('//') && !decoded.includes('\\')) {
-    return decoded;
-  }
-  return fallback;
-}
-
 export interface RequireRoleProps {
   allowedRoles?: UserRole[];
   children: React.ReactNode;

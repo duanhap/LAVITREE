@@ -79,9 +79,9 @@
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[x] DONE` (Đã hoàn thành 100%: Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân; đã khắc phục triệt để 11 lỗi chặn Đợt 0, nạp mật khẩu Admin mới, lọc thuốc cấm Paraquat, cập nhật migration DB và đạt 14/14 tests qua `test_task_a01_auth.py`)
   - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (loại bỏ hoàn toàn `userId` từ form-data chống IDOR), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B, nạp seed tự động tài khoản Quản trị `admin@lavitree.vn`.
-- [x] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
+- [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[x] DONE` (Đã hoàn thành 100%: Khắc phục triệt để Đợt 0 và Đợt 1 (BUG-12 đến BUG-29); xây dựng hoàn chỉnh AuthContext, LoginPage, RegisterPage, DiagnosePage với thanh trượt so sánh Grad-CAM ImageCompare và TreatmentSteps IPM; HandbookPage lọc 14 loài cây / 40 bệnh học; HistoryPage phân trang và dialog chi tiết W-08; code splitting giảm bundle xuống 297 KB; nghiệm thu thực nghiệm 13/13 test E2E qua `test_task_a02_e2e.py`)
+  - Trạng thái: `[ ] CHỜ ĐÓNG` (Code đã review ngày 07/11/2026. Còn 3 việc: đổi mật khẩu trong DB thật, xác nhận đã đổi `JWT_SECRET_KEY`, merge phần thời tiết của TASK-05. Chi tiết ở mục 5.8 của file task.)
   - Đầu ra: Màn hình Đăng nhập/Đăng ký trên Web (`LoginPage.tsx`, `RegisterPage.tsx`); trang Khám lá (`DiagnosePage.tsx`) hiển thị chẩn đoán, Grad-CAM, IPM; trang Sổ tay bệnh học (`HandbookPage.tsx`); trang Lịch sử cá nhân (`HistoryPage.tsx`) lưu và xem lại các ca khám theo tài khoản (`/history/:id` - W-08).
 - [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**

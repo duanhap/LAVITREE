@@ -66,6 +66,7 @@ export const HandbookPage: React.FC = () => {
 
   const [diseases, setDiseases] = useState<DiseaseListItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedPlant, setSelectedPlant] = useState<string>('Tất cả');
   const [selectedPathogen, setSelectedPathogen] = useState<string>('Tất cả');
@@ -76,19 +77,22 @@ export const HandbookPage: React.FC = () => {
   const [isDetailOpen, setIsDetailOpen] = useState<boolean>(false);
 
   // Tải danh sách bệnh từ API
-  useEffect(() => {
-    const fetchDiseases = async () => {
-      setIsLoading(true);
-      try {
-        const res = await apiClient.get<DiseaseListItem[]>('/diseases');
-        setDiseases(res.data);
-      } catch (err: unknown) {
-        toast.error(getErrorMessage(err));
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const fetchDiseases = async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const res = await apiClient.get<DiseaseListItem[]>('/diseases');
+      setDiseases(res.data);
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchDiseases();
   }, []);
 
@@ -108,6 +112,7 @@ export const HandbookPage: React.FC = () => {
     } catch (err: unknown) {
       toast.error('Không tìm thấy chi tiết bệnh hại yêu cầu.');
       setIsDetailOpen(false);
+      if (classCode) navigate('/handbook', { replace: true });
     } finally {
       setIsDetailLoading(false);
     }
@@ -155,10 +160,10 @@ export const HandbookPage: React.FC = () => {
           <span>Cẩm nang Khoa học Nông nghiệp Chuẩn Khuyến nông</span>
         </div>
         <h1 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
-          Sổ Tay Bệnh Học 38 Bệnh Cây Trồng
+          Sổ Tay Bệnh Học & Cây Trồng
         </h1>
         <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto">
-          Tra cứu nhanh triệu chứng lâm sàng, tác nhân gây bệnh, biện pháp canh tác phòng ngừa và phác đồ điều trị IPM trên 14 loài cây trồng.
+          Tra cứu triệu chứng, tác nhân gây bệnh, biện pháp canh tác phòng ngừa và phác đồ điều trị IPM trên 14 loài cây trồng.
         </p>
       </div>
 
@@ -232,6 +237,14 @@ export const HandbookPage: React.FC = () => {
               <div className="h-16 w-full bg-muted rounded" />
             </div>
           ))}
+        </div>
+      ) : loadError ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center space-y-3 max-w-lg mx-auto">
+          <p className="text-base font-semibold text-foreground">Không thể tải sổ tay bệnh học</p>
+          <p className="text-xs text-muted-foreground">{loadError}</p>
+          <Button type="button" variant="outline" size="sm" onClick={fetchDiseases} className="text-xs border-border">
+            Thử tải lại
+          </Button>
         </div>
       ) : filteredDiseases.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center space-y-3">

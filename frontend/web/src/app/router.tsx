@@ -48,7 +48,7 @@ export const AppRouter: React.FC = () => {
         <Route path="/" element={<DiagnosePage />} />
         <Route path="/diagnose" element={<Navigate to="/" replace />} />
 
-        {/* W-02 & W-03: Sổ tay 38 bệnh & Chi tiết bệnh */}
+        {/* W-02 & W-03: Sổ tay bệnh học & Chi tiết bệnh */}
         <Route path="/handbook" element={<HandbookPage />} />
         <Route path="/handbook/:classCode" element={<HandbookPage />} />
 

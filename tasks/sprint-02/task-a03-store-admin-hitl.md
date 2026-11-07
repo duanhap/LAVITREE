@@ -83,3 +83,21 @@
 - [ ] Cập nhật trạng thái `TASK-A03` trong `tasks/TODO.md` sang `[x] DONE`.
 - [ ] Ghi nhận kết quả vào `tasks/WORKLOG.md`.
 - [ ] Báo cáo tóm tắt diff và chờ Lập trình viên xác nhận trước khi commit.
+
+---
+
+## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
+
+### 5.1. Việc chuyển từ review A02 (07/11/2026)
+Điều kiện bắt đầu: hoàn tất 3 việc ở mục 5.8 của `task-a02-web-diagnose-handbook.md`. Các BUG-18, 30–38 ở mục 5.4 của file đó vẫn thuộc A03.
+
+| Xong | ID | Mức | Vị trí | Lỗi và hậu quả | Cách sửa và nghiệm thu |
+|---|---|---|---|---|---|
+| [ ] | BUG-51 | HIGH | `sample_treatment_seed.json`, `Products` | `IsAllowed`, PHI, liều dùng chưa được đối chiếu từng sản phẩm với danh mục hiện hành, trong khi Store sắp bán các thuốc này. | Đối chiếu với Phụ lục I, II của Thông tư 75/2025/TT-BNNMT và Thông tư 28/2026/TT-BNNMT, ghi nguồn cho từng thuốc. Thuốc chưa đối chiếu thì không mở bán. |
+| [ ] | BUG-52 | MEDIUM | `DiagnosisRecords`, `DiagnoseController.cs` | DB chỉ lưu Top-1, nên W-08 không hiện được Top-3 như lúc khám; nhóm dễ nhầm đang suy từ `class_code`. | Thêm cột lưu Top-3 và `confusion_group`, cập nhật migration và `database-schema.md`. Ca cũ vẫn hiện được. |
+| [ ] | BUG-53 | MEDIUM | `/chat`, `AdminDashboard.tsx` | Nút "Nhờ chuyên gia" mới chỉ chuyển sang Trợ lý; chưa tạo được ca cho Admin xử lý (`requires_expert`). | Thêm API gửi ca và màn "Ca chuyên gia". Chỉ báo "đã gửi" khi API trả thành công. |
+| [ ] | BUG-54 | MEDIUM | `frontend/web/package.json` | `react-router-dom` 6.30.6 thuộc khoảng ảnh hưởng của GHSA-wrjc-x8rr-h8h6 (mức moderate); `vite` còn cảnh báo ở môi trường dev. | Nâng `react-router-dom` lên từ 7.18 và nâng `vite` trong một commit riêng, chạy lại các luồng route. `npm audit` không còn cảnh báo production. |
+| [ ] | BUG-55 | MEDIUM | `LoginPage`, `RegisterPage`, form A03 | Form chưa dùng `react-hook-form` + `zod`, dữ liệu chưa dùng TanStack Query như `AGENTS.md` quy định. | Áp dụng cho form và trang mới của A03, chuyển Login và Register cùng lúc. |
+| [ ] | BUG-56 | MEDIUM | `test_task_a01_auth.py`, `test_task_a02_e2e.py` | Test tạo tài khoản và ảnh thật nếu trỏ vào DB chung; chưa kiểm tra trực tiếp hash trong DB. | Chạy test trên DB riêng, dọn dữ liệu sau khi chạy, thêm kiểm tra hash. |
+| [ ] | BUG-57 | LOW | `DiagnoseController.cs` | `SaveChanges` lỗi sau khi upload vẫn để lại ảnh mồ côi trong MinIO. | Xóa ảnh đã upload khi ghi DB thất bại, thêm test. |
+| [ ] | BUG-58 | MEDIUM | App Android (A04) | Server xóa cả thẻ Orientation của EXIF. Client không xoay ảnh trước khi gửi sẽ lưu ảnh nằm ngang. | Android xoay và nén ảnh trước khi upload như `prepare-image.ts`. |

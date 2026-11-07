@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { sanitizeInternalRedirect } from '@/app/RequireRole';
+import { sanitizeInternalRedirect } from '@/lib/safe-redirect';
 import { getErrorMessage, getValidationErrors } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
