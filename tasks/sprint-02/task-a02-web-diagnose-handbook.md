@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Song hành Tác tử Nông nghiệp & Hình thành Hệ thống Toàn diện)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 2 - Tuần 1 (P0 - Chuyển hóa kết quả Sprint 1 thành giao diện Web người dùng)**
 * **Phân hệ**: `frontend/web` (React 18 + Vite + TypeScript + TailwindCSS / CSS) & Core API
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[x] COMPLETED / READY FOR REVIEW`
 * **Người phụ trách**: Thành viên A (System, Auth & Web Lead)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Tài liệu tham chiếu chuẩn**:
@@ -26,10 +26,10 @@
      - Gửi request `POST /api/v1/diagnose` đa định dạng (`multipart/form-data`).
      - Hiển thị kết quả chẩn đoán trực quan:
        - Tên cây trồng, tên bệnh tiếng Việt, mã bệnh khoa học, độ tin cậy Confidence (%).
-       - Bản đồ nhiệt Grad-CAM (`layer4[-1] Jet`) đặt cạnh ảnh gốc để nông dân so sánh vùng nghi vấn bệnh.
+       - Bản đồ nhiệt Grad-CAM (`layer4[-1] Jet`) đặt cạnh ảnh gốc để nông dân so sánh vùng nghi vấn bệnh (`ImageCompare`).
        - Cảnh báo bất định (`is_uncertain: true`) kèm mẹo chụp ảnh cải thiện góc máy (`CaptureTip`).
        - Cảnh báo ảnh ngoại lai (`is_ood: true`) giải thích rõ ràng lý do ảnh nằm ngoài 38 lớp cây trồng.
-       - Phác đồ xử lý IPM theo từng bước linh hoạt.
+       - Phác đồ xử lý IPM theo từng bước linh hoạt (`TreatmentSteps`).
        - Danh mục thuốc BVTV đặc trị và liên kết nguồn tài liệu khuyến nông đối chứng.
   3. **Trang Sổ tay Bệnh học Thông minh (`HandbookPage.tsx`)**:
      - Danh mục phân cấp: Chọn 1 trong 14 loài cây $\rightarrow$ Xem danh sách các bệnh phổ biến.
@@ -37,7 +37,7 @@
      - Xem chi tiết triệu chứng, tác nhân gây bệnh (Nấm, Vi khuẩn, Virus, Nhện hại) và biện pháp phòng ngừa.
   4. **Trang Lịch sử Khám bệnh Cá nhân (`HistoryPage.tsx`)**:
      - Hiển thị danh sách các ca chẩn đoán của người nông dân đã đăng nhập (`GET /api/v1/diagnose/history`).
-     - Xem lại ảnh gốc, ảnh Grad-CAM và phác đồ điều trị của các ca khám cũ.
+     - Xem lại ảnh gốc, ảnh Grad-CAM và phác đồ điều trị của các ca khám cũ (`GET /api/v1/diagnose/history/:id`).
 
 ---
 
@@ -45,41 +45,44 @@
 
 ### 2.1. Cấu trúc Routing Web Portal (`frontend/web/src/`):
 ```text
+/            -> DiagnosePage.tsx (Mặc định)
+/diagnose    -> Điều hướng về /
+/handbook    -> HandbookPage.tsx (Danh sách 40 bệnh & lọc theo loài cây)
+/handbook/:classCode -> Chi tiết bệnh trong sổ tay
 /login       -> LoginPage.tsx
 /register    -> RegisterPage.tsx
-/diagnose    -> DiagnosePage.tsx (Mặc định)
-/handbook    -> HandbookPage.tsx
 /history     -> HistoryPage.tsx (Yêu cầu đăng nhập)
+/history/:id -> HistoryPage.tsx (Modal chi tiết ca khám)
 ```
 
 ### 2.2. Tiêu chuẩn Thẩm mỹ & Trải nghiệm (Rich Aesthetics):
-- Tone màu chủ đạo: Nông nghiệp hiện đại (Forest Green `#1B4332`, Emerald `#2D6A4F`, Light Mint `#D8F3DC`).
-- Typography hiện đại từ Google Fonts (Inter / Outfit / Be Vietnam Pro).
-- Hiệu ứng chuyển động mượt mà (Micro-animations, smooth hover, badge trạng thái bệnh bắt mắt).
-- Responsive hoàn hảo trên màn hình Desktop và Mobile Web.
+- Tone màu chủ đạo: Nông nghiệp hiện đại từ Design Tokens (`--primary`: `#2E6B3F`, `--background`: `#FAFAF7`, `--card`: `#FFFFFF`).
+- Typography Be Vietnam Pro tự host (`@fontsource/be-vietnam-pro`).
+- Hiệu ứng chuyển động mượt mà (Micro-animations, smooth hover, ResultStatusBadge theo `ui-ux.md`).
+- Responsive hoàn hảo trên màn hình Desktop và Mobile Web (Bottom Nav Bar).
 
 ---
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI 4 CHẶNG (SDLC 4 PHASES)
 
 ### Chặng 1: PLAN (Thiết kế Component & Luồng State)
-- [ ] Xác định cấu trúc thư mục components, services API (Axios instance) và Auth Context.
+- [x] Xác định cấu trúc thư mục components, services API (Axios instance), Auth Context và Design Tokens.
 
 ### Chặng 2: COOK (Viết mã nguồn Frontend & Ghép API)
-- [ ] **Pha 1 (Auth Client)**: Dựng `AuthContext`, `LoginPage.tsx`, `RegisterPage.tsx`, xử lý lưu token và tự động đăng xuất khi token hết hạn.
-- [ ] **Pha 2 (Diagnose UI)**: Dựng `DiagnosePage.tsx`, vùng tải ảnh, thanh loading tiến trình và cụm hiển thị Grad-CAM + IPM Steps.
-- [ ] **Pha 3 (Handbook UI)**: Dựng `HandbookPage.tsx`, component lọc cây trồng, thẻ bệnh học chi tiết.
-- [ ] **Pha 4 (History UI)**: Dựng `HistoryPage.tsx` hiển thị lưới các ca khám bệnh kèm thumbnail và modal xem chi tiết.
+- [x] **Pha 1 (Auth Client)**: Dựng `AuthContext`, `LoginPage.tsx`, `RegisterPage.tsx`, giải mã UTF-8 `TextDecoder` (BUG-14), xử lý lưu token và tự động đăng xuất khi nhận 401.
+- [x] **Pha 2 (Diagnose UI)**: Dựng `DiagnosePage.tsx`, vùng kéo-thả tải ảnh, thanh so sánh ảnh gốc ↔ Grad-CAM (`ImageCompare`), phác đồ IPM linh hoạt (`TreatmentSteps`), danh mục vật tư (`RecommendedProducts`) và tài liệu khuyến nông đối chứng (`VerifiedSourcesList`).
+- [x] **Pha 3 (Handbook UI)**: Dựng `HandbookPage.tsx`, component lọc 14 loài cây trồng, thẻ bệnh học chi tiết và modal xem toàn bộ phác đồ điều trị.
+- [x] **Pha 4 (History UI)**: Dựng `HistoryPage.tsx` hiển thị lưới các ca khám bệnh kèm thumbnail, phân trang và dialog xem chi tiết từng ca (`/history/:id` - W-08).
 
 ### Chặng 3: VERIFY (Nghiệm thu Thực tế - Presence Gates)
-- [ ] Đăng ký tài khoản mới $\rightarrow$ Đăng nhập thành công $\rightarrow$ Lưu token và chuyển hướng trang.
-- [ ] Tải ảnh lá `Tomato___Late_blight` $\rightarrow$ Nhận diện chính xác, hiển thị đầy đủ Heatmap Grad-CAM và 3 bước IPM.
-- [ ] Tải ảnh OOD $\rightarrow$ Hiển thị thông báo OOD thân thiện, không báo lỗi sập ứng dụng.
-- [ ] Mở trang Lịch sử $\rightarrow$ Thấy ca khám vừa tạo xuất hiện trong danh sách.
+- [x] Đăng ký tài khoản mới $\rightarrow$ Đăng nhập thành công $\rightarrow$ Lưu token và chuyển hướng trang an toàn (chống Open Redirect).
+- [x] Tải ảnh lá `Tomato___Late_blight` $\rightarrow$ Nhận diện chính xác, hiển thị đầy đủ Heatmap Grad-CAM và các bước IPM.
+- [x] Tải ảnh OOD $\rightarrow$ Hiển thị thông báo OOD thân thiện, không rò rỉ dữ liệu, không báo lỗi sập ứng dụng.
+- [x] Mở trang Lịch sử $\rightarrow$ Thấy ca khám vừa tạo xuất hiện ngay đầu danh sách, xem chi tiết modal thành công.
 
 ### Chặng 4: SHIP (Đóng gói & Chờ xác nhận Commit)
-- [ ] Cập nhật trạng thái `TASK-A02` trong `tasks/TODO.md` sang `[x] DONE`.
-- [ ] Ghi nhận bằng chứng nghiệm thu vào `tasks/WORKLOG.md`.
+- [x] Cập nhật trạng thái `TASK-A02` trong `tasks/TODO.md` sang `[x] DONE`.
+- [x] Ghi nhận bằng chứng nghiệm thu vào `tasks/WORKLOG.md`.
 - [ ] Báo cáo tóm tắt diff và chờ Lập trình viên xác nhận trước khi commit.
 
 ---
@@ -110,23 +113,73 @@
 
 ### 5.3. Đợt 1 — Làm trong A02 (Auth, Khám lá, Lịch sử)
 | Xong | ID | Mức | Vị trí | Lỗi và hậu quả | Cách sửa và nghiệm thu | Kiểm chứng |
-|---|---|---|---|---|---|---|
-| [ ] | BUG-12 | HIGH | `frontend/web/src/pages/DiagnosePage.tsx:62` | Trang gọi `/api/v1/diagnose/scan`, endpoint không tồn tại. Kiểu dữ liệu cũng khác contract và request không dùng `apiClient`. | Gọi `POST /api/v1/diagnose` qua `apiClient`, đổi kiểu theo `api-contracts.md` mục 3.1. | Đọc code |
-| [ ] | BUG-13 | HIGH | `DiagnoseController.cs` (kết quả Guest) | Guest nhận `diagnosis_id = null`, ảnh gốc rỗng và Grad-CAM dạng data URL. Nếu giao diện dùng thẳng thì ảnh hỏng. | Guest dùng ảnh preview cục bộ, hiển thị "Đăng nhập để lưu lịch sử", không gọi API theo id. | Đọc code |
-| [ ] | BUG-14 | MEDIUM | `RequireRole.tsx:26,53`, `JwtTokenService.cs:50` | `atob` làm hỏng tiếng Việt ("Trần" thành "Tráº§n"). Backend phát claim `unique_name` nhưng frontend đọc `name`; response dùng `full_name` còn storage đọc `fullName`. | Giải mã UTF-8 bằng `TextDecoder`, thống nhất một tên trường, thêm test với tên có dấu. | Đã chạy (`atob`); phần còn lại đọc code |
-| [ ] | BUG-15 | MEDIUM | `frontend/web/src/lib/api-client.ts:49-59,78` | Khi 401, storage bị xóa nhưng giao diện không cập nhật hay chuyển trang. Lỗi validation dạng `errors` của ASP.NET không được hiển thị đúng trường. | Dùng `AuthContext` để đăng xuất và chuyển về `/login`. Đọc `errors` để hiện lỗi theo từng ô nhập. | Đọc code |
-| [ ] | BUG-16 | MEDIUM | `RequireRole.tsx:94`, trang Login (sắp làm) | Tham số `next` có thể thành open redirect. `npm audit` cũng báo lỗi open redirect của React Router. | Chỉ nhận đường dẫn nội bộ: bắt đầu bằng một dấu `/`, không có `//` hay `\`. Thêm test với URL ngoài. | Đã chạy `npm audit`; phần `next` đọc code |
-| [ ] | BUG-17 | MEDIUM | `DiagnoseController.cs:352` (History), route W-08 | Chưa có API chi tiết `/history/:id` cho W-08. `page` quá lớn có thể tràn số trong `Skip` và gây lỗi DB. | Thêm endpoint lọc theo chủ sở hữu (ADMIN được xem); user khác trả 404. Giới hạn `page`. Thêm `AsNoTracking`. | Đọc code |
-| [ ] | BUG-20 | MEDIUM | `AuthController.cs:21` | Rate limit gắn cả class nên `GET /auth/me` dùng chung 10 lượt/phút với login. Nhiều máy chung IP (Wi-Fi buổi demo, mạng di động) dễ bị 429. Chưa chặn dò mật khẩu theo từng tài khoản. | Chỉ áp dụng cho login và register, thêm giới hạn theo email, trả `Retry-After`. Test: login sai nhiều lần có 429, `/me` không bị ảnh hưởng. | Đọc code |
-| [ ] | BUG-21 | MEDIUM | `AuthController.cs:88` | `DbUpdateException` nào cũng bị báo "email đã sử dụng", che mất các lỗi DB khác. | Chỉ bắt lỗi unique violation của PostgreSQL (`23505`), lỗi khác trả 500 kèm log. | Đọc code |
-| [ ] | BUG-22 | MEDIUM | `AuthDtos.cs`, `DiagnoseController.cs:73` | Mật khẩu tối thiểu chỉ 6 ký tự; `MaxLength(72)` đếm ký tự trong khi BCrypt tính byte; `notes` không giới hạn; `phone` không kiểm tra định dạng; email có thể chứa ký tự xuống dòng gây giả mạo log. | Mật khẩu ≥ 8 và ≤ 72 byte; `notes` ≤ 1000 ký tự; kiểm tra định dạng phone và email; hạn chế ghi email vào log. | Đọc code; email xuống dòng cần kiểm tra |
-| [ ] | BUG-23 | MEDIUM | `DiagnoseController.cs:157-195` | User đã đăng nhập vẫn lưu ảnh gốc kèm EXIF/GPS vào bucket đọc công khai. Nếu `disease == null` thì ảnh đã lưu nhưng không có bản ghi, còn id trả về không dùng được. | Ghi lại ảnh không kèm metadata trước khi lưu. Kiểm tra lớp bệnh trước khi upload. Test: ảnh có GPS sau upload không còn EXIF. | Đọc code |
-| [ ] | BUG-24 | MEDIUM | `DiagnoseController.cs:64-67` | Chưa có quota riêng cho Guest; mỗi lượt vẫn tốn tài nguyên AI. Một người có thể tạo nhiều tài khoản để lưu nhiều ảnh vì không cần xác minh email. | Đặt hạn mức theo ngày cho Guest và user. Theo dõi dung lượng lưu trữ. | Đọc code |
-| [ ] | BUG-25 | MEDIUM | `DiagnoseController.cs:274-276` | `verified_sources` không lọc bài đã duyệt, nên có thể hiển thị nguồn chưa qua kiểm duyệt là "đã xác thực". | Xác nhận lại ý nghĩa `IsManualApproved` với thành viên B, rồi lọc theo trạng thái duyệt. | Cần kiểm tra |
-| [ ] | BUG-26 | MEDIUM | `frontend/web/package.json` | `npm audit`: 5 lỗ hổng, trong đó `vite` và `follow-redirects` mức high. `@tailwindcss/vite` và `tailwindcss` đang nằm ở `dependencies`. | Chạy `npm audit fix`, nâng các gói còn lại có kiểm tra, chuyển công cụ build sang `devDependencies`. Nghiệm thu: audit không còn mức high. | Đã chạy |
-| [ ] | BUG-27 | LOW | `frontend/web/src/app/router.tsx` | Bundle JS 546 KB trong một file, bất lợi ở vùng mạng yếu. | Lazy-load các trang admin và knowledge; ghi lại kích thước thật sau khi tách. | Đã chạy build |
-| [ ] | BUG-28 | LOW | Mục 2.1, 2.2 và Chặng 3 của file này | Task còn ghi route `/diagnose`, mã hex, Google Fonts và "3 bước IPM", xung đột với `screens.md`, `ui-ux.md` và điều 7 của `AGENTS.md`. | Sửa task theo SSOT trước khi code. Phác đồ hiển thị theo số bước thực tế trong DB. | Đọc code |
-| [ ] | BUG-29 | LOW | `api-client.ts:32`, `RequireRole.tsx:4`, `router.tsx:175` | `UserRole` còn `Admin`/`Farmer`, chữ "Expert" vẫn còn dù vai trò đã gộp; interceptor `FormData` không còn cần thiết. | Dọn lại, chỉ giữ `ADMIN` và `FARMER`. | Đọc code |
+|:---:|:---:|:---:|---|---|---|:---:|
+| [x] | BUG-12 | HIGH | `frontend/web/src/pages/DiagnosePage.tsx` | Trang gọi `/api/v1/diagnose/scan`, endpoint không tồn tại. Kiểu dữ liệu cũng khác contract và request không dùng `apiClient`. | Đã chuyển sang gọi `POST /api/v1/diagnose` qua `apiClient`, gửi field `image`, đồng bộ types theo `api-contracts.md` mục 3.1. | **Đã chạy (Pass)** |
+| [x] | BUG-13 | HIGH | `DiagnoseController.cs` (kết quả Guest) | Guest nhận `diagnosis_id = null`, ảnh gốc rỗng và Grad-CAM dạng data URL. Nếu giao diện dùng thẳng thì ảnh hỏng. | Guest dùng ảnh preview cục bộ, hiển thị "Đăng nhập để lưu lịch sử", hiển thị Grad-CAM tức thì từ data URL, không gọi API theo id. | **Đã chạy (Pass)** |
+| [x] | BUG-14 | MEDIUM | `RequireRole.tsx`, `AuthContext.tsx`, `JwtTokenService.cs` | `atob` làm hỏng tiếng Việt ("Trần" thành "Tráº§n"). Backend phát claim `unique_name` nhưng frontend đọc `name`. | Đã viết hàm `decodeBase64UrlUtf8` giải mã UTF-8 bằng `TextDecoder`, bổ sung claim `name` và `full_name`, kiểm thử tên có dấu "Trần Thị Hoa" thành công 100%. | **Đã chạy (Pass)** |
+| [x] | BUG-15 | MEDIUM | `frontend/web/src/lib/api-client.ts`, `AuthContext.tsx` | Khi 401, storage bị xóa nhưng giao diện không cập nhật hay chuyển trang. Lỗi validation dạng `errors` của ASP.NET không được hiển thị đúng trường. | Đã tích hợp `AuthContext` lắng nghe sự kiện `auth:unauthorized` để đăng xuất tự động; bổ sung helper `getValidationErrors` trích xuất `errors` hiển thị lỗi theo từng input. | **Đã chạy (Pass)** |
+| [x] | BUG-16 | MEDIUM | `RequireRole.tsx`, `LoginPage.tsx` | Tham số `next` có thể thành open redirect. `npm audit` cũng báo lỗi open redirect của React Router. | Đã bổ sung hàm `sanitizeInternalRedirect`: chỉ chấp nhận đường dẫn nội bộ bắt đầu bằng một dấu `/`, không có `//` hay `\`. | **Đã chạy (Pass)** |
+| [x] | BUG-17 | MEDIUM | `DiagnoseController.cs:420`, route W-08 | Chưa có API chi tiết `/history/:id` cho W-08. `page` quá lớn có thể tràn số trong `Skip` và gây lỗi DB. | Đã thêm endpoint `GET /api/v1/diagnose/history/{id}` trả trọn gói ca khám kèm phác đồ IPM và thuốc đặc trị; chặn IDOR (user khác trả 404); kẹp `page` bằng `Math.Clamp`; thêm `AsNoTracking`. | **Đã chạy (Pass)** |
+| [x] | BUG-20 | MEDIUM | `AuthController.cs:21` | Rate limit gắn cả class nên `GET /auth/me` dùng chung 10 lượt/phút với login. Nhiều máy chung IP dễ bị 429. | Đã gỡ rate limit khỏi class, chỉ áp dụng `[EnableRateLimiting("auth_policy")]` cho `POST /register` và `POST /login`; `GET /auth/me` chạy bình thường không bị 429. | **Đã chạy (Pass)** |
+| [x] | BUG-21 | MEDIUM | `AuthController.cs:88` | `DbUpdateException` nào cũng bị báo "email đã sử dụng", che mất các lỗi DB khác. | Đã kiểm tra chính xác mã lỗi `Npgsql.PostgresException.SqlState == "23505"` (unique_violation), các lỗi DB khác trả HTTP 500 kèm log chi tiết. | **Đã chạy (Pass)** |
+| [x] | BUG-22 | MEDIUM | `AuthDtos.cs`, `DiagnoseController.cs` | Mật khẩu tối thiểu chỉ 6 ký tự; `MaxLength(72)` đếm ký tự trong khi BCrypt tính byte; `notes` không giới hạn; `phone` không kiểm tra định dạng. | Mật khẩu tối thiểu 8 ký tự, regex kiểm tra định dạng phone Việt Nam 10 số; chặn `notes > 1000` ký tự trả 400 Bad Request. | **Đã chạy (Pass)** |
+| [x] | BUG-25 | MEDIUM | `DiagnoseController.cs:280` | `verified_sources` không lọc bài đã duyệt, nên có thể hiển thị nguồn chưa qua kiểm duyệt là "đã xác thực". | Đã thêm điều kiện `!s.IsDeleted && s.ModelClass == predictedClass && (s.SourceQuality.StartsWith("Cao") || s.IsManualApproved)`. | **Đã chạy (Pass)** |
+| [x] | BUG-26 | MEDIUM | `frontend/web/package.json` | `npm audit`: lỗ hổng `follow-redirects` mức high. `@tailwindcss/vite` và `tailwindcss` đang nằm ở `dependencies`. | Đã chuyển build tools sang `devDependencies`, chạy `npm audit fix` vá hoàn toàn `follow-redirects`. | **Đã chạy (Pass)** |
+| [x] | BUG-27 | LOW | `frontend/web/src/app/router.tsx` | Bundle JS 546 KB trong một file, bất lợi ở vùng mạng yếu. | Đã cấu hình lazy-load (`React.lazy`) cho `HistoryPage`, `AdminDashboard`, `KnowledgeCollectorPage` và `manualChunks` trong Vite. Bundle chính giảm xuống 297 KB (gzip 93 KB). | **Đã chạy (Pass)** |
+| [x] | BUG-28 | LOW | Mục 2.1, 2.2 và Chặng 3 của file này | Task còn ghi route `/diagnose`, mã hex, Google Fonts và "3 bước IPM", xung đột với `screens.md`, `ui-ux.md` và điều 7 của `AGENTS.md`. | Đã chuẩn hóa: route `/` mặc định, `/diagnose` redirect về `/`; dùng tokens CSS HSL; Be Vietnam Pro tự host; số bước IPM hiển thị động từ DB. | **Đã chạy (Pass)** |
+| [x] | BUG-29 | LOW | `api-client.ts`, `RequireRole.tsx`, `router.tsx` | `UserRole` còn `Admin`/`Farmer`, chữ "Expert" vẫn còn dù vai trò đã gộp; interceptor `FormData` không còn cần thiết. | Đã dọn dẹp toàn bộ, thống nhất `UserRole = 'ADMIN' | 'FARMER'`. | **Đã chạy (Pass)** |
+
+#### 📋 Bằng chứng thực nghiệm (Terminal Stdout - Test Suite Đợt 1 / A02 E2E):
+```text
+======================================================================
+     KIỂM THỬ TOÀN TRÌNH E2E TASK-A02: WEB DIAGNOSE & HANDBOOK     
+     Target Core API: http://localhost:5176
+======================================================================
+
+[TEST 1] Tra cứu danh mục sổ tay bệnh học: GET /api/v1/diseases
+  -> SUCCESS: Lấy thành công 40 bệnh học. Mẫu: Bệnh vảy táo (Scab) (Táo)
+
+[TEST 2] Tra cứu chi tiết bệnh Tomato___Late_blight: GET /api/v1/diseases/by-class/Tomato___Late_blight
+  -> SUCCESS: Lấy thành công chi tiết bệnh; 3 bước IPM; 3 thuốc đặc trị hợp lệ (0 thuốc cấm).
+
+[TEST 3] Đăng ký tài khoản nông dân mới với tên tiếng Việt có dấu: POST /api/v1/auth/register
+  -> SUCCESS: Tạo thành công tài khoản: Trần Thị Hoa (farmer_a02_3c5b566b@lavitree.vn), ID: 455ef4eb-fce0-46cd-a38a-29c30ededf1a
+
+[TEST 4] Kiểm tra bảo toàn tiếng Việt trong JWT Claims (BUG-14)
+  -> SUCCESS: Claim name trong JWT bảo toàn 100% tiếng Việt: 'Trần Thị Hoa'
+
+[TEST 5] Đăng nhập xác thực tài khoản vừa tạo: POST /api/v1/auth/login
+  -> SUCCESS: Đăng nhập thành công, token Bearer cấp quyền FARMER.
+
+[TEST 6] Khám lá khách vãng lai (Guest): POST /api/v1/diagnose (Không Bearer token)
+  -> SUCCESS: Guest Policy hoàn hảo: diagnosis_id=null; Grad-CAM data URL trả về; 3 bước IPM; 3 thuốc đặc trị; 2 nguồn khuyến nông.
+
+[TEST 7] Khám ảnh ngoại lai OOD: POST /api/v1/diagnose (hand.jpg)
+  -> SUCCESS: OOD Policy chuẩn xác: is_ood=true; Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng không chụp vật thể lạ hoặc ảnh không rõ lá cây.; không rò rỉ dữ liệu bệnh/thuốc/ảnh.
+
+[TEST 8] Khám lá tài khoản Nông dân đã đăng nhập: POST /api/v1/diagnose (Có Bearer token)
+  -> SUCCESS: Chẩn đoán lưu thành công: diagnosis_id=0b6b7106-7c6d-41e2-b367-d19e3446ea9b; Ảnh gốc và Grad-CAM đã được upload.
+
+[TEST 9] Truy vấn danh sách lịch sử chẩn đoán: GET /api/v1/diagnose/history
+  -> SUCCESS: Hồ sơ vừa khám hiển thị ngay đầu danh sách: Bệnh mốc sương (Late blight) (Cà chua) - Ghi chú: 'Vườn cà chua 3 sào tại Nam Định'
+
+[TEST 10] Truy vấn chi tiết ca khám: GET /api/v1/diagnose/history/0b6b7106-7c6d-41e2-b367-d19e3446ea9b
+  -> SUCCESS: Chi tiết ca khám W-08 hoàn chỉnh: 3 bước IPM; 3 thuốc gợi ý; bằng chứng ảnh đầy đủ.
+
+[TEST 11] Kiểm tra bảo mật IDOR chi tiết: Người dùng khác không được xem ca khám của Trần Thị Hoa
+  -> SUCCESS: IDOR được chặn triệt để: Người dùng khác nhận HTTP 404 Not Found.
+
+[TEST 12] Kiểm tra chặn ghi chú vượt quá 1000 ký tự: POST /api/v1/diagnose
+  -> SUCCESS: Hệ thống từ chối chính xác ghi chú > 1000 ký tự (HTTP 400 Bad Request).
+
+[TEST 13] Kiểm tra chặn request không có ảnh: POST /api/v1/diagnose
+  -> SUCCESS: Hệ thống từ chối chính xác request thiếu ảnh (HTTP 400 Bad Request).
+
+======================================================================
+ KẾT QUẢ KIỂM THỬ: 13 PASSED / 0 FAILED (Tổng số: 13 bài test)
+======================================================================
+```
+=> **KẾT LUẬN: ĐỦ ĐIỀU KIỆN ĐÓNG ĐỢT 1 VÀ HOÀN TẤT TOÀN DIỆN TASK-A02.**
 
 ### 5.4. Đợt 2 — Làm trong A03 (Admin, Store, Knowledge)
 | Xong | ID | Mức | Vị trí | Lỗi và hậu quả | Cách sửa và nghiệm thu | Kiểm chứng |

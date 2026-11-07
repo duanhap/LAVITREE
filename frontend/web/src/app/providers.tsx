@@ -13,6 +13,8 @@ const queryClient = new QueryClient({
   },
 });
 
+import { AuthProvider } from '@/context/AuthContext';
+
 export interface AppProvidersProps {
   children: React.ReactNode;
 }
@@ -20,8 +22,10 @@ export interface AppProvidersProps {
 export const AppProviders: React.FC<AppProvidersProps> = ({ children }) => {
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
-      <Toaster position="top-right" richColors closeButton />
+      <AuthProvider>
+        {children}
+        <Toaster position="top-right" richColors closeButton />
+      </AuthProvider>
     </QueryClientProvider>
   );
 };

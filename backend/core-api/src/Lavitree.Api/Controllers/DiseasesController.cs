@@ -57,12 +57,85 @@ public class DiseasesController : ControllerBase
         var disease = await _dbContext.Diseases
             .Include(d => d.Plant)
             .Include(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
-            .Include(d => d.DiseaseProducts)
+            .Include(d => d.DiseaseProducts.Where(dp => dp.Product != null && dp.Product.IsAllowed && !dp.Product.IsDeleted))
                 .ThenInclude(dp => dp.Product)
+            .AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == id);
 
         if (disease == null) return NotFound(new { message = "Không tìm thấy thông tin bệnh." });
 
-        return Ok(disease);
+        var result = new
+        {
+            disease.Id,
+            disease.ClassCode,
+            PlantName = disease.Plant?.Name ?? "Cây trồng",
+            disease.CommonNameVi,
+            disease.PathogenType,
+            disease.SeverityLevel,
+            disease.Symptoms,
+            disease.Prevention,
+            TreatmentPlans = disease.TreatmentPlans.Select(tp => new
+            {
+                tp.StepOrder,
+                tp.ActionTitle,
+                tp.Instructions,
+                tp.IsolationDays
+            }),
+            Products = disease.DiseaseProducts.Where(dp => dp.Product != null).Select(dp => new
+            {
+                dp.Product.Id,
+                dp.Product.Name,
+                dp.Product.ActiveIngredient,
+                dp.Product.Price,
+                dp.Product.ImageUrl,
+                dp.Product.DosageInstruction
+            })
+        };
+
+        return Ok(result);
+    }
+
+    [HttpGet("by-class/{classCode}")]
+    public async Task<IActionResult> GetByClassCode(string classCode)
+    {
+        var disease = await _dbContext.Diseases
+            .Include(d => d.Plant)
+            .Include(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
+            .Include(d => d.DiseaseProducts.Where(dp => dp.Product != null && dp.Product.IsAllowed && !dp.Product.IsDeleted))
+                .ThenInclude(dp => dp.Product)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => d.ClassCode == classCode);
+
+        if (disease == null) return NotFound(new { message = "Không tìm thấy thông tin bệnh với mã lớp này." });
+
+        var result = new
+        {
+            disease.Id,
+            disease.ClassCode,
+            PlantName = disease.Plant?.Name ?? "Cây trồng",
+            disease.CommonNameVi,
+            disease.PathogenType,
+            disease.SeverityLevel,
+            disease.Symptoms,
+            disease.Prevention,
+            TreatmentPlans = disease.TreatmentPlans.Select(tp => new
+            {
+                tp.StepOrder,
+                tp.ActionTitle,
+                tp.Instructions,
+                tp.IsolationDays
+            }),
+            Products = disease.DiseaseProducts.Where(dp => dp.Product != null).Select(dp => new
+            {
+                dp.Product.Id,
+                dp.Product.Name,
+                dp.Product.ActiveIngredient,
+                dp.Product.Price,
+                dp.Product.ImageUrl,
+                dp.Product.DosageInstruction
+            })
+        };
+
+        return Ok(result);
     }
 }

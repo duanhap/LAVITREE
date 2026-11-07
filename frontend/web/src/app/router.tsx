@@ -1,22 +1,28 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { AdminShell } from './AdminShell';
 import { RequireRole } from './RequireRole';
 import { NotFoundPage } from './NotFoundPage';
 import { ForbiddenPage } from './ForbiddenPage';
+import { PageSkeleton } from '@/components/common/PageSkeleton';
+import { EmptyState } from '@/components/common/EmptyState';
 
-// Existing Prototype Pages (Giữ nguyên luồng nghiệp vụ)
+// Core Eager Pages (Khám lá, Sổ tay, Auth để phản hồi tức thì)
 import { DiagnosePage } from '@/pages/DiagnosePage';
 import { HandbookPage } from '@/pages/HandbookPage';
-import { KnowledgeCollectorPage } from '@/pages/KnowledgeCollectorPage';
-import { AdminDashboard } from '@/pages/AdminDashboard';
+import { LoginPage } from '@/pages/LoginPage';
+import { RegisterPage } from '@/pages/RegisterPage';
+
+// Lazy Loaded Pages (BUG-27: Tối ưu bundle size cho mạng đồng ruộng & Admin portal)
+const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
+const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
+const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollectorPage'));
 
 // Styleguide (Chỉ nạp và hiển thị trong môi trường DEV)
 import { StyleguidePage } from '@/dev/StyleguidePage';
-import { EmptyState } from '@/components/common/EmptyState';
 
-// Component giữ chỗ cho các màn hình Sprint 2 (A02, A03, A04)
+// Component giữ chỗ cho các màn hình Sprint 2 (A03, A04) & Sprint 3
 const ComingSoonPage: React.FC<{ title: string; description: string; actionText?: string; actionHref?: string }> = ({
   title,
   description,
@@ -38,16 +44,42 @@ export const AppRouter: React.FC = () => {
     <Routes>
       {/* ================= USER ROUTES (APPSHELL) ================= */}
       <Route element={<AppShell />}>
-        {/* W-01: Khám lá (Trang chủ) */}
+        {/* W-01: Khám lá (Trang chủ & alias /diagnose) */}
         <Route path="/" element={<DiagnosePage />} />
+        <Route path="/diagnose" element={<Navigate to="/" replace />} />
 
-        {/* W-02: Sổ tay 38 bệnh */}
+        {/* W-02 & W-03: Sổ tay 38 bệnh & Chi tiết bệnh */}
         <Route path="/handbook" element={<HandbookPage />} />
+        <Route path="/handbook/:classCode" element={<HandbookPage />} />
 
-        {/* Luồng thu thập tri thức cũ - giữ đường dẫn không làm gãy công việc */}
-        <Route path="/knowledge" element={<KnowledgeCollectorPage />} />
+        {/* W-05 & W-06: Đăng nhập & Đăng ký */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
-        {/* W-04: Trợ lý AI (Sprint 2 - TASK-A03) */}
+        {/* W-07 & W-08: Lịch sử khám bệnh cá nhân & Chi tiết */}
+        <Route
+          path="/history"
+          element={
+            <RequireRole allowedRoles={['FARMER', 'ADMIN']}>
+              <Suspense fallback={<PageSkeleton variant="cards" />}>
+                <HistoryPage />
+              </Suspense>
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/history/:id"
+          element={
+            <RequireRole allowedRoles={['FARMER', 'ADMIN']}>
+              <Suspense fallback={<PageSkeleton variant="detail" />}>
+                <HistoryPage />
+              </Suspense>
+            </RequireRole>
+          }
+        />
+        <Route path="/account" element={<Navigate to="/history" replace />} />
+
+        {/* W-04: Trợ lý AI Lavi (Sprint 2 - TASK-A04) */}
         <Route
           path="/chat"
           element={
@@ -58,7 +90,7 @@ export const AppRouter: React.FC = () => {
           }
         />
 
-        {/* W-09: Cửa hàng vật tư */}
+        {/* W-09: Cửa hàng vật tư (Sprint 2 - TASK-A03) */}
         <Route
           path="/store"
           element={
@@ -69,43 +101,21 @@ export const AppRouter: React.FC = () => {
           }
         />
 
-        {/* W-05 / Tài khoản / Lịch sử */}
-        <Route
-          path="/account"
-          element={
-            <ComingSoonPage
-              title="Quản lý Tài khoản"
-              description="Thông tin cá nhân, cài đặt thông báo và lịch sử khám bệnh của bạn."
-            />
-          }
-        />
-        <Route
-          path="/history"
-          element={
-            <ComingSoonPage
-              title="Lịch sử Khám bệnh"
-              description="Danh sách các ca chẩn đoán lá cây trước đây của bạn kèm kết quả phân tích AI."
-            />
-          }
-        />
+        {/* W-11: Đơn hàng của tôi (Sprint 2 - TASK-A03) */}
         <Route
           path="/orders"
           element={
-            <ComingSoonPage
-              title="Đơn hàng của bạn"
-              description="Theo dõi tình trạng đơn đặt hàng vật tư nông nghiệp."
-            />
+            <RequireRole allowedRoles={['FARMER', 'ADMIN']}>
+              <ComingSoonPage
+                title="Đơn hàng của bạn"
+                description="Theo dõi tình trạng đơn đặt hàng vật tư nông nghiệp."
+              />
+            </RequireRole>
           }
         />
-        <Route
-          path="/login"
-          element={
-            <ComingSoonPage
-              title="Đăng nhập Lavitree"
-              description="Đăng nhập để lưu lịch sử khám bệnh và nhận tư vấn chuyên sâu từ chuyên gia bảo vệ thực vật."
-            />
-          }
-        />
+
+        {/* Điều hướng đường dẫn cũ về Admin */}
+        <Route path="/knowledge" element={<Navigate to="/admin/knowledge" replace />} />
 
         {/* Route /dev/styleguide CHỈ ĐĂNG KÝ KHI import.meta.env.DEV === true */}
         {import.meta.env.DEV && (
@@ -121,8 +131,22 @@ export const AppRouter: React.FC = () => {
           </RequireRole>
         }
       >
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/knowledge" element={<KnowledgeCollectorPage />} />
+        <Route
+          path="/admin"
+          element={
+            <Suspense fallback={<PageSkeleton variant="dashboard" />}>
+              <AdminDashboard />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/knowledge"
+          element={
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <KnowledgeCollectorPage />
+            </Suspense>
+          }
+        />
         <Route
           path="/admin/escalations"
           element={
@@ -172,7 +196,7 @@ export const AppRouter: React.FC = () => {
           element={
             <ComingSoonPage
               title="Quản lý Người dùng & Phân quyền"
-              description="Quản lý danh sách tài khoản Admin, Expert và Farmer."
+              description="Quản lý danh sách tài khoản Admin và Farmer."
               actionText="Về Tổng quan Admin"
               actionHref="/admin"
             />

@@ -48,6 +48,8 @@ public class JwtTokenService : IJwtTokenService
             new(ClaimTypes.Email, user.Email),
             new(JwtRegisteredClaimNames.Email, user.Email),
             new(ClaimTypes.Name, user.FullName),
+            new("name", user.FullName),
+            new("full_name", user.FullName),
             new(ClaimTypes.Role, string.IsNullOrWhiteSpace(user.Role) ? "FARMER" : user.Role),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };

@@ -98,6 +98,12 @@ public class DiagnoseController : ControllerBase
             return BadRequest(new { detail = "Tệp vượt quá 10MB hoặc định dạng không hỗ trợ." });
         }
 
+        // 2.1. Kiểm tra độ dài ghi chú (tối đa 1000 ký tự - BUG-22)
+        if (!string.IsNullOrEmpty(notes) && notes.Length > 1000)
+        {
+            return BadRequest(new { detail = "Ghi chú không được vượt quá 1000 ký tự." });
+        }
+
         AiPredictionResponse aiResult;
         try
         {
@@ -272,9 +278,9 @@ public class DiagnoseController : ControllerBase
             DosageInstruction = dp.Product.DosageInstruction
         }).ToList() ?? new List<ProductDto>();
 
-        // Trích xuất 1-3 tài liệu khuyến nông đối chứng từ KnowledgeSources
+        // Trích xuất 1-3 tài liệu khuyến nông đối chứng từ KnowledgeSources (BUG-25)
         var verifiedSources = await _dbContext.KnowledgeSources
-            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass)
+            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && (s.SourceQuality.StartsWith("Cao") || s.IsManualApproved))
             .OrderByDescending(s => s.CreatedAt)
             .Take(3)
             .Select(s => new VerifiedSourceDto
@@ -283,6 +289,7 @@ public class DiagnoseController : ControllerBase
                 Title = s.SourceTitle,
                 Url = s.SourceUrl
             })
+            .AsNoTracking()
             .ToListAsync(cancellationToken);
 
         // 4.4. Lưu vết ca chẩn đoán vào DiagnosisRecords trong PostgreSQL (Chỉ lưu khi đã đăng nhập)
@@ -367,14 +374,14 @@ public class DiagnoseController : ControllerBase
             return Unauthorized(new { detail = "Định danh người dùng trong token không hợp lệ." });
         }
 
-        if (page < 1) page = 1;
-        if (pageSize < 1) pageSize = 10;
-        if (pageSize > 50) pageSize = 50;
+        page = Math.Clamp(page, 1, 10000);
+        pageSize = Math.Clamp(pageSize, 1, 50);
 
         var query = _dbContext.DiagnosisRecords
             .Where(r => r.UserId == userId && !r.IsDeleted)
             .Include(r => r.Disease)
-                .ThenInclude(d => d.Plant);
+                .ThenInclude(d => d.Plant)
+            .AsNoTracking();
 
         var totalRecords = await query.CountAsync(cancellationToken);
 
@@ -405,6 +412,142 @@ public class DiagnoseController : ControllerBase
             Page = page,
             PageSize = pageSize,
             Items = items
+        };
+
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// GET /api/v1/diagnose/history/{id} - Chi tiết hồ sơ khám bệnh cá nhân (SSOT: screens.md W-08 & BUG-17)
+    /// </summary>
+    [HttpGet("history/{id:guid}")]
+    [Authorize]
+    [ProducesResponseType(typeof(DiagnoseResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetHistoryDetail(Guid id, CancellationToken cancellationToken)
+    {
+        var subClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+        var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value ?? "FARMER";
+
+        if (string.IsNullOrEmpty(subClaim) || !Guid.TryParse(subClaim, out var userId))
+        {
+            return Unauthorized(new { detail = "Định danh người dùng trong token không hợp lệ." });
+        }
+
+        var record = await _dbContext.DiagnosisRecords
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.Plant)
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.TreatmentPlans.OrderBy(tp => tp.StepOrder))
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.DiseaseProducts.Where(dp => dp.Product != null && dp.Product.IsAllowed && !dp.Product.IsDeleted))
+                    .ThenInclude(dp => dp.Product)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == id && !r.IsDeleted, cancellationToken);
+
+        if (record == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy hồ sơ chẩn đoán yêu cầu." });
+        }
+
+        // Quyền truy cập: Chỉ chủ sở hữu ca khám hoặc ADMIN mới được xem (BUG-17)
+        if (record.UserId != userId && !string.Equals(roleClaim, "ADMIN", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound(new { detail = "Không tìm thấy hồ sơ chẩn đoán yêu cầu." });
+        }
+
+        var disease = record.Disease;
+        var predictedClass = disease?.ClassCode ?? string.Empty;
+
+        // Trích xuất phác đồ xử lý IPM
+        var treatmentGuidelines = disease?.TreatmentPlans.Select(tp => new TreatmentStepDto
+        {
+            StepOrder = tp.StepOrder,
+            ActionTitle = tp.ActionTitle,
+            Instructions = tp.Instructions,
+            IsolationDays = tp.IsolationDays
+        }).ToList() ?? new List<TreatmentStepDto>();
+
+        // Trích xuất danh mục thuốc gợi ý
+        var recommendedProducts = disease?.DiseaseProducts
+            .Where(dp => dp.Product != null && dp.Product.IsAllowed && !dp.Product.IsDeleted)
+            .Select(dp => new ProductDto
+            {
+                Id = dp.Product.Id,
+                Name = dp.Product.Name,
+                ActiveIngredient = dp.Product.ActiveIngredient,
+                Price = dp.Product.Price,
+                Unit = "Gói / Chai chuẩn",
+                ImageUrl = dp.Product.ImageUrl,
+                DosageInstruction = dp.Product.DosageInstruction
+            }).ToList() ?? new List<ProductDto>();
+
+        // Trích xuất tài liệu khuyến nông đối chứng
+        var verifiedSources = await _dbContext.KnowledgeSources
+            .Where(s => !s.IsDeleted && s.ModelClass == predictedClass && (s.SourceQuality.StartsWith("Cao") || s.IsManualApproved))
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(3)
+            .Select(s => new VerifiedSourceDto
+            {
+                Organization = s.Organization,
+                Title = s.SourceTitle,
+                Url = s.SourceUrl
+            })
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        string severityLevel;
+        if (predictedClass.EndsWith("___healthy", StringComparison.OrdinalIgnoreCase))
+        {
+            severityLevel = "Cây khỏe mạnh (Không phát hiện bệnh)";
+        }
+        else
+        {
+            severityLevel = (disease?.SeverityLevel ?? 2) switch
+            {
+                1 => "Nhẹ (Theo dõi định kỳ)",
+                3 => "Khẩn cấp (Cần xử lý ngay lập tức)",
+                _ => "Nghiêm trọng (Cần xử lý trong 24-48h)"
+            };
+        }
+
+        var response = new DiagnoseResponseDto
+        {
+            Success = true,
+            DiagnosisId = record.Id,
+            IsOod = false,
+            IsUncertain = record.IsUncertain,
+            Warning = record.IsUncertain ? "Độ tin cậy chưa đạt ngưỡng tối ưu, nên chụp lại trong điều kiện ánh sáng tốt hơn." : null,
+            Result = new DiagnoseResultDataDto
+            {
+                PlantName = disease?.Plant?.Name ?? "Cây trồng",
+                DiseaseName = disease?.CommonNameVi ?? predictedClass,
+                ClassCode = predictedClass,
+                Confidence = record.Confidence,
+                SeverityLevel = severityLevel,
+                IsUncertain = record.IsUncertain,
+                ConfusionGroup = null,
+                Warning = record.Notes,
+                Top3 = new List<Top3ItemDto>
+                {
+                    new()
+                    {
+                        ClassCode = predictedClass,
+                        DiseaseName = disease?.CommonNameVi ?? predictedClass,
+                        Confidence = record.Confidence
+                    }
+                }
+            },
+            VisualEvidence = new VisualEvidenceDto
+            {
+                OriginalImageUrl = record.OriginalImageUrl,
+                GradcamImageUrl = record.GradCamImageUrl
+            },
+            TreatmentGuidelines = treatmentGuidelines,
+            RecommendedProducts = recommendedProducts,
+            VerifiedSources = verifiedSources
         };
 
         return Ok(response);

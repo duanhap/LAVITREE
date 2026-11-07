@@ -1,256 +1,473 @@
-import React, { useState } from 'react';
-import axios from 'axios';
-import { UploadCloud, AlertTriangle, CheckCircle, ShieldAlert, Sparkles, Activity } from 'lucide-react';
-
-interface TreatmentStep {
-  stepOrder: number;
-  actionTitle: string;
-  instructions: string;
-  isolationDays?: string;
-}
-
-interface Product {
-  id: number;
-  name: string;
-  activeIngredient: string;
-  price: number;
-  dosageInstruction: string;
-}
-
-interface DiagnosisResult {
-  recordId: string;
-  plantName: string;
-  diseaseNameVi: string;
-  classCode: string;
-  isHealthy: boolean;
-  confidence: number;
-  isUncertain: boolean;
-  warningMessage?: string;
-  gradCamImageUrl?: string;
-  originalImageUrl: string;
-  symptoms: string;
-  treatmentSteps: TreatmentStep[];
-  recommendedProducts: Product[];
-}
+import React, { useState, useRef } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import apiClient, { getErrorMessage } from '@/lib/api-client';
+import { useAuth } from '@/context/AuthContext';
+import { DIAGNOSIS_DISCLAIMER } from '@/features/diagnose/constants';
+import { getResultStatus } from '@/features/diagnose/status';
+import type { DiagnoseResponse } from '@/features/diagnose/types';
+import ResultStatusBadge from '@/features/diagnose/components/ResultStatusBadge';
+import ImageCompare from '@/features/diagnose/components/ImageCompare';
+import TreatmentSteps from '@/features/diagnose/components/TreatmentSteps';
+import RecommendedProducts from '@/features/diagnose/components/RecommendedProducts';
+import VerifiedSourcesList from '@/features/diagnose/components/VerifiedSourcesList';
+import Top3List from '@/features/diagnose/components/Top3List';
+import { formatPercent } from '@/lib/format';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  UploadCloud,
+  Camera,
+  RotateCcw,
+  MessageSquare,
+  AlertTriangle,
+  LogIn,
+  CheckCircle2,
+  Sparkles,
+  Info,
+  HelpCircle,
+} from 'lucide-react';
+import { toast } from 'sonner';
 
 export const DiagnosePage: React.FC = () => {
+  const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<DiagnosisResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [diagnoseData, setDiagnoseData] = useState<DiagnoseResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('Kích thước tệp vượt quá 10MB. Vui lòng chọn ảnh nhẹ hơn.');
+        return;
+      }
       setSelectedFile(file);
       setPreviewUrl(URL.createObjectURL(file));
-      setResult(null);
-      setError(null);
+      setDiagnoseData(null);
+      setErrorMessage(null);
     }
   };
 
-  const handleScan = async () => {
-    if (!selectedFile) return;
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('Kích thước tệp vượt quá 10MB. Vui lòng chọn ảnh nhẹ hơn.');
+        return;
+      }
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      setDiagnoseData(null);
+      setErrorMessage(null);
+    }
+  };
+
+  const handleDiagnose = async () => {
+    if (!selectedFile) {
+      toast.error('Vui lòng chọn hoặc chụp ảnh lá cây trước.');
+      return;
+    }
+
     setIsLoading(true);
-    setError(null);
+    setErrorMessage(null);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    // Khớp 100% với api-contracts.md Mục 3.1: trường 'image'
+    formData.append('image', selectedFile);
+    if (notes.trim()) {
+      formData.append('notes', notes.trim());
+    }
 
     try {
-      const res = await axios.post<DiagnosisResult>('/api/v1/diagnose/scan', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      setResult(res.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Có lỗi xảy ra khi kết nối máy chủ AI hoặc Core API.');
+      const res = await apiClient.post<DiagnoseResponse>('/diagnose', formData);
+      setDiagnoseData(res.data);
+      if (res.data.is_ood) {
+        toast.warning('Ảnh nằm ngoài 38 lớp sâu bệnh được hỗ trợ (OOD).');
+      } else {
+        toast.success('Chẩn đoán thành công!');
+      }
+    } catch (err: unknown) {
+      const msg = getErrorMessage(err);
+      setErrorMessage(msg);
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
-  return (
-    <div className="container" style={{ padding: '40px 20px' }}>
-      <header style={{ textAlign: 'center', marginBottom: '40px' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: 800, color: '#1b5e20', marginBottom: '10px' }}>
-          Khám Bệnh Lá Cây Bằng Trí Tuệ Nhân Tạo
-        </h1>
-        <p style={{ color: '#64748b', fontSize: '16px', maxWidth: '650px', margin: '0 auto' }}>
-          Mô hình ResNet-18 nhận diện 38 lớp sâu bệnh phổ biến trên 14 loài cây trồng. Tích hợp trực quan hóa Grad-CAM Heatmap và hướng dẫn xử lý chuẩn Khuyến nông (IPM).
-        </p>
-      </header>
+  const handleReset = () => {
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setNotes('');
+    setDiagnoseData(null);
+    setErrorMessage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 450px) 1fr', gap: '32px' }}>
-        {/* Upload Column */}
-        <div>
-          <div className="card" style={{ textAlign: 'center' }}>
-            <label
-              htmlFor="leaf-upload"
-              style={{
-                border: '2px dashed #cbd5e1',
-                borderRadius: '12px',
-                padding: '30px 20px',
-                display: 'block',
-                cursor: 'pointer',
-                background: '#f8fafc',
-                marginBottom: '20px',
-                transition: 'border-color 0.2s'
-              }}
-            >
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt="Ảnh lá tải lên"
-                  style={{ maxHeight: '250px', maxWidth: '100%', borderRadius: '8px', objectFit: 'cover' }}
-                />
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ background: '#e2e8f0', padding: '16px', borderRadius: '50%' }}>
-                    <UploadCloud size={36} color="#1b5e20" />
-                  </div>
-                  <div>
-                    <strong style={{ display: 'block', fontSize: '15px', color: '#1e293b' }}>Chọn ảnh lá hoặc kéo thả vào đây</strong>
-                    <span style={{ fontSize: '13px', color: '#64748b' }}>Hỗ trợ JPEG, PNG, WebP (Tối đa 10MB)</span>
+  // Xác định trạng thái nghiệp vụ cho kết quả
+  const status = diagnoseData
+    ? getResultStatus(
+        diagnoseData.is_ood,
+        diagnoseData.is_uncertain,
+        diagnoseData.result?.confusion_group
+      )
+    : 'reference';
+
+  // Original image URL: Ưu tiên MinIO URL nếu có, nếu là Guest hoặc chưa có URL thì dùng previewUrl cục bộ (BUG-13)
+  const displayOriginalImage =
+    diagnoseData?.visual_evidence?.original_image_url || previewUrl || '';
+  const displayGradcamImage =
+    diagnoseData?.visual_evidence?.gradcam_image_url || null;
+
+  return (
+    <div className="container mx-auto px-4 py-6 md:py-10 max-w-5xl space-y-8">
+      {/* Tiêu đề & Giới thiệu */}
+      <div className="text-center space-y-2">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-secondary text-primary text-xs font-semibold">
+          <Sparkles className="h-3.5 w-3.5" />
+          <span>Trí tuệ Nhân tạo ResNet-18 & Grad-CAM Heatmap</span>
+        </div>
+        <h1 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
+          Khám Bệnh Lá Cây Trồng Toàn Trình
+        </h1>
+        <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto">
+          Chụp hoặc tải ảnh lá cây để nhận diện nhanh 38 bệnh hại phổ biến trên 14 loài cây trồng. Hệ thống cung cấp bản đồ nhiệt nghi vấn và phác đồ xử lý IPM chuẩn khuyến nông.
+        </p>
+      </div>
+
+      {/* KHỐI 1: KHUNG TẢI ẢNH NẾU CHƯA CÓ KẾT QUẢ HOẶC ĐANG CHỌN ẢNH MỚI */}
+      {!diagnoseData && (
+        <Card className="border border-border bg-card shadow-sm max-w-2xl mx-auto">
+          <CardHeader className="text-center pb-2">
+            <CardTitle className="text-lg font-bold text-foreground">
+              Tải ảnh lá cây để bắt đầu khám
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Định dạng hỗ trợ: JPG, PNG, WEBP (Tối đa 10MB). Đảm bảo lá chiếm ≥ 70% khung hình và chụp trong khoảng 15–20cm.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              className="hidden"
+              id="leaf-upload-input"
+            />
+
+            {!previewUrl ? (
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-secondary/30 p-8 text-center cursor-pointer hover:border-primary/50 hover:bg-secondary/50 transition-all duration-200"
+              >
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-card shadow-xs text-primary mb-3">
+                  <UploadCloud className="h-7 w-7" />
+                </div>
+                <p className="text-sm font-semibold text-foreground mb-1">
+                  Nhấn để chọn ảnh hoặc kéo thả ảnh vào đây
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Hỗ trợ chụp trực tiếp từ camera hoặc tải ảnh từ thư viện
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl border border-border bg-muted">
+                  <img
+                    src={previewUrl}
+                    alt="Xem trước ảnh lá"
+                    className="h-full w-full object-cover"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute bottom-3 right-3 bg-card/90 backdrop-blur-sm text-xs shadow-md border border-border"
+                  >
+                    <Camera className="h-3.5 w-3.5 mr-1" /> Đổi ảnh khác
+                  </Button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="notes" className="text-xs font-medium text-foreground">
+                    Ghi chú thêm về vườn/cây (tùy chọn)
+                  </label>
+                  <textarea
+                    id="notes"
+                    rows={2}
+                    maxLength={1000}
+                    placeholder="Ví dụ: Vườn cà chua 3 sào tại Nam Định, xuất hiện đốm đen 2 ngày nay sau đợt mưa..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background p-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                  />
+                  <div className="text-right text-[11px] text-muted-foreground">
+                    {notes.length}/1000 ký tự
                   </div>
                 </div>
-              )}
-              <input
-                id="leaf-upload"
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                style={{ display: 'none' }}
-              />
-            </label>
 
-            <button
-              className="btn btn-primary"
-              style={{ width: '100%', padding: '14px' }}
-              disabled={!selectedFile || isLoading}
-              onClick={handleScan}
-            >
-              {isLoading ? (
-                <>
-                  <Activity size={18} className="animate-spin" /> Đang Phân Tích &amp; Sinh Grad-CAM...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} /> Khám Bệnh Ngay
-                </>
-              )}
-            </button>
+                {errorMessage && (
+                  <Alert variant="destructive" className="py-2.5">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="text-xs">{errorMessage}</AlertDescription>
+                  </Alert>
+                )}
 
-            {error && (
-              <div style={{ marginTop: '16px', padding: '12px', background: '#fee2e2', color: '#b91c1c', borderRadius: '8px', fontSize: '14px' }}>
-                {error}
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleReset}
+                    disabled={isLoading}
+                    className="w-1/3 text-xs border-border"
+                  >
+                    Hủy bỏ
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleDiagnose}
+                    disabled={isLoading}
+                    className="w-2/3 bg-primary hover:bg-primary-hover text-white text-xs font-semibold h-10"
+                  >
+                    {isLoading ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        <span>Đang phân tích tế bào lá...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="h-4 w-4" />
+                        <span>Tiến hành Chẩn đoán ngay</span>
+                      </div>
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* KHỐI 2: HIỂN THỊ KẾT QUẢ CHẨN ĐOÁN (Tuân thủ thứ tự screens.md mục 4) */}
+      {diagnoseData && (
+        <div className="space-y-6">
+          {/* 1. CÂU MIỄN TRỪ CỐ ĐỊNH THEO SSOT */}
+          <div className="flex items-center gap-2 rounded-xl bg-secondary/80 px-4 py-2.5 text-xs text-muted-foreground border border-border">
+            <Info className="h-4 w-4 shrink-0 text-primary" />
+            <p className="font-medium">{DIAGNOSIS_DISCLAIMER}</p>
           </div>
-        </div>
 
-        {/* Results Column */}
-        <div>
-          {result ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              {/* Uncertainty Alert */}
-              {result.isUncertain && (
-                <div style={{
-                  padding: '16px',
-                  background: '#fef3c7',
-                  border: '1px solid #fde68a',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px'
-                }}>
-                  <AlertTriangle size={24} color="#b45309" />
-                  <div>
-                    <strong style={{ color: '#b45309', display: 'block' }}>Cảnh báo độ bất định (Uncertainty &lt; 70%)</strong>
-                    <span style={{ fontSize: '13px', color: '#78350f' }}>{result.warningMessage}</span>
-                  </div>
-                </div>
+          {/* 2. NHÃN TRẠNG THÁI + WARNING MESSAGE */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card shadow-xs">
+            <div className="flex items-center gap-3">
+              <ResultStatusBadge
+                isOod={diagnoseData.is_ood}
+                isUncertain={diagnoseData.is_uncertain}
+                confusionGroup={diagnoseData.result?.confusion_group}
+                size="md"
+              />
+              {diagnoseData.warning && (
+                <span className="text-xs text-muted-foreground font-medium">
+                  {diagnoseData.warning}
+                </span>
               )}
+            </div>
 
-              {/* Diagnosis Header */}
-              <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                  <div>
-                    <span className={`badge ${result.isHealthy ? 'badge-success' : 'badge-danger'}`} style={{ marginBottom: '8px' }}>
-                      {result.isHealthy ? 'Cây Khỏe Mạnh' : 'Phát Hiện Sâu Bệnh'}
-                    </span>
-                    <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#1b5e20' }}>{result.diseaseNameVi}</h2>
-                    <p style={{ color: '#64748b', fontSize: '14px' }}>Cây: <strong>{result.plantName}</strong> | Mã lớp: <code>{result.classCode}</code></p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '28px', fontWeight: 800, color: result.confidence > 0.7 ? '#1b5e20' : '#b45309' }}>
-                      {(result.confidence * 100).toFixed(1)}%
-                    </div>
-                    <span style={{ fontSize: '12px', color: '#64748b' }}>Độ tin cậy mô hình</span>
-                  </div>
-                </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              className="text-xs border-border h-8"
+            >
+              <RotateCcw className="h-3 w-3 mr-1" /> Khám ảnh khác
+            </Button>
+          </div>
 
-                <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#334155', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
-                  <strong>Triệu chứng nhận biết:</strong> {result.symptoms}
+          {/* TRƯỜNG HỢP ẢNH NGOẠI LAI (is_ood = true): CHỈ cảnh báo + nút chụp lại */}
+          {diagnoseData.is_ood ? (
+            <Card className="border-border bg-card shadow-sm p-6 text-center space-y-4">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-status-ood-bg text-status-ood">
+                <AlertTriangle className="h-7 w-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-bold text-foreground">
+                  Không nhận diện được lá cây trồng
+                </h3>
+                <p className="text-sm text-muted-foreground max-w-lg mx-auto">
+                  {diagnoseData.warning ||
+                    'Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng không chụp vật thể lạ hoặc ảnh mờ mất nét.'}
                 </p>
               </div>
 
-              {/* Grad-CAM Explainable AI */}
-              {result.gradCamImageUrl && (
-                <div className="card">
-                  <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <ShieldAlert size={20} color="#1b5e20" /> Giải Thích AI (Explainable AI - Grad-CAM)
-                  </h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div>
-                      <img src={previewUrl || ''} alt="Ảnh gốc" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px' }} />
-                      <span style={{ display: 'block', textAlign: 'center', fontSize: '12px', color: '#64748b', marginTop: '6px' }}>Ảnh lá gốc</span>
-                    </div>
-                    <div>
-                      <img src={result.gradCamImageUrl} alt="Grad-CAM Heatmap" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px' }} />
-                      <span style={{ display: 'block', textAlign: 'center', fontSize: '12px', color: '#64748b', marginTop: '6px' }}>Vùng nơ-ron tập trung (Heatmap)</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* IPM Treatment & Care Guidelines */}
-              {result.treatmentSteps.length > 0 && (
-                <div className="card">
-                  <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>
-                    Hướng Dẫn Xử Lý & Chăm Sóc Chuẩn Khuyến Nông (IPM)
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {result.treatmentSteps.map((step) => (
-                      <div key={step.stepOrder} style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', borderLeft: '4px solid #1b5e20' }}>
-                        <strong style={{ color: '#1b5e20', display: 'block', marginBottom: '4px' }}>
-                          Bước {step.stepOrder}: {step.actionTitle}
-                        </strong>
-                        <p style={{ fontSize: '14px', color: '#334155' }}>{step.instructions}</p>
-                        {step.isolationDays && (
-                          <span style={{ display: 'inline-block', marginTop: '6px', fontSize: '12px', color: '#64748b' }}>
-                            ⏱️ Thời gian cách ly an toàn (PHI): <strong>{step.isolationDays}</strong>
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={handleReset}
+                  className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-6"
+                >
+                  <Camera className="h-4 w-4 mr-2" /> Chụp lại trong khung ngắm 15–20cm
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            /* TRƯỜNG HỢP IN-DISTRIBUTION (Ảnh nhận diện hợp lệ) */
+            <div className="space-y-6">
+              {/* 3. TÊN BỆNH TOP-1, CÂY TRỒNG, SEVERITY & ĐỘ TIN CẬY */}
+              {diagnoseData.result && (
+                <Card className="border-border bg-card shadow-xs overflow-hidden">
+                  <div className="p-5 md:p-6 space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border pb-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                            {diagnoseData.result.plant_name}
                           </span>
+                          <span className="text-xs text-muted-foreground">•</span>
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {diagnoseData.result.severity_level}
+                          </span>
+                        </div>
+                        <h2 className="text-xl md:text-2xl font-extrabold text-foreground tracking-tight">
+                          {diagnoseData.result.disease_name}
+                        </h2>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          Mã khoa học: {diagnoseData.result.class_code}
+                        </p>
+                      </div>
+
+                      {/* Độ tin cậy của mô hình (Dạng %, cấm dùng 'Độ tin cậy cao') */}
+                      <div className="flex flex-col items-start md:items-end justify-center rounded-xl bg-secondary px-4 py-2.5 border border-border/50">
+                        <span className="text-xs text-muted-foreground font-medium">
+                          Độ tin cậy của mô hình
+                        </span>
+                        <span className="text-xl font-black text-primary tabular-nums">
+                          {formatPercent(diagnoseData.result.confidence)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bố cục 2 cột: Cột trái (Ảnh gốc & Heatmap) - Cột phải (Top-3 & Thông tin thêm) */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                      {/* 4. ẢNH GỐC ↔ GRAD-CAM HEATMAP (Chiếm 7 cột trên màn lớn) */}
+                      <div className="lg:col-span-7">
+                        <ImageCompare
+                          originalUrl={displayOriginalImage}
+                          gradcamUrl={displayGradcamImage}
+                          altText={diagnoseData.result.disease_name}
+                        />
+                      </div>
+
+                      {/* Cột phụ: Top 3 & Hướng dẫn (Chiếm 5 cột trên màn lớn) */}
+                      <div className="lg:col-span-5 space-y-4">
+                        <Top3List
+                          top3={diagnoseData.result.top3}
+                          defaultOpen={status === 'confusion' || status === 'uncertain'}
+                        />
+
+                        {/* Mẹo chụp ảnh nếu có */}
+                        {diagnoseData.result.warning && (
+                          <div className="rounded-xl border border-status-confusion/30 bg-status-confusion-bg/30 p-3.5 text-xs text-foreground space-y-1">
+                            <span className="font-semibold text-status-confusion flex items-center gap-1">
+                              <HelpCircle className="h-3.5 w-3.5" /> Khuyến nghị góc máy:
+                            </span>
+                            <p className="text-muted-foreground leading-relaxed">
+                              {diagnoseData.result.warning}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Gợi ý cho Guest */}
+                        {!isAuthenticated && (
+                          <div className="rounded-xl border border-primary/20 bg-brand-mint-soft/50 p-4 text-xs space-y-2">
+                            <span className="font-semibold text-primary block">
+                              📌 Bạn đang khám dưới quyền Khách vãng lai
+                            </span>
+                            <p className="text-muted-foreground leading-relaxed">
+                              Kết quả này chỉ lưu trong phiên duyệt hiện tại. Đăng nhập để tự động lưu lịch sử khám và theo dõi tiến trình hồi phục của cây.
+                            </p>
+                            <Link
+                              to={`/login?next=${encodeURIComponent('/')}`}
+                              className="inline-flex items-center gap-1 font-semibold text-primary hover:underline pt-1"
+                            >
+                              <LogIn className="h-3.5 w-3.5" /> Đăng nhập ngay
+                            </Link>
+                          </div>
                         )}
                       </div>
-                    ))}
+                    </div>
                   </div>
-                </div>
+                </Card>
               )}
-            </div>
-          ) : (
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '350px', textAlign: 'center' }}>
-              <div style={{ background: '#f1f5f9', padding: '20px', borderRadius: '50%', marginBottom: '16px' }}>
-                <CheckCircle size={40} color="#94a3b8" />
+
+              {/* 5. PHÁC ĐỒ XỬ LÝ CHUẨN IPM */}
+              <Card className="border-border bg-card shadow-xs p-5 md:p-6">
+                <TreatmentSteps steps={diagnoseData.treatment_guidelines} />
+              </Card>
+
+              {/* 6. VẬT TƯ & THUỐC BVTV GỢI Ý */}
+              <Card className="border-border bg-card shadow-xs p-5 md:p-6">
+                <RecommendedProducts
+                  products={diagnoseData.recommended_products}
+                  isUncertain={diagnoseData.is_uncertain}
+                />
+              </Card>
+
+              {/* 7. NGUỒN KIỂM CHỨNG ĐỐI CHỨNG */}
+              {diagnoseData.verified_sources && diagnoseData.verified_sources.length > 0 && (
+                <Card className="border-border bg-card shadow-xs p-5 md:p-6">
+                  <VerifiedSourcesList sources={diagnoseData.verified_sources} />
+                </Card>
+              )}
+
+              {/* 8. HÀNH ĐỘNG TIẾP THEO (HỎI TRỢ LÝ / KHÁM ẢNH KHÁC) */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleReset}
+                  className="border-border text-xs h-10 px-4"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Khám ảnh khác
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      `/chat?class_code=${encodeURIComponent(
+                        diagnoseData.result?.class_code || ''
+                      )}`
+                    )
+                  }
+                  className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold h-10 px-5 shadow-xs"
+                >
+                  <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                  Hỏi Trợ lý Lavi về ca bệnh này
+                </Button>
               </div>
-              <h3 style={{ color: '#475569', marginBottom: '6px' }}>Chưa có kết quả chẩn đoán</h3>
-              <p style={{ color: '#94a3b8', fontSize: '14px', maxWidth: '380px' }}>
-                Hãy tải lên một tấm ảnh chụp vết bệnh trên lá ở cột bên trái để bắt đầu khám bệnh tự động.
-              </p>
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 };
+
+export default DiagnosePage;
