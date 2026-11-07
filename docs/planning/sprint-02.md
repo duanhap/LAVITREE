@@ -6,7 +6,7 @@
 
 ### 1. 🎯 MỤC TIÊU SPRINT (SPRINT GOAL)
 Xây dựng và kết nối hoàn chỉnh 2 trụ cột của hệ thống Lavitree:
-1. **Phân hệ Tác tử Nông nghiệp Thông minh (Member B)**: Vận hành độc lập trên cổng **`8001`**, sở hữu chu trình ReAct Loop (Gemini 2.0/2.5 Flash), tầng tri thức Hybrid RAG (PostgreSQL SSOT + ChromaDB + BM25 trên 5 ca bệnh demo), bộ công cụ FastMCP Read-Only, chốt chặn an toàn bằng code cứng (Hard Guardrails $DaysToHarvest \le PhiDays$), router hạ cấp ngoại tuyến cục bộ và streaming SSE thời gian thực.
+1. **Phân hệ Tác tử Nông nghiệp Thông minh (Member B)**: Vận hành độc lập trên cổng **`8001`**, sở hữu chu trình ReAct Loop (Gemini, model theo env `GEMINI_MODEL`), tầng tri thức Hybrid RAG (PostgreSQL SSOT + ChromaDB + BM25 trên 5 ca bệnh demo), bộ công cụ FastMCP Read-Only, chốt chặn an toàn bằng code cứng (Hard Guardrails $DaysToHarvest \le PhiDays$), router hạ cấp ngoại tuyến cục bộ và streaming SSE thời gian thực.
 2. **Hình thành Hệ thống Web & Nghiệp vụ Nông nghiệp Thực tế (Member A)**: Chuyển hóa toàn bộ kết quả Sprint 1 & các Use Cases cốt lõi thành sản phẩm tương tác thực: Hệ thống Xác thực JWT/BCrypt (bảo mật `userId` từ token), Web Khám lá kèm Heatmap Grad-CAM & Phác đồ IPM, Sổ tay bệnh học, Lịch sử chẩn đoán cá nhân, Cửa hàng & Đơn hàng vật tư nông nghiệp (COD giả lập), Cổng Admin duyệt tri thức (HITL), và khởi tạo dự án Android Native.
 
 > **Quy chuẩn Giao tiếp & Ranh giới Nghiệp vụ (SSOT & Safety Boundaries)**:
@@ -67,7 +67,7 @@ flowchart TD
     subgraph Week2["TUẦN 2: HOÀN THIỆN NGHIỆP VỤ & TÍCH HỢP TOÀN TRÌNH"]
         direction TB
         subgraph TrackB_W2["Thành viên B (AI Agent Lead)"]
-            B3["TASK-07: ReAct Loop (Gemini 2.0) + Hard Guardrails<br/>Router hạ cấp Offline Local IPM Cache"]
+            B3["TASK-07: ReAct Loop (Gemini) + Hard Guardrails<br/>Router hạ cấp Offline Local IPM Cache"]
             B4["TASK-08: Streaming SSE Endpoint (Port 8001)<br/>Waterfall Trace + 5 Ca Benchmark nghiệm thu"]
         end
         subgraph TrackA_W2["Thành viên A (System & Web Lead)"]
@@ -94,8 +94,8 @@ flowchart TD
     1. Dùng lại bảng `KnowledgeSources` (112 bài tóm tắt từ Sprint 1 + các đoạn nguyên văn mới do A03 nhập). Mỗi dòng = 1 chunk, metadata gồm `UnitType`, `IsVerbatim` và thông tin nguồn.
     2. Chỉ nạp vào chỉ mục các dòng đã duyệt (`IsManualApproved = true`). Server không tự tải URL.
     3. **Mới**: endpoint `POST /internal/knowledge/label-paragraphs` — AI gợi ý đoạn nào của bài báo là triệu chứng / nguyên nhân / phòng ngừa / điều trị, **chỉ trả số đoạn** (không viết chữ) để phục vụ chức năng Nhập bài báo của A03.
-    4. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (mô hình vector đa ngôn ngữ `paraphrase-multilingual-MiniLM-L12-v2`) và BM25 Okapi (từ khóa hoạt chất song ngữ) cho 5 bệnh demo.
-    5. Hợp nhất thứ hạng RRF ($k=60$) và cung cấp endpoint nội bộ `POST /internal/reindex` cho Core API kích hoạt khi duyệt bài.
+    4. Tự động đồng bộ từ Postgres sang ChromaDB cục bộ (mô hình vector đa ngôn ngữ `BAAI/bge-m3`) và BM25 Okapi (từ khóa hoạt chất song ngữ) cho 5 bệnh demo.
+    5. Hợp nhất thứ hạng RRF ($k=60$) và cung cấp endpoint nội bộ `POST /internal/reindex` cho Core API kích hoạt khi duyệt bài (trả `202`, dựng chỉ mục ở luồng nền; Agent cũng tự dựng khi khởi động).
 
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - *Nội dung*:
@@ -105,7 +105,7 @@ flowchart TD
 
 - [ ] **TASK-07: Vòng lặp ReAct Loop, Bộ Chốt chặn An toàn (Hard Guardrails) & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
   - *Nội dung*:
-    1. Vòng lặp ReAct: `Thought → Action → Observation → Final Answer` với mô hình **Gemini 2.0 / 2.5 Flash** (max iterations = 5).
+    1. Vòng lặp ReAct: `Thought → Action → Observation → Final Answer` với mô hình **Gemini theo env `GEMINI_MODEL`** (max iterations = 5).
     2. Quản lý Bộ nhớ ngắn hạn STM (In-Memory Rolling Window $K=3$ lượt theo `conversation_id`) giúp duy trì mạch hội thoại mượt mà cho các câu hỏi nối tiếp.
     3. **Hard Code Guardrails bằng Python**: Tiền lọc thuốc cấm & vi phạm PHI bằng code cứng trước khi nạp vào prompt LLM; hậu kiểm quét chuỗi câu trả lời cuối cùng.
     4. Gắn nhãn bản thảo `[DRAFT_RECOMMENDATION]`.

@@ -11,6 +11,25 @@ import sys
 import uuid
 import requests
 
+def load_env():
+    candidates = [
+        os.path.join(os.path.dirname(__file__), ".env"),
+        os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+    ]
+    for env_path in candidates:
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k not in os.environ:
+                            os.environ[k] = v
+
+load_env()
+
 BASE_URL = os.getenv("CORE_API_URL", "http://localhost:5176")
 
 print("=" * 70)
@@ -36,9 +55,9 @@ def fail(msg):
     sys.exit(1)
 
 # -------------------------------------------------------------
-# 1. Day 1 Contract: GET /api/v1/medicines/search
+# 1. Day 1 Contract: GET /api/v1/medicines/search & Lọc thuốc cấm (BUG-02)
 # -------------------------------------------------------------
-test("Kiểm tra Day 1 Stub API: GET /api/v1/medicines/search")
+test("Kiểm tra Day 1 Stub API: GET /api/v1/medicines/search (Lọc thuốc cấm)")
 res = requests.get(f"{BASE_URL}/api/v1/medicines/search", params={"diseaseCode": "Tomato___Late_blight"})
 if res.status_code != 200:
     fail(f"Expected 200 OK, got {res.status_code}: {res.text}")
@@ -51,7 +70,13 @@ required_fields = ["name", "active_ingredient", "phi_days", "is_allowed", "rain_
 for field in required_fields:
     if field not in med:
         fail(f"Trường '{field}' bị thiếu trong thuốc BVTV!")
-ok(f"Trả về {len(items)} thuốc BVTV đặc trị kèm đầy đủ chỉ số IPM và cờ chống mưa rửa trôi.")
+
+for item in items:
+    if not item.get("is_allowed", True):
+        fail(f"LỖI BUG-02: Thuốc cấm '{item.get('name')}' xuất hiện trong danh mục gợi ý!")
+    if "paraquat" in item.get("name", "").lower() or "paraquat" in item.get("active_ingredient", "").lower():
+        fail("LỖI BUG-02: Paraquat xuất hiện trong gợi ý điều trị bệnh mốc sương cà chua!")
+ok(f"Trả về {len(items)} thuốc BVTV đặc trị hợp lệ; 100% thuốc cấm (Paraquat) đã được lọc sạch.")
 
 # -------------------------------------------------------------
 # 2. POST /api/v1/auth/register (Nông dân đăng ký tài khoản mới)
@@ -119,21 +144,32 @@ if not farmer_token:
 ok("Đăng nhập thành công, nhận token xác thực Bearer.")
 
 # -------------------------------------------------------------
-# 5. Đăng nhập tài khoản Quản trị Admin được Seed sẵn
+# 5. Kiểm tra an toàn mật khẩu Admin (BUG-01)
 # -------------------------------------------------------------
-test("Đăng nhập tài khoản Quản trị viên (Admin Seeded): admin@lavitree.vn")
-admin_password = os.getenv("ADMIN_INITIAL_PASSWORD", "Admin@Lavitree2026!")
+test("Chặn đăng nhập Admin với mật khẩu cũ đã lộ: POST /api/v1/auth/login (BUG-01)")
+old_admin_res = requests.post(f"{BASE_URL}/api/v1/auth/login", json={
+    "email": "admin@lavitree.vn",
+    "password": "Admin@Lavitree2026!"
+})
+if old_admin_res.status_code != 401:
+    fail(f"LỖI BUG-01: Mật khẩu cũ bị lộ của Admin vẫn đăng nhập được! (Status {old_admin_res.status_code})")
+ok("Hệ thống từ chối chính xác mật khẩu Admin cũ đã lộ (HTTP 401 Unauthorized).")
+
+test("Đăng nhập tài khoản Quản trị viên với mật khẩu mới: admin@lavitree.vn")
+admin_password = os.getenv("ADMIN_INITIAL_PASSWORD")
+if not admin_password:
+    fail("ADMIN_INITIAL_PASSWORD chưa được thiết lập trong biến môi trường hoặc file .env!")
 res = requests.post(f"{BASE_URL}/api/v1/auth/login", json={
     "email": "admin@lavitree.vn",
     "password": admin_password
 })
 if res.status_code != 200:
-    fail(f"Expected 200 OK cho Admin, got {res.status_code}: {res.text}")
+    fail(f"Expected 200 OK cho Admin với mật khẩu mới, got {res.status_code}: {res.text}")
 admin_data = res.json()
 if admin_data.get("user", {}).get("role") != "ADMIN":
     fail(f"Tài khoản admin phải có role 'ADMIN', nhận: {admin_data.get('user', {}).get('role')}")
 admin_token = admin_data.get("token")
-ok(f"Tài khoản Admin đăng nhập thành công với quyền ADMIN, JWT Token đã được cấp.")
+ok("Tài khoản Admin đăng nhập thành công với mật khẩu mới, cấp JWT quyền ADMIN.")
 
 # -------------------------------------------------------------
 # 6. GET /api/v1/auth/me (Bảo vệ JWT Bearer)
@@ -178,9 +214,34 @@ if "total_records" not in history_data or "items" not in history_data:
 ok(f"Truy vấn lịch sử thành công: Tổng cộng {history_data.get('total_records')} bản ghi (Tài khoản mới đăng ký).")
 
 # -------------------------------------------------------------
+# 8. GET /api/v1/weather (Kiểm tra Weather API - BUG-04 to BUG-07)
+# -------------------------------------------------------------
+test("Kiểm tra Weather API thực tế: GET /api/v1/weather (Hà Nội)")
+w_res = requests.get(f"{BASE_URL}/api/v1/weather", params={"location": "Hà Nội"})
+if w_res.status_code != 200:
+    fail(f"Expected 200 OK cho Weather API, got {w_res.status_code}: {w_res.text}")
+w_data = w_res.json()
+rain_prob = w_data.get("rainfall_probability_percent")
+if rain_prob is None or rain_prob < 0 or rain_prob > 100:
+    fail(f"LỖI BUG-06: Xác suất mưa không hợp lệ hoặc bị âm: {rain_prob}%")
+if not w_data.get("recommendation"):
+    fail("LỖI BUG-07: Khuyến nghị thời tiết bị rỗng!")
+ok(f"Dữ liệu thời tiết {w_data.get('location')}: {w_data.get('temperature_c')}°C, Độ ẩm: {w_data.get('humidity_percent')}%, Xác suất mưa: {rain_prob}%, Rủi ro: {w_data.get('risk_level')}, Mô phỏng: {w_data.get('is_simulated')}")
+
+test("Kiểm tra Weather API vị trí mặc định: GET /api/v1/weather (Hà Nam)")
+w_hn_res = requests.get(f"{BASE_URL}/api/v1/weather", params={"location": "Hà Nam"})
+if w_hn_res.status_code != 200:
+    fail(f"Expected 200 OK cho Weather Hà Nam, got {w_hn_res.status_code}: {w_hn_res.text}")
+w_hn_data = w_hn_res.json()
+rain_prob_hn = w_hn_data.get("rainfall_probability_percent")
+if rain_prob_hn is None or rain_prob_hn < 0 or rain_prob_hn > 100:
+    fail(f"LỖI BUG-06: Xác suất mưa Hà Nam bị âm hoặc ngoài phạm vi: {rain_prob_hn}%")
+ok(f"Thời tiết Hà Nam: {w_hn_data.get('temperature_c')}°C, Xác suất mưa: {rain_prob_hn}%, Rủi ro: {w_hn_data.get('risk_level')}")
+
+# -------------------------------------------------------------
 # TỔNG KẾT
 # -------------------------------------------------------------
 print("\n" + "=" * 70)
 print(f" KẾT QUẢ KIỂM THỬ: ĐẠT {passed_tests}/{total_tests} BÀI TEST CHUẨN!")
-print(" Tất cả các tiêu chuẩn bảo mật, Day 1 Stub, băm BCrypt và xác thực JWT đã hoàn tất 100%.")
+print(" Tất cả các tiêu chuẩn bảo mật, Day 1 Stub, băm BCrypt, lọc thuốc cấm và xác thực JWT đã hoàn tất 100%.")
 print("=" * 70)

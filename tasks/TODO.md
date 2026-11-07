@@ -53,18 +53,18 @@
 > - Hai bên phát triển độc lập không bị chặn, cuối tuần 2 ghép nối chính thức.
 
 ### 👨‍💻 Phân công Thành viên B (AI Agent Lead):
-- [x] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
+- [/] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (PostgreSQL Hybrid Schema)
-  - Trạng thái: [x] DONE (Nghiệm thu 4/4 test qua 	est_rag_accuracy.py: Recall@3 = 100%, SLA 196.8ms, bảo mật X-Internal-Key 401 & chống Prompt Injection PASS)
+  - Trạng thái: `[/] IN PROGRESS` (Code B xong, 11/11 test PASS: Recall@3 không lọc = 90% trên 22 bài CSV, độ trễ 145ms. Còn: chạy thật Docker + Postgres demo, Gemini thật, luồng duyệt end-to-end sau khi A làm xong A03)
   - Đầu ra: Tận dụng trực tiếp dữ liệu tri thức đã duyệt của 5 bệnh demo trong `KnowledgeSources` từ Sprint 1 (mỗi dòng = 1 chunk, metadata gồm `UnitType`, `IsVerbatim`), script `sync_index.py` tự động đồng bộ sang ChromaDB cục bộ + BM25 Okapi, đạt Recall@3 đối chứng $\ge 90\%$, endpoint `POST /internal/knowledge/label-paragraphs` gợi ý nhãn đoạn (chỉ trả số đoạn) hỗ trợ A03, endpoint `/internal/reindex` tự động tái tạo chỉ mục khi Admin duyệt/bỏ duyệt bài.
 - [ ] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
   - Trạng thái: `[ ] PENDING`
   - Đầu ra: Service chạy port **`8001`** công bố 4 công cụ chuẩn FastMCP (Read-Only: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`), kết nối RAG Task 06 và REST API thật từ Core API (.NET 8).
-- [ ] **TASK-07: Chu trình ReAct Loop (Gemini 2.0), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
+- [ ] **TASK-07: Chu trình ReAct Loop (Gemini), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: ReAct loop với Gemini 2.0/2.5 Flash, **Hard Code Guardrail bằng Python** (lọc thuốc cấm và $DaysToHarvest \le PhiDays$ trực tiếp bằng code trước khi đưa vào LLM), gắn nhãn `[DRAFT_RECOMMENDATION]`, Circuit Breaker & Router tự động hạ cấp về tệp phác đồ IPM cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
+  - Đầu ra: ReAct loop với Gemini (model theo env `GEMINI_MODEL`), **Hard Code Guardrail bằng Python** (lọc thuốc cấm và $DaysToHarvest \le PhiDays$ trực tiếp bằng code trước khi đưa vào LLM), gắn nhãn `[DRAFT_RECOMMENDATION]`, Circuit Breaker & Router tự động hạ cấp về tệp phác đồ IPM cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
 - [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)
   - Trạng thái: `[ ] PENDING`
@@ -77,11 +77,11 @@
   - Đầu ra: Tailwind v4 + shadcn/ui, token màu & font Be Vietnam Pro theo `docs/architecture/ui-ux.md`, khung `AppShell`/`AdminShell`, router + trang 404/403, `ResultStatusBadge`, trang `/dev/styleguide`; theme Android đồng bộ. Chi tiết: `tasks/sprint-02/task-A00-ui-foundation.md`.
 - [x] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[x] DONE` (Hoàn thành 100%: Day 1 Stub Thuốc cho B, Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân GET /api/v1/diagnose/history, nghiệm thu 11/11 tests qua `test_task_a01_auth.py`)
+  - Trạng thái: `[x] DONE` (Đã hoàn thành 100%: Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân; đã khắc phục triệt để 11 lỗi chặn Đợt 0, nạp mật khẩu Admin mới, lọc thuốc cấm Paraquat, cập nhật migration DB và đạt 14/14 tests qua `test_task_a01_auth.py`)
   - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (loại bỏ hoàn toàn `userId` từ form-data chống IDOR), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B, nạp seed tự động tài khoản Quản trị `admin@lavitree.vn`.
 - [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] IN PROGRESS` (Đã hoàn tất toàn bộ 11 lỗi chặn Đợt 0, sẵn sàng triển khai các màn hình UI)
   - Đầu ra: Màn hình Đăng nhập/Đăng ký trên Web; trang Khám lá (`DiagnosePage.tsx`) hiển thị chẩn đoán, Grad-CAM, IPM; trang Sổ tay bệnh học (`HandbookPage.tsx`); trang Lịch sử cá nhân (`HistoryPage.tsx`) lưu và xem lại các ca khám theo tài khoản.
 - [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**

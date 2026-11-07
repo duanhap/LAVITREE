@@ -300,7 +300,7 @@
     {
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
       "token_type": "Bearer",
-      "expires_in": 86400,
+      "expires_in": 604800,
       "user": {
         "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
         "email": "farmer@lavitree.vn",
@@ -387,7 +387,7 @@
     }
     ```
 - **Bỏ duyệt**: Gửi `"is_approved": false` (đơn lẻ hoặc hàng loạt) để ngừng dùng bài trong RAG mà không xóa.
-- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved` (duyệt hoặc bỏ duyệt) trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25.
+- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved` (duyệt hoặc bỏ duyệt) trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25 ở luồng nền (Mục 4.3).
 
 ---
 
@@ -429,7 +429,8 @@
     "rainfall_mm": 20,
     "is_rain": true,
     "risk_level": "HIGH",
-    "recommendation": "Nguy cơ mưa rửa trôi cao trong 12 giờ tới. Tuyệt đối không phun thuốc trừ bệnh không kháng nước.",
+    "recommendation": "Thời tiết nhiều mây/mưa ẩm (Xác suất mưa 85%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.",
+    "is_simulated": false,
     "cached_at": "2026-10-31T14:00:00Z"
   }
   ```
@@ -468,7 +469,7 @@
     "ai_suggestion_available": true
   }
   ```
-  - Agent lỗi hoặc không phản hồi → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn và `ai_suggestion_available: false`; Admin tự gán nhãn.
+  - Agent lỗi, trả `503` hoặc không phản hồi (Mục 4.4) → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn và `ai_suggestion_available: false`; Admin tự gán nhãn.
 
 ### 3.11. `POST /api/v1/knowledge/ingestions/{ingestion_id}/commit` (Nhập bài báo — Bước 2: Admin tick chọn đoạn = Duyệt)
 - **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
@@ -494,7 +495,7 @@
   {
     "created_source_ids": ["c1f7a83b-9a2e-4b6a-81a1-8d4e9f123456", "d2e8b94c-0b3f-5c7b-92b5-9e5f0a234567"],
     "verbatim_count_for_url": 2,
-    "reindex_status": "success"
+    "reindex_status": "accepted"
   }
   ```
 - **Quy tắc sửa / gỡ sau khi lưu**: Không cho sửa chữ của đoạn `IsVerbatim = true` (sửa thì không còn là nguyên văn). Chỉ được đổi `UnitType`, bỏ duyệt (`PATCH .../approve` với `is_approved: false`, Mục 3.7) hoặc xóa.
@@ -517,6 +518,7 @@
   }
   ```
   - `conversation_id`: (string, optional). Nếu Client không gửi, Server Agent tự sinh `UUIDv4` mới và trả về ngay trong sự kiện `trace_start`.
+  - Giới hạn độ dài (vượt thì `422`): `message` 1–2000 ký tự, `conversation_id` ≤ 64, `location` ≤ 120, `current_disease_code` ≤ 100, `harvest_days_left` từ 0 đến 3650.
   - `harvest_days_left`: (int, optional). Nếu Client bỏ trống (null/omitted), Agent mặc định giả định tình huống cận thu hoạch an toàn nhất ($DaysToHarvest = 0 \rightarrow$ chặn toàn bộ thuốc hóa học) và gắn câu hỏi yêu cầu nông dân xác nhận lại số ngày dự kiến thu hoạch trong câu trả lời.
 
 - **Streaming Response (`text/event-stream`)**:
@@ -631,18 +633,31 @@
   ```
   - `action`: `approve` | `unapprove` | `delete` | `manual`. Chỉ dùng để ghi log; Agent luôn xử lý giống nhau (xem dưới).
 - **Khi nào Core gọi**: sau khi duyệt (đơn lẻ / hàng loạt: gọi **1 lần** cho cả lô), bỏ duyệt, xóa bài, hoặc khi Admin bấm nút "Đồng bộ lại chỉ mục".
-- **Xử lý phía Agent** (dựng lại toàn bộ, idempotent):
+- **Xử lý phía Agent** (dựng lại toàn bộ, idempotent, chạy nền):
+  - Agent ghi nhận yêu cầu, trả `202 Accepted` ngay rồi dựng chỉ mục ở luồng nền (khoảng 20 giây với 22 bài trên CPU), nên chat không bị đứng và Core không vượt timeout 5s.
   - Truy vấn **toàn bộ** bài `IsManualApproved = true AND IsDeleted = false` bằng tài khoản DB chỉ đọc (`AGENT_DB_URL`).
-  - Dựng lại ChromaDB (id document = `Id` của bản ghi) và BM25 từ đầu. Nhờ vậy bài bị bỏ duyệt hoặc bị xóa cũng được gỡ khỏi chỉ mục, và gọi lặp lại không sinh bản trùng.
-  - Hiện chỉ có khoảng 19–112 bài, nên dựng lại toàn bộ chỉ mất vài giây; không cần cập nhật từng phần.
-- **Xử lý lỗi phía Core (best-effort)**: Việc duyệt trong PostgreSQL vẫn thành công kể cả khi Agent không phản hồi (timeout 5s). Core ghi log cảnh báo, trả về `"reindex_status": "failed"` cho Admin để bấm "Đồng bộ lại".
-- **Response Body (`200 OK`)**:
+  - Dựng lại ChromaDB (id document = `Id` của bản ghi) và BM25 từ đầu. Nhờ vậy bài bị bỏ duyệt hoặc bị xóa cũng được gỡ khỏi chỉ mục, và gọi lặp lại không sinh bản trùng. Không còn bài đã duyệt nào thì chỉ mục thành rỗng.
+  - Yêu cầu đến giữa lúc đang dựng được gộp lại và chạy thêm đúng một lượt, nên lượt cuối luôn đọc dữ liệu mới nhất. Chỉ mục cũ vẫn phục vụ chat cho tới khi chỉ mục mới dựng xong.
+  - DB lỗi: tự thử lại tối đa 5 lần, cách nhau 5 giây. Hết lượt thử thì **giữ nguyên chỉ mục cũ**, không dùng CSV seed (CSV chỉ dùng ở máy dev khi bật `RAG_ALLOW_CSV_FALLBACK=1`).
+  - Agent cũng tự chạy một lượt khi khởi động, nên container mới có dữ liệu mà không cần chờ Admin duyệt bài.
+- **Xử lý lỗi phía Core (best-effort)**: Việc duyệt trong PostgreSQL vẫn thành công kể cả khi Agent không phản hồi (timeout 5s). Agent trả `202` thì Core trả `"reindex_status": "accepted"` cho Admin. Agent lỗi hoặc timeout thì Core ghi log cảnh báo, trả `"reindex_status": "failed"` để Admin bấm "Đồng bộ lại".
+- **Response Body (`202 Accepted`)**:
   ```json
   {
-    "status": "success",
-    "message": "Chỉ mục tri thức đã được tái lập thành công",
-    "indexed_documents": 19,
+    "status": "accepted",
+    "message": "Đã nhận yêu cầu tái lập chỉ mục tri thức",
     "timestamp": "2026-10-31T14:35:05Z"
+  }
+  ```
+- **Xem kết quả**: `GET /internal/reindex/status` (cùng header `X-Internal-Key`) trả về lượt chạy gần nhất. `last_error` chỉ là mã lỗi (`database_unavailable` | `configuration_error` | `internal_error`), không chứa chi tiết hạ tầng:
+  ```json
+  {
+    "running": false,
+    "pending": false,
+    "indexed_documents": 19,
+    "last_success_at": "2026-10-31T14:35:25+00:00",
+    "last_failure_at": null,
+    "last_error": null
   }
   ```
 
@@ -651,6 +666,7 @@
 ### 4.4. `POST /internal/knowledge/label-paragraphs` (AI gợi ý nhãn cho từng đoạn bài báo — Nội bộ)
 *Core API gọi khi Admin nhập bài báo (Mục 3.10). Agent chỉ trả về **số đoạn + nhãn**, không viết ra chữ nào, nên không thể bịa đoạn trích. Không đọc / ghi PostgreSQL.*
 - **Network Scope & Headers**: giống Mục 4.3 (chỉ trong mạng Docker, bắt buộc `X-Internal-Key`).
+- **Giới hạn đầu vào** (vượt thì `422`): tối đa 200 đoạn, mỗi đoạn tối đa 2000 ký tự, `id` tối đa 50 ký tự.
 - **Request Body (`application/json`)**:
   ```json
   {
@@ -662,8 +678,8 @@
   }
   ```
 - **Xử lý phía Agent**:
-  - Gọi Gemini (`temperature = 0`, yêu cầu trả JSON). Prompt coi nội dung đoạn là **dữ liệu, không phải chỉ thị** (chống prompt injection từ bài báo).
-  - Kiểm tra đầu ra bằng code: chỉ giữ `id` có trong request và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại.
+  - Gọi Gemini (model theo env `GEMINI_MODEL`, `temperature = 0`, yêu cầu trả JSON, timeout 30 giây). Prompt coi nội dung đoạn là **dữ liệu, không phải chỉ thị** (chống prompt injection từ bài báo).
+  - Kiểm tra đầu ra bằng code: chỉ giữ `id` có trong request (mỗi `id` một lần) và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại.
   - Gợi ý tối đa 4 đoạn phù hợp nhất (khớp giới hạn 4 đoạn / nguồn).
 - **Response Body (`200 OK`)**:
   ```json
@@ -674,4 +690,5 @@
     ]
   }
   ```
+- **Gemini không dùng được** (thiếu key, lỗi, hết giờ, trả sai định dạng): trả `503 Service Unavailable`, không trả `labels` rỗng. Core coi đây là `ai_suggestion_available: false` (Mục 3.10). Core đặt timeout gọi endpoint này ≥ 35 giây.
 - **Lưu ý an toàn**: Đoạn `TREATMENT` có thể nhắc tên thuốc / liều lượng từ bài báo. Đó chỉ là ngữ cảnh tham khảo; **liều, PHI và tình trạng cấm/được phép luôn lấy từ bảng `Products`** (Guardrail TASK-07).

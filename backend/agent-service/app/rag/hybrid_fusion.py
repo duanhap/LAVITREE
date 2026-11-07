@@ -59,6 +59,9 @@ class HybridFusionRRF:
                     source_title=rec.source_title,
                     organization=rec.organization,
                     source_url=rec.source_url,
+                    model_class=rec.model_class,
+                    plant_name=rec.plant_name,
+                    disease_name=rec.disease_name,
                     unit_type=rec.unit_type,
                     is_verbatim=rec.is_verbatim,
                     rrf_score=round(rrf_scores[doc_id], 5)

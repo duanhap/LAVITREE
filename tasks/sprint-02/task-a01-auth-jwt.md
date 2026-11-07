@@ -93,3 +93,30 @@
 - [x] Cập nhật trạng thái `TASK-A01` trong `tasks/TODO.md` sang `[x] DONE`.
 - [x] Ghi nhận kết quả vào `tasks/WORKLOG.md`.
 - [x] Chạy `git diff` kiểm tra bảo mật, trình bày tóm tắt cho Developer và chờ xác nhận trước khi commit.
+
+---
+
+## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
+- *04/11/2026 (commit `b3c7fd8`)*: Hoàn thành Auth JWT/BCrypt, vá IDOR trên Diagnose/History và Day 1 Stub thuốc. Bằng chứng tại thời điểm đó: 11/11 test trong `backend/core-api/test_task_a01_auth.py` (theo `tasks/WORKLOG.md`).
+- *05/11/2026 (commit `3cf1e27`) — Vá bảo mật sau review*:
+  - Seeder và file test không còn mật khẩu admin viết cứng; thiếu `ADMIN_INITIAL_PASSWORD` thì báo lỗi.
+  - Thêm `auth_policy` (10 request/phút/IP, đổi được qua `AUTH_RATE_LIMIT_PER_MINUTE`) cho `AuthController`.
+  - Từ chối khóa mẫu `YOUR_...` cho `JWT_SECRET_KEY` và `ADMIN_SECRET_KEY`.
+  - Login luôn chạy BCrypt (dùng hash giả khi không có user) để giảm dò email qua thời gian phản hồi.
+  - Register không còn lỗi 500 khi trùng email hoặc email đã xóa mềm.
+  - Thêm `MaxLength` cho DTO đăng ký/đăng nhập: email 255, mật khẩu 72, họ tên 100, điện thoại 20.
+- *05/11/2026 (commit `99ef091`) — Bổ sung phần thiếu so với `docs/planning/sprint-02.md`*:
+  - `Product` thêm `PhiDays`, `IsAllowed`, `RainResistant`, `MedicineType`; thêm migration `AddMedicineFieldsToProduct` và seed 5 sản phẩm.
+  - `MedicinesController` đọc từ bảng `Products`.
+  - Thêm `WeatherService`, `IMemoryCache` 1 giờ và `GET /api/v1/weather`.
+  - `DiagnoseController`: khách không lưu ảnh và không ghi lịch sử, theo `docs/spec/screens.md` mục W-01.
+- *05/11/2026 — Kết quả review lại*: Tồn đọng 11 lỗi chặn thuộc Đợt 0 trong `tasks/sprint-02/task-a02-web-diagnose-handbook.md`.
+- *07/11/2026 — Khắc phục triệt để 11 lỗi chặn Đợt 0 & Nghiệm thu Thực nghiệm 100%*:
+  - Cấu hình biến môi trường PATH trên macOS arm64, kích hoạt .NET 8 SDK (`8.0.427`) và `dotnet-ef` toàn cục.
+  - **BUG-01**: Thay mật khẩu Admin mới `Adm!n@Lavitree_2026#Secure`, cập nhật cả hai file `.env`, sửa seeder tự động cập nhật hash vào Supabase DB. Nghiệm thu: mật khẩu cũ bị từ chối HTTP 401 Unauthorized, mật khẩu mới trả HTTP 200 OK.
+  - **BUG-02**: Thêm bộ lọc `dp.Product.IsAllowed && !dp.Product.IsDeleted` trong `DiagnoseController.cs`, xóa bỏ liên kết Paraquat trong seed và xóa sạch liên kết cũ trong CSDL.
+  - **BUG-03**: Khắc phục seeder không ghi đè giá, tồn kho, PHI, IsAllowed của sản phẩm đã có.
+  - **BUG-04 - BUG-07**: Chuẩn hóa biến `OPENWEATHER_API_KEY` / `OPENWEATHERMAP_API_KEY`, gọi trực tiếp OpenWeather API trả về dữ liệu thật (`is_simulated: false`), thuật toán băm an toàn chống tràn số âm xác suất mưa.
+  - **BUG-08**: Thêm lệnh `Database.MigrateAsync()` tự động trước khi seeder chạy; đã áp dụng thành công migration `20261105233000_AddMedicineFieldsToProduct` lên CSDL Supabase.
+  - **BUG-09, BUG-10**: Bỏ nuốt lỗi CSDL trong `MedicinesController.cs` (trả 503 khi DB lỗi ở Prod); bổ sung nguồn kiểm chứng `provenance_source` chuẩn Thông tư 03/2017/TT-BNNPTNT.
+  - **BUG-11**: Nâng cấp và chạy test suite tự động `test_task_a01_auth.py` trên Core API: **ĐẠT 14/14 BÀI TEST CHUẨN 100%**. Đủ điều kiện kỹ thuật chuyển tiếp sang A02.
