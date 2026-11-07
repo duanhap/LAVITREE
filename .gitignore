@@ -17,6 +17,9 @@
 .venv/
 venv/
 *.pt.tmp
+**/backend/agent-service/app/data/
+**/data/chroma_db/
+*.pkl
 
 # Node & Frontend
 **/node_modules/
@@ -36,3 +39,5 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 docs/brand/*
+
+.orca
