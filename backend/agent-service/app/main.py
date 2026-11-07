@@ -5,33 +5,40 @@ import time
 import os
 import secrets
 import logging
-import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Optional, AsyncGenerator, List
-from fastapi import FastAPI, HTTPException, Request, status
+from typing import Literal, Optional, AsyncGenerator
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.rag.schema import (
-    LabelParagraphsRequest,
-    LabelParagraphsResponse,
-    ReindexResponse
-)
+from app.rag.schema import LabelParagraphsRequest
 from app.rag.pipeline import get_rag_pipeline
+from app.rag.reindex_worker import ReindexCoordinator
 from app.rag.sync_index import sync_knowledge_index
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
 
 logger = logging.getLogger("agent.main")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Khóa luồng chống xung đột khi có nhiều webhook reindex cùng lúc (Bulk approve + Single approve)
-_reindex_lock = threading.Lock()
+# Reindex chạy nền, nhiều yêu cầu cùng lúc được gộp lại (Bulk approve + Single approve)
+reindex_coordinator = ReindexCoordinator(lambda: sync_knowledge_index(False))
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Model lỗi thì service dừng ngay (fail-closed), không chạy tiếp với tìm kiếm hỏng
+    get_rag_pipeline()
+    # Container mới phải tự có dữ liệu; DB chưa sẵn sàng thì worker tự thử lại
+    reindex_coordinator.request()
+    yield
+
 
 app = FastAPI(
     title="Lavitree Agri-Agent Service",
     description="Agentic RAG & FastMCP trợ lý tư vấn nông nghiệp bảo vệ thực vật",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 def check_internal_auth(request: Request):
@@ -48,8 +55,9 @@ def check_internal_auth(request: Request):
             detail="Unauthorized: Internal API secret is not configured"
         )
 
-    key = request.headers.get("x-internal-key") or request.headers.get("X-Internal-Key")
-    if not key or not secrets.compare_digest(key, expected_key):
+    key = request.headers.get("x-internal-key")
+    # So sánh trên bytes: compare_digest báo lỗi với chuỗi có ký tự ngoài ASCII
+    if not key or not secrets.compare_digest(key.encode("utf-8"), expected_key.encode("utf-8")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized: Invalid or missing X-Internal-Key"
@@ -57,67 +65,64 @@ def check_internal_auth(request: Request):
     return True
 
 class ChatRequest(BaseModel):
-    message: str
-    conversation_id: Optional[str] = None
-    location: Optional[str] = None
-    harvest_days_left: Optional[int] = None
-    current_disease_code: Optional[str] = None
+    message: str = Field(..., min_length=1, max_length=2000)
+    conversation_id: Optional[str] = Field(None, max_length=64)
+    location: Optional[str] = Field(None, max_length=120)
+    harvest_days_left: Optional[int] = Field(None, ge=0, le=3650)
+    current_disease_code: Optional[str] = Field(None, max_length=100)
+
+class ReindexRequest(BaseModel):
+    source_id: Optional[str] = Field(None, max_length=64)
+    action: Optional[Literal["approve", "unapprove", "delete", "manual"]] = None
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "agent-service", "port": 8001}
+    reindex = reindex_coordinator.status()
+    index_ready = get_rag_pipeline().vector_retriever.get_collection().count() > 0
+    healthy = index_ready and not reindex["last_error"]
+    return {
+        "status": "ok" if healthy else "degraded",
+        "service": "agent-service",
+        "port": 8001,
+        "index_ready": index_ready
+    }
 
-@app.post("/internal/reindex")
-async def trigger_reindex(request: Request):
+@app.post("/internal/reindex", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(check_internal_auth)])
+def trigger_reindex(payload: Optional[ReindexRequest] = None):
     """
     POST /internal/reindex
-    Endpoint nội bộ dành cho Core API thông báo khi Admin duyệt bài viết tri thức mới.
-    Có lock chống tranh chấp tài nguyên (tránh reindex đè nhau).
+    Core API gọi khi Admin duyệt / bỏ duyệt / xoá bài. Nhận yêu cầu rồi trả về ngay,
+    dựng chỉ mục ở luồng nền để không làm đứng chat và không vượt timeout 5s của Core.
     SSOT: docs/architecture/api-contracts.md Mục 4.3
     """
-    check_internal_auth(request)
+    logger.info(f"Reindex requested (action={payload.action if payload else None}).")
+    reindex_coordinator.request()
+    return {
+        "status": "accepted",
+        "message": "Đã nhận yêu cầu tái lập chỉ mục tri thức",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
-    if not _reindex_lock.acquire(blocking=False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Conflict: A knowledge reindexing operation is already in progress."
-        )
+@app.get("/internal/reindex/status", dependencies=[Depends(check_internal_auth)])
+def reindex_status():
+    """Kết quả reindex gần nhất, để Admin biết lượt chạy nền thành công hay thất bại."""
+    return reindex_coordinator.status()
 
-    try:
-        indexed_count = sync_knowledge_index(False)
-        now_iso = datetime.now(timezone.utc).isoformat()
-        return {
-            "status": "success",
-            "message": "Chỉ mục tri thức đã được tái lập thành công",
-            "indexed_documents": indexed_count,
-            "timestamp": now_iso
-        }
-    except ConnectionError as ce:
-        logger.error(f"Reindex failed due to database connection: {ce}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Service Unavailable: Database connection failed. Existing index preserved. ({ce})"
-        )
-    except Exception as e:
-        logger.error(f"Reindex failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal Server Error during reindex: {e}"
-        )
-    finally:
-        _reindex_lock.release()
-
-@app.post("/internal/knowledge/label-paragraphs")
-async def label_paragraphs(payload: LabelParagraphsRequest, request: Request):
+@app.post("/internal/knowledge/label-paragraphs", dependencies=[Depends(check_internal_auth)])
+def label_paragraphs(payload: LabelParagraphsRequest):
     """
     POST /internal/knowledge/label-paragraphs
     AI gợi ý nhãn cho từng đoạn bài báo (HITL Ingestion).
     Pydantic Schema giới hạn độ dài (≤ 200 đoạn, ≤ 2000 ký tự/đoạn).
+    Gemini lỗi thì trả 503 để Core báo ai_suggestion_available = false.
     SSOT: docs/architecture/api-contracts.md Mục 4.4
     """
-    check_internal_auth(request)
-    pipeline = get_rag_pipeline()
-    res = pipeline.label_paragraphs(payload)
+    res = get_rag_pipeline().label_paragraphs(payload)
+    if not res.ai_suggestion_available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI suggestion is unavailable"
+        )
     return {
         "labels": [{"id": s.id, "unit_type": s.unit_type} for s in res.suggestions]
     }
@@ -223,8 +228,13 @@ async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None
     
     # Tra cứu trích dẫn học thuật từ Hybrid RAG thực tế (chuẩn SSOT chống LLM bịa nguồn)
     try:
-        pipeline = get_rag_pipeline()
-        rag_res = pipeline.lookup_disease_knowledge(disease_code, query=request.message, top_k=2)
+        # Embedding tốn CPU: chạy ở luồng khác để không làm đứng các luồng SSE đang mở
+        rag_res = await asyncio.to_thread(
+            get_rag_pipeline().lookup_disease_knowledge,
+            disease_code,
+            query=request.message,
+            top_k=2
+        )
         citations = [
             {
                 "source_id": c.source_id,

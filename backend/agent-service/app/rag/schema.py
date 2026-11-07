@@ -50,9 +50,3 @@ class LabelParagraphsRequest(BaseModel):
 class LabelParagraphsResponse(BaseModel):
     suggestions: List[SuggestedParagraph] = Field(default_factory=list)
     ai_suggestion_available: bool = True
-
-class ReindexResponse(BaseModel):
-    status: str
-    indexed_count: int
-    vector_store: str
-    bm25_count: int

@@ -67,7 +67,7 @@
 - [ ] **Pha 1 (Order API)**: Xây dựng `OrdersController.cs` trong Core API hỗ trợ tạo đơn hàng COD và xem lịch sử đơn hàng của người dùng.
 - [ ] **Pha 2 (Store UI)**: Xây dựng `StorePage.tsx`, thẻ sản phẩm, bộ lọc theo PHI, Drawer giỏ hàng và form đặt hàng COD.
 - [ ] **Pha 3 (Admin API)**: Mở rộng `KnowledgeController.cs` hỗ trợ duyệt bài viết khuyến nông đơn lẻ (`PATCH /sources/{id}/approve`) và duyệt hàng loạt (`PATCH /sources/approve-batch`) cho tài khoản Admin, tích hợp trigger webhook `/internal/reindex`.
-- [ ] **Pha 3B (Nhập bài báo API)**: `POST /api/v1/knowledge/ingestions` (tách đoạn, gọi Agent `/internal/knowledge/label-paragraphs` với `X-Internal-Key`, lưu tạm `IMemoryCache` 1 giờ) và `POST /api/v1/knowledge/ingestions/{id}/commit` (kiểm tra ≤ 4 đoạn / URL, ≤ 800 ký tự / đoạn, lấy chữ từ bản lưu tạm). Agent lỗi thì vẫn cho Admin tự gán nhãn.
+- [ ] **Pha 3B (Nhập bài báo API)**: `POST /api/v1/knowledge/ingestions` (tách đoạn, gọi Agent `/internal/knowledge/label-paragraphs` với `X-Internal-Key`, lưu tạm `IMemoryCache` 1 giờ) và `POST /api/v1/knowledge/ingestions/{id}/commit` (kiểm tra ≤ 4 đoạn / URL, ≤ 800 ký tự / đoạn, lấy chữ từ bản lưu tạm). Timeout gọi Agent ≥ 35 giây. Agent trả `503` hoặc lỗi thì vẫn cho Admin tự gán nhãn. Gọi `/internal/reindex` với timeout 5 giây: Agent trả `202` (dựng chỉ mục ở nền) thì `reindex_status` là `accepted`, lỗi thì `failed`.
 - [ ] **Pha 4 (Admin Dashboard UI)**: Xây dựng `AdminDashboard.tsx` gồm: màn hình **Nhập bài báo** (ô dán văn bản → danh sách đoạn có nhãn gợi ý → tick tối đa 4 đoạn → Lưu), bảng kiểm duyệt tri thức HITL (bộ lọc trạng thái duyệt, checkbox chọn nhiều bài, nút Duyệt đơn lẻ & Duyệt hàng loạt kích hoạt reindex), bảng quản lý kho thuốc (bật/tắt `IsAllowed`, sửa `PhiDays`) và danh sách ca bệnh cần chuyên gia.
 
 ### Chặng 3: VERIFY (Nghiệm thu Thực tế - Presence Gates)
@@ -77,7 +77,7 @@
 - [ ] Nhập 1 bài báo thật → tick 2 đoạn → DB có 2 dòng `IsVerbatim = true`, `EvidenceText` **trùng khớp từng ký tự** với đoạn trong bài đã dán; bài báo không được lưu toàn văn ở bất kỳ bảng nào.
 - [ ] Tick đoạn thứ 5 cho cùng một URL → bị từ chối `400`.
 - [ ] Tắt agent-service rồi nhập bài → vẫn hiện danh sách đoạn (không có nhãn gợi ý), Admin tự gán nhãn và lưu được.
-- [ ] Bỏ duyệt 1 đoạn → sau reindex, hỏi chat không còn trích dẫn đoạn đó.
+- [ ] Bỏ duyệt 1 đoạn → chờ reindex nền xong (`GET /internal/reindex/status` có `running: false`), hỏi chat không còn trích dẫn đoạn đó.
 
 ### Chặng 4: SHIP (Đóng gói & Chờ xác nhận Commit)
 - [ ] Cập nhật trạng thái `TASK-A03` trong `tasks/TODO.md` sang `[x] DONE`.

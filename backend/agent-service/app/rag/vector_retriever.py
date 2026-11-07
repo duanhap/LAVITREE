@@ -1,12 +1,19 @@
 import os
-import json
 import logging
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional
 import chromadb
-from chromadb.config import Settings
 from app.rag.schema import KnowledgeRecord
 
 logger = logging.getLogger("rag.vector")
+
+
+def rag_data_dir() -> str:
+    """Thư mục lưu chỉ mục. Trong Docker là volume agent_data; test trỏ RAG_DATA_DIR sang thư mục tạm."""
+    configured = os.environ.get("RAG_DATA_DIR")
+    if configured:
+        return configured
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
 
 class MultilingualEmbeddingFunction:
     """
@@ -57,17 +64,42 @@ class VectorRetriever:
 
     def __init__(self, persist_dir: Optional[str] = None):
         if not persist_dir:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            persist_dir = os.path.join(base_dir, "data", "chroma_db")
-        
+            persist_dir = os.path.join(rag_data_dir(), "chroma_db")
+
         os.makedirs(persist_dir, exist_ok=True)
         self.persist_dir = persist_dir
         self.client = chromadb.PersistentClient(path=self.persist_dir)
         self.embedding_fn = MultilingualEmbeddingFunction()
-        
+
         self.pointer_file = os.path.join(self.persist_dir, "active_collection.txt")
         self.active_collection_name = self._get_active_collection_name()
-        self.collection = self._get_or_create_active_collection()
+        self.collection = self.client.get_or_create_collection(
+            name=self.active_collection_name,
+            metadata=self._collection_metadata()
+        )
+        self.index_compatible = self._is_compatible(self.collection)
+
+    def _collection_metadata(self) -> dict:
+        return {
+            "hnsw:space": "cosine",
+            "model_name": self.embedding_fn.model_name,
+            "dimension": self.embedding_fn.dimension
+        }
+
+    def _is_compatible(self, collection) -> bool:
+        """Chỉ mục dựng bằng model khác thì không truy vấn được; chờ reindex dựng lại thay vì lỗi ngầm."""
+        metadata = collection.metadata or {}
+        compatible = (
+            metadata.get("model_name") == self.embedding_fn.model_name
+            and metadata.get("dimension") == self.embedding_fn.dimension
+        )
+        if not compatible:
+            logger.error(
+                f"Vector index was built with {metadata.get('model_name')} ({metadata.get('dimension')}d), "
+                f"running model is {self.embedding_fn.model_name} ({self.embedding_fn.dimension}d). "
+                "Vector search is disabled until the next reindex."
+            )
+        return compatible
 
     def _get_active_collection_name(self) -> str:
         if os.path.exists(self.pointer_file):
@@ -87,27 +119,9 @@ class VectorRetriever:
         os.replace(tmp_file, self.pointer_file)
         self.active_collection_name = name
 
-    def _get_or_create_active_collection(self):
-        col = self.client.get_or_create_collection(
-            name=self.active_collection_name,
-            metadata={
-                "hnsw:space": "cosine",
-                "model_name": self.embedding_fn.model_name,
-                "dimension": self.embedding_fn.dimension
-            }
-        )
-        return col
-
     def get_collection(self):
         """Luôn lấy active collection hiện tại."""
-        return self.client.get_or_create_collection(
-            name=self.active_collection_name,
-            metadata={
-                "hnsw:space": "cosine",
-                "model_name": self.embedding_fn.model_name,
-                "dimension": self.embedding_fn.dimension
-            }
-        )
+        return self.collection
 
     def reindex(self, records: List[KnowledgeRecord]) -> int:
         """
@@ -115,12 +129,10 @@ class VectorRetriever:
         1. Tạo chỉ mục trên staging collection (nếu đang là Blue thì nạp Green, và ngược lại).
         2. Nếu nạp lỗi giữa chừng, huỷ bỏ staging collection; collection cũ vẫn phục vụ bình thường.
         3. Chỉ khi nạp 100% thành công mới trỏ pointer sang collection mới và xoá collection cũ.
+        Danh sách rỗng vẫn đi qua các bước này để gỡ hết bài khỏi chỉ mục.
         """
-        if not records:
-            return 0
-
         target_collection_name = (
-            self.COLLECTION_GREEN if self.active_collection_name == self.COLLECTION_BLUE 
+            self.COLLECTION_GREEN if self.active_collection_name == self.COLLECTION_BLUE
             else self.COLLECTION_BLUE
         )
         old_collection_name = self.active_collection_name
@@ -135,47 +147,45 @@ class VectorRetriever:
 
         target_collection = self.client.create_collection(
             name=target_collection_name,
-            metadata={
-                "hnsw:space": "cosine",
-                "model_name": self.embedding_fn.model_name,
-                "dimension": self.embedding_fn.dimension
-            }
+            metadata=self._collection_metadata()
         )
 
         try:
-            ids = []
-            documents = []
-            metadatas = []
+            if records:
+                ids = []
+                documents = []
+                metadatas = []
 
-            for r in records:
-                # Kỹ thuật Contextual Prepending: Ghép rõ tên loài cây và tên bệnh
-                doc_text = f"Cây {r.plant_name} - {r.disease_name} ({r.model_class}): {r.evidence_text}"
-                ids.append(r.id)
-                documents.append(doc_text)
-                metadatas.append({
-                    "model_class": r.model_class,
-                    "plant_name": r.plant_name,
-                    "disease_name": r.disease_name,
-                    "source_title": r.source_title,
-                    "organization": r.organization,
-                    "source_url": r.source_url,
-                    "unit_type": r.unit_type,
-                    "is_verbatim": str(r.is_verbatim).lower(),
-                    "raw_evidence": r.evidence_text
-                })
+                for r in records:
+                    # Kỹ thuật Contextual Prepending: Ghép rõ tên loài cây và tên bệnh
+                    doc_text = f"Cây {r.plant_name} - {r.disease_name} ({r.model_class}): {r.evidence_text}"
+                    ids.append(r.id)
+                    documents.append(doc_text)
+                    metadatas.append({
+                        "model_class": r.model_class,
+                        "plant_name": r.plant_name,
+                        "disease_name": r.disease_name,
+                        "source_title": r.source_title,
+                        "organization": r.organization,
+                        "source_url": r.source_url,
+                        "unit_type": r.unit_type,
+                        "is_verbatim": str(r.is_verbatim).lower(),
+                        "raw_evidence": r.evidence_text
+                    })
 
-            embeddings = self.embedding_fn(documents)
+                embeddings = self.embedding_fn(documents)
 
-            target_collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                documents=documents,
-                metadatas=metadatas
-            )
+                target_collection.add(
+                    ids=ids,
+                    embeddings=embeddings,
+                    documents=documents,
+                    metadatas=metadatas
+                )
 
             # 2. Hoán đổi nguyên tử (Atomic Switch)
             self._set_active_collection_name(target_collection_name)
             self.collection = target_collection
+            self.index_compatible = True
             logger.info(f"Atomic switch completed! Active collection is now {target_collection_name} ({len(records)} records).")
 
             # 3. Dọn dẹp collection cũ
@@ -195,6 +205,17 @@ class VectorRetriever:
                 pass
             raise e
 
+    def _query(self, collection, query_embedding: List[float], where_filter: Optional[dict], top_k: int):
+        count = collection.count()
+        if count == 0:
+            return None
+        return collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(top_k, count),
+            where=where_filter,
+            include=["metadatas", "distances"]
+        )
+
     def search(
         self,
         query: str,
@@ -204,22 +225,20 @@ class VectorRetriever:
         """
         Truy vấn Dense Vector Semantic Search từ ChromaDB theo Cosine Distance.
         """
-        active_col = self.get_collection()
-        if active_col.count() == 0:
+        if not self.index_compatible:
             return []
 
+        where_filter = {"model_class": {"$eq": disease_code}} if disease_code else None
         query_embedding = self.embedding_fn([query])[0]
 
-        where_filter = None
-        if disease_code:
-            where_filter = {"model_class": {"$eq": disease_code}}
-
-        results = active_col.query(
-            query_embeddings=[query_embedding],
-            n_results=min(top_k, active_col.count()),
-            where=where_filter,
-            include=["metadatas", "distances"]
-        )
+        collection = self.collection
+        try:
+            results = self._query(collection, query_embedding, where_filter, top_k)
+        except Exception:
+            # Collection cũ có thể vừa bị xoá sau khi reindex đổi chỉ mục: thử lại trên chỉ mục mới
+            if self.collection is collection:
+                raise
+            results = self._query(self.collection, query_embedding, where_filter, top_k)
 
         output: List[Tuple[KnowledgeRecord, float, int]] = []
         if not results or not results["ids"] or not results["ids"][0]:

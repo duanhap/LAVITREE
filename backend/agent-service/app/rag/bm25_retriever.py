@@ -39,6 +39,7 @@ class BM25Retriever:
         self.doc_len = []
         self.doc_token_counts = []
         self.doc_freqs = {}
+        self.idf = {}
         n_docs = len(records)
 
         for record in records:
