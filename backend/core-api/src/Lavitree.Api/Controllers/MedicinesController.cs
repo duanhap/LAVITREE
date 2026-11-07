@@ -5,16 +5,19 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
+using Lavitree.Api.Filters;
 using Lavitree.Infrastructure.Persistence;
 
 namespace Lavitree.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/[controller]")]
+[EnableRateLimiting("public_api_policy")]
 public class MedicinesController : ControllerBase
 {
     private readonly LavitreeDbContext _dbContext;
@@ -46,6 +49,7 @@ public class MedicinesController : ControllerBase
     /// GET /api/v1/medicines/search
     /// Giao ước Ngày Đầu Tiên (Day 1 Contract - SSOT: api-contracts.md Mục 3.4)
     /// Cung cấp dữ liệu thuốc BVTV cho FastMCP Tool query_pesticide_store và Lavitree Store.
+    /// Tối ưu hóa: Truy vấn và lọc trực tiếp tại PostgreSQL bằng SQL để tránh tải toàn bộ bảng lên RAM.
     /// </summary>
     [HttpGet("search")]
     public async Task<IActionResult> Search(
@@ -53,20 +57,48 @@ public class MedicinesController : ControllerBase
         [FromQuery] bool? requireRainResistant,
         [FromQuery] bool allowedOnly = true)
     {
-        List<MedicineItemDto> medicineList;
+        // Danh sách có thuốc cấm chỉ dành cho Admin; khách, nông dân và Agent chỉ thấy thuốc được phép
+        if (!allowedOnly && !User.IsInRole("ADMIN") && !AdminApiKeyAuthAttribute.HasValidKey(Request))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "Chỉ quản trị viên được xem thuốc không được cấp phép."
+            });
+        }
+
+        List<MedicineItemDto> items;
         bool isFallback = false;
 
         try
         {
-            var dbProducts = await _dbContext.Products
+            // Xây dựng IQueryable lọc trực tiếp tại CSDL (chống tràn RAM khi bảng Products có hàng ngàn thuốc)
+            var query = _dbContext.Products
                 .Include(p => p.DiseaseProducts)
                     .ThenInclude(dp => dp.Disease)
                 .AsNoTracking()
-                .ToListAsync();
+                .AsQueryable();
+
+            if (allowedOnly)
+            {
+                query = query.Where(p => p.IsAllowed);
+            }
+
+            if (requireRainResistant.HasValue && requireRainResistant.Value)
+            {
+                query = query.Where(p => p.RainResistant);
+            }
+
+            if (!string.IsNullOrWhiteSpace(diseaseCode))
+            {
+                var normCode = diseaseCode.Trim().ToLower();
+                query = query.Where(p => p.DiseaseProducts.Any(dp => dp.Disease != null && dp.Disease.ClassCode.ToLower() == normCode));
+            }
+
+            var dbProducts = await query.ToListAsync();
 
             if (dbProducts.Count > 0)
             {
-                medicineList = dbProducts.Select(p => new MedicineItemDto
+                items = dbProducts.Select(p => new MedicineItemDto
                 {
                     Id = p.Id,
                     Name = p.Name,
@@ -87,16 +119,32 @@ public class MedicinesController : ControllerBase
             }
             else
             {
-                // BUG-09: Khi CSDL trống, chỉ fallback sang mẫu nếu ở môi trường Dev hoặc có cờ rõ ràng
-                if (_env.IsDevelopment() || Environment.GetEnvironmentVariable("ENABLE_DEV_FALLBACK") == "true")
+                // Kiểm tra xem bảng Products có trống hoàn toàn không (hay chỉ là không khớp điều kiện tìm kiếm)
+                var hasAnyProducts = await _dbContext.Products.AnyAsync();
+                if (!hasAnyProducts && (_env.IsDevelopment() || Environment.GetEnvironmentVariable("ENABLE_DEV_FALLBACK") == "true"))
                 {
-                    _logger.LogWarning("[MedicinesController] CSDL Products rỗng, kích hoạt fallback cho Development.");
-                    medicineList = GetFallbackMedicines();
+                    _logger.LogWarning("[MedicinesController] CSDL Products rỗng hoàn toàn, kích hoạt fallback cho Development.");
+                    var fallbackQuery = GetFallbackMedicines().AsQueryable();
+
+                    if (allowedOnly)
+                    {
+                        fallbackQuery = fallbackQuery.Where(m => m.IsAllowed);
+                    }
+                    if (requireRainResistant.HasValue && requireRainResistant.Value)
+                    {
+                        fallbackQuery = fallbackQuery.Where(m => m.RainResistant);
+                    }
+                    if (!string.IsNullOrWhiteSpace(diseaseCode))
+                    {
+                        fallbackQuery = fallbackQuery.Where(m => m.TargetDiseases.Any(d => d.Equals(diseaseCode, StringComparison.OrdinalIgnoreCase)));
+                    }
+
+                    items = fallbackQuery.ToList();
                     isFallback = true;
                 }
                 else
                 {
-                    medicineList = new List<MedicineItemDto>();
+                    items = new List<MedicineItemDto>();
                 }
             }
         }
@@ -106,7 +154,22 @@ public class MedicinesController : ControllerBase
             if (_env.IsDevelopment() || Environment.GetEnvironmentVariable("ENABLE_DEV_FALLBACK") == "true")
             {
                 _logger.LogWarning("[MedicinesController] Fallback sang danh mục mẫu do lỗi kết nối CSDL trong chế độ Dev.");
-                medicineList = GetFallbackMedicines();
+                var fallbackQuery = GetFallbackMedicines().AsQueryable();
+
+                if (allowedOnly)
+                {
+                    fallbackQuery = fallbackQuery.Where(m => m.IsAllowed);
+                }
+                if (requireRainResistant.HasValue && requireRainResistant.Value)
+                {
+                    fallbackQuery = fallbackQuery.Where(m => m.RainResistant);
+                }
+                if (!string.IsNullOrWhiteSpace(diseaseCode))
+                {
+                    fallbackQuery = fallbackQuery.Where(m => m.TargetDiseases.Any(d => d.Equals(diseaseCode, StringComparison.OrdinalIgnoreCase)));
+                }
+
+                items = fallbackQuery.ToList();
                 isFallback = true;
             }
             else
@@ -118,26 +181,6 @@ public class MedicinesController : ControllerBase
                 });
             }
         }
-
-        // Áp dụng các bộ lọc nghiệp vụ
-        var query = medicineList.AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(diseaseCode))
-        {
-            query = query.Where(m => m.TargetDiseases.Any(d => d.Equals(diseaseCode, StringComparison.OrdinalIgnoreCase)));
-        }
-
-        if (requireRainResistant.HasValue && requireRainResistant.Value)
-        {
-            query = query.Where(m => m.RainResistant);
-        }
-
-        if (allowedOnly)
-        {
-            query = query.Where(m => m.IsAllowed);
-        }
-
-        var items = query.ToList();
 
         return Ok(new
         {

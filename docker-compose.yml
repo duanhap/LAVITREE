@@ -22,6 +22,7 @@ services:
     restart: always
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash-lite}
       - CORE_API_URL=http://core-api:8080
       - AGENT_DB_URL=${AGENT_DB_URL:?AGENT_DB_URL must be set (read-only DB user)}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
@@ -29,6 +30,8 @@ services:
       - postgres
     ports:
       - "127.0.0.1:8001:8001"
+    volumes:
+      - agent_data:/app/app/data
 
   # 3. Core Business API (ASP.NET Core 8 Web API - Clean Architecture)
   core-api:
@@ -104,3 +107,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  agent_data:

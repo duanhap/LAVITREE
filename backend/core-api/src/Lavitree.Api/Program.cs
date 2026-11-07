@@ -156,6 +156,30 @@ builder.Services.AddRateLimiter(options =>
         });
     });
 
+    // Rate limit cho Public API (Weather & Medicines Search: 60 requests / phút / IP chống spam DDoS)
+    var publicRateLimit = int.TryParse(Environment.GetEnvironmentVariable("PUBLIC_API_RATE_LIMIT_PER_MINUTE"), out var pLimit) ? pLimit : 60;
+    options.AddPolicy("public_api_policy", httpContext =>
+    {
+        // Agent gọi từ một IP thay cho mọi người dùng: không tính chung vào giới hạn theo IP
+        var internalSecret = Environment.GetEnvironmentVariable("INTERNAL_API_SECRET");
+        if (!string.IsNullOrWhiteSpace(internalSecret)
+            && httpContext.Request.Headers.TryGetValue("X-Internal-Key", out var internalKey)
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(internalKey.ToString()),
+                Encoding.UTF8.GetBytes(internalSecret)))
+        {
+            return RateLimitPartition.GetNoLimiter("internal_agent");
+        }
+
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_client";
+        return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = publicRateLimit,
+            QueueLimit = 0
+        });
+    });
+
     options.RejectionStatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
 });
 

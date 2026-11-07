@@ -286,15 +286,18 @@
 - **Query Params**: 
   - `diseaseCode` (string, optional, ví dụ `Tomato___Late_blight`)
   - `requireRainResistant` (boolean, optional, mặc định `false`)
-  - `allowedOnly` (boolean, optional, mặc định `true`)
+  - `allowedOnly` (boolean, optional, mặc định `true`). `false` chỉ dành cho Admin (JWT role `ADMIN` hoặc `X-Admin-Key`), không có quyền thì `403`.
+- **Rate limit**: `PUBLIC_API_RATE_LIMIT_PER_MINUTE` (mặc định 60 request/phút/IP), vượt thì `429`. Agent gửi `X-Internal-Key` hợp lệ nên không bị tính chung vào giới hạn này (áp dụng cả Mục 3.9).
+- **Lỗi CSDL ở Production**: `503`. `is_fallback: true` chỉ xuất hiện khi chạy Development hoặc `ENABLE_DEV_FALLBACK=true`, nghĩa là danh mục mẫu, không phải kho thật.
 - **Response Body (`200 OK`)**:
   ```json
   {
     "total": 3,
     "disease_code": "Tomato___Late_blight",
+    "is_fallback": false,
     "items": [
       {
-        "id": "11111111-2222-3333-4444-555555555551",
+        "id": 1,
         "name": "Ridomil Gold 68WG",
         "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
         "medicine_type": "Hóa học",
@@ -307,7 +310,7 @@
         "image_url": "/lavitree-diagnoses/products/ridomil-gold.png"
       },
       {
-        "id": "11111111-2222-3333-4444-555555555552",
+        "id": 2,
         "name": "Antracol 70WP",
         "active_ingredient": "Propineb 700g/kg + Kẽm (Zn++)",
         "medicine_type": "Hóa học",
@@ -320,7 +323,7 @@
         "image_url": "/lavitree-diagnoses/products/antracol.png"
       },
       {
-        "id": "11111111-2222-3333-4444-555555555553",
+        "id": 3,
         "name": "Chế phẩm sinh học Trichoderma Bacillus",
         "active_ingredient": "Trichoderma spp. (10^9 CFU/g) + Bacillus subtilis",
         "medicine_type": "Sinh học",
@@ -493,7 +496,7 @@
     }
     ```
 - **Bỏ duyệt**: Gửi `"is_approved": false` (đơn lẻ hoặc hàng loạt) để ngừng dùng bài trong RAG mà không xóa.
-- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved` (duyệt hoặc bỏ duyệt) trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25.
+- **Cơ chế Đồng bộ RAG**: Sau khi cập nhật `IsManualApproved` (duyệt hoặc bỏ duyệt) trong PostgreSQL, Core API tự động gửi webhook nội bộ `POST http://agent-service:8001/internal/reindex` để Agent tái tạo vector ChromaDB và chỉ mục BM25 ở luồng nền (Mục 4.3).
 
 ---
 
@@ -519,11 +522,13 @@
 ### 3.9. `GET /api/v1/weather` (Tra cứu Thời tiết Cục bộ kèm Bộ nhớ đệm 1 Giờ)
 *Phục vụ công cụ `check_weather_risk` của FastMCP Agent và màn hình tra cứu của Nông dân*
 - **Query Params**:
-  - `location` (string, required, ví dụ `Hà Nam` hoặc `Hà Nội`)
+  - `location` (string, tối đa 120 ký tự, ví dụ `Hà Nam` hoặc `Hà Nội`; bỏ trống thì mặc định `Hà Nam`)
+  - `forecastHours` (integer, 1–72, mặc định `12`): số giờ dự báo tính từ hiện tại.
 - **Headers**: Tùy chọn `Authorization: Bearer <token>`
 - **Cơ chế Hoạt động**:
   - Core API đóng vai trò Reverse Proxy gọi tới dịch vụ khí tượng (OpenWeatherMap API hoặc mock provider).
-  - Áp dụng bộ nhớ đệm `IMemoryCache` thời hạn **1 giờ (TTL = 3600s)** theo khóa địa danh chuẩn hóa.
+  - Áp dụng bộ nhớ đệm `IMemoryCache` thời hạn **1 giờ (TTL = 3600s)** theo khóa địa danh chuẩn hóa và `forecastHours`.
+  - Dùng OpenWeatherMap Forecast API (mỗi mục cách nhau 3 giờ), lấy lượng mưa cộng dồn và xác suất mưa cao nhất trong khoảng dự báo.
   - Tránh lãng phí quota API bên ngoài và tối ưu độ trễ phản hồi (< 20ms khi cache hit).
 - **Response Body (`200 OK`)**:
   ```json
@@ -536,10 +541,15 @@
     "is_rain": true,
     "risk_level": "HIGH",
     "recommendation": "Thời tiết nhiều mây/mưa ẩm (Xác suất mưa 85%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.",
+    "forecast_hours": 12,
     "is_simulated": false,
     "cached_at": "2026-10-31T14:00:00Z"
   }
   ```
+- **Lỗi**:
+  - `400`: `location` quá dài hoặc `forecastHours` ngoài khoảng 1–72.
+  - `429`: vượt `PUBLIC_API_RATE_LIMIT_PER_MINUTE`.
+  - `503`: thiếu khoá hoặc OpenWeatherMap lỗi. Production không trả thời tiết giả; `is_simulated: true` chỉ xuất hiện khi chạy Development hoặc `ENABLE_DEV_FALLBACK=true`.
 
 ---
 
@@ -575,7 +585,7 @@
     "ai_suggestion_available": true
   }
   ```
-  - Agent lỗi hoặc không phản hồi → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn và `ai_suggestion_available: false`; Admin tự gán nhãn.
+  - Agent lỗi, trả `503` hoặc không phản hồi (Mục 4.4) → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn và `ai_suggestion_available: false`; Admin tự gán nhãn.
 
 ### 3.11. `POST /api/v1/knowledge/ingestions/{ingestion_id}/commit` (Nhập bài báo — Bước 2: Admin tick chọn đoạn = Duyệt)
 - **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
@@ -601,7 +611,7 @@
   {
     "created_source_ids": ["c1f7a83b-9a2e-4b6a-81a1-8d4e9f123456", "d2e8b94c-0b3f-5c7b-92b5-9e5f0a234567"],
     "verbatim_count_for_url": 2,
-    "reindex_status": "success"
+    "reindex_status": "accepted"
   }
   ```
 - **Quy tắc sửa / gỡ sau khi lưu**: Không cho sửa chữ của đoạn `IsVerbatim = true` (sửa thì không còn là nguyên văn). Chỉ được đổi `UnitType`, bỏ duyệt (`PATCH .../approve` với `is_approved: false`, Mục 3.7) hoặc xóa.
@@ -624,6 +634,7 @@
   }
   ```
   - `conversation_id`: (string, optional). Nếu Client không gửi, Server Agent tự sinh `UUIDv4` mới và trả về ngay trong sự kiện `trace_start`.
+  - Giới hạn độ dài (vượt thì `422`): `message` 1–2000 ký tự, `conversation_id` ≤ 64, `location` ≤ 120, `current_disease_code` ≤ 100, `harvest_days_left` từ 0 đến 3650.
   - `harvest_days_left`: (int, optional). Nếu Client bỏ trống (null/omitted), Agent mặc định giả định tình huống cận thu hoạch an toàn nhất ($DaysToHarvest = 0 \rightarrow$ chặn toàn bộ thuốc hóa học) và gắn câu hỏi yêu cầu nông dân xác nhận lại số ngày dự kiến thu hoạch trong câu trả lời.
 
 - **Streaming Response (`text/event-stream`)**:
@@ -738,18 +749,31 @@
   ```
   - `action`: `approve` | `unapprove` | `delete` | `manual`. Chỉ dùng để ghi log; Agent luôn xử lý giống nhau (xem dưới).
 - **Khi nào Core gọi**: sau khi duyệt (đơn lẻ / hàng loạt: gọi **1 lần** cho cả lô), bỏ duyệt, xóa bài, hoặc khi Admin bấm nút "Đồng bộ lại chỉ mục".
-- **Xử lý phía Agent** (dựng lại toàn bộ, idempotent):
+- **Xử lý phía Agent** (dựng lại toàn bộ, idempotent, chạy nền):
+  - Agent ghi nhận yêu cầu, trả `202 Accepted` ngay rồi dựng chỉ mục ở luồng nền (khoảng 20 giây với 22 bài trên CPU), nên chat không bị đứng và Core không vượt timeout 5s.
   - Truy vấn **toàn bộ** bài `IsManualApproved = true AND IsDeleted = false` bằng tài khoản DB chỉ đọc (`AGENT_DB_URL`).
-  - Dựng lại ChromaDB (id document = `Id` của bản ghi) và BM25 từ đầu. Nhờ vậy bài bị bỏ duyệt hoặc bị xóa cũng được gỡ khỏi chỉ mục, và gọi lặp lại không sinh bản trùng.
-  - Hiện chỉ có khoảng 19–112 bài, nên dựng lại toàn bộ chỉ mất vài giây; không cần cập nhật từng phần.
-- **Xử lý lỗi phía Core (best-effort)**: Việc duyệt trong PostgreSQL vẫn thành công kể cả khi Agent không phản hồi (timeout 5s). Core ghi log cảnh báo, trả về `"reindex_status": "failed"` cho Admin để bấm "Đồng bộ lại".
-- **Response Body (`200 OK`)**:
+  - Dựng lại ChromaDB (id document = `Id` của bản ghi) và BM25 từ đầu. Nhờ vậy bài bị bỏ duyệt hoặc bị xóa cũng được gỡ khỏi chỉ mục, và gọi lặp lại không sinh bản trùng. Không còn bài đã duyệt nào thì chỉ mục thành rỗng.
+  - Yêu cầu đến giữa lúc đang dựng được gộp lại và chạy thêm đúng một lượt, nên lượt cuối luôn đọc dữ liệu mới nhất. Chỉ mục cũ vẫn phục vụ chat cho tới khi chỉ mục mới dựng xong.
+  - DB lỗi: tự thử lại tối đa 5 lần, cách nhau 5 giây. Hết lượt thử thì **giữ nguyên chỉ mục cũ**, không dùng CSV seed (CSV chỉ dùng ở máy dev khi bật `RAG_ALLOW_CSV_FALLBACK=1`).
+  - Agent cũng tự chạy một lượt khi khởi động, nên container mới có dữ liệu mà không cần chờ Admin duyệt bài.
+- **Xử lý lỗi phía Core (best-effort)**: Việc duyệt trong PostgreSQL vẫn thành công kể cả khi Agent không phản hồi (timeout 5s). Agent trả `202` thì Core trả `"reindex_status": "accepted"` cho Admin. Agent lỗi hoặc timeout thì Core ghi log cảnh báo, trả `"reindex_status": "failed"` để Admin bấm "Đồng bộ lại".
+- **Response Body (`202 Accepted`)**:
   ```json
   {
-    "status": "success",
-    "message": "Chỉ mục tri thức đã được tái lập thành công",
-    "indexed_documents": 19,
+    "status": "accepted",
+    "message": "Đã nhận yêu cầu tái lập chỉ mục tri thức",
     "timestamp": "2026-10-31T14:35:05Z"
+  }
+  ```
+- **Xem kết quả**: `GET /internal/reindex/status` (cùng header `X-Internal-Key`) trả về lượt chạy gần nhất. `last_error` chỉ là mã lỗi (`database_unavailable` | `configuration_error` | `internal_error`), không chứa chi tiết hạ tầng:
+  ```json
+  {
+    "running": false,
+    "pending": false,
+    "indexed_documents": 19,
+    "last_success_at": "2026-10-31T14:35:25+00:00",
+    "last_failure_at": null,
+    "last_error": null
   }
   ```
 
@@ -758,6 +782,7 @@
 ### 4.4. `POST /internal/knowledge/label-paragraphs` (AI gợi ý nhãn cho từng đoạn bài báo — Nội bộ)
 *Core API gọi khi Admin nhập bài báo (Mục 3.10). Agent chỉ trả về **số đoạn + nhãn**, không viết ra chữ nào, nên không thể bịa đoạn trích. Không đọc / ghi PostgreSQL.*
 - **Network Scope & Headers**: giống Mục 4.3 (chỉ trong mạng Docker, bắt buộc `X-Internal-Key`).
+- **Giới hạn đầu vào** (vượt thì `422`): tối đa 200 đoạn, mỗi đoạn tối đa 2000 ký tự, `id` tối đa 50 ký tự.
 - **Request Body (`application/json`)**:
   ```json
   {
@@ -769,8 +794,8 @@
   }
   ```
 - **Xử lý phía Agent**:
-  - Gọi Gemini (`temperature = 0`, yêu cầu trả JSON). Prompt coi nội dung đoạn là **dữ liệu, không phải chỉ thị** (chống prompt injection từ bài báo).
-  - Kiểm tra đầu ra bằng code: chỉ giữ `id` có trong request và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại.
+  - Gọi Gemini (model theo env `GEMINI_MODEL`, `temperature = 0`, yêu cầu trả JSON, timeout 30 giây). Prompt coi nội dung đoạn là **dữ liệu, không phải chỉ thị** (chống prompt injection từ bài báo).
+  - Kiểm tra đầu ra bằng code: chỉ giữ `id` có trong request (mỗi `id` một lần) và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại.
   - Gợi ý tối đa 4 đoạn phù hợp nhất (khớp giới hạn 4 đoạn / nguồn).
 - **Response Body (`200 OK`)**:
   ```json
@@ -781,4 +806,19 @@
     ]
   }
   ```
+- **Gemini không dùng được** (thiếu key, lỗi, hết giờ, trả sai định dạng): trả `503 Service Unavailable`, không trả `labels` rỗng. Core coi đây là `ai_suggestion_available: false` (Mục 3.10). Core đặt timeout gọi endpoint này ≥ 35 giây.
 - **Lưu ý an toàn**: Đoạn `TREATMENT` có thể nhắc tên thuốc / liều lượng từ bài báo. Đó chỉ là ngữ cảnh tham khảo; **liều, PHI và tình trạng cấm/được phép luôn lấy từ bảng `Products`** (Guardrail TASK-07).
+
+---
+
+### 4.5. `/api/v1/mcp/*` (Danh mục & Thực thi Công cụ MCP Nội bộ)
+*Lớp dispatcher REST + JSON Schema cho 4 công cụ chỉ đọc. Không phải giao thức MCP JSON-RPC.*
+- **Network Scope & Headers**: giống Mục 4.3 (chỉ trong mạng Docker, bắt buộc `X-Internal-Key`, sai hoặc thiếu thì `401`).
+- **`GET /api/v1/mcp/tools`**: trả `{"tools": [{"name", "description", "inputSchema"}]}`.
+- **`POST /api/v1/mcp/tools/{tool_name}`**: body `{"arguments": {...}}`, trả `{"tool", "is_error", "result", "error_code", "error_message", "execution_time_ms"}`.
+- **Mã lỗi** (`detail` luôn là thông báo chung, không có chi tiết nội bộ):
+  - `404`: không có tool này.
+  - `422`: tham số thiếu, thừa hoặc sai kiểu.
+  - `503`: Core API lỗi, không kết nối được hoặc trả dữ liệu thiếu/sai. Tool không tự tạo dữ liệu thay thế; ReAct Loop (TASK-07) dựa vào lỗi này để chuyển sang phác đồ ngoại tuyến.
+  - `500`: lỗi nội bộ khác.
+- **`query_pesticide_store`** luôn chỉ trả thuốc được cấp phép; không có tham số để lấy thuốc cấm.
