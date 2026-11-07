@@ -87,6 +87,9 @@ public class DiagnoseResponseDto
     [JsonPropertyName("warning")]
     public string? Warning { get; set; }
 
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
+
     [JsonPropertyName("result")]
     public DiagnoseResultDataDto? Result { get; set; }
 
@@ -128,6 +131,9 @@ public class DiagnoseResultDataDto
 
     [JsonPropertyName("warning")]
     public string? Warning { get; set; }
+
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
 
     [JsonPropertyName("top3")]
     public List<Top3ItemDto> Top3 { get; set; } = new();

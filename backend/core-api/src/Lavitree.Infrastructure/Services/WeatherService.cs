@@ -228,7 +228,7 @@ public class WeatherService : IWeatherService
             isRain = true;
             recommendation = $"Thời tiết nhiều mây/mưa ẩm trong {forecastHours} giờ tới (Xác suất mưa {rainProb}%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.";
         }
-        else if (rainProb >= 40 || rainMm >= 2.0)
+        else if (rainProb >= 50 || rainMm > 0)
         {
             riskLevel = "MEDIUM";
             isRain = rainMm > 0;

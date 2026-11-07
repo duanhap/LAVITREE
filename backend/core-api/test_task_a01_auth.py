@@ -6,8 +6,13 @@ Automated Test Suite for TASK-A01:
 - History Auth Guard: GET /api/v1/diagnose/history
 """
 
+import base64
+import hashlib
+import hmac
+import json
 import os
 import sys
+import time
 import uuid
 import requests
 
@@ -146,14 +151,19 @@ ok("Đăng nhập thành công, nhận token xác thực Bearer.")
 # -------------------------------------------------------------
 # 5. Kiểm tra an toàn mật khẩu Admin (BUG-01)
 # -------------------------------------------------------------
-test("Chặn đăng nhập Admin với mật khẩu cũ đã lộ: POST /api/v1/auth/login (BUG-01)")
-old_admin_res = requests.post(f"{BASE_URL}/api/v1/auth/login", json={
-    "email": "admin@lavitree.vn",
-    "password": "Admin@Lavitree2026!"
-})
-if old_admin_res.status_code != 401:
-    fail(f"LỖI BUG-01: Mật khẩu cũ bị lộ của Admin vẫn đăng nhập được! (Status {old_admin_res.status_code})")
-ok("Hệ thống từ chối chính xác mật khẩu Admin cũ đã lộ (HTTP 401 Unauthorized).")
+# Không ghi mật khẩu đã lộ vào code: truyền qua biến môi trường khi muốn kiểm tra.
+retired_password = os.getenv("ADMIN_RETIRED_PASSWORD")
+if retired_password:
+    test("Chặn đăng nhập Admin với mật khẩu cũ đã lộ: POST /api/v1/auth/login (BUG-01)")
+    old_admin_res = requests.post(f"{BASE_URL}/api/v1/auth/login", json={
+        "email": "admin@lavitree.vn",
+        "password": retired_password
+    })
+    if old_admin_res.status_code != 401:
+        fail(f"LỖI BUG-01: Mật khẩu cũ bị lộ của Admin vẫn đăng nhập được! (Status {old_admin_res.status_code})")
+    ok("Hệ thống từ chối chính xác mật khẩu Admin cũ đã lộ (HTTP 401 Unauthorized).")
+else:
+    print("\n[BỎ QUA] Chưa đặt ADMIN_RETIRED_PASSWORD nên không kiểm tra mật khẩu cũ.")
 
 test("Đăng nhập tài khoản Quản trị viên với mật khẩu mới: admin@lavitree.vn")
 admin_password = os.getenv("ADMIN_INITIAL_PASSWORD")
@@ -237,6 +247,78 @@ rain_prob_hn = w_hn_data.get("rainfall_probability_percent")
 if rain_prob_hn is None or rain_prob_hn < 0 or rain_prob_hn > 100:
     fail(f"LỖI BUG-06: Xác suất mưa Hà Nam bị âm hoặc ngoài phạm vi: {rain_prob_hn}%")
 ok(f"Thời tiết Hà Nam: {w_hn_data.get('temperature_c')}°C, Xác suất mưa: {rain_prob_hn}%, Rủi ro: {w_hn_data.get('risk_level')}")
+
+# -------------------------------------------------------------
+# BUG-11: Token giả mạo phải bị từ chối, kể cả trên endpoint cho phép Guest
+# -------------------------------------------------------------
+def b64url(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+def make_token(secret, alg="HS256", exp_offset=3600):
+    header = {"alg": alg, "typ": "JWT"}
+    payload = json.loads(base64.urlsafe_b64decode(farmer_token.split(".")[1] + "==="))
+    payload["exp"] = int(time.time()) + exp_offset
+    signing_input = f"{b64url(json.dumps(header).encode())}.{b64url(json.dumps(payload).encode())}"
+    if alg == "none":
+        return f"{signing_input}."
+    signature = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
+    return f"{signing_input}.{b64url(signature)}"
+
+forged_tokens = {
+    "ký bằng khóa sai": make_token("sai-khoa-" + uuid.uuid4().hex * 2),
+    "alg=none": make_token("", alg="none"),
+}
+jwt_secret = os.getenv("JWT_SECRET_KEY")
+if jwt_secret:
+    forged_tokens["đúng khóa nhưng đã hết hạn"] = make_token(jwt_secret, exp_offset=-3600)
+else:
+    print("\n[BỎ QUA] Chưa có JWT_SECRET_KEY nên không kiểm tra token hết hạn.")
+
+for label, token in forged_tokens.items():
+    test(f"Từ chối token {label}")
+    headers = {"Authorization": f"Bearer {token}"}
+    me_res = requests.get(f"{BASE_URL}/api/v1/auth/me", headers=headers)
+    history_res = requests.get(f"{BASE_URL}/api/v1/diagnose/history", headers=headers)
+    # Thiếu ảnh mà vẫn phải trả 401, vì token được kiểm tra trước khi coi là Guest.
+    diagnose_res = requests.post(f"{BASE_URL}/api/v1/diagnose", headers=headers, data={"notes": "x"})
+    codes = (me_res.status_code, history_res.status_code, diagnose_res.status_code)
+    if codes != (401, 401, 401):
+        fail(f"Token {label} không bị từ chối đủ 3 endpoint: {codes}")
+    ok(f"Token {label}: /auth/me, /diagnose/history và /diagnose đều trả 401.")
+
+test("Mật khẩu chữ có dấu vượt 72 byte bị từ chối dù dưới 72 ký tự (BUG-22)")
+res = requests.post(f"{BASE_URL}/api/v1/auth/register", json={
+    "email": f"long_pw_{uuid.uuid4().hex[:8]}@lavitree.vn",
+    "password": "ệ" * 30,
+    "full_name": "Kiểm Thử Byte"
+})
+if res.status_code != 400:
+    fail(f"Expected 400, got {res.status_code}: {res.text}")
+ok("Mật khẩu 30 ký tự (90 byte) bị từ chối HTTP 400.")
+
+test("Email chứa ký tự xuống dòng bị từ chối (BUG-22)")
+res = requests.post(f"{BASE_URL}/api/v1/auth/register", json={
+    "email": f"a{uuid.uuid4().hex[:8]}\n@lavitree.vn",
+    "password": "Password123#",
+    "full_name": "Kiểm Thử Email"
+})
+if res.status_code != 400:
+    fail(f"Expected 400, got {res.status_code}: {res.text}")
+ok("Email có ký tự xuống dòng bị từ chối HTTP 400.")
+
+# Đặt cuối cùng vì làm cạn hạn mức auth của IP hiện tại trong 1 phút.
+test("Rate limit đăng nhập trả 429 khi vượt hạn mức")
+limit = int(os.getenv("AUTH_RATE_LIMIT_PER_MINUTE", "10"))
+statuses = [
+    requests.post(f"{BASE_URL}/api/v1/auth/login", json={
+        "email": "khong_ton_tai@lavitree.vn",
+        "password": "Password123#"
+    }).status_code
+    for _ in range(limit + 2)
+]
+if 429 not in statuses:
+    fail(f"Không thấy 429 sau {limit + 2} lần đăng nhập: {statuses}")
+ok(f"Nhận 429 sau khi vượt {limit} lần đăng nhập/phút.")
 
 # -------------------------------------------------------------
 # TỔNG KẾT

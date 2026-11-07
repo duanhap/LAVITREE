@@ -55,14 +55,15 @@ public static class LavitreeDbContextSeeder
     {
         var adminEmail = "admin@lavitree.vn";
         var adminPassword = Environment.GetEnvironmentVariable("ADMIN_INITIAL_PASSWORD");
-        if (string.IsNullOrWhiteSpace(adminPassword))
-        {
-            throw new InvalidOperationException("Biến môi trường ADMIN_INITIAL_PASSWORD bắt buộc phải được thiết lập để khởi tạo tài khoản quản trị.");
-        }
 
         var existingAdmin = await context.Users.FirstOrDefaultAsync(u => u.Email == adminEmail);
         if (existingAdmin == null)
         {
+            if (string.IsNullOrWhiteSpace(adminPassword))
+            {
+                throw new InvalidOperationException("Biến môi trường ADMIN_INITIAL_PASSWORD bắt buộc phải được thiết lập để khởi tạo tài khoản quản trị.");
+            }
+
             var adminUser = new User
             {
                 Id = Guid.NewGuid(),
@@ -79,14 +80,21 @@ public static class LavitreeDbContextSeeder
         }
         else
         {
-            // BUG-01: Nếu mật khẩu admin đã đổi trong cấu hình, cập nhật lại hash mới vào CSDL
-            if (!BCrypt.Net.BCrypt.Verify(adminPassword, existingAdmin.PasswordHash))
+            // Mặc định không ghi đè mật khẩu do Admin đã đổi.
+            // Khi cần đổi mật khẩu đã lộ: đặt FORCE_ADMIN_PASSWORD_RESET=true, khởi động một lần, rồi đặt lại false.
+            var forceReset = string.Equals(Environment.GetEnvironmentVariable("FORCE_ADMIN_PASSWORD_RESET"), "true", StringComparison.OrdinalIgnoreCase);
+
+            if (forceReset && !string.IsNullOrWhiteSpace(adminPassword))
             {
-                Console.WriteLine("[Seeder] Phát hiện mật khẩu mới cho admin@lavitree.vn. Đang cập nhật hash...");
+                Console.WriteLine("[Seeder] FORCE_ADMIN_PASSWORD_RESET=true: đang cập nhật mật khẩu admin@lavitree.vn. Hãy đặt lại false sau lần khởi động này.");
                 existingAdmin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword, workFactor: 11);
                 existingAdmin.Role = "ADMIN";
                 await context.SaveChangesAsync();
                 Console.WriteLine("[Seeder] Mật khẩu quản trị viên đã được cập nhật thành công.");
+            }
+            else
+            {
+                Console.WriteLine("[Seeder] Tài khoản Admin đã tồn tại. Giữ nguyên mật khẩu hiện tại.");
             }
         }
     }
@@ -530,27 +538,28 @@ public static class LavitreeDbContextSeeder
         }
         await context.SaveChangesAsync();
 
-        // BUG-02: Dọn dẹp triệt để bất kỳ liên kết DiseaseProducts nào của thuốc cấm bị nạp nhầm trước đây
+        // BUG-02: Dọn dẹp triệt để liên kết DiseaseProducts của chất cấm Paraquat
         var bannedDiseaseLinks = await context.DiseaseProducts
             .Include(dp => dp.Product)
-            .Where(dp => dp.Product != null && !dp.Product.IsAllowed)
+            .Where(dp => dp.Product != null && (dp.Product.Name.Contains("Paraquat") || dp.Product.ActiveIngredient.Contains("Paraquat")))
             .ToListAsync();
         if (bannedDiseaseLinks.Count > 0)
         {
             context.DiseaseProducts.RemoveRange(bannedDiseaseLinks);
             await context.SaveChangesAsync();
-            Console.WriteLine($"[Seeder] Đã xóa {bannedDiseaseLinks.Count} liên kết bệnh học của thuốc cấm khỏi CSDL.");
+            Console.WriteLine($"[Seeder] Đã xóa {bannedDiseaseLinks.Count} liên kết bệnh học của thuốc cấm Paraquat khỏi CSDL.");
         }
 
-        // 3. Link DiseaseProducts theo bảng tra cứu dịch hại
-        foreach (var (prod, targets) in productList)
+        // BUG-03: Link DiseaseProducts chỉ chạy khi bảng rỗng (Idempotent Gate)
+        // Không tự động nối lại các liên kết mà Quản trị viên đã chủ động gỡ bỏ!
+        if (!await context.DiseaseProducts.AnyAsync())
         {
-            foreach (var diseaseCode in targets)
+            foreach (var (prod, targets) in productList)
             {
-                if (allDiseases.TryGetValue(diseaseCode, out var targetDisease))
+                if (!prod.IsAllowed) continue;
+                foreach (var diseaseCode in targets)
                 {
-                    var exists = await context.DiseaseProducts.AnyAsync(dp => dp.DiseaseId == targetDisease.Id && dp.ProductId == prod.Id);
-                    if (!exists)
+                    if (allDiseases.TryGetValue(diseaseCode, out var targetDisease))
                     {
                         context.DiseaseProducts.Add(new DiseaseProduct
                         {
@@ -561,8 +570,12 @@ public static class LavitreeDbContextSeeder
                     }
                 }
             }
+            await context.SaveChangesAsync();
         }
-        await context.SaveChangesAsync();
+        else
+        {
+            Console.WriteLine("[Seeder] Bảng DiseaseProducts đã có dữ liệu. Giữ nguyên cấu hình liên kết hiện thời của Quản trị viên.");
+        }
     }
 
     private static string? ResolveSeedDirectory(string? customPath)

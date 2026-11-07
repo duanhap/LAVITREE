@@ -126,13 +126,19 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.Services.AddRateLimiter(options =>
 {
     var rateLimit = int.TryParse(Environment.GetEnvironmentVariable("RATE_LIMIT_PER_MINUTE"), out var limit) ? limit : 60;
+    var guestDiagnoseLimit = int.TryParse(Environment.GetEnvironmentVariable("GUEST_DIAGNOSE_RATE_LIMIT_PER_MINUTE"), out var gLimit) ? gLimit : 10;
     options.AddPolicy("diagnose_policy", httpContext =>
     {
-        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_client";
-        return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+        // Người dùng đã đăng nhập tính theo tài khoản; Guest tính theo IP với hạn mức thấp hơn.
+        var userId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var isUser = httpContext.User.Identity?.IsAuthenticated == true && !string.IsNullOrEmpty(userId);
+        var partitionKey = isUser
+            ? $"user:{userId}"
+            : $"guest:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_client"}";
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
         {
             Window = TimeSpan.FromMinutes(1),
-            PermitLimit = rateLimit,
+            PermitLimit = isUser ? rateLimit : guestDiagnoseLimit,
             QueueLimit = 0
         });
     });
@@ -231,8 +237,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowFrontend");
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter(); // Đặt sau Authentication để diagnose_policy đọc được tài khoản
 app.UseAuthorization();
 app.MapControllers();
 

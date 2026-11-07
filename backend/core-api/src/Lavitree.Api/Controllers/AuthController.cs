@@ -18,7 +18,6 @@ namespace Lavitree.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/[controller]")]
-[EnableRateLimiting("auth_policy")]
 public class AuthController : ControllerBase
 {
     private readonly LavitreeDbContext _dbContext;
@@ -46,6 +45,7 @@ public class AuthController : ControllerBase
     /// Đăng ký tài khoản Nông dân mới (SSOT: api-contracts.md Mục 3.5)
     /// </summary>
     [HttpPost("register")]
+    [EnableRateLimiting("auth_policy")]
     [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register([FromBody] RegisterRequestDto dto, CancellationToken cancellationToken)
@@ -87,8 +87,14 @@ public class AuthController : ControllerBase
         }
         catch (DbUpdateException ex)
         {
-            _logger.LogWarning(ex, "Đăng ký thất bại do trùng email trên CSDL (Race Condition): {Email}", cleanEmail);
-            return BadRequest(new { detail = "Email này đã được sử dụng. Vui lòng đăng nhập hoặc chọn email khác." });
+            if (ex.InnerException is Npgsql.PostgresException pgEx && pgEx.SqlState == "23505")
+            {
+                _logger.LogWarning(ex, "Đăng ký thất bại do trùng email trên CSDL (PostgreSQL 23505 Unique Violation): {Email}", cleanEmail);
+                return BadRequest(new { detail = "Email này đã được sử dụng. Vui lòng đăng nhập hoặc chọn email khác." });
+            }
+
+            _logger.LogError(ex, "Lỗi cập nhật CSDL khi đăng ký tài khoản mới: {Email}", cleanEmail);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = "Đã xảy ra lỗi khi tạo tài khoản trên hệ thống." });
         }
 
         // 4. Sinh JWT Token
@@ -118,6 +124,7 @@ public class AuthController : ControllerBase
     /// Đăng nhập hệ thống Lavitree (SSOT: api-contracts.md Mục 3.5)
     /// </summary>
     [HttpPost("login")]
+    [EnableRateLimiting("auth_policy")]
     [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginRequestDto dto, CancellationToken cancellationToken)
