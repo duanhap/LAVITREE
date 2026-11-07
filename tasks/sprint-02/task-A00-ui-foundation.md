@@ -119,3 +119,10 @@
   - Xây dựng `/dev/styleguide` (chỉ nạp trong DEV) showcase toàn diện design system.
   - Đồng bộ theme Android: `Color.kt`, `Theme.kt`, `Type.kt` và nạp font Be Vietnam Pro 400/500/600/700 vào `res/font/`.
   - Build `npm run build` thành công tuyệt đối (exit 0) trong 981ms. Zero hex colors trong code mới.
+- *05/11/2026 (sau review, commit `3cf1e27`)*: Sửa các lỗi nền tảng phát hiện khi review, chưa đổi trạng thái task:
+  - `RequireRole.tsx`, `AppShell.tsx`: chuẩn hóa role theo backend `ADMIN` / `FARMER`; kiểm tra `exp` của JWT.
+  - `router.tsx`: bọc `AdminShell` bằng `RequireRole allowedRoles={['ADMIN']}`.
+  - `api-client.ts`: bỏ `Content-Type` JSON mặc định để `FormData` không bị đổi thành JSON; dọn storage khi nhận 401; ưu tiên thông báo lỗi từ server.
+  - `globals.css`: thêm lại lớp `.card` cho các trang cũ.
+  - Kết quả kiểm tra lại: `npm run build` thành công; test axios bằng adapter giả cho thấy body vẫn là `FormData`. Upload trên trình duyệt thật: `[Chưa thực hiện]`.
+  - Việc còn tồn đọng (bundle lớn, `npm audit`, trang Knowledge bị 401, thông báo lỗi validation...) được chuyển sang danh sách BUG trong `tasks/sprint-02/task-a02-web-diagnose-handbook.md`, mục 5.

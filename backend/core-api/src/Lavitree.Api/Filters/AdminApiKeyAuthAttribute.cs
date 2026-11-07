@@ -17,10 +17,10 @@ public class AdminApiKeyAuthAttribute : Attribute, IAsyncAuthorizationFilter
         // 1. Read secret key from environment
         var configuredKey = Environment.GetEnvironmentVariable("ADMIN_SECRET_KEY");
 
-        // FAIL-CLOSED SECURITY: If ADMIN_SECRET_KEY is null, empty or whitespace, reject 100% of requests!
-        if (string.IsNullOrWhiteSpace(configuredKey))
+        // FAIL-CLOSED SECURITY: If ADMIN_SECRET_KEY is null, empty or starts with YOUR_, reject 100% of requests!
+        if (string.IsNullOrWhiteSpace(configuredKey) || configuredKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
         {
-            context.Result = new ObjectResult(new { detail = "Khóa quản trị (X-Admin-Key) chưa được cấu hình trên máy chủ." })
+            context.Result = new ObjectResult(new { detail = "Khóa quản trị (X-Admin-Key) chưa được cấu hình an toàn trên máy chủ." })
             {
                 StatusCode = 401
             };

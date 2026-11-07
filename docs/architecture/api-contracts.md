@@ -300,7 +300,7 @@
     {
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
       "token_type": "Bearer",
-      "expires_in": 86400,
+      "expires_in": 604800,
       "user": {
         "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
         "email": "farmer@lavitree.vn",
@@ -429,7 +429,8 @@
     "rainfall_mm": 20,
     "is_rain": true,
     "risk_level": "HIGH",
-    "recommendation": "Nguy cơ mưa rửa trôi cao trong 12 giờ tới. Tuyệt đối không phun thuốc trừ bệnh không kháng nước.",
+    "recommendation": "Thời tiết nhiều mây/mưa ẩm (Xác suất mưa 85%). Nguy cơ rửa trôi thuốc rất cao, tuyệt đối không phun thuốc trừ bệnh không kháng nước.",
+    "is_simulated": false,
     "cached_at": "2026-10-31T14:00:00Z"
   }
   ```

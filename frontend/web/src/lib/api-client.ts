@@ -7,17 +7,18 @@ export const TOKEN_STORAGE_KEY = 'lavitree_token';
 
 /**
  * Tạo instance Axios dùng chung toàn bộ ứng dụng Lavitree
+ * LƯU Ý: Không gán cứng 'Content-Type': 'application/json' ở default headers
+ * để Axios tự động xử lý chuẩn multipart/form-data khi gửi FormData (upload ảnh).
  */
 export const apiClient: AxiosInstance = axios.create({
   baseURL: '/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-  },
   timeout: 30000,
 });
 
 /**
- * Request Interceptor: Tự động gắn Bearer Token nếu có trong localStorage
+ * Request Interceptor:
+ * 1. Tự động gắn Bearer Token nếu có trong localStorage.
+ * 2. Nếu payload là FormData, để trình duyệt tự sinh boundary multipart.
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -25,6 +26,11 @@ apiClient.interceptors.request.use(
       const token = localStorage.getItem(TOKEN_STORAGE_KEY);
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
+      }
+
+      // Khi gửi FormData (upload file ảnh chẩn đoán), xóa Content-Type để Axios/trình duyệt tự gắn multipart boundary
+      if (config.data instanceof FormData && config.headers) {
+        delete config.headers['Content-Type'];
       }
     } catch {
       // Bỏ qua lỗi truy cập localStorage (ví dụ trong môi trường bị chặn cookie/storage)
@@ -35,7 +41,30 @@ apiClient.interceptors.request.use(
 );
 
 /**
- * Ánh xạ mã lỗi HTTP sang thông điệp tiếng Việt thân thiện theo SSOT docs/architecture/ui-ux.md mục 7
+ * Response Interceptor: Tự động dọn dẹp storage khi token hết hạn (401)
+ */
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      // Nếu không phải đang ở trang login và không phải là request đăng nhập
+      const isLoginRequest = error.config?.url?.includes('/auth/login');
+      if (!isLoginRequest) {
+        try {
+          localStorage.removeItem(TOKEN_STORAGE_KEY);
+          localStorage.removeItem('lavitree_user');
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+/**
+ * Ánh xạ mã lỗi HTTP sang thông điệp tiếng Việt thân thiện theo ngữ cảnh
+ * Ưu tiên hiển thị thông điệp chi tiết trả về từ máy chủ (serverMessage).
  */
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
@@ -47,28 +76,28 @@ export function getErrorMessage(error: unknown): string {
     const serverMessage = responseData?.detail || responseData?.message || responseData?.error;
 
     if (status === 400) {
-      return serverMessage || 'Ảnh vượt 10MB hoặc không đúng định dạng (jpg, png, webp).';
+      return serverMessage || 'Dữ liệu gửi lên không hợp lệ hoặc vượt dung lượng cho phép (10MB).';
     }
     if (status === 401) {
-      return 'Phiên đăng nhập đã hết hạn.';
+      return serverMessage || 'Phiên đăng nhập đã hết hạn hoặc thông tin đăng nhập không chính xác.';
     }
     if (status === 403) {
-      return 'Bạn không có quyền truy cập trang này.';
+      return serverMessage || 'Bạn không có quyền thực hiện thao tác hoặc truy cập trang này.';
     }
     if (status === 404) {
-      return serverMessage || 'Không tìm thấy dữ liệu yêu cầu.';
+      return serverMessage || 'Không tìm thấy dữ liệu hoặc trang yêu cầu.';
     }
     if (status === 422) {
-      return serverMessage || 'Ảnh bị lỗi, không đọc được. Vui lòng chụp lại.';
+      return serverMessage || 'Ảnh bị lỗi hoặc không thể đọc được. Vui lòng chụp lại.';
     }
     if (status === 429) {
-      return 'Bạn thao tác quá nhanh / đã hết lượt hỏi hôm nay. Thử lại sau ít phút.';
+      return 'Bạn thao tác quá nhanh hoặc đã hết lượt yêu cầu. Vui lòng thử lại sau ít phút.';
     }
     if (status && status >= 500) {
-      return 'Hệ thống đang bận hoặc mất kết nối. Vui lòng thử lại sau.';
+      return serverMessage || 'Hệ thống máy chủ đang bận hoặc gặp sự cố. Vui lòng thử lại sau.';
     }
     if (!axiosError.response) {
-      return 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra đường truyền.';
+      return 'Không thể kết nối đến máy chủ Core API. Vui lòng kiểm tra lại đường truyền mạng.';
     }
     return serverMessage || 'Đã có lỗi xảy ra. Vui lòng thử lại.';
   }
@@ -79,16 +108,5 @@ export function getErrorMessage(error: unknown): string {
 
   return 'Hệ thống đang bận hoặc mất kết nối.';
 }
-
-/**
- * Response Interceptor: Ghi nhận lỗi và chuyển tiếp
- */
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
-    // Không hiện alert trực tiếp tại đây, để caller xử lý bằng toast/ErrorState
-    return Promise.reject(error);
-  }
-);
 
 export default apiClient;

@@ -55,6 +55,13 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
 // 3. Register MinIO Object Storage Service
 builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 
+// 3.5. Register Memory Cache & Weather Service (SSOT: api-contracts.md Mục 3.9)
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<IWeatherService, WeatherService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 // 4. Register Auth Services (Password Hasher & JWT Token Service)
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
@@ -64,9 +71,20 @@ var jwtSecretKey = Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
     ?? builder.Configuration["Jwt:SecretKey"]
     ?? throw new InvalidOperationException("JWT_SECRET_KEY chưa được cấu hình trong biến môi trường hoặc file .env!");
 
+if (jwtSecretKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase) || jwtSecretKey.Contains("YOUR_JWT_SECRET"))
+{
+    throw new InvalidOperationException("JWT_SECRET_KEY không được sử dụng khóa mẫu từ .env.example! Vui lòng cấu hình khóa ngẫu nhiên bảo mật.");
+}
+
 if (jwtSecretKey.Length < 32)
 {
     throw new InvalidOperationException("JWT_SECRET_KEY phải có độ dài tối thiểu 32 ký tự để đảm bảo an toàn HMAC-SHA256!");
+}
+
+var adminSecretKeyCheck = Environment.GetEnvironmentVariable("ADMIN_SECRET_KEY");
+if (!string.IsNullOrWhiteSpace(adminSecretKeyCheck) && adminSecretKeyCheck.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("ADMIN_SECRET_KEY không được sử dụng khóa mẫu từ .env.example! Vui lòng cấu hình khóa ngẫu nhiên bảo mật.");
 }
 
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "LavitreeCoreApi";
@@ -118,6 +136,20 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0
         });
     });
+
+    // Rate limit siết chặt cho Auth (Login / Register: 10 requests / phút / IP)
+    var authRateLimit = int.TryParse(Environment.GetEnvironmentVariable("AUTH_RATE_LIMIT_PER_MINUTE"), out var aLimit) ? aLimit : 10;
+    options.AddPolicy("auth_policy", httpContext =>
+    {
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_client";
+        return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = authRateLimit,
+            QueueLimit = 0
+        });
+    });
+
     options.RejectionStatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
 });
 
@@ -180,10 +212,22 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// 5. Automatic Database Seeding (Idempotent)
+// 5. Automatic Database Migration & Seeding (Idempotent - BUG-08)
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<LavitreeDbContext>();
+    try
+    {
+        Console.WriteLine("[App] Đang kiểm tra và tự động áp dụng Migration Entity Framework...");
+        await dbContext.Database.MigrateAsync();
+        Console.WriteLine("[App] Áp dụng Migration thành công.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[App] Lỗi khi chạy migration CSDL: {ex.Message}");
+        throw;
+    }
+
     await LavitreeDbContextSeeder.SeedAsync(dbContext);
 }
 

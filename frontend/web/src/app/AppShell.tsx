@@ -138,7 +138,7 @@ export const AppShell: React.FC = () => {
                     <Package className="mr-2 h-4 w-4" />
                     <span>Đơn hàng của tôi</span>
                   </DropdownMenuItem>
-                  {user.role === 'Admin' && (
+                  {user.role === 'ADMIN' && (
                     <DropdownMenuItem onClick={() => navigate('/admin')}>
                       <Shield className="mr-2 h-4 w-4 text-primary" />
                       <span className="font-medium text-primary">Trang Quản trị</span>

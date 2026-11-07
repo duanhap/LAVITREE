@@ -104,18 +104,20 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 
 ### Nhóm 3: Tiệm thuốc Bảo Vệ Thực Vật & Đơn Hàng (E-Commerce)
 
-#### 6. `Products` (Danh mục thuốc đặc trị & chế phẩm sinh học)
+#### 6. `Products` (Danh mục thuốc đặc trị & chế phẩm sinh học - SSOT)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `Id` | `SERIAL` | PK | Mã sản phẩm |
-| `Name` | `VARCHAR(150)` | NOT NULL | Tên thương mại (Ridomil Gold, Aliette, Trichoderma...) |
-| `ActiveIngredient` | `VARCHAR(150)` | NOT NULL | Hoạt chất chính (Mancozeb, Metalaxyl...) |
+| `Name` | `VARCHAR(150)` | NOT NULL | Tên thương mại (Ridomil Gold, Antracol, Trichoderma...) |
+| `ActiveIngredient` | `VARCHAR(150)` | NOT NULL | Hoạt chất chính (Mancozeb, Metalaxyl-M, Propineb...) |
 | `Price` | `DECIMAL(12,2)` | NOT NULL | Đơn giá niêm yết (VNĐ) |
-| `Unit` | `VARCHAR(50)` | DEFAULT 'Gói 100g' | Quy cách đóng gói (Gói / Chai / Can) |
+| `DosageInstruction`| `TEXT` | NOT NULL | Hướng dẫn liều lượng pha phun |
 | `ImageUrl` | `VARCHAR(500)` | NULL | Hình ảnh bao bì sản phẩm |
 | `StockQuantity` | `INT` | DEFAULT 100 | Số lượng tồn kho |
-| `IsAllowed` | `BOOLEAN` | DEFAULT TRUE | Thuốc được phép lưu hành tại VN (Cục BVTV) |
-| `IsolationDays` | `INT` | DEFAULT 7 | Thời gian cách ly an toàn (PHI tính theo ngày) |
+| `PhiDays` | `INT` | DEFAULT 7 | Thời gian cách ly an toàn (PHI tính theo ngày) |
+| `IsAllowed` | `BOOLEAN` | DEFAULT TRUE | Trạng thái cho phép lưu hành tại VN (Cục BVTV) |
+| `RainResistant` | `BOOLEAN` | DEFAULT FALSE | Khả năng chống chịu mưa rửa trôi của thuốc |
+| `MedicineType` | `VARCHAR(50)` | DEFAULT 'Hóa học' | 'Hóa học' \| 'Sinh học' \| 'Hóa chất cấm' |
 
 #### 7. `DiseaseProducts` (Bảng trung gian: Bệnh $\leftrightarrow$ Thuốc đặc trị)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
@@ -123,15 +125,15 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `DiseaseId` | `INT` | PK, FK $\rightarrow$ Diseases | Mã bệnh |
 | `ProductId` | `INT` | PK, FK $\rightarrow$ Products | Mã thuốc đặc trị tương ứng |
 
-#### 8. `Users` (Người dùng: Nông dân & Chuyên gia/Admin)
+#### 8. `Users` (Người dùng: Nông dân & Quản trị viên)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `Id` | `UUID` | PK | Mã tài khoản |
 | `FullName` | `VARCHAR(100)` | NOT NULL | Họ và tên |
 | `Email` | `VARCHAR(150)` | UNIQUE, NOT NULL | Email đăng nhập |
 | `PasswordHash` | `VARCHAR(255)` | NOT NULL | Mật khẩu mã hóa BCrypt |
-| `Role` | `VARCHAR(50)` | DEFAULT 'Farmer' | 'Farmer' \| 'Expert' \| 'Admin' |
-| `PhoneNumber` | `VARCHAR(20)` | NULL | Số điện thoại |
+| `Role` | `VARCHAR(50)` | DEFAULT 'FARMER' | 'FARMER' \| 'ADMIN' |
+| `Phone` | `VARCHAR(20)` | NULL | Số điện thoại |
 
 #### 9. `Orders` (Đơn hàng mua thuốc bảo vệ thực vật)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |

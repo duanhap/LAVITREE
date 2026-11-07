@@ -77,11 +77,11 @@
   - Đầu ra: Tailwind v4 + shadcn/ui, token màu & font Be Vietnam Pro theo `docs/architecture/ui-ux.md`, khung `AppShell`/`AdminShell`, router + trang 404/403, `ResultStatusBadge`, trang `/dev/styleguide`; theme Android đồng bộ. Chi tiết: `tasks/sprint-02/task-A00-ui-foundation.md`.
 - [x] **TASK-A01: Module Xác thực, Phân quyền JWT & Vá Bảo mật Core API** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[x] DONE` (Hoàn thành 100%: Day 1 Stub Thuốc cho B, Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân GET /api/v1/diagnose/history, nghiệm thu 11/11 tests qua `test_task_a01_auth.py`)
+  - Trạng thái: `[x] DONE` (Đã hoàn thành 100%: Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân; đã khắc phục triệt để 11 lỗi chặn Đợt 0, nạp mật khẩu Admin mới, lọc thuốc cấm Paraquat, cập nhật migration DB và đạt 14/14 tests qua `test_task_a01_auth.py`)
   - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (loại bỏ hoàn toàn `userId` từ form-data chống IDOR), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B, nạp seed tự động tài khoản Quản trị `admin@lavitree.vn`.
 - [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] IN PROGRESS` (Đã hoàn tất toàn bộ 11 lỗi chặn Đợt 0, sẵn sàng triển khai các màn hình UI)
   - Đầu ra: Màn hình Đăng nhập/Đăng ký trên Web; trang Khám lá (`DiagnosePage.tsx`) hiển thị chẩn đoán, Grad-CAM, IPM; trang Sổ tay bệnh học (`HandbookPage.tsx`); trang Lịch sử cá nhân (`HistoryPage.tsx`) lưu và xem lại các ca khám theo tài khoản.
 - [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
