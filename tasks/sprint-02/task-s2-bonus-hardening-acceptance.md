@@ -6,7 +6,7 @@
 * **Người phụ trách**: Thành viên A (Core API, Web, hạ tầng) & Thành viên B (Agent, RAG, Gemini)
 * **Người nghiệm thu**: Mỗi dòng có cột "Nghiệm thu"; người làm không tự nghiệm thu dòng của mình.
 * **Độ ưu tiên**: P0 cho nhóm A, P1 cho các nhóm còn lại
-* **Nguồn**: các dòng còn `[ ]` ở mục 5 của `task-a02-web-diagnose-handbook.md` và `task-a03-store-admin-hitl.md`, review A03 ngày 08/11/2026 (`doc/hint/sprint2_TVA_TASK03_assessment.md`). Mục 3.7 nhận các việc còn mở của TASK-07 và TASK-08 (review 08/11/2026, `doc/hint/Sprint2_task08_TVB_assessment.md`). Mã BUG giữ nguyên để tra lại lịch sử; mã mới bắt đầu từ BUG-70 (BUG-81 đến BUG-85 nằm ở A04).
+* **Nguồn**: các dòng còn `[ ]` ở mục 5 của `task-a02-web-diagnose-handbook.md` và `task-a03-store-admin-hitl.md`, review A03 ngày 08/11/2026 (`doc/hint/sprint2_TVA_TASK03_assessment.md`). Mục 3.7 nhận các việc còn mở của TASK-07 và TASK-08 (review 08/11/2026, `doc/hint/Sprint2_task08_TVB_assessment.md`). Mã BUG giữ nguyên để tra lại lịch sử; mã mới bắt đầu từ BUG-70 (BUG-81 đến BUG-85 nằm ở A04). Mục 3.8 nhận các việc còn mở của TASK-A04 (review 08/11/2026, mục 5.2 của `task-a04-sse-chat-android-init.md`).
 
 ---
 
@@ -99,13 +99,30 @@
 | [ ] | BUG-93 (liên quan BUG-51) | MEDIUM | B | A | Số liệu viết tay chưa có nguồn: bảng PHI `CHEMICAL_PESTICIDES_PHI`, `UNVERIFIED_CHEMICALS` trong `guardrails.py` và biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. | Mỗi giá trị có nguồn (cùng nguồn với BUG-51) hoặc kỹ sư nông nghiệp xác nhận; chưa có thì ghi là giới hạn trong báo cáo đồ án. |
 | [ ] | BUG-94 | LOW | B | A | Bộ nhớ hội thoại, giới hạn lượt của khách, 100 trace gần nhất và Circuit Breaker nằm trong RAM: mất khi restart, chỉ đúng khi chạy 1 bản agent. Khách dùng chung IP (4G, Wi-Fi trường) chung lượt hỏi và chung quyền phiên. | Ghi giới hạn vào `system-design.md` (giống BUG-77), hoặc chuyển sang Redis ở Sprint 3. |
 
+### 3.8. Web Chat & Android (việc còn mở của TASK-A04)
+*Review 08/11/2026 (mục 5.2 của `task-a04-sse-chat-android-init.md`): Web Chat đã sửa và chạy trên Chrome với Agent/Core giả lập; chưa chạy với Agent thật. Android đã sửa code (bỏ câu trả lời và trích dẫn giả, bỏ tên miền viết cứng, sửa DTO theo contract 3.1) nhưng **chưa biên dịch lần nào**.*
+
+| Xong | ID | Mức | Làm | Nghiệm thu | Việc | Cách nghiệm thu |
+|---|---|---|---|---|---|---|
+| [ ] | BUG-101 | HIGH | A | B | Thiếu `mobile/android/gradle/wrapper/gradle-wrapper.jar`, nên `./gradlew assembleDebug` không chạy được ở máy nào. Các sửa đổi Android (BUG-98, BUG-99, BUG-100, BUG-103) chưa được biên dịch, có thể còn lỗi cú pháp/kiểu. | Trên máy có JDK 17: `gradle wrapper --gradle-version 8.6` (hoặc mở bằng Android Studio), commit `gradle-wrapper.jar`. `./gradlew assembleDebug` đạt, không lỗi. Ghi phiên bản JDK/AGP vào mục 5. |
+| [ ] | BUG-104 | HIGH | A | B | Chưa chạy app Android trên emulator/máy thật: luồng khám lá, hiển thị kết quả, không crash. | `./gradlew installDebug` lên emulator, `docker compose up` trên máy host (app gọi `http://10.0.2.2:3000/`). Chọn 1 ảnh lá → hiện tên bệnh và độ tin cậy, không crash; ảnh tay/OOD → hiện cảnh báo. Logcat không chứa `Authorization` hay nội dung ảnh. |
+| [ ] | BUG-58 | MEDIUM | A | B | Xoay ảnh theo EXIF trên Android (`ImagePreparation.kt`) mới có code, chưa thử. | Chụp ảnh dọc trên máy thật, khám khi đã đăng nhập → ảnh gốc trong Lịch sử web đúng chiều, cạnh dài ≤ 1600px. |
+| [ ] | BUG-102 | MEDIUM | A | B | Đã khai báo quyền `CAMERA` và CameraX nhưng màn khám chỉ có chọn ảnh từ máy; chưa xin quyền lúc chạy, chưa có khung chụp. | Có thể chuyển TASK-10. Nếu làm: từ chối quyền → app báo và vẫn chọn ảnh được; cho phép → chụp được và gửi đi. |
+| [ ] | BUG-105 | HIGH | A + B | Cả hai | Web Chat chưa chạy với Agent thật qua Nginx: các sự kiện `thought`/`action`/`observation`, trích dẫn, giới hạn khách 5 lượt/ngày, 429 của Nginx, quyền sở hữu `conversation_id`. | Chạy cả hệ thống (cùng lúc với BUG-88). Đăng nhập hỏi 1 câu có bệnh → thấy các bước và kết quả tool, `citations` mở đúng bài. Khách hỏi lượt thứ 6 trong ngày → thông báo giới hạn. Dùng `conversation_id` của người khác → bị từ chối. Ghi kết quả vào mục 5. |
+| [ ] | BUG-106 | MEDIUM | B | A | Agent luôn trả `draft_order: null` (`react_agent.py`), contract 4.1 chưa định nghĩa cấu trúc `draft_order`. Nút "Thêm vào giỏ" trên Web Chat đang giả định dạng `{ items: [{ product_id, product_name, quantity }] }` nên chưa bao giờ hiện với Agent thật. | B quyết định: (a) trả `draft_order` chỉ gồm thuốc đã qua Guardrail, ghi cấu trúc vào contract 4.1; hoặc (b) giữ `null` và ghi rõ trong contract. Nếu (a): A kiểm tra nút hiện, thuốc `is_allowed: false` không thêm được, giá lấy từ Core. |
+| [ ] | BUG-107 | MEDIUM | A | B | `AndroidManifest.xml` bật `usesCleartextTraffic="true"` cho mọi địa chỉ, kể cả bản release. | Dùng `network_security_config` chỉ cho phép HTTP với `10.0.2.2`/`localhost` ở bản debug; bản release chỉ HTTPS. |
+| [ ] | BUG-108 | LOW | A | B | Android Chat chưa đọc stream SSE (đang hiện thông báo "chưa kết nối"); nút Sổ tay và Lịch sử ở Home chưa điều hướng (callback rỗng); `DiagnosisResultScreen` chưa gắn vào `NavHost`. | Chuyển TASK-10 Sprint 3; ghi rõ ở đó để không bị coi là đã xong trong Sprint 2. |
+| [ ] | BUG-103 | LOW | A | B | Đã đổi dòng phụ "38 loại bệnh cây" ở Home thành "Tra cứu bệnh theo loài cây". | Xem giao diện khi chạy BUG-104. |
+| [ ] | BUG-109 | LOW | A | B | Hai mục Chặng 3 của A04 về Web Chat ("nhận sự kiện tuần tự", "khối nguồn tham khảo") đã tick dựa trên Agent giả lập. | Tick lại sau khi xong BUG-105; nếu Agent thật khác giả lập thì mở lại. |
+
 ---
 
 ## 4. ĐIỀU KIỆN ĐÓNG TASK
 - [ ] Hết dòng `[ ]` ở mục 3.1 và 3.2, có xác nhận của người nghiệm thu.
 - [ ] Mục 3.3 chạy với Core + Agent thật, kết quả ghi ở mục 5.
 - [ ] Mục 3.7: BUG-86 đến BUG-89 xong; BUG-88 đạt 15/15 với hệ thống thật; BUG-91, BUG-92 có quyết định của trưởng nhóm.
-- [ ] Mục 3.4–3.6: đã xong, hoặc ghi rõ chuyển sang task nào của Sprint 3.
+- [ ] Mục 3.8: BUG-101, BUG-104, BUG-105 xong (app build và chạy được, Web Chat chạy với Agent thật); BUG-106 có quyết định của B.
+- [ ] Mục 3.4–3.6 và phần còn lại của 3.8: đã xong, hoặc ghi rõ chuyển sang task nào của Sprint 3.
 - [ ] TVA và TVB cùng ký tên ở mục 5.
 
 ## 5. NHẬT KÝ THỰC HIỆN & NGHIỆM THU

@@ -7,8 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,7 +23,8 @@ import com.ptit.lavitree.ui.theme.ForestGreen
 fun HomeScreen(
     onNavigateToScan: () -> Unit,
     onNavigateToHandbook: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onNavigateToChat: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -84,12 +85,25 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 FeatureButton(
+                    title = "Trợ lý AI Lavi",
+                    subtitle = "Hỏi đáp tác tử ReAct",
+                    icon = Icons.Default.Forum,
+                    modifier = Modifier.weight(1f),
+                    onClick = onNavigateToChat
+                )
+                FeatureButton(
                     title = "Sổ tay bệnh",
-                    subtitle = "38 loại bệnh cây",
+                    subtitle = "Tra cứu bệnh theo loài cây",
                     icon = Icons.Default.Book,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateToHandbook
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 FeatureButton(
                     title = "Lịch sử khám",
                     subtitle = "Nhật ký phục hồi",
