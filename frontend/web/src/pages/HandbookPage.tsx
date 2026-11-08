@@ -297,9 +297,6 @@ export const HandbookPage: React.FC = () => {
                   <CardTitle className="text-base font-bold text-foreground leading-snug line-clamp-1">
                     {d.commonNameVi}
                   </CardTitle>
-                  <p className="text-[11px] font-mono text-muted-foreground line-clamp-1">
-                    {d.classCode}
-                  </p>
                 </CardHeader>
 
                 <CardContent className="p-4 pt-1 space-y-3 flex-1 flex flex-col justify-between">
@@ -362,8 +359,8 @@ export const HandbookPage: React.FC = () => {
                 <DialogTitle className="text-xl font-extrabold text-foreground tracking-tight">
                   {detailData.commonNameVi}
                 </DialogTitle>
-                <DialogDescription className="text-xs font-mono text-muted-foreground">
-                  Mã khoa học: {detailData.classCode}
+                <DialogDescription className="sr-only">
+                  Chi tiết bệnh {detailData.commonNameVi}
                 </DialogDescription>
               </DialogHeader>
 

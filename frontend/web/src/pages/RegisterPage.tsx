@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Sprout, UserPlus, AlertCircle, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { UserPlus, AlertCircle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+import lavi3dImg from '@/assets/brand/lavi-3d-happy-720.webp';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
@@ -83,17 +84,19 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-140px)] items-center justify-center px-4 py-8">
-      <Card className="w-full max-w-md shadow-sm border border-border">
+    <div className="w-full">
+      <Card className="w-full border border-white/40 bg-card/95 shadow-2xl backdrop-blur-md">
         <CardHeader className="text-center space-y-2">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-primary">
-            <Sprout className="h-7 w-7" />
-          </div>
+          <img
+            src={lavi3dImg}
+            alt=""
+            className="mx-auto h-20 w-20 object-contain lg:hidden"
+          />
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            Đăng ký tài khoản Nông dân
+            Tạo tài khoản Lavitree
           </CardTitle>
           <CardDescription className="text-muted-foreground text-sm">
-            Tạo tài khoản để lưu trữ lịch sử khám bệnh và nhận phác đồ điều trị cá nhân hóa
+            Miễn phí. Lưu lại lịch sử khám và hướng dẫn xử lý cho vườn của bạn
           </CardDescription>
         </CardHeader>
 
