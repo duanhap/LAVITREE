@@ -21,24 +21,29 @@ public class MinioStorageService : IMinioStorageService
     {
         _logger = logger;
 
-        var endpoint = Environment.GetEnvironmentVariable("MINIO_ENDPOINT")
-            ?? configuration["Minio:Endpoint"]
+        var endpoint = configuration["Minio:Endpoint"]
+            ?? Environment.GetEnvironmentVariable("MINIO_ENDPOINT")
             ?? "localhost:9000";
 
-        var accessKey = Environment.GetEnvironmentVariable("MINIO_ACCESS_KEY")
-            ?? configuration["Minio:AccessKey"]
+        var accessKey = configuration["Minio:AccessKey"]
+            ?? Environment.GetEnvironmentVariable("MINIO_ACCESS_KEY")
             ?? "minioadmin";
 
-        var secretKey = Environment.GetEnvironmentVariable("MINIO_SECRET_KEY")
-            ?? configuration["Minio:SecretKey"]
+        var secretKey = configuration["Minio:SecretKey"]
+            ?? Environment.GetEnvironmentVariable("MINIO_SECRET_KEY")
             ?? "";
 
-        _publicUrl = Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL")
-            ?? configuration["Minio:PublicUrl"]
+        _publicUrl = configuration["Minio:PublicUrl"]
+            ?? Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL")
             ?? "http://localhost:9000";
 
         // Remove http:// or https:// if provided in endpoint
         var cleanEndpoint = endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var isContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+        if (isContainer && (cleanEndpoint.Contains("localhost") || cleanEndpoint.Contains("127.0.0.1")))
+        {
+            cleanEndpoint = "minio:9000";
+        }
         bool useSsl = endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
         _minioClient = new MinioClient()
