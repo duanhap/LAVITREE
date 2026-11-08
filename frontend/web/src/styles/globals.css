@@ -148,3 +148,9 @@ body {
 .card:hover {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
 }
+
+/* Lavi 3D lơ lửng nhẹ (chỉ chạy khi người dùng không bật giảm chuyển động: dùng kèm motion-safe:) */
+@keyframes lavi-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}

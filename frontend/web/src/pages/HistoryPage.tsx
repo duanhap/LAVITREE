@@ -295,9 +295,6 @@ export const HistoryPage: React.FC = () => {
                         Nhóm nghi vấn: {item.confusion_group}
                       </p>
                     )}
-                    <p className="text-[11px] font-mono text-muted-foreground line-clamp-1">
-                      {item.class_code}
-                    </p>
                   </CardHeader>
 
                   <CardContent className="p-4 pt-1 space-y-3 flex-1 flex flex-col justify-between">

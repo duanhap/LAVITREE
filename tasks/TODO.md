@@ -106,8 +106,9 @@
 
 - [ ] **TASK-09: Tối ưu hóa Trải nghiệm Web Portal (UX/UI, Responsive, Chống XSS)**
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] IN PROGRESS`
   - Đầu ra: Giao diện chuẩn responsive trên mọi thiết bị (Mobile/Tablet/Desktop), hiệu ứng chuyển cảnh mượt mà, loading skeletons, bảo mật token.
+  - Đợt 1 (08/11/2026): nền video lá cây cho Đăng nhập/Đăng ký và trang chủ, dùng Lavi 3D và Lavi 2D (avatar chat), trang Tổng quan Admin mới (`/admin`), form nhập bài báo chuyển sang `/admin/ingest`, ẩn mã lớp mô hình khỏi giao diện. Chi tiết và việc còn lại: `tasks/sprint-03/task-09-web-ux-polish.md`.
 - [ ] **TASK-10: Hoàn thiện Android Native App (Kotlin, Jetpack Compose, CameraX)**
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`

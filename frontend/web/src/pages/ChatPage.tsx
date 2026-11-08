@@ -25,6 +25,8 @@ import { Card } from '@/components/ui/card';
 import { useAgentChat } from '@/features/chat/useAgentChat';
 import { ChatMessageItem } from '@/features/chat/ChatMessageItem';
 import { apiClient } from '@/lib/api-client';
+import laviAvatarImg from '@/assets/brand/lavi-avatar-192.webp';
+import lavi3dImg from '@/assets/brand/lavi-3d-happy-720.webp';
 
 export const ChatPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -140,9 +142,11 @@ export const ChatPage: React.FC = () => {
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-xs mb-3 shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-              <Bot className="w-6 h-6" />
-            </div>
+            <img
+              src={laviAvatarImg}
+              alt=""
+              className="w-11 h-11 rounded-full bg-emerald-50 border border-emerald-200 object-contain p-0.5 shadow-xs dark:bg-emerald-950/40 dark:border-emerald-800"
+            />
             <div>
               <h1 className="text-base sm:text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
                 Trợ lý Cây trồng Lavi
@@ -151,7 +155,7 @@ export const ChatPage: React.FC = () => {
                 </Badge>
               </h1>
               <p className="text-xs text-zinc-500">
-                Tác tử ReAct Loop • Tra cứu RAG Khuyến nông • Cảnh báo mưa & An toàn PHI
+                Tư vấn theo tài liệu khuyến nông · Cảnh báo mưa · Nhắc thời gian cách ly thuốc
               </p>
             </div>
           </div>
@@ -190,8 +194,7 @@ export const ChatPage: React.FC = () => {
               <Sprout className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>
                 Ngữ cảnh bệnh đang hỏi:{' '}
-                <strong className="font-semibold">{diseaseNameVi}</strong>{' '}
-                <span className="text-[11px] font-mono text-zinc-500">({classCodeParam})</span>
+                <strong className="font-semibold">{diseaseNameVi}</strong>
               </span>
             </div>
             <button
@@ -259,16 +262,18 @@ export const ChatPage: React.FC = () => {
       <div className="flex-1 overflow-y-auto px-1 py-2 space-y-4">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-6">
-            <div className="w-16 h-16 rounded-3xl bg-emerald-100 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 flex items-center justify-center text-emerald-700 dark:text-emerald-400 shadow-sm">
-              <Sparkles className="w-8 h-8" />
-            </div>
+            <img
+              src={lavi3dImg}
+              alt="Lavi"
+              className="w-32 sm:w-36 drop-shadow-lg motion-safe:animate-[lavi-float_5s_ease-in-out_infinite]"
+            />
 
             <div className="max-w-md space-y-2">
               <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                Chào bà con! Tôi là Trợ lý Cây trồng Lavi
+                Chào bạn, mình là Lavi!
               </h2>
               <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                Tôi được trang bị dữ liệu tri thức Khuyến nông đối chứng, công cụ dự báo thời tiết cục bộ và chốt chặn an toàn cách ly thuốc bảo vệ thực vật.
+                Hỏi mình về bệnh cây, cách phòng trừ hay thời điểm phun thuốc. Mình trả lời dựa trên tài liệu khuyến nông đã được kiểm duyệt và luôn nhắc thời gian cách ly an toàn.
               </p>
             </div>
 

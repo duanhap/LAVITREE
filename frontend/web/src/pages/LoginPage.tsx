@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Sprout, LogIn, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { LogIn, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+import lavi3dImg from '@/assets/brand/lavi-3d-happy-720.webp';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -66,17 +67,19 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-140px)] items-center justify-center px-4 py-8">
-      <Card className="w-full max-w-md shadow-sm border border-border">
+    <div className="w-full">
+      <Card className="w-full border border-white/40 bg-card/95 shadow-2xl backdrop-blur-md">
         <CardHeader className="text-center space-y-2">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-primary">
-            <Sprout className="h-7 w-7" />
-          </div>
+          <img
+            src={lavi3dImg}
+            alt=""
+            className="mx-auto h-20 w-20 object-contain lg:hidden"
+          />
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            Đăng nhập Lavitree
+            Chào mừng quay lại
           </CardTitle>
           <CardDescription className="text-muted-foreground text-sm">
-            Hệ thống Chẩn đoán Bệnh cây & Trợ lý Nông nghiệp Thông minh
+            Đăng nhập để xem lịch sử khám và đơn hàng của bạn
           </CardDescription>
         </CardHeader>
 
@@ -156,7 +159,7 @@ export const LoginPage: React.FC = () => {
             </Button>
 
             <div className="text-center text-sm text-muted-foreground">
-              Chưa có tài khoản Nông dân?{' '}
+              Chưa có tài khoản?{' '}
               <Link
                 to={`/register?next=${encodeURIComponent(nextUrl)}`}
                 className="font-medium text-primary hover:underline inline-flex items-center gap-1"
