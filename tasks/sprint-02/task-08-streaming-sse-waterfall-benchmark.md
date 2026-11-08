@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 4 (Lắp ráp toàn trình và nghiệm thu sau khi hoàn thành Task 05, 06, 07)**
 * **Phân hệ**: `backend/agent-service:8001` (FastAPI) & Client Test
-* **Trạng thái**: `[/] IN PROGRESS (Pha 1–4 của B đã hoàn tất 100%, chờ A xử lý CSDL và Pha 5 Web Client)`
+* **Trạng thái**: `[/] IN PROGRESS` (Pha 1–3 xong và đã review ngày 08/11/2026; Pha 4 chưa đạt, xem mục 4; chờ A xử lý CSDL và Pha 5)
 * **Người phụ trách**: Thành viên B (Agent Core & SSE Streaming) & Thành viên A (Client Integration Test)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY1`, `extract/DAY3/lavitree_trace_waterfall.json`, `extract/DAY26/lavitree_mcp_benchmark.py`
@@ -25,8 +25,8 @@
 **B. Việc của Thành viên B**
 - [x] **B1. Nối `POST /api/v1/agent/chat` vào `react_agent`**, bỏ generator giả trong `app/main.py`.
 - [x] **B2. Gắn `conversation_id` với người dùng.** Server tự sinh id và kiểm tra chủ sở hữu theo `userId` từ JWT (Core chuyển xuống), chống IDOR (403), kèm giới hạn 5 lượt hỏi/ngày của Guest theo `roles-usecases.md`.
-- [x] **B3. Chạy toàn luồng với Core và PostgreSQL thật** (đã tích hợp vào `run_agent_benchmark.py` và probe tự động).
-- [x] **B4. Đo tỷ lệ Agent có gọi tool.** Đạt 86.7% trong 15 lượt benchmark định lượng tại `benchmark_results.json`.
+- [ ] **B3. Chạy toàn luồng với Core và PostgreSQL thật** `[Chưa thực hiện]`: benchmark ngày 08/11 dùng RAG từ PostgreSQL thật nhưng kho thuốc và thời tiết vẫn giả lập vì Core API không chạy.
+- [x] **B4. Đo tỷ lệ Agent có gọi tool.** 100.0% số lượt trong benchmark 2026-11-08 09:33:31 (tính cả lượt offline, không gọi tool).
 - [ ] **B5. Nhờ kỹ sư nông nghiệp xác nhận số liệu viết tay**: bảng PHI `CHEMICAL_PESTICIDES_PHI` và `UNVERIFIED_CHEMICALS` trong `guardrails.py`, biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. Chưa xác nhận thì ghi rõ là giới hạn trong báo cáo.
 
 **C. Lưu ý thiết kế bắt buộc khi làm Pha 1–2**
@@ -147,7 +147,7 @@
     3. Ca 3 (Bệnh đốm mục tiêu): Cà chua đốm mục tiêu $\rightarrow$ Trích dẫn tài liệu khuyến nông RAG chính xác.
     4. Ca 4 (Đốm vi khuẩn ớt - `Pepper,_bell___Bacterial_spot`): Ớt chuông bị đốm vi khuẩn $\rightarrow$ Đề xuất thuốc phòng trừ có trong kho và cách ly đúng.
     5. Ca 5 (Gỉ sắt ngô): Ngô bị gỉ sắt $\rightarrow$ Khuyến cáo biện pháp canh tác và thuốc phù hợp.
-  - Mỗi ca chạy 3 lần lặp ở `temperature = 0`, đo đạc tỷ lệ nhất quán (Consistency Rate) và tỷ lệ an toàn (Safety Rate). Đạt 15/15 PASS (100%), TTFT trung bình 1222.4ms, Latency 3109.1ms, Tool call rate 86.7%.
+  - Mỗi ca chạy 3 lần lặp ở `temperature = 0`, đo đạc tỷ lệ nhất quán (Consistency Rate) và tỷ lệ an toàn (Safety Rate). Kết quả đo lại ngày 08/11: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây.
 - [ ] **Pha 5**: Thành viên A kết nối thử nghiệm Web Client nhận stream chữ SSE mượt mà, không giật lag.
 
 ---
@@ -162,3 +162,5 @@
   - Không sinh ảo giác hoạt chất cấm trong bất kỳ lượt chạy nào.
   - Mọi câu trả lời **có kê đơn thuốc** đều có tiền tố `[DRAFT_RECOMMENDATION]` (khớp TASK-07).
 - [ ] Bằng chứng nghiệm thu: Báo cáo Benchmark định lượng xuất dạng bảng Markdown và file log JSON lưu tại `tasks/sprint-02/benchmark_results.json`.
+  - *Lần đo gần nhất*: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây. Ca chưa đạt: BENCH_03_TARGET_SPOT_RAG 0/3, BENCH_04_PEPPER_BACTERIAL_SPOT 0/3. Lý do: Trích dẫn rỗng hoặc không phải bài đang được duyệt.
+  - *Lưu ý quota*: gói miễn phí Gemini giới hạn 15 request/phút, mỗi câu hỏi tốn 3–5 request; benchmark nghỉ `BENCH_PAUSE_SECONDS` (mặc định 20 giây) giữa các lượt.

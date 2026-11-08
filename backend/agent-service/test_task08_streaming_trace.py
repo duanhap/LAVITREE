@@ -36,6 +36,12 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["STREAM_TOKEN_DELAY_SECONDS"] = "0"
 os.environ.pop("AGENT_DB_URL", None)
+# Khóa ký JWT riêng cho test: agent-service không còn khóa mặc định trong code
+os.environ["JWT_SECRET_KEY"] = "test-only-jwt-secret-key-at-least-32-chars"
+os.environ.pop("JWT_ISSUER", None)
+os.environ.pop("JWT_AUDIENCE", None)
+TRACE_DIR = tempfile.mkdtemp(prefix="lavitree_trace_")
+os.environ["TRACE_EXPORT_DIR"] = TRACE_DIR
 
 import json
 import time
@@ -59,7 +65,7 @@ import app.agent.react_agent as react_module
 react_module.STREAM_TOKEN_DELAY_SECONDS = 0.0
 
 from app.main import app
-from app.agent.auth import guest_limiter, DEFAULT_JWT_SECRET
+from app.agent.auth import guest_limiter
 from app.agent.trace_logger import trace_logger
 from app.agent.resilience import circuit_breaker, CircuitState
 from app.agent.memory import stm_memory
@@ -106,20 +112,15 @@ class Task08StreamingTraceTests(unittest.TestCase):
         trace_logger.clear()
 
         # Tạo helper JWT tokens
-        self.secret = os.getenv("JWT_SECRET_KEY") or DEFAULT_JWT_SECRET
-        self.farmer_token = jwt.encode(
-            {"sub": "farmer-user-123", "email": "farmer@example.com", "role": "FARMER"},
-            self.secret,
-            algorithm="HS256"
-        )
-        self.farmer_b_token = jwt.encode(
-            {"sub": "farmer-user-456", "email": "farmer_b@example.com", "role": "FARMER"},
-            self.secret,
-            algorithm="HS256"
-        )
-        self.admin_token = jwt.encode(
-            {"sub": "admin-user-999", "email": "admin@example.com", "role": "ADMIN"},
-            self.secret,
+        self.secret = os.environ["JWT_SECRET_KEY"]
+        self.farmer_token = self.make_token("farmer-user-123", "FARMER")
+        self.farmer_b_token = self.make_token("farmer-user-456", "FARMER")
+        self.admin_token = self.make_token("admin-user-999", "ADMIN")
+
+    def make_token(self, user_id, role, secret=None):
+        return jwt.encode(
+            {"sub": user_id, "email": f"{user_id}@example.com", "role": role, "exp": int(time.time()) + 3600},
+            secret or self.secret,
             algorithm="HS256"
         )
 
@@ -425,6 +426,62 @@ class Task08StreamingTraceTests(unittest.TestCase):
 
         self.assertTrue(final_ans["is_offline_fallback"])
         self.assertIn("[DRAFT_RECOMMENDATION]", final_ans["answer"])
+
+
+class TestTask08SecurityRegressions(unittest.TestCase):
+    """Các lỗ hổng tìm thấy khi review TASK-08; bỏ bản vá tương ứng thì test phải đỏ."""
+
+    def setUp(self):
+        self.client = TestClient(app)
+        guest_limiter.reset_for_test()
+        circuit_breaker.reset()
+        stm_memory.add_turn("conv-victim", "Vườn nhà tôi ở xã X", "trả lời riêng", owner_id="user:victim")
+
+    def tearDown(self):
+        stm_memory.clear("conv-victim")
+
+    def chat(self, headers=None, **body):
+        body.setdefault("message", "Cà chua bị bệnh")
+        with patch.object(gemini_client, "is_available", return_value=False):
+            return self.client.post("/api/v1/agent/chat", json=body, headers=headers or {})
+
+    def test_forged_user_headers_without_internal_key_are_ignored(self):
+        resp = self.chat({"X-User-Id": "attacker", "X-User-Role": "ADMIN"}, conversation_id="conv-victim")
+        self.assertEqual(resp.status_code, 403)
+        resp = self.chat({"X-User-Id": "victim", "X-Internal-Key": TEST_SECRET}, conversation_id="conv-victim")
+        self.assertEqual(resp.status_code, 200, "Core gửi kèm khóa nội bộ thì được tin")
+
+    def test_bearer_token_requires_configured_secret_and_expiry(self):
+        token = jwt.encode({"sub": "victim", "role": "ADMIN", "exp": int(time.time()) + 60},
+                           "LavitreeSecretKeyForJwtAuthentication2026!DefaultKey", algorithm="HS256")
+        self.assertEqual(self.chat({"Authorization": f"Bearer {token}"}).status_code, 401)
+        no_exp = jwt.encode({"sub": "victim", "role": "ADMIN"}, os.environ["JWT_SECRET_KEY"], algorithm="HS256")
+        self.assertEqual(self.chat({"Authorization": f"Bearer {no_exp}"}).status_code, 401)
+        with patch.dict(os.environ, {"JWT_SECRET_KEY": ""}):
+            valid = jwt.encode({"sub": "x", "exp": int(time.time()) + 60}, "anything", algorithm="HS256")
+            self.assertEqual(self.chat({"Authorization": f"Bearer {valid}"}).status_code, 503)
+
+    def test_guest_quota_cannot_be_reset_by_forwarded_for(self):
+        codes = [self.chat({"X-Forwarded-For": f"1.2.3.{i}"}).status_code for i in range(7)]
+        self.assertEqual(codes.count(429), 2)
+
+    def test_reading_traces_does_not_spend_guest_quota(self):
+        for _ in range(6):
+            self.client.get("/api/v1/agent/trace/none")
+        self.assertEqual(self.chat().status_code, 200)
+
+    def test_stream_keeps_unknown_harvest_and_survives_errors(self):
+        with patch.object(gemini_client, "is_available", return_value=False):
+            resp = self.client.post("/api/v1/agent/chat", json={"message": "Cà chua mốc sương", "current_disease_code": "Tomato___Late_blight"})
+        self.assertIn("Chưa rõ ngày thu hoạch", resp.text)
+        self.assertNotIn("còn 0 ngày", resp.text)
+
+        with patch.object(gemini_client, "is_available", return_value=True), \
+                patch("app.agent.react_agent.mcp_server.to_gemini_declarations", side_effect=ValueError("boom")):
+            resp = self.client.post("/api/v1/agent/chat", json={"message": "x", "harvest_days_left": 30})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("event: final_answer", resp.text, "Lỗi giữa chừng vẫn phải kết thúc bằng final_answer")
+        self.assertNotIn("boom", resp.text)
 
 
 if __name__ == "__main__":

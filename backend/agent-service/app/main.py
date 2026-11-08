@@ -19,7 +19,7 @@ from app.rag.sync_index import sync_knowledge_index
 from app.mcp import mcp_router
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
 from app.agent.react_agent import react_agent
-from app.agent.auth import get_user_context, validate_conversation_owner
+from app.agent.auth import enforce_guest_quota, get_user_context, validate_conversation_owner
 from app.agent.trace_logger import trace_logger
 
 logger = logging.getLogger("agent.main")
@@ -138,7 +138,7 @@ def label_paragraphs(payload: LabelParagraphsRequest):
 async def stream_react_chat(
     request: ChatRequest,
     conv_id: str,
-    user_id: Optional[str] = None
+    owner_id: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """
     Generator streaming ReAct Loop thời gian thực (SSOT api-contracts.md Mục 4.1).
@@ -150,7 +150,7 @@ async def stream_react_chat(
         disease_code=request.current_disease_code,
         location=request.location,
         harvest_days_left=request.harvest_days_left,
-        user_id=user_id
+        owner_id=owner_id
     ):
         yield f"event: {event_name}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
 
@@ -184,12 +184,13 @@ async def chat_agent(request: ChatRequest, req: Request):
     """
     user_ctx = get_user_context(req)
 
-    # Quản lý conversation_id
+    # Quản lý conversation_id (kiểm tra quyền trước khi trừ lượt hỏi của khách)
     conv_id = request.conversation_id or f"conv-{uuid.uuid4().hex[:12]}"
     validate_conversation_owner(conv_id, user_ctx)
+    enforce_guest_quota(user_ctx)
 
     return StreamingResponse(
-        stream_react_chat(request, conv_id=conv_id, user_id=user_ctx.owner_key),
+        stream_react_chat(request, conv_id=conv_id, owner_id=user_ctx.owner_key),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

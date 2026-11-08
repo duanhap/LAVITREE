@@ -11,6 +11,8 @@ logger = logging.getLogger("agent.trace")
 
 MAX_TRACES_IN_MEMORY = 100
 DEFAULT_WATERFALL_FILENAME = "trace_waterfall.json"
+# Mặc định ghi vào thư mục backend/agent-service; không ghi vào gốc repo hay thư mục đang chạy lệnh
+DEFAULT_EXPORT_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def clean_payload_for_client(data: Any, max_text_len: int = 300) -> Any:
@@ -57,12 +59,8 @@ class TraceLogger:
         """Ghi nhận một phiên thực thi hoàn chỉnh vào bộ nhớ xoay vòng và cập nhật file JSON."""
         now_iso = datetime.now(timezone.utc).isoformat()
         
-        # Ước lượng tokens nếu không có số liệu chính xác từ API
+        # Số token lấy từ usage_metadata của Gemini; không có thì để null, không ước lượng
         estimated_tokens = total_tokens
-        if estimated_tokens is None:
-            # Ước tính sơ bộ: 1 token ~ 3.5 ký tự tiếng Việt
-            total_chars = len(query) + sum(len(str(s)) for s in steps)
-            estimated_tokens = max(50, int(total_chars / 3.5))
 
         # Chuẩn hoá danh sách steps cho Waterfall Chart
         waterfall_steps = []
@@ -153,8 +151,8 @@ class TraceLogger:
 
     def export_waterfall_json(self, trace_record: Optional[Dict[str, Any]] = None) -> None:
         """
-        Ghi tệp trace_waterfall.json tương thích cấu hình nghiệm thu và prototype DAY3.
-        Ghi vào cả thư mục backend/agent-service và thư mục gốc của repo nếu tồn tại.
+        Ghi tệp trace_waterfall.json (phiên gần nhất) tương thích prototype DAY3.
+        Thư mục ghi lấy từ TRACE_EXPORT_DIR, mặc định là backend/agent-service.
         """
         record = trace_record
         if not record:
@@ -171,18 +169,12 @@ class TraceLogger:
             "safety_audit": record.get("safety_audit", {})
         }
 
-        targets = [
-            DEFAULT_WATERFALL_FILENAME,
-            os.path.join(os.path.dirname(__file__), "..", "..", DEFAULT_WATERFALL_FILENAME)
-        ]
-
-        for path in targets:
-            try:
-                norm_path = os.path.normpath(path)
-                with open(norm_path, "w", encoding="utf-8") as f:
-                    json.dump(export_data, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                logger.warning(f"[TraceLogger] Failed to export waterfall json to {path}: {e}")
+        path = os.path.join(os.getenv("TRACE_EXPORT_DIR") or DEFAULT_EXPORT_DIR, DEFAULT_WATERFALL_FILENAME)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"[TraceLogger] Failed to export waterfall json to {path}: {e}")
 
     def clear(self) -> None:
         with self._lock:
@@ -191,3 +183,4 @@ class TraceLogger:
 
 # Singleton instance toàn cục
 trace_logger = TraceLogger()
+
