@@ -20,8 +20,24 @@ public class CreateOrderDto
 {
     [Required(ErrorMessage = "Danh sách sản phẩm không được để trống.")]
     [MinLength(1, ErrorMessage = "Đơn hàng phải có ít nhất 1 sản phẩm.")]
+    [MaxLength(50, ErrorMessage = "Đơn hàng không được vượt quá 50 loại sản phẩm.")]
     [JsonPropertyName("items")]
     public List<CreateOrderItemDto> Items { get; set; } = new();
+
+    [MaxLength(100, ErrorMessage = "Tên người nhận không được vượt quá 100 ký tự.")]
+    [JsonPropertyName("receiver_name")]
+    public string? ReceiverName { get; set; }
+
+    [JsonPropertyName("shipping_name")]
+    public string? ShippingName
+    {
+        get => ReceiverName;
+        set { if (!string.IsNullOrWhiteSpace(value)) ReceiverName = value; }
+    }
+
+    [MaxLength(1000, ErrorMessage = "Ghi chú không được vượt quá 1000 ký tự.")]
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
 
     [Required(ErrorMessage = "Địa chỉ nhận hàng không được để trống.")]
     [MaxLength(500, ErrorMessage = "Địa chỉ nhận hàng không được vượt quá 500 ký tự.")]
@@ -75,6 +91,12 @@ public class OrderResponseDto
 
     [JsonPropertyName("order_status")]
     public string OrderStatus { get; set; } = "Pending";
+
+    [JsonPropertyName("receiver_name")]
+    public string? ReceiverName { get; set; }
+
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
 
     [JsonPropertyName("shipping_address")]
     public string ShippingAddress { get; set; } = string.Empty;

@@ -16,6 +16,8 @@ public class Order : BaseEntity
     public string PaymentMethod { get; set; } = "COD"; // COD | VIETQR
     public string ShippingAddress { get; set; } = string.Empty;
     public string PhoneNumber { get; set; } = string.Empty;
+    public string? ReceiverName { get; set; }
+    public string? Notes { get; set; }
 
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
 }

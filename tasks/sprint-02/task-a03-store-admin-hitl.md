@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Song hành Tác tử Nông nghiệp & Hình thành Hệ thống Toàn diện)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 3 - Tuần 2 (P1 - Hoàn thiện trục nghiệp vụ mua sắm vật tư & kiểm duyệt tri thức)**
 * **Phân hệ**: `frontend/web` & `backend/core-api`
-* **Trạng thái**: `[x] DONE`
+* **Trạng thái**: `[/] ACTIVE (Đang hoàn thiện sau đánh giá TVA ngày 08/11/2026)`
 * **Người phụ trách**: Thành viên A (System, Auth & Web Lead)
 * **Độ ưu tiên**: P1 - Quan trọng nghiệp vụ
 * **Tài liệu tham chiếu chuẩn**:
@@ -93,11 +93,35 @@
 
 | Xong | ID | Mức | Vị trí | Lỗi và hậu quả | Cách sửa và nghiệm thu |
 |---|---|---|---|---|---|
-| [x] | BUG-51 | HIGH | `sample_treatment_seed.json`, `Products` | `IsAllowed`, PHI, liều dùng chưa được đối chiếu từng sản phẩm với danh mục hiện hành, trong khi Store sắp bán các thuốc này. | Đối chiếu với Phụ lục I, II của Thông tư 75/2025/TT-BNNMT và Thông tư 28/2026/TT-BNNMT, ghi nguồn cho từng thuốc. Thuốc chưa đối chiếu thì không mở bán. Quản lý kho thuốc cho phép chỉnh sửa và khóa bán thuốc không hợp lệ. |
+| [ ] | BUG-51 | HIGH | `sample_treatment_seed.json`, `Products` | `IsAllowed`, PHI, liều dùng chưa được đối chiếu từng sản phẩm với danh mục hiện hành, trong khi Store hiển thị thông điệp gây hiểu nhầm. | Đã gỡ bỏ banner "100% Cấp phép lưu hành theo TT 75/2025" trên StorePage; mở lại để tiếp tục đối chiếu từng sản phẩm với Phụ lục I, II của TT 75/2025/TT-BNNMT trước khi chính thức mở bán. |
 | [x] | BUG-52 | MEDIUM | `DiagnosisRecords`, `DiagnoseController.cs` | DB chỉ lưu Top-1, nên W-08 không hiện được Top-3 như lúc khám; nhóm dễ nhầm đang suy từ `class_code`. | Thêm cột lưu Top-3 và `confusion_group`, cập nhật migration và `database-schema.md`. Ca cũ vẫn hiện được. Deserialization trả về frontend đầy đủ. |
-| [x] | BUG-53 | MEDIUM | `/chat`, `AdminDashboard.tsx` | Nút "Nhờ chuyên gia" mới chỉ chuyển sang Trợ lý; chưa tạo được ca cho Admin xử lý (`requires_expert`). | Thêm API gửi ca `POST /diagnose/{id}/request-expert`, `GET /diagnose/escalations`, `PATCH /diagnose/{id}/expert-review` và màn "Thẩm định ca bệnh khó". |
+| [x] | BUG-53 | MEDIUM | `/chat`, `AdminDashboard.tsx`, `HistoryPage.tsx` | Nút "Nhờ Bác sĩ thẩm định" chưa có trên UI Nông dân; phản hồi chuyên gia ghi đè mất ghi chú ban đầu của nông dân. | Thêm nút & modal "Nhờ Bác sĩ thẩm định" ($\le 2000$ ký tự) trên HistoryPage, hiển thị thẻ kết luận chuyên gia; phân tách cột `Notes` (nông dân) và `ExpertNotes` (chuyên gia), bảo tồn 100% câu hỏi ban đầu. |
 | [ ] | BUG-54 | MEDIUM | `frontend/web/package.json` | `react-router-dom` 6.30.6 thuộc khoảng ảnh hưởng của GHSA-wrjc-x8rr-h8h6 (mức moderate); `vite` còn cảnh báo ở môi trường dev. | Nâng `react-router-dom` lên từ 7.18 và nâng `vite` trong một commit riêng, chạy lại các luồng route. `npm audit` không còn cảnh báo production. |
 | [x] | BUG-55 | MEDIUM | `LoginPage`, `RegisterPage`, form A03 | Form chưa dùng `react-hook-form` + `zod`, dữ liệu chưa dùng TanStack Query như `AGENTS.md` quy định. | Áp dụng `react-hook-form` + `zod` schema cho form đặt hàng COD StorePage A03. |
 | [x] | BUG-56 | MEDIUM | `test_task_a01_auth.py`, `test_task_a02_e2e.py` | Test tạo tài khoản và ảnh thật nếu trỏ vào DB chung; chưa kiểm tra trực tiếp hash trong DB. | Tài khoản test tự sinh uuid động theo từng phiên chạy, dọn sạch dữ liệu đơn hàng và cache sau khi kiểm thử. |
 | [x] | BUG-57 | LOW | `DiagnoseController.cs` | `SaveChanges` lỗi sau khi upload vẫn để lại ảnh mồ côi trong MinIO. | Xóa ảnh đã upload qua `IMinioStorageService.DeleteFileAsync` khi ghi DB thất bại. |
 | [ ] | BUG-58 | MEDIUM | App Android (A04) | Server xóa cả thẻ Orientation của EXIF. Client không xoay ảnh trước khi gửi sẽ lưu ảnh nằm ngang. | Android xoay và nén ảnh trước khi upload như `prepare-image.ts`. |
+| [x] | BUG-59 | CRITICAL | `OrdersController.cs` | Race condition dẫn đến bán vượt tồn kho (overselling) khi gửi đồng thời nhiều đơn hàng. | Thay thế việc đọc rồi trừ bằng lệnh SQL atomic `ExecuteUpdateAsync` với điều kiện `StockQuantity >= item.Quantity` trong Transaction; trả 400 và rollback nếu thiếu hàng. Nghiệm thu qua bài test concurrency 10 đơn cho 3 tồn kho. |
+| [x] | BUG-60 | HIGH | `KnowledgeController.cs` | Vượt giới hạn 4 đoạn nguyên văn/URL thông qua biến thể URL (query params, hash, uppercase scheme/domain) và lưu trùng lặp nội dung. | Bổ sung `NormalizeUrl` chuẩn hóa URL toàn diện, khóa đồng thời `SemaphoreSlim` theo từng normalized URL, kiểm tra trùng lặp `EvidenceText` tuyệt đối trong transaction CSDL. |
+| [x] | BUG-61 | HIGH | `KnowledgeController.cs` | Khóa nội bộ `"Lavitree_Internal_Secret_2026_SecureKey"` bị hardcode dự phòng trong 3 vị trí mã nguồn. | Xóa bỏ toàn bộ chuỗi hardcode; triển khai hàm `GetInternalApiKey()` fail-closed (ném ngoại lệ `InvalidOperationException` nếu biến `INTERNAL_API_SECRET` chưa được thiết lập). |
+| [x] | BUG-62 | HIGH | `KnowledgeController.cs` | Endpoint `GET /knowledge/sources` rò rỉ 78 bài viết chưa duyệt và `ReviewerNotes` nội bộ cho khách vãng lai. | Phân tách phân quyền rõ ràng: Khách vãng lai và Nông dân chỉ được xem bài đã duyệt (`IsManualApproved == true`) và ẩn trường nội bộ; chỉ tài khoản Admin mới được xem bài chưa duyệt và filter `isApproved`. |
+| [x] | BUG-63 | MEDIUM | `AdminDashboard.tsx`, `OrdersController.cs`, `test_task_a03_e2e.py` | Timeout frontend 30s ngắn hơn backend 35s; AI tự tick sẵn các đoạn; mất ReceiverName và Notes của đơn hàng; test E2E ghi dữ liệu giả vào Supabase. | Nâng timeout frontend lên 45s; mặc định bỏ tick đoạn trích (`selected: false`); thêm cột `ReceiverName` và `Notes` vào CSDL `Orders` qua migration EF Core; bổ sung chốt chặn từ chối chạy trên Supabase và teardown tự động trong `test_task_a03_e2e.py`. |
+
+### 5.2. Review lần 2 (08/11/2026, Claude Code, chưa commit)
+Kiểm tra trên môi trường riêng (DB nhúng, AI/Agent/S3 giả lập, không dùng Supabase): `dotnet build` 0 lỗi 0 cảnh báo, `tsc` và `npm run build` qua; A03 22/22, A02 16/16, A01 19/19. Chạy lại các phép thử của lần 1: 10 đơn đồng thời với tồn kho 3 chỉ tạo 3 đơn; URL biến thể (`?utm=1`, `http`, chữ hoa, `#x`, `www.`) đều bị chặn; 6 lần lưu đồng thời chỉ tạo 4 dòng, không trùng chữ; khách chỉ thấy bài đã duyệt, không có `reviewerNotes`.
+
+| Xong | ID | Mức | Vị trí | Lỗi và hậu quả | Cách sửa và nghiệm thu |
+|---|---|---|---|---|---|
+| [x] | BUG-64 | MEDIUM | `OrdersController.cs` (`GET /orders/{id}`) | Mã ngắn đưa thẳng vào `LIKE`: `ord-%%%%%%%%` khớp với đơn bất kỳ; Admin xem được SĐT, địa chỉ của đơn ngẫu nhiên. | Chỉ nhận 8–36 ký tự hex/dấu gạch; người không phải Admin chỉ tìm trong đơn của mình. Đã thử: `ord-%%%%%%%%` trả 404 cho cả Admin và nông dân. |
+| [x] | BUG-65 | MEDIUM | `DiagnoseController.cs` (`request-expert`) | Mô tả gửi Bác sĩ ghi đè `Notes`, làm mất ghi chú lúc khám. | Nối thêm sau dòng `[Gửi Bác sĩ]:`, tổng tối đa 4000 ký tự; `HistoryPage` hiển thị bản server trả về. |
+| [x] | BUG-66 | MEDIUM | `StorePage.tsx` | Dòng "Chế phẩm Kiểm định" vẫn khẳng định đã kiểm định khi BUG-51 chưa xong; nhắc tên bộ cũ. | Đổi thành cảnh báo "đang được đối chiếu" và nhắc đọc nhãn, hỏi cán bộ BVTV. |
+| [x] | BUG-67 | LOW | `StorePage.tsx` | Đăng nhập/đăng xuất khi đang mở Store thì giỏ của tài khoản trước bị ghi đè sang tài khoản mới; form nhận số `02…` nhưng backend từ chối. | Nạp lại giỏ theo khóa tài khoản mới; regex SĐT khớp `CreateOrderDto`. |
+| [x] | BUG-68 | MEDIUM | `test_task_a03_e2e.py` | Test 22 luôn ghi SUCCESS ở cả hai nhánh; sao lưu kho chỉ lấy thuốc đang bán nên không khôi phục được thuốc id 5; bước dọn ca chẩn đoán gửi `expert_notes: null` bị 400; chốt Supabase thoát mã 0 như test đạt. | Test 22 kiểm tra thật cả hai ghi chú; sao lưu từ danh sách Admin; báo rõ ca chẩn đoán test còn lại; chốt Supabase thoát mã 2. |
+| [x] | BUG-69 | LOW | `database-schema.md`, `api-contracts.md` | Tài liệu ghi `VARCHAR(n)` trong khi migration tạo `text`; mục 3.8 và 3.6.2 chưa ghi quy tắc mới. | Sửa kiểu cột theo migration, giới hạn ghi theo API; cập nhật 3.8 và 3.6.2. |
+
+Còn mở trước khi đóng A03:
+- BUG-51: đối chiếu từng thuốc với danh mục hiện hành. Thuốc chưa đối chiếu vẫn đang `is_allowed: true` và bán được trên Store.
+- Supabase: xác nhận đã xóa dữ liệu giả của lần chạy test trước (bài `khuyennongvn.gov.vn/benh-suong-mai-ca-chua-*`, ghi chú "50g/16L", đơn và tài khoản `farmer_a03_*`), đã trả tồn kho Ridomil. Chưa kiểm tra được từ phía review.
+- Migration `AddReceiverNameAndNotesToOrder` cần áp lên DB thật khi deploy.
+- Khóa theo URL khi lưu đoạn nguyên văn (`SemaphoreSlim`) chỉ đúng khi chạy 1 instance Core API. Nếu chạy nhiều instance thì cần chuyển sang advisory lock của PostgreSQL hoặc unique index.
+- Chặng 3 "Bỏ duyệt → chat không còn trích đoạn đó" vẫn chưa có test với Agent thật.

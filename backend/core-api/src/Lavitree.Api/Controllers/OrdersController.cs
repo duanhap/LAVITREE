@@ -53,90 +53,109 @@ public class OrdersController : ControllerBase
             return Unauthorized(new { detail = "Phiên làm việc không hợp lệ hoặc đã hết hạn." });
         }
 
-        // Lấy danh sách ProductId để query 1 lần chống N+1
-        var productIds = dto.Items.Select(i => i.ProductId).Distinct().ToList();
-        var products = await _dbContext.Products
-            .Where(p => productIds.Contains(p.Id) && !p.IsDeleted)
-            .ToDictionaryAsync(p => p.Id, cancellationToken);
-
-        decimal totalAmount = 0;
-        var orderItems = new List<OrderItem>();
-        var responseItems = new List<OrderItemResponseDto>();
-
-        foreach (var item in dto.Items)
+        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            if (!products.TryGetValue(item.ProductId, out var product))
+            decimal totalAmount = 0;
+            var orderItems = new List<OrderItem>();
+            var responseItems = new List<OrderItemResponseDto>();
+
+            foreach (var item in dto.Items)
             {
-                return BadRequest(new { detail = $"Không tìm thấy sản phẩm có mã {item.ProductId} trên hệ thống." });
+                var product = await _dbContext.Products
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == item.ProductId && !p.IsDeleted, cancellationToken);
+
+                if (product == null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return BadRequest(new { detail = $"Không tìm thấy sản phẩm có mã {item.ProductId} trên hệ thống." });
+                }
+
+                // Chốt chặn bảo mật SSOT: Tuyệt đối không bán thuốc bị cấm lưu hành (IsAllowed == false)
+                if (!product.IsAllowed)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    _logger.LogWarning("Từ chối đặt mua thuốc không được phép lưu hành: {ProductName} (ID: {ProductId})", product.Name, product.Id);
+                    return BadRequest(new { detail = $"Sản phẩm '{product.Name}' hiện không được phép lưu hành hoặc đã bị đình chỉ theo quy định." });
+                }
+
+                // Trừ tồn kho ATOMIC có điều kiện trực tiếp trên CSDL để chống Race Condition (bán âm kho)
+                var affected = await _dbContext.Products
+                    .Where(p => p.Id == item.ProductId && p.IsAllowed && !p.IsDeleted && p.StockQuantity >= item.Quantity)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(p => p.StockQuantity, p => p.StockQuantity - item.Quantity)
+                        .SetProperty(p => p.UpdatedAt, DateTime.UtcNow), cancellationToken);
+
+                if (affected == 0)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return BadRequest(new { detail = $"Sản phẩm '{product.Name}' không đủ tồn kho để đáp ứng số lượng {item.Quantity}." });
+                }
+
+                var unitPrice = product.Price;
+                totalAmount += unitPrice * item.Quantity;
+
+                orderItems.Add(new OrderItem
+                {
+                    ProductId = product.Id,
+                    Quantity = item.Quantity,
+                    UnitPrice = unitPrice
+                });
+
+                responseItems.Add(new OrderItemResponseDto
+                {
+                    ProductId = product.Id,
+                    ProductName = product.Name,
+                    Quantity = item.Quantity,
+                    UnitPrice = unitPrice
+                });
             }
 
-            // Chốt chặn bảo mật SSOT: Tuyệt đối không bán thuốc bị cấm lưu hành (IsAllowed == false)
-            if (!product.IsAllowed)
+            var order = new Order
             {
-                _logger.LogWarning("Từ chối đặt mua thuốc không được phép lưu hành: {ProductName} (ID: {ProductId})", product.Name, product.Id);
-                return BadRequest(new { detail = $"Sản phẩm '{product.Name}' hiện không được phép lưu hành hoặc đã bị đình chỉ theo quy định." });
-            }
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TotalAmount = totalAmount,
+                Status = "Pending",
+                PaymentMethod = dto.PaymentMethod?.ToUpperInvariant() == "VIETQR" ? "VIETQR" : "COD",
+                ReceiverName = dto.ReceiverName?.Trim(),
+                Notes = dto.Notes?.Trim(),
+                ShippingAddress = dto.ShippingAddress.Trim(),
+                PhoneNumber = dto.PhoneNumber.Trim(),
+                CreatedAt = DateTime.UtcNow,
+                Items = orderItems
+            };
 
-            // Kiểm tra số lượng tồn kho
-            if (product.StockQuantity < item.Quantity)
+            _dbContext.Orders.Add(order);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+
+            _logger.LogInformation("Đã tạo thành công đơn hàng {OrderId} cho User {UserId}, tổng tiền: {TotalAmount:N0} VNĐ", order.Id, userId, totalAmount);
+
+            var response = new OrderResponseDto
             {
-                return BadRequest(new { detail = $"Sản phẩm '{product.Name}' không đủ tồn kho (Còn lại: {product.StockQuantity}, yêu cầu: {item.Quantity})." });
-            }
+                OrderId = $"ord-{order.Id.ToString()[..8]}",
+                TotalAmount = order.TotalAmount,
+                PaymentMethod = order.PaymentMethod,
+                OrderStatus = order.Status,
+                ReceiverName = order.ReceiverName,
+                Notes = order.Notes,
+                ShippingAddress = order.ShippingAddress,
+                PhoneNumber = order.PhoneNumber,
+                CreatedAt = order.CreatedAt,
+                Items = responseItems
+            };
 
-            // Trừ tồn kho và tính tiền theo giá niêm yết trong CSDL
-            product.StockQuantity -= item.Quantity;
-            product.UpdatedAt = DateTime.UtcNow;
-
-            var unitPrice = product.Price;
-            totalAmount += unitPrice * item.Quantity;
-
-            orderItems.Add(new OrderItem
-            {
-                ProductId = product.Id,
-                Quantity = item.Quantity,
-                UnitPrice = unitPrice
-            });
-
-            responseItems.Add(new OrderItemResponseDto
-            {
-                ProductId = product.Id,
-                ProductName = product.Name,
-                Quantity = item.Quantity,
-                UnitPrice = unitPrice
-            });
+            return StatusCode(StatusCodes.Status201Created, response);
         }
-
-        var order = new Order
+        catch (Exception ex)
         {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            TotalAmount = totalAmount,
-            Status = "Pending",
-            PaymentMethod = dto.PaymentMethod?.ToUpperInvariant() == "VIETQR" ? "VIETQR" : "COD",
-            ShippingAddress = dto.ShippingAddress.Trim(),
-            PhoneNumber = dto.PhoneNumber.Trim(),
-            CreatedAt = DateTime.UtcNow,
-            Items = orderItems
-        };
-
-        _dbContext.Orders.Add(order);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation("Đã tạo thành công đơn hàng {OrderId} cho User {UserId}, tổng tiền: {TotalAmount:N0} VNĐ", order.Id, userId, totalAmount);
-
-        var response = new OrderResponseDto
-        {
-            OrderId = $"ord-{order.Id.ToString()[..8]}",
-            TotalAmount = order.TotalAmount,
-            PaymentMethod = order.PaymentMethod,
-            OrderStatus = order.Status,
-            ShippingAddress = order.ShippingAddress,
-            PhoneNumber = order.PhoneNumber,
-            CreatedAt = order.CreatedAt,
-            Items = responseItems
-        };
-
-        return StatusCode(StatusCodes.Status201Created, response);
+            await transaction.RollbackAsync(cancellationToken);
+            _logger.LogError(ex, "Lỗi xảy ra trong quá trình tạo đơn hàng cho User {UserId}", userId);
+            throw;
+        }
     }
 
     /// <summary>
@@ -169,6 +188,8 @@ public class OrdersController : ControllerBase
             TotalAmount = o.TotalAmount,
             PaymentMethod = o.PaymentMethod,
             OrderStatus = o.Status,
+            ReceiverName = o.ReceiverName,
+            Notes = o.Notes,
             ShippingAddress = o.ShippingAddress,
             PhoneNumber = o.PhoneNumber,
             CreatedAt = o.CreatedAt,
@@ -213,18 +234,25 @@ public class OrdersController : ControllerBase
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.Id == parsedGuid && !o.IsDeleted, cancellationToken);
         }
-        else
+        else if (id.StartsWith("ord-", StringComparison.OrdinalIgnoreCase))
         {
-            var cleanId = id.StartsWith("ord-", StringComparison.OrdinalIgnoreCase) ? id[4..] : id;
-            var list = await _dbContext.Orders
-                .Include(o => o.Items)
-                    .ThenInclude(i => i.Product)
-                .Where(o => !o.IsDeleted)
-                .AsNoTracking()
-                .ToListAsync(cancellationToken);
-
-            order = list.FirstOrDefault(o => o.Id.ToString("N").StartsWith(cleanId, StringComparison.OrdinalIgnoreCase) ||
-                                            o.Id.ToString().StartsWith(cleanId, StringComparison.OrdinalIgnoreCase));
+            var cleanId = id[4..].Trim().ToLowerInvariant();
+            // Chỉ nhận hex và dấu gạch (tối đa 36 ký tự của GUID): chặn ký tự đại diện LIKE (% và _) khớp với đơn bất kỳ
+            if (cleanId.Length is >= 8 and <= 36 && cleanId.All(c => Uri.IsHexDigit(c) || c == '-'))
+            {
+                // Truy vấn trực tiếp bằng tiền tố GUID trên CSDL, không nạp toàn bộ bảng lên RAM.
+                // Không phải Admin thì chỉ tìm trong đơn của chính mình, tránh khớp nhầm đơn người khác cùng tiền tố.
+                var prefixQuery = _dbContext.Orders
+                    .Include(o => o.Items)
+                        .ThenInclude(i => i.Product)
+                    .AsNoTracking()
+                    .Where(o => !o.IsDeleted && EF.Functions.Like(o.Id.ToString(), cleanId + "%"));
+                if (!isAdmin)
+                {
+                    prefixQuery = prefixQuery.Where(o => o.UserId == userId);
+                }
+                order = await prefixQuery.FirstOrDefaultAsync(cancellationToken);
+            }
         }
 
         if (order == null)
@@ -244,6 +272,8 @@ public class OrdersController : ControllerBase
             TotalAmount = order.TotalAmount,
             PaymentMethod = order.PaymentMethod,
             OrderStatus = order.Status,
+            ReceiverName = order.ReceiverName,
+            Notes = order.Notes,
             ShippingAddress = order.ShippingAddress,
             PhoneNumber = order.PhoneNumber,
             CreatedAt = order.CreatedAt,

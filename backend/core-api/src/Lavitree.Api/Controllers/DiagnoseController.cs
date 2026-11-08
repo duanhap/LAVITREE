@@ -456,6 +456,10 @@ public class DiagnoseController : ControllerBase
             ClassCode = r.Disease?.ClassCode ?? string.Empty,
             Confidence = r.Confidence,
             IsUncertain = r.IsUncertain,
+            ConfusionGroup = r.ConfusionGroup,
+            RequiresExpert = r.RequiresExpert,
+            ExpertNotes = r.ExpertNotes,
+            ExpertReviewedAt = r.ExpertReviewedAt,
             RecoveryStatus = r.RecoveryStatus ?? "Đang theo dõi",
             Notes = r.Notes,
             OriginalImageUrl = r.OriginalImageUrl,
@@ -629,6 +633,9 @@ public class DiagnoseController : ControllerBase
             IsUncertain = record.IsUncertain,
             Warning = warningMessage,
             Notes = record.Notes,
+            RequiresExpert = record.RequiresExpert,
+            ExpertNotes = record.ExpertNotes,
+            ExpertReviewedAt = record.ExpertReviewedAt,
             Result = new DiagnoseResultDataDto
             {
                 PlantName = disease?.Plant?.Name ?? "Cây trồng",
@@ -659,6 +666,13 @@ public class DiagnoseController : ControllerBase
     {
         [System.Text.Json.Serialization.JsonPropertyName("farmer_notes")]
         public string? FarmerNotes { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("notes")]
+        public string? Notes
+        {
+            get => FarmerNotes;
+            set { if (!string.IsNullOrWhiteSpace(value)) FarmerNotes = value; }
+        }
     }
 
     /// <summary>
@@ -686,13 +700,25 @@ public class DiagnoseController : ControllerBase
             return Forbid();
         }
 
-        record.RequiresExpert = true;
-        if (!string.IsNullOrWhiteSpace(dto.FarmerNotes))
+        var farmerNotes = dto.FarmerNotes?.Trim();
+        if (!string.IsNullOrWhiteSpace(farmerNotes) && farmerNotes.Length > 2000)
         {
-            record.ExpertNotes = string.IsNullOrWhiteSpace(record.ExpertNotes)
-                ? $"[Nông dân]: {dto.FarmerNotes.Trim()}"
-                : $"{record.ExpertNotes}\n[Nông dân]: {dto.FarmerNotes.Trim()}";
+            return BadRequest(new { detail = "Mô tả của nông dân không được vượt quá 2000 ký tự." });
         }
+
+        if (!string.IsNullOrWhiteSpace(farmerNotes))
+        {
+            // Nối mô tả gửi Bác sĩ vào sau ghi chú lúc khám (không ghi đè Notes ban đầu, không đụng ExpertNotes)
+            var combined = string.IsNullOrWhiteSpace(record.Notes)
+                ? farmerNotes
+                : $"{record.Notes}\n\n[Gửi Bác sĩ]: {farmerNotes}";
+            if (combined.Length > 4000)
+            {
+                return BadRequest(new { detail = "Ghi chú của ca bệnh đã quá dài (tối đa 4000 ký tự). Vui lòng rút gọn mô tả." });
+            }
+            record.Notes = combined;
+        }
+        record.RequiresExpert = true;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -700,6 +726,7 @@ public class DiagnoseController : ControllerBase
         {
             diagnosis_id = record.Id,
             requires_expert = true,
+            farmer_notes = record.Notes,
             message = "Đã gửi thông tin ca bệnh tới Bác sĩ Cây trồng phụ trách khu vực."
         });
     }
@@ -711,7 +738,15 @@ public class DiagnoseController : ControllerBase
     [HttpGet("escalations")]
     public async Task<IActionResult> GetEscalations(CancellationToken cancellationToken)
     {
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
+        var hasValidKey = AdminApiKeyAuthAttribute.HasValidKey(Request);
+        var isAuthenticated = User.Identity?.IsAuthenticated == true;
+
+        if (!isAuthenticated && !hasValidKey)
+        {
+            return Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
+        }
+
+        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || hasValidKey;
         if (!isAdmin)
         {
             return Forbid();
@@ -736,6 +771,7 @@ public class DiagnoseController : ControllerBase
                 r.OriginalImageUrl,
                 r.GradCamImageUrl,
                 r.Notes,
+                FarmerNotes = r.Notes,
                 r.ExpertNotes,
                 r.ExpertReviewedAt,
                 r.CreatedAt
@@ -758,10 +794,29 @@ public class DiagnoseController : ControllerBase
     [HttpPatch("{id:guid}/expert-review")]
     public async Task<IActionResult> ReviewEscalation(Guid id, [FromBody] ExpertReviewDto dto, CancellationToken cancellationToken)
     {
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
+        var hasValidKey = AdminApiKeyAuthAttribute.HasValidKey(Request);
+        var isAuthenticated = User.Identity?.IsAuthenticated == true;
+
+        if (!isAuthenticated && !hasValidKey)
+        {
+            return Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
+        }
+
+        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || hasValidKey;
         if (!isAdmin)
         {
             return Forbid();
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.ExpertNotes))
+        {
+            return BadRequest(new { detail = "Ghi chú kết luận của chuyên gia không được để trống." });
+        }
+
+        var trimmedNotes = dto.ExpertNotes.Trim();
+        if (trimmedNotes.Length > 2000)
+        {
+            return BadRequest(new { detail = "Ghi chú kết luận của chuyên gia không được vượt quá 2000 ký tự." });
         }
 
         var record = await _dbContext.DiagnosisRecords.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
@@ -770,7 +825,8 @@ public class DiagnoseController : ControllerBase
             return NotFound(new { detail = "Không tìm thấy hồ sơ chẩn đoán." });
         }
 
-        record.ExpertNotes = dto.ExpertNotes;
+        // Lưu phản hồi của chuyên gia, bảo toàn nguyên vẹn Notes của nông dân
+        record.ExpertNotes = trimmedNotes;
         record.ExpertReviewedAt = DateTime.UtcNow;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -778,6 +834,7 @@ public class DiagnoseController : ControllerBase
         return Ok(new
         {
             diagnosis_id = record.Id,
+            farmer_notes = record.Notes,
             expert_notes = record.ExpertNotes,
             expert_reviewed_at = record.ExpertReviewedAt
         });

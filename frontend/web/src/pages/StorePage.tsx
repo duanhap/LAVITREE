@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import {
-  ShoppingBag, Search, Filter, ShieldCheck, CheckCircle2,
+  ShoppingBag, Search, Filter, CheckCircle2,
   AlertTriangle, Plus, Minus, Trash2, ArrowRight, Truck,
   Clock, Package, Leaf, FlaskConical, X, ShoppingCart
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuth } from '@/context/AuthContext';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +43,8 @@ interface CartItem {
 // Validation schema theo chuẩn BUG-55
 const checkoutSchema = z.object({
   receiver_name: z.string().min(2, 'Họ và tên người nhận tối thiểu 2 ký tự.'),
-  phone_number: z.string().regex(/^0\d{9}$/, 'Số điện thoại gồm 10 chữ số bắt đầu bằng số 0.'),
+  // Khớp RegularExpression của CreateOrderDto (OrderDtos.cs): di động Việt Nam 03/05/07/08/09
+  phone_number: z.string().regex(/^0[35789]\d{8}$/, 'Số di động Việt Nam gồm 10 chữ số, bắt đầu bằng 03, 05, 07, 08 hoặc 09.'),
   shipping_address: z.string().min(5, 'Địa chỉ giao hàng tối thiểu 5 ký tự (Thôn/Xã, Huyện, Tỉnh).'),
   notes: z.string().max(300, 'Ghi chú tối đa 300 ký tự.').optional(),
 });
@@ -51,6 +54,8 @@ type CheckoutFormData = z.infer<typeof checkoutSchema>;
 export const StorePage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const initialDisease = searchParams.get('disease') || '';
+  const { user } = useAuth();
+  const cartStorageKey = user?.id ? `lavitree_cart_${user.id}` : 'lavitree_cart_guest';
 
   // State danh mục
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -64,15 +69,18 @@ export const StorePage: React.FC = () => {
   const [rainFilter, setRainFilter] = useState(false);
   const [selectedDisease, setSelectedDisease] = useState(initialDisease);
 
-  // Giỏ hàng (Cart)
-  const [cart, setCart] = useState<CartItem[]>(() => {
+  // Giỏ hàng (Cart) theo người dùng
+  const loadCart = (key: string): CartItem[] => {
     try {
-      const saved = localStorage.getItem('lavitree_cart');
+      const saved = localStorage.getItem(key);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
-  });
+  };
+  const [cart, setCart] = useState<CartItem[]>(() => loadCart(cartStorageKey));
+  // Khóa giỏ đang hiển thị; khi đăng nhập/đăng xuất thì nạp giỏ của tài khoản mới thay vì ghi đè giỏ cũ sang
+  const loadedCartKeyRef = useRef(cartStorageKey);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   // Đặt hàng (Checkout)
@@ -96,14 +104,19 @@ export const StorePage: React.FC = () => {
     },
   });
 
-  // Lưu giỏ hàng vào localStorage
+  // Lưu giỏ hàng vào localStorage theo người dùng
   useEffect(() => {
+    if (loadedCartKeyRef.current !== cartStorageKey) {
+      loadedCartKeyRef.current = cartStorageKey;
+      setCart(loadCart(cartStorageKey));
+      return;
+    }
     try {
-      localStorage.setItem('lavitree_cart', JSON.stringify(cart));
+      localStorage.setItem(cartStorageKey, JSON.stringify(cart));
     } catch {
       // ignore
     }
-  }, [cart]);
+  }, [cart, cartStorageKey]);
 
   // Tải danh mục thuốc
   useEffect(() => {
@@ -217,8 +230,9 @@ export const StorePage: React.FC = () => {
       setCart([]);
       reset();
       setIsCheckoutOpen(false);
+      toast.success('Đặt hàng thành công! Đơn hàng đang được chuẩn bị đóng gói.');
     } catch (err) {
-      alert(getErrorMessage(err));
+      toast.error(getErrorMessage(err));
     } finally {
       setOrderSubmitting(false);
     }
@@ -230,11 +244,12 @@ export const StorePage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 pb-6 border-b border-border">
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold text-xs px-2.5 py-0.5">
-              <ShieldCheck className="w-3.5 h-3.5 mr-1" />
-              100% Cấp phép lưu hành &amp; Chuẩn PHI
+            {/* BUG-51 chưa đóng: danh mục chưa đối chiếu xong với Phụ lục TT 75/2025/TT-BNNMT, không được khẳng định "đã kiểm định" */}
+            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 font-semibold text-xs px-2.5 py-0.5">
+              <AlertTriangle className="w-3.5 h-3.5 mr-1" />
+              Danh mục đang được đối chiếu với danh mục thuốc BVTV hiện hành
             </Badge>
-            <span className="text-xs text-muted-foreground">Theo Thông tư 75/2025/TT-BNNMT</span>
+            <span className="text-xs text-muted-foreground">Đọc kỹ nhãn thuốc và hỏi cán bộ BVTV địa phương trước khi dùng</span>
           </div>
           <h1 className="text-3xl font-extrabold text-foreground tracking-tight sm:text-4xl">
             Cửa hàng Vật tư Nông nghiệp Lavitree

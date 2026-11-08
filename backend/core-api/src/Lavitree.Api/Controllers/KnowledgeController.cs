@@ -14,6 +14,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+using System.Web;
 using Lavitree.Api.Filters;
 using Lavitree.Application.DTOs;
 using Lavitree.Domain.Entities;
@@ -25,6 +27,7 @@ namespace Lavitree.Api.Controllers;
 [Route("api/v1/[controller]")]
 public class KnowledgeController : ControllerBase
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _urlLocks = new();
     private readonly LavitreeDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IMemoryCache _memoryCache;
@@ -318,12 +321,33 @@ public class KnowledgeController : ControllerBase
 
     // 3. GET /api/v1/knowledge/sources
     [HttpGet("sources")]
-    public async Task<IActionResult> GetSources([FromQuery] string? modelClass, [FromQuery] string? search)
+    public async Task<IActionResult> GetSources(
+        [FromQuery] string? modelClass, 
+        [FromQuery] string? search,
+        [FromQuery] bool? isApproved,
+        CancellationToken cancellationToken)
     {
+        var isAdmin = IsAdminUser(out _);
+
+        // Khách/Nông dân không có quyền lọc hoặc xem bài chưa duyệt
+        if (!isAdmin && isApproved == false)
+        {
+            return Forbid();
+        }
+
         var query = _dbContext.KnowledgeSources
             .Where(s => !s.IsDeleted)
             .OrderByDescending(s => s.CreatedAt)
             .AsNoTracking();
+
+        if (!isAdmin)
+        {
+            query = query.Where(s => s.IsManualApproved);
+        }
+        else if (isApproved.HasValue)
+        {
+            query = query.Where(s => s.IsManualApproved == isApproved.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(modelClass))
         {
@@ -338,7 +362,33 @@ public class KnowledgeController : ControllerBase
                                      s.PlantName.Contains(search));
         }
 
-        var list = await query.ToListAsync();
+        if (!isAdmin)
+        {
+            // Trả về DTO công khai, ẩn ReviewerNotes và các trường quản trị nội bộ
+            var publicList = await query.Select(s => new
+            {
+                s.Id,
+                s.ModelClass,
+                s.PlantName,
+                s.DiseaseName,
+                s.SourceUrl,
+                s.SourceTitle,
+                s.Organization,
+                s.PublishedDate,
+                s.MatchLevel,
+                s.SourceScope,
+                s.EvidenceText,
+                s.ContentType,
+                s.UnitType,
+                s.IsVerbatim,
+                s.SourceQuality,
+                s.CreatedAt
+            }).ToListAsync(cancellationToken);
+
+            return Ok(publicList);
+        }
+
+        var list = await query.ToListAsync(cancellationToken);
         return Ok(list);
     }
 
@@ -697,81 +747,101 @@ public class KnowledgeController : ControllerBase
             chosenParagraphs.Add((sel.ParagraphId, para.Text, sel.UnitType.ToUpperInvariant()));
         }
 
-        // Kiểm tra số lượng đoạn nguyên văn đã lưu trong CSDL của URL này
-        var trimmedUrl = session.SourceUrl.Trim().TrimEnd('/');
-        var existingVerbatim = await _dbContext.KnowledgeSources
-            .Where(s => !s.IsDeleted && s.IsVerbatim && 
-                       (s.SourceUrl.Trim().ToLower() == trimmedUrl.ToLower() || 
-                        s.SourceUrl.Trim().TrimEnd('/').ToLower() == trimmedUrl.ToLower()))
-            .ToListAsync();
-
-        if (existingVerbatim.Count + chosenParagraphs.Count > 4)
+        // Kiểm tra số lượng đoạn nguyên văn đã lưu trong CSDL của URL này (chuẩn hoá)
+        var normalizedUrl = NormalizeUrl(session.SourceUrl);
+        var urlLock = _urlLocks.GetOrAdd(normalizedUrl, _ => new SemaphoreSlim(1, 1));
+        await urlLock.WaitAsync();
+        try
         {
-            return BadRequest(new { detail = $"URL này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 4 đoạn nguyên văn cho mỗi URL." });
-        }
+            using var transaction = await _dbContext.Database.BeginTransactionAsync();
 
-        var createdSources = new List<KnowledgeSource>();
-        var now = DateTime.UtcNow;
+            var allVerbatim = await _dbContext.KnowledgeSources
+                .Where(s => !s.IsDeleted && s.IsVerbatim)
+                .ToListAsync();
 
-        foreach (var (pId, text, unitType) in chosenParagraphs)
-        {
-            // Bỏ qua nếu đoạn trùng chữ 100% với một đoạn đã lưu của cùng source_url
-            if (existingVerbatim.Any(e => e.EvidenceText.Trim() == text.Trim()))
+            var existingVerbatim = allVerbatim
+                .Where(s => NormalizeUrl(s.SourceUrl) == normalizedUrl)
+                .ToList();
+
+            if (existingVerbatim.Count + chosenParagraphs.Count > 4)
             {
-                continue;
+                await transaction.RollbackAsync();
+                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 4 đoạn nguyên văn cho mỗi URL theo quy định trích dẫn hợp lý (Điều 25 Luật SHTT)." });
             }
 
-            var contentType = unitType switch
+            var createdSources = new List<KnowledgeSource>();
+            var now = DateTime.UtcNow;
+
+            foreach (var (pId, text, unitType) in chosenParagraphs)
             {
-                "SYMPTOMS" => "Triệu chứng",
-                "CAUSE_CONDITIONS" => "Nguyên nhân & Điều kiện phát sinh",
-                "PREVENTION" => "Biện pháp phòng ngừa",
-                "TREATMENT" => "Biện pháp điều trị",
-                _ => unitType
-            };
+                var cleanText = text.Trim();
+                // Bỏ qua nếu đoạn trùng chữ 100% với một đoạn đã lưu của cùng URL
+                if (existingVerbatim.Any(e => e.EvidenceText.Trim().Equals(cleanText, StringComparison.OrdinalIgnoreCase)) ||
+                    createdSources.Any(c => c.EvidenceText.Trim().Equals(cleanText, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
 
-            var source = new KnowledgeSource
+                var contentType = unitType switch
+                {
+                    "SYMPTOMS" => "Triệu chứng",
+                    "CAUSE_CONDITIONS" => "Nguyên nhân & Điều kiện phát sinh",
+                    "PREVENTION" => "Biện pháp phòng ngừa",
+                    "TREATMENT" => "Biện pháp điều trị",
+                    _ => unitType
+                };
+
+                var source = new KnowledgeSource
+                {
+                    Id = Guid.NewGuid(),
+                    ModelClass = session.ModelClass,
+                    PlantName = session.PlantName,
+                    DiseaseName = session.DiseaseName,
+                    SourceUrl = normalizedUrl, // Lưu URL đã chuẩn hóa
+                    SourceTitle = session.SourceTitle,
+                    Organization = session.Organization,
+                    PublishedDate = session.PublishedDate ?? "Không ghi ngày",
+                    MatchLevel = "Khớp trực tiếp",
+                    SourceScope = "Việt Nam",
+                    EvidenceText = text, // 100% nguyên văn từ bản lưu tạm
+                    ContentType = contentType,
+                    UnitType = unitType,
+                    IsVerbatim = true,
+                    IsManualApproved = true, // Tick = Duyệt
+                    SourceQuality = "Duyệt nguyên văn (HITL)",
+                    ReviewerNotes = dto.ReviewerNotes ?? "Duyệt trích dẫn nguyên văn từ bài báo",
+                    HasCultivationTechnique = false,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                createdSources.Add(source);
+            }
+
+            if (createdSources.Count == 0)
             {
-                Id = Guid.NewGuid(),
-                ModelClass = session.ModelClass,
-                PlantName = session.PlantName,
-                DiseaseName = session.DiseaseName,
-                SourceUrl = session.SourceUrl,
-                SourceTitle = session.SourceTitle,
-                Organization = session.Organization,
-                PublishedDate = session.PublishedDate ?? "Không ghi ngày",
-                MatchLevel = "Khớp trực tiếp",
-                SourceScope = "Việt Nam",
-                EvidenceText = text, // 100% nguyên văn từ bản lưu tạm
-                ContentType = contentType,
-                UnitType = unitType,
-                IsVerbatim = true,
-                IsManualApproved = true, // Tick = Duyệt
-                SourceQuality = "Duyệt nguyên văn (HITL)",
-                ReviewerNotes = dto.ReviewerNotes ?? "Duyệt trích dẫn nguyên văn từ bài báo",
-                HasCultivationTechnique = false,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
+                await transaction.RollbackAsync();
+                return BadRequest(new { detail = "Tất cả các đoạn bạn chọn đều đã tồn tại trong CSDL cho bài viết này." });
+            }
 
-            createdSources.Add(source);
-        }
-
-        if (createdSources.Count > 0)
-        {
             _dbContext.KnowledgeSources.AddRange(createdSources);
             await _dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            // Tự động gọi webhook reindex Agent Service
+            var reindexStatus = await TriggerReindexAsync(null, "approve");
+
+            return StatusCode(StatusCodes.Status201Created, new CommitIngestionResponseDto
+            {
+                CreatedSourceIds = createdSources.Select(s => s.Id.ToString()).ToList(),
+                VerbatimCountForUrl = existingVerbatim.Count + createdSources.Count,
+                ReindexStatus = reindexStatus
+            });
         }
-
-        // Tự động gọi webhook reindex Agent Service
-        var reindexStatus = await TriggerReindexAsync(null, "approve");
-
-        return StatusCode(StatusCodes.Status201Created, new CommitIngestionResponseDto
+        finally
         {
-            CreatedSourceIds = createdSources.Select(s => s.Id.ToString()).ToList(),
-            VerbatimCountForUrl = existingVerbatim.Count + createdSources.Count,
-            ReindexStatus = reindexStatus
-        });
+            urlLock.Release();
+        }
     }
 
     // 4.5. GET /api/v1/knowledge/reindex-status (Xem trạng thái reindex của Agent Service)
@@ -786,9 +856,7 @@ public class KnowledgeController : ControllerBase
         try
         {
             var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
-            var internalKey = Environment.GetEnvironmentVariable("INTERNAL_API_SECRET")
-                           ?? _configuration["InternalApi:Secret"]
-                           ?? "Lavitree_Internal_Secret_2026_SecureKey";
+            var internalKey = GetInternalApiKey();
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             using var request = new HttpRequestMessage(HttpMethod.Get, "/internal/reindex/status");
@@ -908,9 +976,7 @@ public class KnowledgeController : ControllerBase
         try
         {
             var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
-            var internalKey = Environment.GetEnvironmentVariable("INTERNAL_API_SECRET")
-                           ?? _configuration["InternalApi:Secret"]
-                           ?? "Lavitree_Internal_Secret_2026_SecureKey";
+            var internalKey = GetInternalApiKey();
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/reindex")
@@ -945,16 +1011,21 @@ public class KnowledgeController : ControllerBase
         var labelMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
+            // CHỈ GỬI các đoạn có Text.Length <= 800 ký tự (các đoạn dài hơn không được chọn theo quy định và sẽ làm Agent 422)
+            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 800).ToList();
+            if (eligibleParagraphs.Count == 0)
+            {
+                return labelMap;
+            }
+
             var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
-            var internalKey = Environment.GetEnvironmentVariable("INTERNAL_API_SECRET")
-                           ?? _configuration["InternalApi:Secret"]
-                           ?? "Lavitree_Internal_Secret_2026_SecureKey";
+            var internalKey = GetInternalApiKey();
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(35));
             var reqPayload = new AgentLabelParagraphsRequest
             {
                 ModelClass = modelClass,
-                Paragraphs = paragraphs.Select(p => new AgentParagraphItem { Id = p.Id, Text = p.Text }).ToList()
+                Paragraphs = eligibleParagraphs.Select(p => new AgentParagraphItem { Id = p.Id, Text = p.Text }).ToList()
             };
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/knowledge/label-paragraphs")
@@ -989,5 +1060,68 @@ public class KnowledgeController : ControllerBase
         }
 
         return labelMap;
+    }
+
+    private string GetInternalApiKey()
+    {
+        var key = Environment.GetEnvironmentVariable("INTERNAL_API_SECRET")
+               ?? _configuration["InternalApi:Secret"]
+               ?? _configuration["INTERNAL_API_SECRET"];
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new InvalidOperationException("Biến môi trường INTERNAL_API_SECRET chưa được cấu hình. Hệ thống từ chối thực hiện tác vụ nội bộ theo nguyên tắc Fail-Closed.");
+        }
+
+        return key;
+    }
+
+    public static string NormalizeUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+        url = url.Trim();
+
+        var hashIdx = url.IndexOf('#');
+        if (hashIdx >= 0)
+        {
+            url = url[..hashIdx];
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url.Trim().TrimEnd('/').ToLowerInvariant();
+        }
+
+        var scheme = "https";
+        var host = uri.Host.ToLowerInvariant();
+        if (host.StartsWith("www."))
+        {
+            host = host[4..];
+        }
+        var port = (uri.Port == 80 || uri.Port == 443 || uri.IsDefaultPort) ? "" : $":{uri.Port}";
+        var path = uri.AbsolutePath.TrimEnd('/');
+
+        var query = uri.Query;
+        if (!string.IsNullOrEmpty(query))
+        {
+            var queryParams = HttpUtility.ParseQueryString(query);
+            var trackingKeys = queryParams.AllKeys
+                .Where(k => string.IsNullOrWhiteSpace(k) ||
+                            k.StartsWith("utm", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("fbclid", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("gclid", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("ref", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("source", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var k in trackingKeys)
+            {
+                queryParams.Remove(k);
+            }
+
+            query = queryParams.Count > 0 ? "?" + queryParams.ToString() : "";
+        }
+
+        return $"{scheme}://{host}{port}{path}{query}".TrimEnd('/');
     }
 }

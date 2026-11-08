@@ -181,21 +181,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         organization: ingestOrg.trim(),
         published_date: ingestDate.trim(),
         article_text: ingestText.trim(),
-      });
+      }, { timeout: 45000 });
 
       setIngestionResult(res.data);
 
-      // Khởi tạo state chọn đoạn với gợi ý từ AI
+      // Khởi tạo state chọn đoạn: MẶC ĐỊNH KHÔNG TICK ĐOẠN NÀO ĐỂ ADMIN ĐỌC VÀ CHỦ ĐỘNG DUYỆT (Mục 10)
       const initialMap: Record<string, { selected: boolean; unitType: string }> = {};
-      let autoSelectedCount = 0;
 
       res.data.paragraphs.forEach((p) => {
-        const hasSuggestion = !!p.suggested_unit_type;
-        const autoPick = hasSuggestion && autoSelectedCount < 4;
-        if (autoPick) autoSelectedCount++;
-
         initialMap[p.id] = {
-          selected: autoPick,
+          selected: false,
           unitType: p.suggested_unit_type || 'SYMPTOMS',
         };
       });
@@ -240,8 +235,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         reviewer_notes: commitNotes.trim(),
       });
 
+      const reindexText = res.data.reindex_status === 'accepted' ? 'Đang đồng bộ vector nền' : (res.data.reindex_status === 'failed' ? 'Lỗi kết nối đồng bộ' : res.data.reindex_status);
       toast.success(
-        `Đã lưu và duyệt ${res.data.created_source_ids?.length || selections.length} đoạn nguyên văn vào CSDL. Reindex: ${res.data.reindex_status}.`
+        `Đã lưu và duyệt ${res.data.created_source_ids?.length || selections.length} đoạn nguyên văn vào CSDL (${reindexText}).`
       );
 
       // Reset form
