@@ -28,6 +28,16 @@ fun DiagnosisResultScreen(
     result: DiagnosisResponse,
     onBack: () -> Unit
 ) {
+    // Khớp api-contracts.md Mục 3.1: thông tin bệnh nằm trong "result", ảnh nằm trong "visual_evidence"
+    val info = result.result
+    val diseaseName = info?.diseaseName ?: info?.classCode ?: "Chưa xác định"
+    val classCode = info?.classCode ?: ""
+    val confidence = info?.confidence ?: 0f
+    val isHealthy = classCode.endsWith("healthy")
+    val originalUrl = result.visualEvidence?.originalImageUrl
+    val gradcamUrl = result.visualEvidence?.gradcamImageUrl
+    val steps = result.treatmentGuidelines.orEmpty()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -58,7 +68,7 @@ fun DiagnosisResultScreen(
                         Icon(Icons.Default.Warning, contentDescription = null, tint = WarningAmber)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = result.warningMessage ?: "Độ tin cậy dưới 70%. Khuyên bạn nên chụp lại góc rõ hơn!",
+                            text = (result.warning ?: info?.warning) ?: "Độ tin cậy dưới 70%. Khuyên bạn nên chụp lại góc rõ hơn!",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -73,22 +83,22 @@ fun DiagnosisResultScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = result.diseaseNameVi,
+                        text = diseaseName,
                         fontSize = 20.sp,
                         style = MaterialTheme.typography.titleLarge,
-                        color = if (result.isHealthy) ForestGreen else DangerRed
+                        color = if (isHealthy) ForestGreen else DangerRed
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = "Cây: ${result.plantName} (${result.classCode})", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "Cây: ${info?.plantName ?: "Chưa rõ"} ($classCode)", style = MaterialTheme.typography.bodyMedium)
                     Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(
-                        progress = { result.confidence },
+                        progress = { confidence },
                         modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                        color = if (result.confidence > 0.7f) ForestGreen else WarningAmber
+                        color = if (confidence > 0.7f) ForestGreen else WarningAmber
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Độ tin cậy AI: ${(result.confidence * 100).toInt()}%",
+                        text = "Độ tin cậy AI: ${(confidence * 100).toInt()}%",
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
@@ -102,7 +112,7 @@ fun DiagnosisResultScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     AsyncImage(
-                        model = result.originalImageUrl,
+                        model = originalUrl,
                         contentDescription = "Ảnh gốc",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.height(140.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -111,7 +121,7 @@ fun DiagnosisResultScreen(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     AsyncImage(
-                        model = result.gradCamImageUrl ?: result.originalImageUrl,
+                        model = gradcamUrl ?: originalUrl,
                         contentDescription = "Bản đồ nhiệt Grad-CAM",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.height(140.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -122,19 +132,19 @@ fun DiagnosisResultScreen(
 
             // IPM Treatment & Care Guidelines
             Text("Hướng Dẫn Xử Lý Chuẩn Khuyến Nông (IPM)", style = MaterialTheme.typography.titleMedium)
-            result.treatmentSteps.forEach { step ->
+            steps.forEach { step ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "Bước ${step.stepOrder}: ${step.actionTitle}",
+                            text = "Bước ${step.stepOrder}: ${step.actionTitle ?: ""}",
                             style = MaterialTheme.typography.titleSmall,
                             color = ForestGreen
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = step.instructions, style = MaterialTheme.typography.bodySmall)
+                        Text(text = step.instructions ?: "", style = MaterialTheme.typography.bodySmall)
                         if (!step.isolationDays.isNullOrEmpty()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(

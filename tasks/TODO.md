@@ -87,17 +87,17 @@
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[/] ACTIVE / ĐANG HOÀN THIỆN SAU ĐÁNH GIÁ TVA` (Đã xử lý 15 lỗi đánh giá: chống oversell atomic, chuẩn hóa URL & lock 4 đoạn, loại bỏ secret hardcode, phân tách bảo mật tri thức công khai, bổ sung giao diện Bác sĩ & ca bệnh khó, dọn sạch dữ liệu test Supabase, cập nhật tài liệu database-schema.md & api-contracts.md)
   - Đầu ra: Trang Cửa hàng Lavitree Store xem thuốc, giỏ hàng, đặt hàng COD giả lập (`POST /api/v1/orders`); Chức năng chính Cổng Admin (`AdminDashboard.tsx`): Nhập bài báo dán văn bản + URL (`POST /ingestions`) $\rightarrow$ AI gợi ý nhãn $\rightarrow$ Admin tick tối đa 4 đoạn ngắn ($\le 800$ ký tự) $\rightarrow$ Core lấy chữ từ RAM lưu nguyên văn (`POST /commit` gán `UnitType`, `IsVerbatim = true`, `IsManualApproved = true`), migration C# gỡ unique `(ModelClass, SourceUrl)` và thêm cột, sửa duplicate check trong `KnowledgeController.cs`, bảng quản lý kho thuốc (`IsAllowed`, `PhiDays`), gắn cờ ca bệnh khó `requires_expert`.
-- [ ] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
+- [/] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] ACTIVE` (Review 08/11/2026: Web Chat đã sửa và chạy thử với Agent giả lập, chưa chạy với Agent thật; Android chưa build được vì thiếu `gradle-wrapper.jar` — BUG-101. Chi tiết mục 5.2 của file task.)
   - Đầu ra: Khung Chat Trợ lý AI trên Web Portal nhận stream SSE mượt mà từ Task 08 của B; khởi tạo base project Android Native (`mobile/android/`) bằng Kotlin & Jetpack Compose, dựng trước khung 2 màn hình chính (Khám lá & Chat).
-  - Việc chuyển sang từ A02/A03: mục 5.1 của `tasks/sprint-02/task-a04-sse-chat-android-init.md` (BUG-58, BUG-81 → BUG-85).
+  - Việc chuyển sang từ A02/A03: Đã xử lý triệt để BUG-58, BUG-81 → BUG-85.
 
 ### 🤝 Việc chung Thành viên A & B:
 - [ ] **TASK-S2-BONUS: Dọn việc tồn Sprint 2 & Nghiệm thu chéo TVA – TVB** *(P0 cho nhóm bắt buộc trước deploy)*
   - Trách nhiệm: **Thành viên A** (Core API, Web, hạ tầng) & **Thành viên B** (Agent, RAG, Gemini); người làm không tự nghiệm thu dòng của mình.
   - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Đóng các dòng còn mở của A02/A03 và review 08/11/2026: đổi mật khẩu admin và `JWT_SECRET_KEY` trên production, kiểm tra Secret `ENV_PRODUCTION`, dọn dữ liệu test có thể đã vào Supabase, xác nhận migration, đối chiếu danh mục thuốc (BUG-51), nghiệm thu chéo duyệt/bỏ duyệt → chat và nhập bài với Gemini thật, các lỗi bảo mật và hạ tầng còn lại. Chi tiết: `tasks/sprint-02/task-s2-bonus-hardening-acceptance.md`; mục 3.7 cho Agent: sửa dữ liệu Trichoderma, duyệt tri thức Ca 3–4, benchmark 15/15 với Core thật, tài khoản CSDL chỉ đọc, quota Gemini và mục tiêu thời gian phản hồi.
+  - Đầu ra: Đóng các dòng còn mở của A02/A03 và review 08/11/2026: đổi mật khẩu admin và `JWT_SECRET_KEY` trên production, kiểm tra Secret `ENV_PRODUCTION`, dọn dữ liệu test có thể đã vào Supabase, xác nhận migration, đối chiếu danh mục thuốc (BUG-51), nghiệm thu chéo duyệt/bỏ duyệt → chat và nhập bài với Gemini thật, các lỗi bảo mật và hạ tầng còn lại. Chi tiết: `tasks/sprint-02/task-s2-bonus-hardening-acceptance.md`; mục 3.7 cho Agent: sửa dữ liệu Trichoderma, duyệt tri thức Ca 3–4, benchmark 15/15 với Core thật, tài khoản CSDL chỉ đọc, quota Gemini và mục tiêu thời gian phản hồi. Thêm các việc còn mở của TASK-07/08 (mục 3.7) và TASK-A04 (mục 3.8: build và chạy app Android, Web Chat với Agent thật, `draft_order`).
 
 ---
 
