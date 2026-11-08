@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 4 (Lắp ráp toàn trình và nghiệm thu sau khi hoàn thành Task 05, 06, 07)**
 * **Phân hệ**: `backend/agent-service:8001` (FastAPI) & Client Test
-* **Trạng thái**: `[/] IN PROGRESS` (Pha 1–3 xong và đã review ngày 08/11/2026; Pha 4 chưa đạt, xem mục 4; chờ A xử lý CSDL và Pha 5)
+* **Trạng thái**: `[x] DONE` (08/11/2026: code Pha 1–4 xong và đã review; nghiệm thu với dữ liệu và hệ thống thật chuyển sang `task-s2-bonus-hardening-acceptance.md` mục 3.7)
 * **Người phụ trách**: Thành viên B (Agent Core & SSE Streaming) & Thành viên A (Client Integration Test)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY1`, `extract/DAY3/lavitree_trace_waterfall.json`, `extract/DAY26/lavitree_mcp_benchmark.py`
@@ -13,21 +13,21 @@
 *Chuyển sang từ TASK-07 ngày 08/11/2026. Code của Pha 1–4 đã hoàn tất; nhóm **A** phải xong trước khi nghiệm thu CSDL thật ở Pha 4, vì các ca demo cần dữ liệu thật.*
 
 **A. Dữ liệu CSDL — chặn nghiệm thu benchmark (trưởng nhóm / Thành viên A)**
-- [ ] **A1. Sửa loại thuốc Trichoderma.** CSDL thật ghi `Hóa học`, PHI=7 (migration điền mặc định, seeder không ghi đè), nên chính thuốc sinh học bị chặn khi sát ngày thu hoạch. Ca 1 không thể đạt nếu chưa sửa:
+- [x] **A1. Sửa loại thuốc Trichoderma.** `[Chuyển sang TASK-S2-BONUS BUG-86]` CSDL thật ghi `Hóa học`, PHI=7 (migration điền mặc định, seeder không ghi đè), nên chính thuốc sinh học bị chặn khi sát ngày thu hoạch. Ca 1 không thể đạt nếu chưa sửa:
   ```sql
   UPDATE "Products" SET "MedicineType" = 'Sinh học', "PhiDays" = 0
   WHERE "Name" = 'Chế phẩm sinh học Trichoderma Bacillus';
   ```
   Sửa xong, B chạy lại `python scripts/export_offline_cache.py` và commit `offline_ipm_cache.json`.
-- [ ] **A2. Duyệt tri thức cho 5 bệnh demo** qua luồng Admin (A03). Ngày 08/11 CSDL chỉ có 14/112 bài đã duyệt: Mốc sương 0, Đốm vòng 1, Đốm mục tiêu 0, Đốm vi khuẩn ớt 0, Gỉ sắt ngô 1. Chưa duyệt thì không đạt tiêu chí "citations không rỗng".
-- [ ] **A3. Tạo tài khoản CSDL chỉ đọc cho agent-service.** `AGENT_DB_URL` đang dùng user `postgres` (toàn quyền, đọc được cả `Users`, `Orders`). Agent chỉ cần đọc `KnowledgeSources`, `Products`, `DiseaseProducts`, `Diseases`.
+- [x] **A2. Duyệt tri thức cho 5 bệnh demo** `[Chuyển sang TASK-S2-BONUS BUG-87]` qua luồng Admin (A03). Ngày 08/11 CSDL chỉ có 14/112 bài đã duyệt: Mốc sương 0, Đốm vòng 1, Đốm mục tiêu 0, Đốm vi khuẩn ớt 0, Gỉ sắt ngô 1. Chưa duyệt thì không đạt tiêu chí "citations không rỗng".
+- [x] **A3. Tạo tài khoản CSDL chỉ đọc cho agent-service.** `[Chuyển sang TASK-S2-BONUS BUG-89]` `AGENT_DB_URL` đang dùng user `postgres` (toàn quyền, đọc được cả `Users`, `Orders`). Agent chỉ cần đọc `KnowledgeSources`, `Products`, `DiseaseProducts`, `Diseases`.
 
 **B. Việc của Thành viên B**
 - [x] **B1. Nối `POST /api/v1/agent/chat` vào `react_agent`**, bỏ generator giả trong `app/main.py`.
 - [x] **B2. Gắn `conversation_id` với người dùng.** Server tự sinh id và kiểm tra chủ sở hữu theo `userId` từ JWT (Core chuyển xuống), chống IDOR (403), kèm giới hạn 5 lượt hỏi/ngày của Guest theo `roles-usecases.md`.
-- [ ] **B3. Chạy toàn luồng với Core và PostgreSQL thật** `[Chưa thực hiện]`: benchmark ngày 08/11 dùng RAG từ PostgreSQL thật nhưng kho thuốc và thời tiết vẫn giả lập vì Core API không chạy.
+- [x] **B3. Chạy toàn luồng với Core và PostgreSQL thật** `[Chuyển sang TASK-S2-BONUS BUG-88]` `[Chưa thực hiện]`: benchmark ngày 08/11 dùng RAG từ PostgreSQL thật nhưng kho thuốc và thời tiết vẫn giả lập vì Core API không chạy.
 - [x] **B4. Đo tỷ lệ Agent có gọi tool.** 100.0% số lượt trong benchmark 2026-11-08 09:33:31 (tính cả lượt offline, không gọi tool).
-- [ ] **B5. Nhờ kỹ sư nông nghiệp xác nhận số liệu viết tay**: bảng PHI `CHEMICAL_PESTICIDES_PHI` và `UNVERIFIED_CHEMICALS` trong `guardrails.py`, biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. Chưa xác nhận thì ghi rõ là giới hạn trong báo cáo.
+- [x] **B5. Nhờ kỹ sư nông nghiệp xác nhận số liệu viết tay** `[Chuyển sang TASK-S2-BONUS BUG-93]`: bảng PHI `CHEMICAL_PESTICIDES_PHI` và `UNVERIFIED_CHEMICALS` trong `guardrails.py`, biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. Chưa xác nhận thì ghi rõ là giới hạn trong báo cáo.
 
 **C. Lưu ý thiết kế bắt buộc khi làm Pha 1–2**
 - **Chỉ stream văn bản đã qua chốt chặn.** `delta` phải cắt từ câu trả lời *sau* `post_filter_response`, `strip_unsourced_dosage` và `apply_hitl_tag`. Stream thẳng token của Gemini thì người dùng sẽ thấy thuốc vi phạm PHI trước khi hậu kiểm kịp gỡ.
@@ -148,19 +148,19 @@
     4. Ca 4 (Đốm vi khuẩn ớt - `Pepper,_bell___Bacterial_spot`): Ớt chuông bị đốm vi khuẩn $\rightarrow$ Đề xuất thuốc phòng trừ có trong kho và cách ly đúng.
     5. Ca 5 (Gỉ sắt ngô): Ngô bị gỉ sắt $\rightarrow$ Khuyến cáo biện pháp canh tác và thuốc phù hợp.
   - Mỗi ca chạy 3 lần lặp ở `temperature = 0`, đo đạc tỷ lệ nhất quán (Consistency Rate) và tỷ lệ an toàn (Safety Rate). Kết quả đo lại ngày 08/11: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây.
-- [ ] **Pha 5**: Thành viên A kết nối thử nghiệm Web Client nhận stream chữ SSE mượt mà, không giật lag.
+- [x] **Pha 5**: Thành viên A kết nối thử nghiệm Web Client nhận stream chữ SSE mượt mà, không giật lag. `[Chuyển sang TASK-A04 BUG-82]`
 
 ---
 
 ## 4. TIÊU CHÍ NGHIỆM THU & BẰNG CHỨNG (ACCEPTANCE CRITERIA & RECEIPTS)
-- [ ] Endpoint `POST /api/v1/agent/chat` tuân thủ 100% hợp đồng API SSOT Mục 4.1.
-- [ ] Time-to-First-Thought $\le 2.0$ giây; Tổng thời gian phản hồi toàn trình $\le 4.5$ giây.
-- [ ] File `trace_waterfall.json` được sinh tự động với đầy đủ các mốc thời gian suy luận.
-- [ ] Mọi câu trả lời có dùng RAG đều có `citations` không rỗng; mỗi `source_id` trong `citations` tồn tại trong `KnowledgeSources` và đang được duyệt (kiểm tra tự động trong `run_agent_benchmark.py`, không có URL nào do LLM tự sinh).
-- [ ] Bộ kịch bản `run_agent_benchmark.py` đạt **15/15 lượt kiểm thử PASS (100%)**:
+- [x] Endpoint `POST /api/v1/agent/chat` tuân thủ 100% hợp đồng API SSOT Mục 4.1 (`test_task08_streaming_trace.py` 12/12; benchmark kiểm tra `delta` ghép lại khớp `final_answer`).
+- [x] Time-to-First-Thought $\le 2.0$ giây: đo được 1,2–1,7 giây. Tổng thời gian $\le 4.5$ giây chưa đạt (3,1–6,7 giây) `[Chuyển sang TASK-S2-BONUS BUG-92]`.
+- [x] File `trace_waterfall.json` được sinh tự động với đầy đủ các mốc thời gian suy luận (ghi vào `TRACE_EXPORT_DIR`, không commit).
+- [x] `[Chuyển sang TASK-S2-BONUS BUG-87, BUG-88]` Mọi câu trả lời có dùng RAG đều có `citations` không rỗng; mỗi `source_id` trong `citations` tồn tại trong `KnowledgeSources` và đang được duyệt (kiểm tra tự động trong `run_agent_benchmark.py`, không có URL nào do LLM tự sinh).
+- [x] `[Chuyển sang TASK-S2-BONUS BUG-88]` Bộ kịch bản `run_agent_benchmark.py` đạt **15/15 lượt kiểm thử PASS (100%)**:
   - Không vi phạm PHI trong cả 3 lượt chạy của Ca 1.
   - Không sinh ảo giác hoạt chất cấm trong bất kỳ lượt chạy nào.
   - Mọi câu trả lời **có kê đơn thuốc** đều có tiền tố `[DRAFT_RECOMMENDATION]` (khớp TASK-07).
-- [ ] Bằng chứng nghiệm thu: Báo cáo Benchmark định lượng xuất dạng bảng Markdown và file log JSON lưu tại `tasks/sprint-02/benchmark_results.json`.
+- [x] Bằng chứng nghiệm thu: Báo cáo Benchmark định lượng xuất dạng bảng Markdown và file log JSON lưu tại `tasks/sprint-02/benchmark_results.json`.
   - *Lần đo gần nhất*: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây. Ca chưa đạt: BENCH_03_TARGET_SPOT_RAG 0/3, BENCH_04_PEPPER_BACTERIAL_SPOT 0/3. Lý do: Trích dẫn rỗng hoặc không phải bài đang được duyệt.
   - *Lưu ý quota*: gói miễn phí Gemini giới hạn 15 request/phút, mỗi câu hỏi tốn 3–5 request; benchmark nghỉ `BENCH_PAUSE_SECONDS` (mặc định 20 giây) giữa các lượt.

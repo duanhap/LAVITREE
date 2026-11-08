@@ -1,12 +1,12 @@
 # TASK-S2-BONUS: DỌN VIỆC TỒN SPRINT 2 & NGHIỆM THU CHÉO TVA – TVB
 * **Sprint**: Sprint 2 (Song hành Tác tử Nông nghiệp & Hình thành Hệ thống Toàn diện)
 * **Thứ tự thực hiện trong Sprint**: **Song song với TASK-A04 / TASK-07 / TASK-08; nhóm A phải xong trước khi deploy tiếp lên production**
-* **Phân hệ**: `backend/core-api`, `frontend/web`, `backend/agent-service`, `docker-compose.yml`, `frontend/web/nginx.conf`, `.github/workflows/deploy.yml`
+* **Phân hệ**: `backend/core-api`, `frontend/web`, `backend/agent-service`, `docker-compose.yml`, `frontend/web/nginx.conf`, `.github/workflows/deploy.yml`, CSDL Supabase
 * **Trạng thái**: `[ ] PENDING`
 * **Người phụ trách**: Thành viên A (Core API, Web, hạ tầng) & Thành viên B (Agent, RAG, Gemini)
 * **Người nghiệm thu**: Mỗi dòng có cột "Nghiệm thu"; người làm không tự nghiệm thu dòng của mình.
 * **Độ ưu tiên**: P0 cho nhóm A, P1 cho các nhóm còn lại
-* **Nguồn**: các dòng còn `[ ]` ở mục 5 của `task-a02-web-diagnose-handbook.md` và `task-a03-store-admin-hitl.md`, review A03 ngày 08/11/2026 (`doc/hint/sprint2_TVA_TASK03_assessment.md`). Mã BUG giữ nguyên để tra lại lịch sử; mã mới bắt đầu từ BUG-70.
+* **Nguồn**: các dòng còn `[ ]` ở mục 5 của `task-a02-web-diagnose-handbook.md` và `task-a03-store-admin-hitl.md`, review A03 ngày 08/11/2026 (`doc/hint/sprint2_TVA_TASK03_assessment.md`). Mục 3.7 nhận các việc còn mở của TASK-07 và TASK-08 (review 08/11/2026, `doc/hint/Sprint2_task08_TVB_assessment.md`). Mã BUG giữ nguyên để tra lại lịch sử; mã mới bắt đầu từ BUG-70 (BUG-81 đến BUG-85 nằm ở A04).
 
 ---
 
@@ -84,11 +84,27 @@
 | [ ] | BUG-19 (phần còn lại) | LOW | A | B | `ui-ux.md` còn ghi `expires_in` 86400 trong khi API trả 604800 (7 ngày). | Sửa tài liệu cho khớp code. |
 | [ ] | BUG-80 | LOW | A + B | Cả hai | Sau khi xong bảng trên, tick lại các dòng tương ứng ở mục 5 của `task-a02` và `task-a03`, cập nhật `TODO.md` và `WORKLOG.md`. | Không còn dòng `[ ]` nào trong A02/A03 mà không có dòng tương ứng ở task này hoặc ở A04/Sprint 3. |
 
+### 3.7. Agent AI (việc còn mở của TASK-07 & TASK-08)
+*Benchmark ngày 08/11/2026 (Gemini thật, RAG từ PostgreSQL thật, Core giả lập vì không chạy): 9/15 lượt đạt. 6 lượt trượt đều do Ca 3 và Ca 4 không có bài được duyệt. PHI, thuốc cấm, nhãn `[DRAFT_RECOMMENDATION]`, gọi tool đều 100%; TTFT 1,2–1,7 giây; tổng thời gian 3,1–6,7 giây. Chi tiết: `tasks/sprint-02/benchmark_results.json`.*
+
+| Xong | ID | Mức | Làm | Nghiệm thu | Việc | Cách nghiệm thu |
+|---|---|---|---|---|---|---|
+| [ ] | BUG-86 (liên quan BUG-51) | HIGH | A | B | Trên CSDL thật, "Chế phẩm sinh học Trichoderma Bacillus" ghi `Hóa học`, PHI=7 (migration điền mặc định, seeder không ghi đè). Guardrail chặn chính thuốc sinh học khi sát ngày thu hoạch; Ca 1 chỉ đạt vì Core đang giả lập theo seed. | Sửa qua Admin kho thuốc hoặc `UPDATE "Products" SET "MedicineType"='Sinh học', "PhiDays"=0 WHERE "Name"='Chế phẩm sinh học Trichoderma Bacillus';`. B chạy `python scripts/export_offline_cache.py`: không còn dòng `[WARN]`, cache có Trichoderma ở mục sinh học; commit cache. |
+| [ ] | BUG-87 | HIGH | A | B | `Tomato___Target_Spot` và `Pepper,_bell___Bacterial_spot` chưa có bài tri thức nào được duyệt, làm 6/15 lượt benchmark trượt (câu trả lời không có trích dẫn). | Admin kiểm tra nguồn rồi duyệt ít nhất 1 bài cho mỗi bệnh; chờ `reindex-status` có `running: false`. B chạy benchmark: Ca 3 và Ca 4 có `citations` và mọi `source_id` là bài đang được duyệt. |
+| [ ] | BUG-88 | HIGH | A + B | Cả hai | Chưa lần nào chạy Agent với Core, PostgreSQL và OpenWeather thật (TASK-07 và TASK-08 mục B3). Cần xong BUG-86, BUG-87, BUG-39, BUG-05/07 trước. | Bật Core, đặt `CORE_API_URL`, chạy `python scripts/run_agent_benchmark.py`: `benchmark_results.json` có `environment.core_api = "thật"`, đạt 15/15. Ghi lệnh và kết quả vào mục 5. |
+| [ ] | BUG-89 | HIGH | A | B | `AGENT_DB_URL` dùng user `postgres` toàn quyền, đọc được cả `Users`, `Orders`. Agent chỉ cần đọc `KnowledgeSources`, `Products`, `DiseaseProducts`, `Diseases`. | A tạo role chỉ có `SELECT` trên 4 bảng, cập nhật Secret. B: `sync_index.py` và `export_offline_cache.py` vẫn chạy; dùng role đó `SELECT * FROM "Users"` bị từ chối. |
+| [ ] | BUG-90 | MEDIUM | A | B | nginx chuyển nguyên header của trình duyệt tới agent. Agent đã bỏ qua `X-User-Id`/`X-User-Role` khi thiếu khóa nội bộ; nên chặn thêm ở nginx làm lớp thứ hai. | Trong `location = /api/v1/agent/chat` thêm `proxy_set_header X-User-Id "";`, `X-User-Role ""`, `X-Internal-Key ""`. Gửi `X-User-Role: ADMIN` vào phiên của người khác qua nginx trả 403. |
+| [ ] | BUG-91 | HIGH | Trưởng nhóm | Cả hai | Gói miễn phí Gemini giới hạn 15 request/phút; mỗi câu hỏi tốn 3–5 request, nên cả hệ thống chỉ chịu khoảng 3–4 câu/phút. Vượt thì Circuit Breaker mở và mọi người nhận câu trả lời offline trong 60 giây. | Trước buổi bảo vệ: nâng gói hoặc có khóa riêng cho demo. Hỏi 5 câu liên tiếp trong 1 phút, không lượt nào `is_offline_fallback: true`. |
+| [ ] | BUG-92 | MEDIUM | Trưởng nhóm | Cả hai | Mục tiêu tổng thời gian ≤ 4,5 giây chưa đạt: 5/15 lượt mất 4,5–6,7 giây (Gemini gọi 3–5 lượt mỗi câu). TTFT ≤ 2 giây đã đạt. | Quyết định giữ hay nới mục tiêu; sửa tiêu chí ở `task-08` mục 4 và ghi số đo của lần chạy BUG-88. |
+| [ ] | BUG-93 (liên quan BUG-51) | MEDIUM | B | A | Số liệu viết tay chưa có nguồn: bảng PHI `CHEMICAL_PESTICIDES_PHI`, `UNVERIFIED_CHEMICALS` trong `guardrails.py` và biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. | Mỗi giá trị có nguồn (cùng nguồn với BUG-51) hoặc kỹ sư nông nghiệp xác nhận; chưa có thì ghi là giới hạn trong báo cáo đồ án. |
+| [ ] | BUG-94 | LOW | B | A | Bộ nhớ hội thoại, giới hạn lượt của khách, 100 trace gần nhất và Circuit Breaker nằm trong RAM: mất khi restart, chỉ đúng khi chạy 1 bản agent. Khách dùng chung IP (4G, Wi-Fi trường) chung lượt hỏi và chung quyền phiên. | Ghi giới hạn vào `system-design.md` (giống BUG-77), hoặc chuyển sang Redis ở Sprint 3. |
+
 ---
 
 ## 4. ĐIỀU KIỆN ĐÓNG TASK
 - [ ] Hết dòng `[ ]` ở mục 3.1 và 3.2, có xác nhận của người nghiệm thu.
 - [ ] Mục 3.3 chạy với Core + Agent thật, kết quả ghi ở mục 5.
+- [ ] Mục 3.7: BUG-86 đến BUG-89 xong; BUG-88 đạt 15/15 với hệ thống thật; BUG-91, BUG-92 có quyết định của trưởng nhóm.
 - [ ] Mục 3.4–3.6: đã xong, hoặc ghi rõ chuyển sang task nào của Sprint 3.
 - [ ] TVA và TVB cùng ký tên ở mục 5.
 
