@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 3 (Triển khai sau khi Task 06 và Task 05 đã hoàn thành)**
 * **Phân hệ**: `backend/agent-service/app/agent/`
-* **Trạng thái**: `[/] IN PROGRESS` (code xong; còn sửa dữ liệu CSDL, duyệt tri thức bệnh demo và chạy với Core thật, xem mục 4)
+* **Trạng thái**: `[x] DONE` (08/11/2026; các việc còn lại đã chuyển sang TASK-08 mục 0)
 * **Người phụ trách**: Thành viên B (Agent Core & AI Safety)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY3/lavitree_react_agent.py`, `extract/DAY25/lavitree_reliability_resilience.py`, `extract/DAY27/lavitree_hitl_orchestration.py`
@@ -91,7 +91,4 @@ sequenceDiagram
 - [x] Tự phục hồi ngoại tuyến: Khi tắt kết nối mạng, Agent trả lời bằng phác đồ IPM tĩnh cục bộ trong $\le 500$ms, không ném exception 500 ra client.
 - [x] Bằng chứng nghiệm thu (chạy ngày 2026-11-08): `python test_react_guardrails.py` đạt 25/25 PASS gồm an toàn PHI, chịu lỗi ngoại tuyến, ghi nhớ ngữ cảnh STM. Thử phá 12 kiểu (bỏ hậu kiểm, đưa danh sách chưa lọc cho AI, tăng vòng lặp...) đều làm test đỏ.
 - [x] `python test_react_gemini_live.py`: 3/3 PASS với Gemini thật (`gemini-3.5-flash-lite`), kho thuốc và tài liệu giả lập; câu trả lời của 4 lượt hỏi không còn Ridomil khi sát ngày thu hoạch hoặc chưa rõ ngày.
-- [ ] Sửa `Products` trên CSDL: Trichoderma đang là `Hóa học`, PHI=7 nên bị chặn như thuốc hóa học; sau đó chạy lại `scripts/export_offline_cache.py`.
-- [ ] Admin duyệt tri thức cho 5 bệnh demo: CSDL hiện chỉ có 14/112 bài đã duyệt, `Tomato___Late_blight` có 0 bài.
-- [ ] Chạy cả luồng với Core và PostgreSQL thật `[Chưa thực hiện]`.
-- [ ] `/api/v1/agent/chat` nối vào ReAct thật `[Chuyển sang TASK-08]`; gắn `conversation_id` với người dùng `[Chuyển sang TASK-08]`.
+- [x] Các việc còn lại (dữ liệu CSDL, duyệt tri thức, chạy với Core thật, nối `/chat`, `conversation_id`) `[Chuyển sang TASK-08]`, xem [task-08 mục 0](task-08-streaming-sse-waterfall-benchmark.md).

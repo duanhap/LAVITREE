@@ -9,6 +9,34 @@
 
 ---
 
+## 0. VIỆC NHẬN TỪ TASK-07 & ĐIỀU KIỆN TRƯỚC KHI NGHIỆM THU
+*Chuyển sang từ TASK-07 ngày 08/11/2026. Code của Pha 1–3 làm được ngay; nhóm **A** phải xong trước khi chạy benchmark ở Pha 4, vì các ca demo cần dữ liệu thật.*
+
+**A. Dữ liệu CSDL — chặn nghiệm thu benchmark (trưởng nhóm / Thành viên A)**
+- [ ] **A1. Sửa loại thuốc Trichoderma.** CSDL thật ghi `Hóa học`, PHI=7 (migration điền mặc định, seeder không ghi đè), nên chính thuốc sinh học bị chặn khi sát ngày thu hoạch. Ca 1 không thể đạt nếu chưa sửa:
+  ```sql
+  UPDATE "Products" SET "MedicineType" = 'Sinh học', "PhiDays" = 0
+  WHERE "Name" = 'Chế phẩm sinh học Trichoderma Bacillus';
+  ```
+  Sửa xong, B chạy lại `python scripts/export_offline_cache.py` và commit `offline_ipm_cache.json`.
+- [ ] **A2. Duyệt tri thức cho 5 bệnh demo** qua luồng Admin (A03). Ngày 08/11 CSDL chỉ có 14/112 bài đã duyệt: Mốc sương 0, Đốm vòng 1, Đốm mục tiêu 0, Đốm vi khuẩn ớt 0, Gỉ sắt ngô 1. Chưa duyệt thì không đạt tiêu chí "citations không rỗng".
+- [ ] **A3. Tạo tài khoản CSDL chỉ đọc cho agent-service.** `AGENT_DB_URL` đang dùng user `postgres` (toàn quyền, đọc được cả `Users`, `Orders`). Agent chỉ cần đọc `KnowledgeSources`, `Products`, `DiseaseProducts`, `Diseases`.
+
+**B. Việc của Thành viên B**
+- [ ] **B1. Nối `POST /api/v1/agent/chat` vào `react_agent`**, bỏ generator giả trong `app/main.py` (hiện câu trả lời luôn báo mưa 20mm và "KHÔNG PHUN" dù còn 100 ngày).
+- [ ] **B2. Gắn `conversation_id` với người dùng.** Hiện ai biết `conversation_id` cũng đọc được lịch sử của phiên đó. Server tự sinh id và kiểm tra chủ sở hữu theo `userId` từ JWT (Core chuyển xuống), kèm giới hạn lượt hỏi của Guest theo `roles-usecases.md`.
+- [ ] **B3. Chạy toàn luồng với Core và PostgreSQL thật** (gộp vào Pha 4); `test_react_gemini_live.py` hiện vẫn dùng kho thuốc giả lập.
+- [ ] **B4. Đo tỷ lệ Agent có gọi tool.** Ở ca thử prompt injection ngày 08/11, Gemini trả lời mà không gọi tool nào dù system prompt bắt buộc. Đưa chỉ số này vào `benchmark_results.json`.
+- [ ] **B5. Nhờ kỹ sư nông nghiệp xác nhận số liệu viết tay**: bảng PHI `CHEMICAL_PESTICIDES_PHI` và `UNVERIFIED_CHEMICALS` trong `guardrails.py`, biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. Chưa xác nhận thì ghi rõ là giới hạn trong báo cáo.
+
+**C. Lưu ý thiết kế bắt buộc khi làm Pha 1–2**
+- **Chỉ stream văn bản đã qua chốt chặn.** `delta` phải cắt từ câu trả lời *sau* `post_filter_response`, `strip_unsourced_dosage` và `apply_hitl_tag`. Stream thẳng token của Gemini thì người dùng sẽ thấy thuốc vi phạm PHI trước khi hậu kiểm kịp gỡ.
+- **`observation` gửi ra client không kèm `full_text`** và cắt bớt kết quả tool dài (`AgentResponse.to_dict()` đã bỏ `full_text` khỏi `citations`, nhưng `steps` thì chưa).
+- **`temperature`:** benchmark yêu cầu 0, `gemini_client.py` đang cố định 0.2 → đọc từ biến môi trường.
+- **Thời gian phản hồi:** ngày 08/11, Gemini thật với tool giả lập mất 3,1–7,8 giây mỗi câu, vượt mục tiêu 4,5 giây ở mục 4. `thought` đầu tiên chỉ có sau lượt Gemini đầu tiên. Đo thật trước, rồi trưởng nhóm quyết định giữ hay nới mục tiêu; không ghi số chưa đo.
+
+---
+
 ## 1. BỐI CẢNH & MỤC TIÊU (CONTEXT & OBJECTIVES)
 - **Vấn đề trải nghiệm**: Vòng lặp ReAct gọi nhiều công cụ (tra cứu tri thức RAG, thời tiết, kho thuốc, kiểm tra an toàn) có thể mất từ 3 đến 5 giây để hoàn tất. Nếu bắt người dùng hoặc Hội đồng chấm thi chờ đợi màn hình trắng sẽ tạo cảm giác ứng dụng bị đơ/lag.
 - **Giải pháp kế thừa từ DAY1 & DAY3**:
