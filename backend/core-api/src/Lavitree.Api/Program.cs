@@ -59,6 +59,22 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+// 2.5. Register Agent Service HttpClient (SSOT: api-contracts.md Mục 4.3 & 4.4)
+var agentServiceBaseUrl = builder.Configuration["AgentService:BaseUrl"]
+    ?? Environment.GetEnvironmentVariable("AGENT_SERVICE_URL")
+    ?? "http://localhost:8001";
+
+if (isContainer && (agentServiceBaseUrl.Contains("localhost") || agentServiceBaseUrl.Contains("127.0.0.1")))
+{
+    agentServiceBaseUrl = "http://agent-service:8001";
+}
+
+builder.Services.AddHttpClient("AgentServiceClient", client =>
+{
+    client.BaseAddress = new Uri(agentServiceBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(40);
+});
+
 // 3. Register MinIO Object Storage Service
 builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 

@@ -90,6 +90,15 @@ public class DiagnoseResponseDto
     [JsonPropertyName("notes")]
     public string? Notes { get; set; }
 
+    [JsonPropertyName("requires_expert")]
+    public bool RequiresExpert { get; set; }
+
+    [JsonPropertyName("expert_notes")]
+    public string? ExpertNotes { get; set; }
+
+    [JsonPropertyName("expert_reviewed_at")]
+    public DateTime? ExpertReviewedAt { get; set; }
+
     [JsonPropertyName("result")]
     public DiagnoseResultDataDto? Result { get; set; }
 
@@ -233,6 +242,18 @@ public class DiagnosisHistoryItemDto
 
     [JsonPropertyName("is_uncertain")]
     public bool IsUncertain { get; set; }
+
+    [JsonPropertyName("confusion_group")]
+    public string? ConfusionGroup { get; set; }
+
+    [JsonPropertyName("requires_expert")]
+    public bool RequiresExpert { get; set; }
+
+    [JsonPropertyName("expert_notes")]
+    public string? ExpertNotes { get; set; }
+
+    [JsonPropertyName("expert_reviewed_at")]
+    public DateTime? ExpertReviewedAt { get; set; }
 
     [JsonPropertyName("recovery_status")]
     public string RecoveryStatus { get; set; } = "Đang theo dõi";

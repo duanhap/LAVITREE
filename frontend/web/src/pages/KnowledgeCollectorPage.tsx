@@ -627,8 +627,8 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
     if (evidenceMatch && evidenceMatch[1].trim()) {
       setEvidenceText(evidenceMatch[1].trim());
       parsedCount++;
-    } else if (!evidenceText) {
-      setEvidenceText(aiRawText.trim());
+    } else {
+      alert('Không tìm thấy mục [TRÍCH DẪN CỐT LÕI] trong kết quả AI. Vui lòng kiểm tra lại phản hồi của AI hoặc nhập tóm tắt thủ công.');
     }
 
     // Extract Multi-Class Co-Mentions (Only when in Disease mode)
@@ -2284,7 +2284,7 @@ Nếu bài viết chỉ nói riêng bệnh chính thì ghi "Không có">`;
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
                     {selectedClass.isHealthy
                       ? 'Quy trình kỹ thuật canh tác & Chăm sóc cây cốt lõi (1–3 câu tóm tắt) *'
-                      : 'Trích dẫn chứng cứ / Điểm cốt lõi (Tóm tắt ngắn 1–3 câu tiếng Việt) *'}
+                      : 'Tóm tắt nội dung khuyến nông (Tóm tắt ngắn 1–3 câu) *'}
                   </label>
                   <textarea
                     rows={3}

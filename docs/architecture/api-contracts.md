@@ -345,6 +345,35 @@
 
 ---
 
+### 3.4.0. `PATCH /api/v1/medicines/{id}` (Cập nhật Tồn kho & Giấy phép Thuốc BVTV — RBAC Admin)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`)
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "price": 68000,
+    "stock_quantity": 120,
+    "phi_days": 7,
+    "is_allowed": true
+  }
+  ```
+- **Quy tắc Nghiệp vụ**:
+  - Chỉ tài khoản có Role `ADMIN` hoặc yêu cầu kèm `X-Admin-Key` hợp lệ mới được quyền cập nhật. Nông dân (`FARMER`) bị chặn với `403 Forbidden`.
+  - Hỗ trợ cập nhật từng trường lẻ (partial update: giá, tồn kho, số ngày cách ly PHI, trạng thái cho phép lưu hành).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "id": 1,
+    "name": "Ridomil Gold 68WG",
+    "price": 68000,
+    "stock_quantity": 120,
+    "phi_days": 7,
+    "is_allowed": true,
+    "updated_at": "2026-11-08T08:00:00Z"
+  }
+  ```
+
+---
+
 ### 3.4.1. `GET /api/v1/diseases` (Danh mục Sổ tay Bệnh học & Cây trồng)
 *Phục vụ màn hình W-07 Sổ tay Bệnh học 14 loài cây & 40 danh mục chẩn đoán chuẩn Khuyến nông*
 - **Query Params**: `plantId` (GUID, optional), `search` (string, optional)
@@ -450,7 +479,70 @@
     "total_amount": 185000,
     "payment_method": "COD",
     "order_status": "Pending",
+    "receiver_name": "Nguyễn Văn Nông Dân",
+    "notes": "Giao vào sáng sớm trước khi ra đồng",
     "created_at": "2026-10-31T14:30:00Z"
+  }
+  ```
+
+---
+
+### 3.6.1. `GET /api/v1/orders` (Lịch sử Đơn hàng Cá nhân)
+- **Headers**: `Authorization: Bearer <jwt_token>` (Bắt buộc; trích xuất `userId` từ token claims).
+- **Quy tắc Bảo mật**: Chỉ trả về danh sách đơn hàng do chính tài khoản đó tạo, ngăn chặn rò rỉ dữ liệu giữa các nông dân.
+- **Response Body (`200 OK`)**:
+  ```json
+  [
+    {
+      "order_id": "ord-778899aa",
+      "total_amount": 185000,
+      "order_status": "Pending",
+      "payment_method": "COD",
+      "receiver_name": "Nguyễn Văn Nông Dân",
+      "shipping_address": "Xã Nghĩa Bình, Huyện Nghĩa Hưng, Nam Định",
+      "phone_number": "0987654321",
+      "notes": "Giao vào sáng sớm trước khi ra đồng",
+      "created_at": "2026-10-31T14:30:00Z",
+      "items": [
+        {
+          "product_id": 1,
+          "product_name": "Ridomil Gold 68WG",
+          "quantity": 2,
+          "unit_price": 65000
+        }
+      ]
+    }
+  ]
+  ```
+
+---
+
+### 3.6.2. `GET /api/v1/orders/{id}` (Chi tiết Đơn hàng & Chống IDOR)
+- **Headers**: `Authorization: Bearer <jwt_token>`
+- **Path Parameter**: `id` (GUID đầy đủ hoặc mã ngắn `ord-` + 8–36 ký tự hex/dấu gạch, ví dụ `ord-778899aa`). Ký tự khác (như `%`, `_`) → `404`. Mã ngắn của người không phải Admin chỉ được tìm trong đơn của chính họ.
+- **Quy tắc Bảo mật**:
+  - Chống IDOR: Nếu đơn hàng không thuộc về người dùng đang đăng nhập và người dùng không phải ADMIN $\rightarrow$ Trả về `403 Forbidden` (hoặc `404 Not Found`).
+  - Lọc trực tiếp qua điều kiện SQL với độ dài tối thiểu $\ge 8$ ký tự, loại bỏ hoàn toàn việc nạp toàn bộ bảng lên bộ nhớ RAM.
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "order_id": "ord-778899aa",
+    "total_amount": 185000,
+    "order_status": "Pending",
+    "payment_method": "COD",
+    "receiver_name": "Nguyễn Văn Nông Dân",
+    "shipping_address": "Xã Nghĩa Bình, Huyện Nghĩa Hưng, Nam Định",
+    "phone_number": "0987654321",
+    "notes": "Giao vào sáng sớm trước khi ra đồng",
+    "created_at": "2026-10-31T14:30:00Z",
+    "items": [
+      {
+        "product_id": 1,
+        "product_name": "Ridomil Gold 68WG",
+        "quantity": 2,
+        "unit_price": 65000
+      }
+    ]
   }
   ```
 
@@ -508,12 +600,64 @@
     "farmer_notes": "Vết bệnh lan nhanh dù đã cắt tỉa lá và cách ly"
   }
   ```
+- **Quy tắc**:
+  - Chỉ chủ ca khám hoặc Admin được gửi; người khác nhận `403`.
+  - `farmer_notes` tùy chọn, tối đa 2000 ký tự. Mô tả được **nối thêm** vào `Notes` sau dòng `[Gửi Bác sĩ]:`, không ghi đè ghi chú lúc khám và không đụng `ExpertNotes`. Tổng `Notes` vượt 4000 ký tự → `400`.
 - **Response Body (`200 OK`)**:
   ```json
   {
     "diagnosis_id": "a1b2c3d4-...",
     "requires_expert": true,
+    "farmer_notes": "Lá cà chua có đốm đen\n\n[Gửi Bác sĩ]: Vết bệnh lan nhanh dù đã cắt tỉa lá và cách ly",
     "message": "Đã gửi thông tin ca bệnh tới Bác sĩ Cây trồng phụ trách khu vực."
+  }
+  ```
+
+---
+
+### 3.8.1. `GET /api/v1/diagnose/escalations` (Danh sách Ca bệnh cần Thẩm định — RBAC Admin/Bác sĩ)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`).
+- **Quy tắc Bảo mật**:
+  - Yêu cầu xác thực bắt buộc: Chưa đăng nhập trả về `401 Unauthorized`.
+  - Tài khoản không có quyền Admin/Bác sĩ trả về `403 Forbidden`.
+- **Response Body (`200 OK`)**:
+  ```json
+  [
+    {
+      "id": "a1b2c3d4-...",
+      "user_id": "u1v2...",
+      "farmer_name": "Nguyễn Văn Nông Dân",
+      "disease_name": "Bệnh mốc sương cà chua",
+      "confidence": 0.65,
+      "image_url": "/lavitree-diagnoses/images/leaf.jpg",
+      "notes": "Vết bệnh lan nhanh dù đã cắt tỉa lá và cách ly",
+      "expert_notes": null,
+      "requires_expert": true,
+      "created_at": "2026-11-08T07:00:00Z"
+    }
+  ]
+  ```
+
+---
+
+### 3.8.2. `PATCH /api/v1/diagnose/{id}/expert-review` (Bác sĩ Cây trồng Kết luận Ca bệnh)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "expert_notes": "Bác sĩ Cây trồng xác nhận mốc sương sớm. Đề xuất phun chế phẩm đối kháng sinh học vào buổi râm mát."
+  }
+  ```
+- **Quy tắc Nghiệp vụ & Bảo mật**:
+  - Giới hạn độ dài: `expert_notes` không được rỗng và $\le 2000$ ký tự.
+  - Tách biệt lưu trữ: Kết luận được ghi vào cột `ExpertNotes` và thời điểm `ExpertReviewedAt`, **tuyệt đối không ghi đè** vào cột `Notes` (câu hỏi ban đầu của nông dân).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "diagnosis_id": "a1b2c3d4-...",
+    "expert_notes": "Bác sĩ Cây trồng xác nhận...",
+    "expert_reviewed_at": "2026-11-08T08:30:00Z",
+    "message": "Đã lưu kết luận thẩm định chuyên gia thành công."
   }
   ```
 
@@ -615,6 +759,23 @@
   }
   ```
 - **Quy tắc sửa / gỡ sau khi lưu**: Không cho sửa chữ của đoạn `IsVerbatim = true` (sửa thì không còn là nguyên văn). Chỉ được đổi `UnitType`, bỏ duyệt (`PATCH .../approve` với `is_approved: false`, Mục 3.7) hoặc xóa.
+
+---
+
+### 3.11.1. `GET /api/v1/knowledge/reindex-status` (Tra cứu Trạng thái Reindex Vector — RBAC Admin)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`)
+- **Quy tắc Hoạt động**:
+  - Core API proxy tới `GET http://agent-service:8001/internal/reindex-status` với header `X-Internal-Key` nội bộ an toàn.
+  - Phục vụ Admin Web Dashboard hiển thị thông điệp thân thiện "Đang đồng bộ vector nền" trong quá trình lập chỉ mục BM25 / ChromaDB.
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "status": "idle",
+    "is_indexing": false,
+    "last_indexed_at": "2026-11-08T08:15:00Z",
+    "indexed_count": 112
+  }
+  ```
 
 ---
 

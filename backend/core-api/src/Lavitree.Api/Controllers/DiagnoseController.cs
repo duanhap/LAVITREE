@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Lavitree.Api.Filters;
 using Lavitree.Application.DTOs;
 using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
@@ -317,6 +318,15 @@ public class DiagnoseController : ControllerBase
         // 4.4. Lưu vết ca chẩn đoán vào DiagnosisRecords trong PostgreSQL (Chỉ lưu khi đã đăng nhập)
         if (!isGuest && disease != null && diagnosisId.HasValue)
         {
+            var top3Serialized = System.Text.Json.JsonSerializer.Serialize(aiResult.Top3.Select(t => new Top3ItemDto
+            {
+                ClassCode = t.ClassCode,
+                DiseaseName = top3Dict.TryGetValue(t.ClassCode, out var dName) 
+                    ? dName 
+                    : (t.ClassCode == predictedClass ? diseaseName : t.ClassCode),
+                Confidence = t.Confidence
+            }).ToList());
+
             var diagnosisRecord = new DiagnosisRecord
             {
                 Id = diagnosisId.Value,
@@ -326,14 +336,38 @@ public class DiagnoseController : ControllerBase
                 GradCamImageUrl = gradCamImageUrl,
                 Confidence = aiResult.Top1?.Confidence ?? 0f,
                 IsUncertain = aiResult.IsUncertain,
+                ConfusionGroup = aiResult.Top1?.ConfusionGroup,
+                Top3Json = top3Serialized,
                 Notes = notes,
                 RecoveryStatus = "Đang theo dõi",
                 CreatedAt = DateTime.UtcNow
             };
 
-            _dbContext.DiagnosisRecords.Add(diagnosisRecord);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Saved DiagnosisRecord {DiagnosisId} for user {UserId}, disease {ClassCode}.", diagnosisId, authenticatedUserId, predictedClass);
+            try
+            {
+                _dbContext.DiagnosisRecords.Add(diagnosisRecord);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Saved DiagnosisRecord {DiagnosisId} for user {UserId}, disease {ClassCode}.", diagnosisId, authenticatedUserId, predictedClass);
+            }
+            catch (Exception dbEx)
+            {
+                _logger.LogError(dbEx, "Lỗi khi lưu DiagnosisRecord vào DB. Đang xóa ảnh MinIO mồ côi (BUG-57)...");
+                try
+                {
+                    var origObjectName = $"{diagnosisId.Value}_orig{fileExtension}";
+                    await _minioStorageService.DeleteFileAsync(BucketName, origObjectName, CancellationToken.None);
+                    if (!string.IsNullOrWhiteSpace(gradCamImageUrl))
+                    {
+                        var gradcamObjectName = $"{diagnosisId.Value}_gradcam.jpg";
+                        await _minioStorageService.DeleteFileAsync(BucketName, gradcamObjectName, CancellationToken.None);
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "Lỗi trong quá trình xóa tệp MinIO mồ côi.");
+                }
+                throw;
+            }
         }
 
         // 4.5. Đóng gói phản hồi trọn gói đúng 100% api-contracts.md Mục 3.1
@@ -422,6 +456,10 @@ public class DiagnoseController : ControllerBase
             ClassCode = r.Disease?.ClassCode ?? string.Empty,
             Confidence = r.Confidence,
             IsUncertain = r.IsUncertain,
+            ConfusionGroup = r.ConfusionGroup,
+            RequiresExpert = r.RequiresExpert,
+            ExpertNotes = r.ExpertNotes,
+            ExpertReviewedAt = r.ExpertReviewedAt,
             RecoveryStatus = r.RecoveryStatus ?? "Đang theo dõi",
             Notes = r.Notes,
             OriginalImageUrl = r.OriginalImageUrl,
@@ -558,16 +596,34 @@ public class DiagnoseController : ControllerBase
             warningMessage = $"Bệnh này dễ nhầm với {altName ?? confusionAltClass}. Nên nhờ chuyên gia xác nhận trước khi xử lý.";
         }
 
-        // DB chỉ lưu độ tin cậy Top-1 nên hồ sơ cũ chỉ trả đúng 1 dòng, không suy diễn xác suất của lớp khác.
-        var top3 = new List<Top3ItemDto>
+        // Khôi phục Top3 từ Top3Json (BUG-52); nếu là hồ sơ cũ trước khi có cột này thì fallback 1 dòng
+        List<Top3ItemDto> top3;
+        if (!string.IsNullOrWhiteSpace(record.Top3Json))
         {
-            new()
+            try
+            {
+                top3 = System.Text.Json.JsonSerializer.Deserialize<List<Top3ItemDto>>(record.Top3Json) 
+                       ?? new List<Top3ItemDto>();
+            }
+            catch
+            {
+                top3 = new List<Top3ItemDto>();
+            }
+        }
+        else
+        {
+            top3 = new List<Top3ItemDto>();
+        }
+
+        if (top3.Count == 0)
+        {
+            top3.Add(new Top3ItemDto
             {
                 ClassCode = predictedClass,
                 DiseaseName = disease?.CommonNameVi ?? predictedClass,
                 Confidence = record.Confidence
-            }
-        };
+            });
+        }
 
         var response = new DiagnoseResponseDto
         {
@@ -577,6 +633,9 @@ public class DiagnoseController : ControllerBase
             IsUncertain = record.IsUncertain,
             Warning = warningMessage,
             Notes = record.Notes,
+            RequiresExpert = record.RequiresExpert,
+            ExpertNotes = record.ExpertNotes,
+            ExpertReviewedAt = record.ExpertReviewedAt,
             Result = new DiagnoseResultDataDto
             {
                 PlantName = disease?.Plant?.Name ?? "Cây trồng",
@@ -601,5 +660,183 @@ public class DiagnoseController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+    public class RequestExpertDto
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("farmer_notes")]
+        public string? FarmerNotes { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("notes")]
+        public string? Notes
+        {
+            get => FarmerNotes;
+            set { if (!string.IsNullOrWhiteSpace(value)) FarmerNotes = value; }
+        }
+    }
+
+    /// <summary>
+    /// POST /api/v1/diagnose/{id}/request-expert
+    /// Chuyển ca bệnh khó cho Chuyên gia / Bác sĩ Cây trồng (SSOT: api-contracts.md Mục 3.8)
+    /// </summary>
+    [HttpPost("{id:guid}/request-expert")]
+    [Authorize]
+    public async Task<IActionResult> RequestExpert(Guid id, [FromBody] RequestExpertDto dto, CancellationToken cancellationToken)
+    {
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                     ?? User.FindFirst("sub")?.Value;
+        Guid? userId = Guid.TryParse(userIdStr, out var parsed) ? parsed : null;
+        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN");
+
+        var record = await _dbContext.DiagnosisRecords.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+        if (record == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy hồ sơ chẩn đoán." });
+        }
+
+        // Chống IDOR: Chỉ chủ sở hữu ca bệnh hoặc Admin mới được gửi nhờ chuyên gia
+        if (!isAdmin && record.UserId != userId)
+        {
+            return Forbid();
+        }
+
+        var farmerNotes = dto.FarmerNotes?.Trim();
+        if (!string.IsNullOrWhiteSpace(farmerNotes) && farmerNotes.Length > 2000)
+        {
+            return BadRequest(new { detail = "Mô tả của nông dân không được vượt quá 2000 ký tự." });
+        }
+
+        if (!string.IsNullOrWhiteSpace(farmerNotes))
+        {
+            // Nối mô tả gửi Bác sĩ vào sau ghi chú lúc khám (không ghi đè Notes ban đầu, không đụng ExpertNotes)
+            var combined = string.IsNullOrWhiteSpace(record.Notes)
+                ? farmerNotes
+                : $"{record.Notes}\n\n[Gửi Bác sĩ]: {farmerNotes}";
+            if (combined.Length > 4000)
+            {
+                return BadRequest(new { detail = "Ghi chú của ca bệnh đã quá dài (tối đa 4000 ký tự). Vui lòng rút gọn mô tả." });
+            }
+            record.Notes = combined;
+        }
+        record.RequiresExpert = true;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new
+        {
+            diagnosis_id = record.Id,
+            requires_expert = true,
+            farmer_notes = record.Notes,
+            message = "Đã gửi thông tin ca bệnh tới Bác sĩ Cây trồng phụ trách khu vực."
+        });
+    }
+
+    /// <summary>
+    /// GET /api/v1/diagnose/escalations
+    /// Danh sách ca bệnh cần chuyên gia thẩm định (Admin / Bác sĩ Cây trồng)
+    /// </summary>
+    [HttpGet("escalations")]
+    public async Task<IActionResult> GetEscalations(CancellationToken cancellationToken)
+    {
+        var hasValidKey = AdminApiKeyAuthAttribute.HasValidKey(Request);
+        var isAuthenticated = User.Identity?.IsAuthenticated == true;
+
+        if (!isAuthenticated && !hasValidKey)
+        {
+            return Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
+        }
+
+        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || hasValidKey;
+        if (!isAdmin)
+        {
+            return Forbid();
+        }
+
+        var list = await _dbContext.DiagnosisRecords
+            .Include(r => r.Disease)
+                .ThenInclude(d => d.Plant)
+            .Include(r => r.User)
+            .Where(r => r.RequiresExpert)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new
+            {
+                r.Id,
+                r.UserId,
+                UserName = r.User != null ? r.User.FullName : "Khách vãng lai",
+                UserPhone = r.User != null ? r.User.Phone : null,
+                DiseaseName = r.Disease.CommonNameVi,
+                PlantName = r.Disease.Plant.Name,
+                ClassCode = r.Disease.ClassCode,
+                r.Confidence,
+                r.OriginalImageUrl,
+                r.GradCamImageUrl,
+                r.Notes,
+                FarmerNotes = r.Notes,
+                r.ExpertNotes,
+                r.ExpertReviewedAt,
+                r.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(list);
+    }
+
+    public class ExpertReviewDto
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("expert_notes")]
+        public string ExpertNotes { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// PATCH /api/v1/diagnose/{id}/expert-review
+    /// Chuyên gia phản hồi hướng dẫn xử lý và kết luận ca bệnh
+    /// </summary>
+    [HttpPatch("{id:guid}/expert-review")]
+    public async Task<IActionResult> ReviewEscalation(Guid id, [FromBody] ExpertReviewDto dto, CancellationToken cancellationToken)
+    {
+        var hasValidKey = AdminApiKeyAuthAttribute.HasValidKey(Request);
+        var isAuthenticated = User.Identity?.IsAuthenticated == true;
+
+        if (!isAuthenticated && !hasValidKey)
+        {
+            return Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
+        }
+
+        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || hasValidKey;
+        if (!isAdmin)
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.ExpertNotes))
+        {
+            return BadRequest(new { detail = "Ghi chú kết luận của chuyên gia không được để trống." });
+        }
+
+        var trimmedNotes = dto.ExpertNotes.Trim();
+        if (trimmedNotes.Length > 2000)
+        {
+            return BadRequest(new { detail = "Ghi chú kết luận của chuyên gia không được vượt quá 2000 ký tự." });
+        }
+
+        var record = await _dbContext.DiagnosisRecords.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+        if (record == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy hồ sơ chẩn đoán." });
+        }
+
+        // Lưu phản hồi của chuyên gia, bảo toàn nguyên vẹn Notes của nông dân
+        record.ExpertNotes = trimmedNotes;
+        record.ExpertReviewedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new
+        {
+            diagnosis_id = record.Id,
+            farmer_notes = record.Notes,
+            expert_notes = record.ExpertNotes,
+            expert_reviewed_at = record.ExpertReviewedAt
+        });
     }
 }

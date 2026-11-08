@@ -1,11 +1,23 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+using System.Web;
 using Lavitree.Api.Filters;
+using Lavitree.Application.DTOs;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
 
@@ -15,11 +27,39 @@ namespace Lavitree.Api.Controllers;
 [Route("api/v1/[controller]")]
 public class KnowledgeController : ControllerBase
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _urlLocks = new();
     private readonly LavitreeDbContext _dbContext;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IMemoryCache _memoryCache;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<KnowledgeController> _logger;
 
-    public KnowledgeController(LavitreeDbContext dbContext)
+    public KnowledgeController(
+        LavitreeDbContext dbContext,
+        IHttpClientFactory httpClientFactory,
+        IMemoryCache memoryCache,
+        IConfiguration configuration,
+        ILogger<KnowledgeController> logger)
     {
         _dbContext = dbContext;
+        _httpClientFactory = httpClientFactory;
+        _memoryCache = memoryCache;
+        _configuration = configuration;
+        _logger = logger;
+    }
+
+    public class CachedIngestionSession
+    {
+        public string IngestionId { get; set; } = string.Empty;
+        public string ModelClass { get; set; } = string.Empty;
+        public string PlantName { get; set; } = string.Empty;
+        public string DiseaseName { get; set; } = string.Empty;
+        public string SourceUrl { get; set; } = string.Empty;
+        public string SourceTitle { get; set; } = string.Empty;
+        public string Organization { get; set; } = string.Empty;
+        public string? PublishedDate { get; set; }
+        public List<ParagraphDto> Paragraphs { get; set; } = new();
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
     // Static definition of 38 classes matching KB/DANH_SACH_LOP_CAN_TIM_TRI_THUC.csv
@@ -281,12 +321,33 @@ public class KnowledgeController : ControllerBase
 
     // 3. GET /api/v1/knowledge/sources
     [HttpGet("sources")]
-    public async Task<IActionResult> GetSources([FromQuery] string? modelClass, [FromQuery] string? search)
+    public async Task<IActionResult> GetSources(
+        [FromQuery] string? modelClass, 
+        [FromQuery] string? search,
+        [FromQuery] bool? isApproved,
+        CancellationToken cancellationToken)
     {
+        var isAdmin = IsAdminUser(out _);
+
+        // Khách/Nông dân không có quyền lọc hoặc xem bài chưa duyệt
+        if (!isAdmin && isApproved == false)
+        {
+            return Forbid();
+        }
+
         var query = _dbContext.KnowledgeSources
             .Where(s => !s.IsDeleted)
             .OrderByDescending(s => s.CreatedAt)
             .AsNoTracking();
+
+        if (!isAdmin)
+        {
+            query = query.Where(s => s.IsManualApproved);
+        }
+        else if (isApproved.HasValue)
+        {
+            query = query.Where(s => s.IsManualApproved == isApproved.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(modelClass))
         {
@@ -301,7 +362,33 @@ public class KnowledgeController : ControllerBase
                                      s.PlantName.Contains(search));
         }
 
-        var list = await query.ToListAsync();
+        if (!isAdmin)
+        {
+            // Trả về DTO công khai, ẩn ReviewerNotes và các trường quản trị nội bộ
+            var publicList = await query.Select(s => new
+            {
+                s.Id,
+                s.ModelClass,
+                s.PlantName,
+                s.DiseaseName,
+                s.SourceUrl,
+                s.SourceTitle,
+                s.Organization,
+                s.PublishedDate,
+                s.MatchLevel,
+                s.SourceScope,
+                s.EvidenceText,
+                s.ContentType,
+                s.UnitType,
+                s.IsVerbatim,
+                s.SourceQuality,
+                s.CreatedAt
+            }).ToListAsync(cancellationToken);
+
+            return Ok(publicList);
+        }
+
+        var list = await query.ToListAsync(cancellationToken);
         return Ok(list);
     }
 
@@ -324,23 +411,35 @@ public class KnowledgeController : ControllerBase
 
     // 4. POST /api/v1/knowledge/sources
     [HttpPost("sources")]
-    [AdminApiKeyAuth]
     public async Task<IActionResult> CreateSource([FromBody] CreateSourceDto dto)
     {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
         if (string.IsNullOrWhiteSpace(dto.ModelClass) || string.IsNullOrWhiteSpace(dto.SourceUrl))
         {
             return BadRequest(new { message = "Vui lòng chọn lớp cây–bệnh và nhập đường dẫn URL." });
         }
 
-        // Check duplicate URL for the same model class
         var trimmedUrl = dto.SourceUrl.Trim().TrimEnd('/');
-        var existing = await _dbContext.KnowledgeSources
-            .FirstOrDefaultAsync(s => !s.IsDeleted && 
-                                      s.ModelClass == dto.ModelClass && 
-                                      (s.SourceUrl.Trim().ToLower() == trimmedUrl.ToLower() || 
-                                       s.SourceUrl.Trim().TrimEnd('/').ToLower() == trimmedUrl.ToLower()));
 
-        if (existing != null)
+        // Check duplicate URL logic
+        var existingSources = await _dbContext.KnowledgeSources
+            .Where(s => !s.IsDeleted && 
+                        (s.SourceUrl.Trim().ToLower() == trimmedUrl.ToLower() || 
+                         s.SourceUrl.Trim().TrimEnd('/').ToLower() == trimmedUrl.ToLower()))
+            .ToListAsync();
+
+        var existingSameClass = existingSources.FirstOrDefault(s => s.ModelClass == dto.ModelClass);
+
+        if (dto.IsManualApproved && existingSources.Count >= 4)
+        {
+            return BadRequest(new { message = "Mỗi URL bài viết chỉ được phép lưu tối đa 4 đoạn nguyên văn theo quy tắc trích dẫn." });
+        }
+
+        if (existingSameClass != null && !existingSameClass.IsVerbatim)
         {
             return Conflict(new { message = $"URL này đã được lưu trước đó cho lớp '{dto.DiseaseName}' ({dto.ModelClass}) rồi. Vui lòng không lưu trùng!" });
         }
@@ -390,27 +489,425 @@ public class KnowledgeController : ControllerBase
         _dbContext.KnowledgeSources.Add(source);
         await _dbContext.SaveChangesAsync();
 
+        if (source.IsManualApproved)
+        {
+            await TriggerReindexAsync(source.Id.ToString(), "approve");
+        }
+
         return Ok(source);
+    }
+
+    // 4.1. PATCH /api/v1/knowledge/sources/{id}/approve (Duyệt/Bỏ duyệt từng bài)
+    [HttpPatch("sources/{id:guid}/approve")]
+    public async Task<IActionResult> ApproveSource(Guid id, [FromBody] ApproveSourceRequestDto dto)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        var source = await _dbContext.KnowledgeSources.FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted);
+        if (source == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy nguồn tri thức." });
+        }
+
+        source.IsManualApproved = dto.IsApproved;
+        if (!string.IsNullOrWhiteSpace(dto.ReviewerNotes))
+        {
+            source.ReviewerNotes = dto.ReviewerNotes;
+        }
+        source.UpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync();
+
+        var reindexAction = dto.IsApproved ? "approve" : "unapprove";
+        var reindexStatus = await TriggerReindexAsync(source.Id.ToString(), reindexAction);
+
+        return Ok(new
+        {
+            source_id = source.Id,
+            is_manual_approved = source.IsManualApproved,
+            reindex_status = reindexStatus,
+            updated_at = source.UpdatedAt
+        });
+    }
+
+    // 4.2. PATCH /api/v1/knowledge/sources/approve-batch (Duyệt hàng loạt - Bulk Approve)
+    [HttpPatch("sources/approve-batch")]
+    public async Task<IActionResult> ApproveBatchSources([FromBody] ApproveBatchRequestDto dto)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (dto.SourceIds == null || dto.SourceIds.Count == 0)
+        {
+            return BadRequest(new { detail = "Danh sách source_ids không được để trống." });
+        }
+
+        var sources = await _dbContext.KnowledgeSources
+            .Where(s => dto.SourceIds.Contains(s.Id) && !s.IsDeleted)
+            .ToListAsync();
+
+        if (sources.Count == 0)
+        {
+            return NotFound(new { detail = "Không tìm thấy nguồn tri thức nào phù hợp trong danh sách cung cấp." });
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var s in sources)
+        {
+            s.IsManualApproved = dto.IsApproved;
+            if (!string.IsNullOrWhiteSpace(dto.ReviewerNotes))
+            {
+                s.ReviewerNotes = dto.ReviewerNotes;
+            }
+            s.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        var reindexAction = dto.IsApproved ? "approve" : "unapprove";
+        var reindexStatus = await TriggerReindexAsync(null, reindexAction);
+
+        return Ok(new ApproveBatchResponseDto
+        {
+            ApprovedCount = sources.Count,
+            Status = "success",
+            ReindexStatus = reindexStatus,
+            UpdatedAt = now
+        });
+    }
+
+    // 4.3. POST /api/v1/knowledge/ingestions (Nhập bài báo - Bước 1: Dán văn bản, AI gợi ý đoạn)
+    [HttpPost("ingestions")]
+    public async Task<IActionResult> IngestArticle([FromBody] IngestArticleRequestDto dto)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        if (!dto.SourceUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
+            !dto.SourceUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { detail = "Đường dẫn bài viết phải là URL hợp lệ (http:// hoặc https://)." });
+        }
+
+        if (dto.ArticleText.Length > 50000)
+        {
+            return BadRequest(new { detail = "Văn bản bài báo không được vượt quá 50.000 ký tự." });
+        }
+
+        // Tách article_text thành các đoạn theo dòng trống (\n\s*\n)
+        var rawParagraphs = Regex.Split(dto.ArticleText, @"\r?\n\s*\r?\n");
+        var validParagraphs = new List<ParagraphDto>();
+        int pIndex = 1;
+
+        foreach (var raw in rawParagraphs)
+        {
+            var cleaned = raw.Trim();
+            // Bỏ đoạn quá ngắn (< 40 ký tự)
+            if (cleaned.Length >= 40)
+            {
+                validParagraphs.Add(new ParagraphDto
+                {
+                    Id = $"P{pIndex++}",
+                    Text = cleaned,
+                    SuggestedUnitType = null
+                });
+
+                if (validParagraphs.Count >= 200)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (validParagraphs.Count == 0)
+        {
+            return BadRequest(new { detail = "Văn bản bài báo không có đoạn nào đạt độ dài tối thiểu (>= 40 ký tự)." });
+        }
+
+        // Gọi Agent Service để AI gợi ý nhãn theo số đoạn (timeout 35s, graceful fallback)
+        var labelMap = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs);
+        bool aiAvailable = labelMap.Count > 0;
+
+        foreach (var p in validParagraphs)
+        {
+            if (labelMap.TryGetValue(p.Id, out var suggested))
+            {
+                p.SuggestedUnitType = suggested;
+            }
+        }
+
+        var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == dto.ModelClass);
+        var plantName = classMeta?.PlantName ?? "Cây trồng";
+        var diseaseName = classMeta?.DiseaseName ?? dto.ModelClass;
+
+        var ingestionId = $"ing-{Guid.NewGuid():N}"[..12];
+        var expiresAt = DateTime.UtcNow.AddHours(1);
+
+        var session = new CachedIngestionSession
+        {
+            IngestionId = ingestionId,
+            ModelClass = dto.ModelClass,
+            PlantName = plantName,
+            DiseaseName = diseaseName,
+            SourceUrl = dto.SourceUrl.Trim(),
+            SourceTitle = dto.SourceTitle.Trim(),
+            Organization = dto.Organization.Trim(),
+            PublishedDate = dto.PublishedDate?.Trim(),
+            Paragraphs = validParagraphs,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _memoryCache.Set(ingestionId, session, TimeSpan.FromHours(1));
+
+        return Ok(new IngestArticleResponseDto
+        {
+            IngestionId = ingestionId,
+            ExpiresAt = expiresAt,
+            Paragraphs = validParagraphs,
+            AiSuggestionAvailable = aiAvailable
+        });
+    }
+
+    // 4.4. POST /api/v1/knowledge/ingestions/{ingestion_id}/commit (Nhập bài báo - Bước 2: Admin tick chọn đoạn = Duyệt)
+    [HttpPost("ingestions/{ingestionId}/commit")]
+    public async Task<IActionResult> CommitIngestion(string ingestionId, [FromBody] CommitIngestionRequestDto dto)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        if (!_memoryCache.TryGetValue(ingestionId, out CachedIngestionSession? session) || session == null)
+        {
+            return StatusCode(StatusCodes.Status410Gone, new { detail = "Phiên nhập bài đã hết hạn hoặc không tồn tại. Vui lòng dán lại bài báo." });
+        }
+
+        if (dto.Selections == null || dto.Selections.Count == 0)
+        {
+            return BadRequest(new { detail = "Cần chọn ít nhất 1 đoạn trích dẫn để lưu." });
+        }
+
+        if (dto.Selections.Count > 4)
+        {
+            return BadRequest(new { detail = "Mỗi bài chỉ được trích dẫn tối đa 4 đoạn nguyên văn." });
+        }
+
+        var allowedUnitTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "SYMPTOMS", "CAUSE_CONDITIONS", "PREVENTION", "TREATMENT"
+        };
+
+        var selectedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sel in dto.Selections)
+        {
+            if (!allowedUnitTypes.Contains(sel.UnitType))
+            {
+                return BadRequest(new { detail = $"Loại nội dung '{sel.UnitType}' không hợp lệ. Chỉ chấp nhận: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT." });
+            }
+
+            if (!selectedIds.Add(sel.ParagraphId))
+            {
+                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' bị chọn trùng lặp." });
+            }
+        }
+
+        // Kiểm tra tồn tại trong session RAM & độ dài <= 800 ký tự
+        var sessionDict = session.Paragraphs.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+        var chosenParagraphs = new List<(string Id, string Text, string UnitType)>();
+
+        foreach (var sel in dto.Selections)
+        {
+            if (!sessionDict.TryGetValue(sel.ParagraphId, out var para))
+            {
+                return BadRequest(new { detail = $"Không tìm thấy đoạn '{sel.ParagraphId}' trong phiên nhập bài." });
+            }
+
+            if (para.Text.Length > 800)
+            {
+                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {para.Text.Length} ký tự, vượt quá giới hạn 800 ký tự cho phép." });
+            }
+
+            chosenParagraphs.Add((sel.ParagraphId, para.Text, sel.UnitType.ToUpperInvariant()));
+        }
+
+        // Kiểm tra số lượng đoạn nguyên văn đã lưu trong CSDL của URL này (chuẩn hoá)
+        var normalizedUrl = NormalizeUrl(session.SourceUrl);
+        var urlLock = _urlLocks.GetOrAdd(normalizedUrl, _ => new SemaphoreSlim(1, 1));
+        await urlLock.WaitAsync();
+        try
+        {
+            using var transaction = await _dbContext.Database.BeginTransactionAsync();
+
+            var allVerbatim = await _dbContext.KnowledgeSources
+                .Where(s => !s.IsDeleted && s.IsVerbatim)
+                .ToListAsync();
+
+            var existingVerbatim = allVerbatim
+                .Where(s => NormalizeUrl(s.SourceUrl) == normalizedUrl)
+                .ToList();
+
+            if (existingVerbatim.Count + chosenParagraphs.Count > 4)
+            {
+                await transaction.RollbackAsync();
+                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 4 đoạn nguyên văn cho mỗi URL theo quy định trích dẫn hợp lý (Điều 25 Luật SHTT)." });
+            }
+
+            var createdSources = new List<KnowledgeSource>();
+            var now = DateTime.UtcNow;
+
+            foreach (var (pId, text, unitType) in chosenParagraphs)
+            {
+                var cleanText = text.Trim();
+                // Bỏ qua nếu đoạn trùng chữ 100% với một đoạn đã lưu của cùng URL
+                if (existingVerbatim.Any(e => e.EvidenceText.Trim().Equals(cleanText, StringComparison.OrdinalIgnoreCase)) ||
+                    createdSources.Any(c => c.EvidenceText.Trim().Equals(cleanText, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                var contentType = unitType switch
+                {
+                    "SYMPTOMS" => "Triệu chứng",
+                    "CAUSE_CONDITIONS" => "Nguyên nhân & Điều kiện phát sinh",
+                    "PREVENTION" => "Biện pháp phòng ngừa",
+                    "TREATMENT" => "Biện pháp điều trị",
+                    _ => unitType
+                };
+
+                var source = new KnowledgeSource
+                {
+                    Id = Guid.NewGuid(),
+                    ModelClass = session.ModelClass,
+                    PlantName = session.PlantName,
+                    DiseaseName = session.DiseaseName,
+                    SourceUrl = normalizedUrl, // Lưu URL đã chuẩn hóa
+                    SourceTitle = session.SourceTitle,
+                    Organization = session.Organization,
+                    PublishedDate = session.PublishedDate ?? "Không ghi ngày",
+                    MatchLevel = "Khớp trực tiếp",
+                    SourceScope = "Việt Nam",
+                    EvidenceText = text, // 100% nguyên văn từ bản lưu tạm
+                    ContentType = contentType,
+                    UnitType = unitType,
+                    IsVerbatim = true,
+                    IsManualApproved = true, // Tick = Duyệt
+                    SourceQuality = "Duyệt nguyên văn (HITL)",
+                    ReviewerNotes = dto.ReviewerNotes ?? "Duyệt trích dẫn nguyên văn từ bài báo",
+                    HasCultivationTechnique = false,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                createdSources.Add(source);
+            }
+
+            if (createdSources.Count == 0)
+            {
+                await transaction.RollbackAsync();
+                return BadRequest(new { detail = "Tất cả các đoạn bạn chọn đều đã tồn tại trong CSDL cho bài viết này." });
+            }
+
+            _dbContext.KnowledgeSources.AddRange(createdSources);
+            await _dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            // Tự động gọi webhook reindex Agent Service
+            var reindexStatus = await TriggerReindexAsync(null, "approve");
+
+            return StatusCode(StatusCodes.Status201Created, new CommitIngestionResponseDto
+            {
+                CreatedSourceIds = createdSources.Select(s => s.Id.ToString()).ToList(),
+                VerbatimCountForUrl = existingVerbatim.Count + createdSources.Count,
+                ReindexStatus = reindexStatus
+            });
+        }
+        finally
+        {
+            urlLock.Release();
+        }
+    }
+
+    // 4.5. GET /api/v1/knowledge/reindex-status (Xem trạng thái reindex của Agent Service)
+    [HttpGet("reindex-status")]
+    public async Task<IActionResult> GetReindexStatus()
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        try
+        {
+            var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
+            var internalKey = GetInternalApiKey();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/internal/reindex/status");
+            request.Headers.Add("X-Internal-Key", internalKey);
+
+            var response = await httpClient.SendAsync(request, cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync(cts.Token);
+                return Content(content, "application/json");
+            }
+
+            return StatusCode((int)response.StatusCode, new { detail = "Không lấy được trạng thái reindex từ Agent service." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi kết nối tới Agent service để lấy reindex status.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { detail = "Agent service chưa sẵn sàng hoặc không phản hồi." });
+        }
     }
 
     // 5. DELETE /api/v1/knowledge/sources/{id}
     [HttpDelete("sources/{id:guid}")]
-    [AdminApiKeyAuth]
     public async Task<IActionResult> DeleteSource(Guid id)
     {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
         var item = await _dbContext.KnowledgeSources.FindAsync(id);
         if (item == null) return NotFound(new { message = "Không tìm thấy nguồn dữ liệu." });
 
         item.IsDeleted = true;
+        item.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
+
+        await TriggerReindexAsync(item.Id.ToString(), "delete");
+
         return Ok(new { message = "Đã xóa nguồn dữ liệu thành công." });
     }
 
     // 6. GET /api/v1/knowledge/export
     [HttpGet("export")]
-    [AdminApiKeyAuth]
     public async Task<IActionResult> ExportCsv()
     {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
         var sources = await _dbContext.KnowledgeSources
             .Where(s => !s.IsDeleted)
             .OrderBy(s => s.ModelClass)
@@ -448,5 +945,183 @@ public class KnowledgeController : ControllerBase
             return $"\"{value.Replace("\"", "\"\"")}\"";
         }
         return value;
+    }
+
+    private bool IsAdminUser(out IActionResult? errorResult)
+    {
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            if (User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN"))
+            {
+                errorResult = null;
+                return true;
+            }
+
+            errorResult = StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên (ADMIN) để thực hiện thao tác này." });
+            return false;
+        }
+
+        if (AdminApiKeyAuthAttribute.HasValidKey(Request))
+        {
+            errorResult = null;
+            return true;
+        }
+
+        errorResult = Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
+        return false;
+    }
+
+    private async Task<string> TriggerReindexAsync(string? sourceId, string action)
+    {
+        try
+        {
+            var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
+            var internalKey = GetInternalApiKey();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/reindex")
+            {
+                Content = JsonContent.Create(new AgentReindexRequest
+                {
+                    SourceId = sourceId,
+                    Action = action
+                })
+            };
+            request.Headers.Add("X-Internal-Key", internalKey);
+
+            var response = await httpClient.SendAsync(request, cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Webhook /internal/reindex sent successfully (Action: {Action}, SourceId: {SourceId})", action, sourceId);
+                return "accepted";
+            }
+
+            _logger.LogWarning("Webhook /internal/reindex returned non-success code: {StatusCode}", response.StatusCode);
+            return "failed";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to call /internal/reindex on agent-service (best-effort)");
+            return "failed";
+        }
+    }
+
+    private async Task<Dictionary<string, string>> RequestAgentLabelingAsync(string modelClass, List<ParagraphDto> paragraphs)
+    {
+        var labelMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            // CHỈ GỬI các đoạn có Text.Length <= 800 ký tự (các đoạn dài hơn không được chọn theo quy định và sẽ làm Agent 422)
+            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 800).ToList();
+            if (eligibleParagraphs.Count == 0)
+            {
+                return labelMap;
+            }
+
+            var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
+            var internalKey = GetInternalApiKey();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+            var reqPayload = new AgentLabelParagraphsRequest
+            {
+                ModelClass = modelClass,
+                Paragraphs = eligibleParagraphs.Select(p => new AgentParagraphItem { Id = p.Id, Text = p.Text }).ToList()
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/knowledge/label-paragraphs")
+            {
+                Content = JsonContent.Create(reqPayload)
+            };
+            request.Headers.Add("X-Internal-Key", internalKey);
+
+            var response = await httpClient.SendAsync(request, cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                var resDto = await response.Content.ReadFromJsonAsync<AgentLabelParagraphsResponse>(cancellationToken: cts.Token);
+                if (resDto?.Labels != null)
+                {
+                    foreach (var item in resDto.Labels)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.Id) && !string.IsNullOrWhiteSpace(item.UnitType))
+                        {
+                            labelMap[item.Id] = item.UnitType;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Agent service label-paragraphs returned status code {StatusCode}", response.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Timeout or error calling agent-service /internal/knowledge/label-paragraphs. Fallback to manual.");
+        }
+
+        return labelMap;
+    }
+
+    private string GetInternalApiKey()
+    {
+        var key = Environment.GetEnvironmentVariable("INTERNAL_API_SECRET")
+               ?? _configuration["InternalApi:Secret"]
+               ?? _configuration["INTERNAL_API_SECRET"];
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new InvalidOperationException("Biến môi trường INTERNAL_API_SECRET chưa được cấu hình. Hệ thống từ chối thực hiện tác vụ nội bộ theo nguyên tắc Fail-Closed.");
+        }
+
+        return key;
+    }
+
+    public static string NormalizeUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+        url = url.Trim();
+
+        var hashIdx = url.IndexOf('#');
+        if (hashIdx >= 0)
+        {
+            url = url[..hashIdx];
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url.Trim().TrimEnd('/').ToLowerInvariant();
+        }
+
+        var scheme = "https";
+        var host = uri.Host.ToLowerInvariant();
+        if (host.StartsWith("www."))
+        {
+            host = host[4..];
+        }
+        var port = (uri.Port == 80 || uri.Port == 443 || uri.IsDefaultPort) ? "" : $":{uri.Port}";
+        var path = uri.AbsolutePath.TrimEnd('/');
+
+        var query = uri.Query;
+        if (!string.IsNullOrEmpty(query))
+        {
+            var queryParams = HttpUtility.ParseQueryString(query);
+            var trackingKeys = queryParams.AllKeys
+                .Where(k => string.IsNullOrWhiteSpace(k) ||
+                            k.StartsWith("utm", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("fbclid", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("gclid", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("ref", StringComparison.OrdinalIgnoreCase) ||
+                            k.Equals("source", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var k in trackingKeys)
+            {
+                queryParams.Remove(k);
+            }
+
+            query = queryParams.Count > 0 ? "?" + queryParams.ToString() : "";
+        }
+
+        return $"{scheme}://{host}{port}{path}{query}".TrimEnd('/');
     }
 }

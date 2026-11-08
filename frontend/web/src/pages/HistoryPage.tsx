@@ -12,7 +12,8 @@ import ResultStatusBadge from '@/features/diagnose/components/ResultStatusBadge'
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import {
   History,
   Calendar,
@@ -26,6 +27,8 @@ import {
   MessageSquare,
   AlertCircle,
   FileText,
+  Clock,
+  UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -37,6 +40,10 @@ export interface HistoryItem {
   class_code: string;
   confidence: number;
   is_uncertain: boolean;
+  confusion_group?: string | null;
+  requires_expert?: boolean;
+  expert_notes?: string | null;
+  expert_reviewed_at?: string | null;
   recovery_status: string;
   notes?: string | null;
   original_image_url: string;
@@ -66,6 +73,11 @@ export const HistoryPage: React.FC = () => {
   const [detailData, setDetailData] = useState<DiagnoseResponse | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState<boolean>(false);
   const [isDetailOpen, setIsDetailOpen] = useState<boolean>(false);
+
+  // Modal gửi ca cho Bác sĩ Cây trồng
+  const [isExpertModalOpen, setIsExpertModalOpen] = useState<boolean>(false);
+  const [farmerNotesInput, setFarmerNotesInput] = useState<string>('');
+  const [sendingExpert, setSendingExpert] = useState<boolean>(false);
 
   const fetchHistory = async (targetPage: number) => {
     setIsLoading(true);
@@ -117,6 +129,42 @@ export const HistoryPage: React.FC = () => {
     setDetailData(null);
     if (id) {
       navigate('/history');
+    }
+  };
+
+  const handleSendToExpert = async () => {
+    if (!detailData?.diagnosis_id) return;
+    try {
+      setSendingExpert(true);
+      const res = await apiClient.post<{ farmer_notes?: string | null }>(
+        `/diagnose/${detailData.diagnosis_id}/request-expert`,
+        { farmer_notes: farmerNotesInput.trim() || undefined }
+      );
+      // Server nối mô tả mới vào sau ghi chú lúc khám; hiển thị đúng bản đã lưu
+      const savedNotes = res.data?.farmer_notes ?? null;
+      toast.success('Đã gửi thông tin ca bệnh tới Bác sĩ Cây trồng thành công!');
+      setIsExpertModalOpen(false);
+      setFarmerNotesInput('');
+      setDetailData((prev) =>
+        prev
+          ? {
+              ...prev,
+              requires_expert: true,
+              notes: savedNotes ?? prev.notes,
+            }
+          : null
+      );
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === detailData.diagnosis_id
+            ? { ...item, requires_expert: true, notes: savedNotes ?? item.notes }
+            : item
+        )
+      );
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setSendingExpert(false);
     }
   };
 
@@ -242,6 +290,11 @@ export const HistoryPage: React.FC = () => {
                     <CardTitle className="text-base font-bold text-foreground line-clamp-1">
                       {item.disease_name}
                     </CardTitle>
+                    {item.confusion_group && (
+                      <p className="text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded w-fit border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300">
+                        Nhóm nghi vấn: {item.confusion_group}
+                      </p>
+                    )}
                     <p className="text-[11px] font-mono text-muted-foreground line-clamp-1">
                       {item.class_code}
                     </p>
@@ -257,12 +310,23 @@ export const HistoryPage: React.FC = () => {
                     )}
 
                     <div className="pt-3 border-t border-border/50 flex items-center justify-between">
-                      <Badge
-                        variant="outline"
-                        className="text-[11px] font-medium border-border text-muted-foreground"
-                      >
-                        {item.recovery_status || 'Đang theo dõi'}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge
+                          variant="outline"
+                          className="text-[11px] font-medium border-border text-muted-foreground"
+                        >
+                          {item.recovery_status || 'Đang theo dõi'}
+                        </Badge>
+                        {item.expert_notes ? (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-semibold dark:bg-emerald-950 dark:text-emerald-200">
+                            Bác sĩ đã kết luận
+                          </Badge>
+                        ) : item.requires_expert ? (
+                          <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] font-semibold dark:bg-amber-950 dark:text-amber-200">
+                            Chờ Bác sĩ
+                          </Badge>
+                        ) : null}
+                      </div>
 
                       <Button
                         type="button"
@@ -370,6 +434,36 @@ export const HistoryPage: React.FC = () => {
                 </p>
               )}
 
+              {/* Phản hồi kết luận từ Bác sĩ Cây trồng */}
+              {detailData.expert_notes && (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 p-4 space-y-2 dark:bg-emerald-950/40 dark:border-emerald-800">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                      Phác đồ thẩm định từ Bác sĩ Cây trồng
+                    </span>
+                    {detailData.expert_reviewed_at && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {formatDate(detailData.expert_reviewed_at)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-emerald-950 dark:text-emerald-100 whitespace-pre-wrap leading-relaxed">
+                    {detailData.expert_notes}
+                  </p>
+                </div>
+              )}
+
+              {/* Đang chờ Bác sĩ phản hồi */}
+              {detailData.requires_expert && !detailData.expert_notes && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50/70 p-3 flex items-center gap-2 dark:bg-amber-950/30 dark:border-amber-800">
+                  <Clock className="w-4 h-4 text-amber-600 animate-spin" />
+                  <span className="text-xs font-medium text-amber-900 dark:text-amber-200">
+                    Ca bệnh đã được chuyển tới Bác sĩ Cây trồng. Đang chờ chuyên gia thẩm định và phản hồi...
+                  </span>
+                </div>
+              )}
+
               {/* So sánh ảnh gốc & Grad-CAM */}
               <div className="space-y-2">
                 <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -414,20 +508,89 @@ export const HistoryPage: React.FC = () => {
                   Đóng hồ sơ
                 </Button>
 
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    handleCloseDetail();
-                    navigate(`/chat?class_code=${encodeURIComponent(detailData.result?.class_code || '')}`);
-                  }}
-                  className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold"
-                >
-                  <MessageSquare className="h-3.5 w-3.5 mr-1.5" /> Hỏi Trợ lý về ca bệnh này
-                </Button>
+                <div className="flex items-center gap-2">
+                  {!detailData.requires_expert && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsExpertModalOpen(true)}
+                      className="border-amber-300 text-amber-900 hover:bg-amber-50 text-xs font-semibold dark:border-amber-700 dark:text-amber-200"
+                    >
+                      <UserCheck className="h-3.5 w-3.5 mr-1.5 text-amber-600" />
+                      Nhờ Bác sĩ thẩm định
+                    </Button>
+                  )}
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      handleCloseDetail();
+                      navigate(`/chat?class_code=${encodeURIComponent(detailData.result?.class_code || '')}`);
+                    }}
+                    className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 mr-1.5" /> Hỏi Trợ lý về ca bệnh này
+                  </Button>
+                </div>
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal gửi ca bệnh cho Bác sĩ Cây trồng */}
+      <Dialog open={isExpertModalOpen} onOpenChange={setIsExpertModalOpen}>
+        <DialogContent className="max-w-md bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+              <UserCheck className="w-5 h-5 text-amber-600" />
+              Nhờ Bác sĩ Cây trồng thẩm định ca bệnh
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Thông tin ca bệnh và hình ảnh sẽ được chuyển tới Bác sĩ Cây trồng phụ trách để tư vấn phác đồ xử lý chuyên sâu.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <label className="text-xs font-semibold text-foreground">
+              Mô tả thêm tình trạng vườn cây (triệu chứng, thời gian phát bệnh, diện tích):
+            </label>
+            <Textarea
+              rows={4}
+              maxLength={2000}
+              placeholder="Ví dụ: Vườn cà chua 500m2 bị đốm lá khoảng 3 ngày nay sau đợt mưa rào. Đã thử tỉa cành nhưng lá non vẫn bị héo..."
+              value={farmerNotesInput}
+              onChange={(e) => setFarmerNotesInput(e.target.value)}
+              className="text-xs resize-none"
+            />
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span>Tối đa 2.000 ký tự</span>
+              <span>{farmerNotesInput.length}/2000</span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsExpertModalOpen(false)}
+              disabled={sendingExpert}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSendToExpert}
+              disabled={sendingExpert}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+            >
+              {sendingExpert ? 'Đang gửi...' : 'Gửi yêu cầu thẩm định'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

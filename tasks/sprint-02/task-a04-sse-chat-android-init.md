@@ -79,3 +79,19 @@ mobile/android/
 - [ ] Cập nhật trạng thái `TASK-A04` trong `tasks/TODO.md` sang `[x] DONE`.
 - [ ] Ghi nhận kết quả vào `tasks/WORKLOG.md`.
 - [ ] Báo cáo tóm tắt diff và chờ Lập trình viên xác nhận trước khi commit.
+
+---
+
+## 5. NHẬT KÝ THỰC HIỆN (EXECUTION NOTES)
+
+### 5.1. Việc chuyển sang từ A02/A03 (review 08/11/2026)
+Điều kiện bắt đầu: nên xong BUG-54 (nâng `react-router-dom`) trong `task-s2-bonus-hardening-acceptance.md` trước, vì A04 thêm route Chat. Các việc chung của Sprint 2 nằm trong file đó, không lặp lại ở đây.
+
+| Xong | ID | Mức | Vị trí | Việc và lý do | Cách làm và nghiệm thu |
+|---|---|---|---|---|---|
+| [ ] | BUG-58 | MEDIUM | App Android (`DiagnoseScreen`) | Server xóa toàn bộ EXIF, kể cả thẻ Orientation. Android không tự xoay ảnh trước khi gửi thì ảnh lưu bị nằm ngang. | Đọc Orientation rồi xoay, thu nhỏ và nén ảnh trên máy trước khi upload, giống `frontend/web/src/features/diagnose/prepare-image.ts`. Chụp dọc trên máy thật → ảnh trong Lịch sử đúng chiều. |
+| [ ] | BUG-81 | MEDIUM | `/chat` (`router.tsx` đang là `ComingSoonPage`) | `DiagnosePage`, `HistoryPage`, `HandbookPage` đều chuyển sang `/chat?class_code=...`. Trang Chat phải đọc tham số này. | Gửi `class_code` vào `current_disease_code` (≤ 100 ký tự, chỉ nhận mã có trong danh sách lớp). Mở Chat từ 3 trang trên → câu hỏi đầu tiên có ngữ cảnh đúng bệnh. |
+| [ ] | BUG-82 | HIGH | `useAgentChat` | Gọi stream bằng `fetch` (axios không đọc được stream và đang có `timeout: 30000`). Nginx giới hạn chat 10 lần/phút (`burst=5`) và `proxy_read_timeout 300s`. | Đọc stream qua `response.body.getReader()`; xử lý 422 (quá 2000 ký tự), 429 (báo chờ, không tự gửi lại liên tục), 5xx và mất mạng giữa chừng (hiện lỗi, giữ phần đã nhận). Có nút dừng (`AbortController`). Nếu gửi token: lấy từ `lavitree_token`, 401 thì phát sự kiện `auth:unauthorized` như `api-client.ts`. |
+| [ ] | BUG-83 | HIGH | Nút "Thêm vào giỏ hàng" từ `draft_order` | Store lưu giỏ theo tài khoản (`lavitree_cart_<user.id>`, khách là `lavitree_cart_guest`), mỗi mục dạng `{ product, quantity }`. Giá và tình trạng được phép bán phải lấy lại từ Core, không dùng số trong câu trả lời của Agent. | Khi bấm thêm: gọi `GET /api/v1/medicines/search` lấy sản phẩm theo `product_id`, chỉ thêm khi `is_allowed: true`, ghi vào đúng khóa giỏ của người đang đăng nhập. Đặt hàng vẫn qua `POST /api/v1/orders` (Core tự tính giá). Thử với `product_id` của thuốc đang khóa → không thêm được. |
+| [ ] | BUG-84 | MEDIUM | Hiển thị `final_answer` | `guardrail_triggered`, `is_offline_fallback`, nhãn `[DRAFT_RECOMMENDATION]` là thông tin an toàn, không được ẩn. Thời tiết trong câu trả lời đến từ tool của Agent; Core trả 503 khi thiếu khóa nên giao diện không được tự điền số liệu. | Hiện nhãn "Bản nháp, cần chuyên gia xác nhận", cảnh báo PHI khi có `guardrail_triggered`, nhãn "Đang dùng hướng dẫn lưu sẵn" khi `is_offline_fallback: true`. `citations: []` → "Không có tài liệu tham khảo". |
+| [ ] | BUG-85 | MEDIUM | Android `data/api` | DTO và kiểm tra đầu vào phải khớp Core: số điện thoại `^0[35789]\d{8}$`, ảnh khám tối đa theo `api-contracts.md` Mục 3.1, timeout upload ≥ 30 giây. | Retrofit/OkHttp đặt timeout riêng cho upload; không gọi thẳng cổng nội bộ (`8001`, `5000`), chỉ đi qua domain Nginx. |
