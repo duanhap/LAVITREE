@@ -849,6 +849,10 @@
     - Không dùng tri thức RAG nào → `citations: []`; giao diện hiển thị "Không có tài liệu tham khảo".
     - `is_verbatim = true`: giao diện hiển thị `excerpt` trong dấu ngoặc kép (trích nguyên văn). `false`: hiển thị là "Tóm tắt" (không đặt trong ngoặc kép).
     - Chế độ offline: `citations` lấy từ trường nguồn được kết xuất sẵn trong `offline_ipm_cache.json`.
+  - **Quy tắc `draft_order` (chốt 08/11/2026, BUG-106)**:
+    - **Sprint 2 và đến khi xong BUG-51: Agent luôn trả `draft_order: null`.** Cả 4 thuốc trong kho vẫn ghi "CHƯA ĐỐI CHIẾU" (tình trạng lưu hành, PHI, liều dùng), nên Lavi không được tạo giỏ hàng gợi ý. Lavi vẫn có thể nhắc tên thuốc trong `answer` khi đã qua Guardrail.
+    - Client (Web Chat, Android) phải coi `null` là trạng thái bình thường: không hiện nút "Thêm vào giỏ" trong khung chat. Nông dân mua qua trang Cửa hàng, nơi Core kiểm `is_allowed` và tồn kho.
+    - Dự kiến sau BUG-51 (chưa áp dụng, Client chưa được dựa vào): `{ "items": [{ "product_id": int, "product_name": string, "quantity": int }] }`. Chỉ gồm thuốc có `is_allowed: true` và đạt PHI theo `harvest_days_left`; không có thuốc nào đạt thì vẫn trả `null`. Giá không nằm trong `draft_order`: Client lấy giá từ Core khi thêm vào giỏ.
 
 ---
 

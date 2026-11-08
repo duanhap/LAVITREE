@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HeroVideoBackground } from '@/components/brand/HeroVideoBackground';
-import lavi3dImg from '@/assets/brand/lavi-3d-happy-720.webp';
+import laviHelloImg from '@/assets/brand/lavi-3d-hello-820.webp';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 // Upload và suy luận AI trên mạng yếu cần lâu hơn timeout chung của API
@@ -152,9 +152,12 @@ export const DiagnosePage: React.FC = () => {
     <div className="container mx-auto px-4 py-6 md:py-10 max-w-5xl space-y-8">
       {/* Khối giới thiệu: nền video lá cây + Lavi 3D (chỉ hiện khi chưa có kết quả) */}
       {!diagnoseData ? (
-        <section className="relative isolate overflow-hidden rounded-3xl bg-emerald-950 text-white shadow-lg">
-          <HeroVideoBackground />
-          <div className="relative z-10 grid items-center gap-6 px-6 py-8 sm:px-10 sm:py-10 md:grid-cols-[1fr_auto]">
+        <section className="relative isolate rounded-3xl bg-emerald-950 text-white shadow-lg md:mt-10">
+          {/* Nền video nằm trong khung bo góc; riêng Lavi được phép tràn lên trên khung */}
+          <div className="absolute inset-0 overflow-hidden rounded-3xl">
+            <HeroVideoBackground />
+          </div>
+          <div className="relative z-10 px-6 py-8 sm:px-10 sm:py-10 md:pr-[22rem] xl:pr-[28rem]">
             <div className="space-y-4">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">
                 <Sparkles className="h-3.5 w-3.5" />
@@ -187,11 +190,27 @@ export const DiagnosePage: React.FC = () => {
                 </Button>
               </div>
             </div>
-            <img
-              src={lavi3dImg}
-              alt="Lavi, trợ lý cây trồng của Lavitree"
-              className="hidden w-40 justify-self-center drop-shadow-[0_20px_40px_rgba(0,0,0,0.35)] motion-safe:animate-[lavi-float_5s_ease-in-out_infinite] sm:block md:w-52"
-            />
+          </div>
+
+          {/*
+            Lavi nhoài người ra khỏi khung video để vẫy chào:
+            - clip-path chỉ cắt mép DƯỚI (thân dưới khuất sau khung), ba phía còn lại để tràn,
+              nên lá trên đầu vượt qua mép trên của khung.
+            - Lớp ngoài chạy hiệu ứng trồi lên một lần, lớp trong lắc nhẹ liên tục (chỉ khi cho phép chuyển động).
+          */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-20 hidden md:block [clip-path:inset(-60%_-20%_0_-20%)]"
+          >
+            <div className="absolute bottom-0 -right-2 w-[22rem] translate-y-[14%] xl:-right-8 xl:w-[30rem] xl:translate-y-[15%] motion-safe:animate-[lavi-peek-in_900ms_cubic-bezier(0.22,1,0.36,1)_both]">
+              <img
+                src={laviHelloImg}
+                alt=""
+                width={820}
+                height={788}
+                className="w-full origin-bottom drop-shadow-[0_24px_36px_rgba(0,0,0,0.45)] motion-safe:animate-[lavi-wave_4.5s_ease-in-out_0.9s_infinite]"
+              />
+            </div>
           </div>
         </section>
       ) : (

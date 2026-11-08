@@ -9,6 +9,11 @@ HARVEST_BEFORE_PHI_VIOLATION = "HARVEST_BEFORE_PHI_VIOLATION"
 PHI_WARNING_TITLE = "⛔ NGUY CƠ TỒN DƯ THUỐC BVTV"
 
 # Danh mục hoạt chất và tên thương phẩm thuốc BVTV bị cấm tại Việt Nam
+# NGUỒN:
+# - Danh mục thuốc BVTV cấm sử dụng tại Việt Nam, Thông tư 75/2025/TT-BNNMT (Bộ Nông nghiệp và Môi trường, ký 26/12/2025),
+#   sửa đổi bởi Thông tư 28/2026/TT-BNNMT (hiệu lực 15/8/2026). Văn bản gốc: ppd.gov.vn, thuvienphapluat.vn.
+# - Paraquat và 2,4-D: Quyết định 278/QĐ-BNN-BVTV (2017) loại khỏi danh mục được phép.
+# - Chưa đối chiếu từng dòng của danh sách này với phụ lục của TT 75/2025 (xem BUG-93).
 BANNED_INGREDIENTS = [
     "paraquat",
     "pa-ra-quat",
@@ -27,6 +32,10 @@ BANNED_INGREDIENTS = [
 ]
 
 # Danh mục các thuốc/hoạt chất hóa học thông dụng và thời gian cách ly tối thiểu (PHI chuẩn)
+# NGUỒN (CHƯA ĐỦ, xem BUG-51/BUG-93):
+# - Danh mục được phép của TT 75/2025/TT-BNNMT chỉ xác nhận thuốc được lưu hành; văn bản này KHÔNG quy định số ngày cách ly.
+# - Thời gian cách ly (PHI) ghi trên nhãn đã đăng ký của từng sản phẩm. Các con số dưới đây CHƯA đối chiếu với nhãn
+#   và chưa có kỹ sư nông nghiệp xác nhận; phải ghi là giới hạn trong báo cáo đồ án cho tới khi đối chiếu xong.
 CHEMICAL_PESTICIDES_PHI = {
     "ridomil": 7,
     "antracol": 7,
@@ -47,7 +56,9 @@ CHEMICAL_PESTICIDES_PHI = {
     "carbendazim": 14
 }
 
-# Thuốc hóa học hay gặp trong tài liệu nhưng chưa có PHI kiểm chứng trong kho: lấy mức cách ly lớn nhất của bảng trên
+# Thuốc hóa học hay gặp trong tài liệu nhưng chưa có PHI kiểm chứng trong kho: lấy mức cách ly lớn nhất của bảng trên (14 ngày)
+# Đây là lựa chọn thiết kế của nhóm (mặc định an toàn), không phải quy định của văn bản nào: thuốc chưa rõ PHI
+# thì cảnh báo theo mức dài nhất trong bảng trên.
 UNVERIFIED_PHI_DAYS = max(CHEMICAL_PESTICIDES_PHI.values())
 UNVERIFIED_CHEMICALS = [
     "daconil", "dithane", "amistar", "topsin", "thiophanate", "zineb", "cymoxanil", "dimethomorph",
