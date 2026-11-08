@@ -154,3 +154,14 @@ body {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
 }
+
+/* Lavi "nhoài ra" khỏi khung video: trồi lên từ mép dưới rồi lắc nhẹ như đang vẫy chào */
+@keyframes lavi-peek-in {
+  0% { transform: translateY(70%) rotate(8deg); opacity: 0; }
+  60% { transform: translateY(-4%) rotate(-5deg); opacity: 1; }
+  100% { transform: translateY(0) rotate(-2deg); opacity: 1; }
+}
+@keyframes lavi-wave {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(3deg) translateY(-6px); }
+}

@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import {
   FileText, ShieldCheck, CheckCircle2, AlertCircle, RefreshCw,
   ExternalLink, Search, Filter, Layers, Database, Package,
-  UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye
+  UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -131,6 +131,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [sourceApprovalFilter, setSourceApprovalFilter] = useState<'ALL' | 'APPROVED' | 'PENDING'>('ALL');
   const [sourceSearch, setSourceSearch] = useState<string>('');
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<KnowledgeSourceItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [batchActionLoading, setBatchActionLoading] = useState<boolean>(false);
 
   // Reindex Status Dialog
@@ -305,6 +307,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       );
     } catch (err) {
       toast.error(getErrorMessage(err));
+    }
+  };
+
+  // Xóa mềm (IsDeleted) qua Core API; Core tự gọi Agent reindex nên Lavi không còn trích dẫn bài này.
+  const handleDeleteSource = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      await apiClient.delete(`/knowledge/sources/${deleteTarget.id}`);
+      setSources((prev) => prev.filter((s) => s.id !== deleteTarget.id));
+      setSelectedSourceIds((prev) => prev.filter((id) => id !== deleteTarget.id));
+      toast.success('Đã xóa đoạn tri thức. Lavi sẽ không dùng đoạn này nữa.');
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -994,6 +1013,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             >
                               {s.isManualApproved ? 'Bỏ duyệt' : 'Duyệt bài'}
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setDeleteTarget(s)}
+                              className="ml-1 h-7 w-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              aria-label="Xóa đoạn tri thức"
+                              title="Xóa đoạn tri thức"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </td>
                         </tr>
                       );
@@ -1379,6 +1408,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       {/* ========================================================================================= */}
       {/* DIALOG KIỂM TRA TRẠNG THÁI REINDEX */}
       {/* ========================================================================================= */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Xóa đoạn tri thức này?</DialogTitle>
+            <DialogDescription>
+              Lavi sẽ không còn dùng đoạn này để trả lời. Muốn tạm ẩn thì dùng "Bỏ duyệt" thay vì xóa.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteTarget && (
+            <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-xs">
+              <p className="line-clamp-3 italic text-muted-foreground">"{deleteTarget.evidenceText}"</p>
+              <p className="truncate text-muted-foreground">{deleteTarget.sourceUrl}</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Hủy
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteSource} disabled={deleting}>
+              {deleting ? 'Đang xóa...' : 'Xóa'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={reindexStatusOpen} onOpenChange={setReindexStatusOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

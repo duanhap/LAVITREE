@@ -151,3 +151,28 @@ sequenceDiagram
    - Tham số: `harvest_days_left` *(int)*, `product_phi_days` *(int)*.
    - Đầu ra: `is_safe` *(boolean)*, `warning_message` *(string nếu vi phạm an toàn vệ sinh thực phẩm)*.
 
+---
+
+## 5. GIỚI HẠN KIẾN TRÚC & ĐÁNH ĐỔI THIẾT KẾ (ARCHITECTURAL LIMITATIONS & TRADE-OFFS)
+
+Hệ thống trong phạm vi Sprint 2 được tối ưu hóa cho mô hình **Single-Replica Deployment** (một container Core API và một container Agent Service chạy cục bộ phục vụ demo và bảo vệ đồ án). Dưới đây là các giới hạn kiến trúc được ghi nhận chính thức:
+
+### 5.1. Cơ chế Khóa Đồng thời Trong Bộ nhớ Core API (BUG-77)
+- **Hiện trạng**: Khóa chống lưu vượt quá 4 đoạn trích/URL trong `KnowledgeController.cs` sử dụng `SemaphoreSlim` in-memory.
+- **Phạm vi hiệu lực**: Hoạt động an toàn và chính xác tuyệt đối khi triển khai 1 bản Core API (`Single-Instance`).
+- **Lộ trình nâng cấp**: Khi triển khai nhiều bản sao (Multi-Replica/Load-Balanced), cơ chế khóa sẽ được chuyển sang PostgreSQL Advisory Locks (`pg_advisory_xact_lock`) hoặc Distributed Lock qua Redis.
+
+### 5.2. Quản lý Trạng thái In-Memory của Agent Service (BUG-94)
+- **Hiện trạng**: 
+  - Bộ nhớ ngữ cảnh hội thoại ngắn hạn (`stm_memory` trong `app/agent/memory.py`: 3 lượt gần nhất, hết hạn sau 1 giờ, tối đa 1000 phiên).
+  - Hạn ngạch hỏi của khách vãng lai (`guest_limiter` trong `app/agent/auth.py`: mặc định 5 lượt/24 giờ theo IP, đổi bằng `GUEST_DAILY_LIMIT`).
+  - Vết suy luận 100 lượt gần nhất (`trace_logger` trong `app/agent/trace_logger.py`) phục vụ màn hình Waterfall.
+  - Trạng thái đóng/mở của Circuit Breaker (`circuit_breaker` trong `app/agent/resilience.py`: mở sau 3 lỗi liên tiếp, thử lại sau 60 giây).
+  Tất cả các trạng thái trên hiện được lưu trực tiếp trong RAM của tiến trình Python (`agent-service:8001`).
+- **Hệ quả thiết kế**:
+  - Dữ liệu trạng thái tạm này sẽ được thiết lập lại khi khởi động lại container Agent.
+  - Khi nhiều người dùng truy cập từ cùng một địa chỉ IP mạng công cộng (ví dụ Wi-Fi trường học hoặc NAT di động 4G/5G), hạn mức khách vãng lai sẽ được dùng chung giữa các thiết bị.
+- **Lộ trình nâng cấp Sprint 3 (TASK-14)**:
+  - Chuyển toàn bộ phiên trò chuyện và tin nhắn sang lưu trữ bền vững trong PostgreSQL (`ChatSessions` & `ChatMessages`).
+  - Sử dụng Redis làm Distributed Cache cho Rate Limiting theo IP/Token và đồng bộ trạng thái Circuit Breaker khi nhân bản nhiều replica.
+

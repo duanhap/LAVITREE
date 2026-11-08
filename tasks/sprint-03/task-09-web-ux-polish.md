@@ -57,7 +57,30 @@
 ## 3. VIỆC CÒN LẠI CỦA TASK-09
 - [ ] Kiểm Tổng quan Admin với Core API thật (tên trường `expertReviewedAt`, `isManualApproved`, `items` của `/medicines/search`).
 - [ ] Hộp "Trạng thái Reindex" trong trang Duyệt tri thức đang in JSON thô; đổi sang hiển thị dễ đọc như thẻ ở Tổng quan.
-- [ ] `KnowledgeCollectorPage` (công cụ thu thập nội bộ, không nằm trên sidebar) vẫn hiện "Mã mô hình"; giữ hay bỏ do trưởng nhóm quyết định.
+- [ ] **BUG-30 (chuyển từ S2-BONUS)**: `KnowledgeCollectorPage` (`/admin/knowledge-collector`, khoảng 3.000 dòng, không có trên sidebar) gọi `axios` thô không token nên thêm/xóa bị 401, export không có header, chỉ thấy bài đã duyệt; còn hiện "Mã mô hình". Đề xuất **bỏ trang** vì `/admin/ingest` + nút xóa ở Duyệt tri thức đã thay thế; nếu giữ thì đổi sang `apiClient` và tải export dạng blob.
 - [ ] Rà responsive các trang Cửa hàng, Đơn hàng, Lịch sử ở 360px; skeleton khi tải.
 - [ ] Chống XSS: rà các chỗ render Markdown/HTML từ Agent và từ bài báo (theo `ui-ux.md` §9).
 - [ ] Đo Lighthouse (Performance, Accessibility) trên trang chủ và Đăng nhập.
+
+---
+
+## 4. ĐỢT 2 (08/11/2026): NÚT XÓA TRI THỨC, LAVI "NHOÀI RA" KHỎI KHUNG TRANG CHỦ
+
+### 4.1. Nút xóa đoạn tri thức (Admin → Duyệt tri thức)
+- Mỗi dòng có nút thùng rác, bấm thì hiện hộp xác nhận (trích đoạn + URL, nhắc dùng "Bỏ duyệt" nếu chỉ muốn tạm ẩn).
+- Gọi `DELETE /api/v1/knowledge/sources/{id}` có sẵn: xóa mềm (`IsDeleted`) và Core tự gọi Agent reindex. Xóa xong bỏ dòng khỏi bảng và khỏi danh sách đang chọn.
+- Trước đây API này chỉ được gọi từ `KnowledgeCollectorPage` (lỗi 401, BUG-30), nên Admin không xóa được bài nào.
+
+### 4.2. Khối giới thiệu trang chủ
+- Ảnh mới `lavi-3d-hello.png` (2056×1535, nền trong suốt) → cắt viền trống, thu về `src/assets/brand/lavi-3d-hello-820.webp` (820×788, 57KB).
+- Lavi đứng ở góc phải dưới, **thân dưới khuất sau mép dưới khung video**, lá trên đầu và tai nghe tràn ra ngoài khung. Cách làm: nền video nằm trong lớp `overflow-hidden` riêng; lớp chứa Lavi dùng `clip-path: inset(-60% -20% 0 -20%)`, chỉ cắt mép dưới.
+- Chuyển động (chỉ khi không bật giảm chuyển động): trồi lên một lần `lavi-peek-in` 0,9s rồi lắc nhẹ `lavi-wave` 4,5s như đang vẫy chào (keyframes trong `globals.css`).
+- Cỡ: từ 1280px trở lên Lavi rộng 30rem, tràn rõ ra ngoài khung; 768–1279px rộng 22rem, nằm gọn trong khung vì khung cao hơn; dưới 768px ẩn. Chữ chừa lề phải để tay Lavi không đè lên.
+- File: `src/pages/DiagnosePage.tsx`, `src/pages/AdminDashboard.tsx`, `src/styles/globals.css`, thêm `src/assets/brand/lavi-3d-hello-820.webp`.
+
+### 4.3. Bằng chứng
+- `npm run build` (gồm `tsc`): thành công.
+- Chụp Chrome headless trên `vite preview` ở 1440, 1024, 820px: Lavi không đè chữ; ở 1440px lá vượt mép trên, tai nghe vượt mép phải.
+- Nút xóa: đã build, **chưa bấm thử trên API thật**.
+- Thấy thêm (lỗi có sẵn): ở khoảng 820px, thanh menu trên cùng bị xuống dòng chữ ("Khám / lá"); cần rà ở mục responsive.
+
