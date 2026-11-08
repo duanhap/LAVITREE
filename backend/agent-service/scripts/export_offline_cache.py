@@ -24,6 +24,8 @@ DEMO_DISEASES = [
 ]
 
 # Bản sao của LavitreeDbContextSeeder.cs, chỉ dùng khi chạy --from-seed (không có kết nối PostgreSQL)
+# NGUỒN: giống seed của Core, hiện ghi "CHƯA ĐỐI CHIẾU" (BUG-51). Tình trạng được phép/cấm cần đối chiếu với
+# Thông tư 75/2025/TT-BNNMT (sửa đổi bởi TT 28/2026/TT-BNNMT); PHI và liều dùng cần đối chiếu với nhãn sản phẩm.
 PRODUCTS_SEED = {
     1: {
         "product_name": "Ridomil Gold 68WG",
@@ -71,6 +73,9 @@ PRODUCTS_SEED = {
     }
 }
 
+# Biện pháp canh tác cho 5 bệnh demo.
+# NGUỒN: CHƯA GẮN nguồn cho từng biện pháp (BUG-93). Khi nạp tri thức, đối chiếu với bài khuyến nông đã duyệt trong
+# KnowledgeSources rồi ghi URL vào đây; chưa làm được thì ghi là giới hạn trong báo cáo đồ án.
 DISEASE_METADATA = {
     "Tomato___Late_blight": {
         "plant_name": "Cà chua",

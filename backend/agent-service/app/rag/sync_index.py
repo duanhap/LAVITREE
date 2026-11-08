@@ -28,24 +28,10 @@ def load_records_from_postgres(db_url: str, demo_only: bool = False) -> List[Kno
     try:
         conn.set_session(readonly=True)
         with conn.cursor() as cursor:
-            # Tạm thời: A03 chưa có migration UnitType/IsVerbatim. Bỏ kiểm tra này sau khi migration chạy xong.
             cursor.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public'
-                  AND table_name = 'KnowledgeSources'
-                  AND column_name IN ('UnitType', 'IsVerbatim')
-            """)
-            cols = {r[0] for r in cursor.fetchall()}
-            if len(cols) < 2:
-                logger.warning("KnowledgeSources is missing UnitType/IsVerbatim (A03 migration). Using SUMMARY/false.")
-            unit_type_expr = '"UnitType"' if "UnitType" in cols else "'SUMMARY' AS \"UnitType\""
-            is_verbatim_expr = '"IsVerbatim"' if "IsVerbatim" in cols else "false AS \"IsVerbatim\""
-
-            cursor.execute(f"""
                 SELECT "Id", "ModelClass", "PlantName", "DiseaseName", "SourceUrl",
                        "SourceTitle", "Organization", "EvidenceText", "IsManualApproved",
-                       {unit_type_expr}, {is_verbatim_expr}
+                       "UnitType", "IsVerbatim"
                 FROM "KnowledgeSources"
                 WHERE "IsDeleted" = false AND "IsManualApproved" = true
             """)
