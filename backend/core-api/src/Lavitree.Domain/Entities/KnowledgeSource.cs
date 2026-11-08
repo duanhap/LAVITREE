@@ -29,4 +29,8 @@ public class KnowledgeSource : BaseEntity
     public string SourceQuality { get; set; } = "Cao"; // Cao | Trung bình | Duyệt ngoại lệ
     public bool IsManualApproved { get; set; } = false; // Đã bàn bạc nội bộ / Duyệt ngoại lệ
     public string? ReviewerNotes { get; set; } // Ghi chú của nhóm khi duyệt ngoại lệ
+
+    // Ingestion Verbatim Extensions (TASK-A03)
+    public string UnitType { get; set; } = "SUMMARY"; // SUMMARY | SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT
+    public bool IsVerbatim { get; set; } = false; // True = trích đoạn nguyên văn bài báo, False = tóm tắt AI
 }

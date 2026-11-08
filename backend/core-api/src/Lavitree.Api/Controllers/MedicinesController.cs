@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
+using System.Security.Claims;
 using Lavitree.Api.Filters;
 using Lavitree.Infrastructure.Persistence;
 
@@ -310,5 +311,86 @@ public class MedicinesController : ControllerBase
 
         [JsonPropertyName("target_diseases")]
         public List<string> TargetDiseases { get; set; } = new();
+    }
+
+    public class UpdateMedicineDto
+    {
+        [JsonPropertyName("is_allowed")]
+        public bool? IsAllowed { get; set; }
+
+        [JsonPropertyName("phi_days")]
+        public int? PhiDays { get; set; }
+
+        [JsonPropertyName("price")]
+        public decimal? Price { get; set; }
+
+        [JsonPropertyName("stock_quantity")]
+        public int? StockQuantity { get; set; }
+    }
+
+    /// <summary>
+    /// PATCH /api/v1/medicines/{id}
+    /// Quản lý kho thuốc (Admin): Bật/tắt IsAllowed, cập nhật PhiDays, giá và tồn kho
+    /// </summary>
+    [HttpPatch("{id:int}")]
+    public async Task<IActionResult> UpdateMedicine(int id, [FromBody] UpdateMedicineDto dto)
+    {
+        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
+        if (!isAdmin)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên để cập nhật danh mục thuốc." });
+        }
+
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm thuốc BVTV." });
+        }
+
+        if (dto.IsAllowed.HasValue)
+        {
+            product.IsAllowed = dto.IsAllowed.Value;
+        }
+
+        if (dto.PhiDays.HasValue)
+        {
+            if (dto.PhiDays.Value < 0 || dto.PhiDays.Value > 365)
+            {
+                return BadRequest(new { detail = "Số ngày cách ly (PhiDays) phải từ 0 đến 365 ngày." });
+            }
+            product.PhiDays = dto.PhiDays.Value;
+        }
+
+        if (dto.Price.HasValue)
+        {
+            if (dto.Price.Value < 0)
+            {
+                return BadRequest(new { detail = "Giá bán không được âm." });
+            }
+            product.Price = dto.Price.Value;
+        }
+
+        if (dto.StockQuantity.HasValue)
+        {
+            if (dto.StockQuantity.Value < 0)
+            {
+                return BadRequest(new { detail = "Số lượng tồn kho không được âm." });
+            }
+            product.StockQuantity = dto.StockQuantity.Value;
+        }
+
+        product.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+
+        return Ok(new
+        {
+            id = product.Id,
+            name = product.Name,
+            is_allowed = product.IsAllowed,
+            phi_days = product.PhiDays,
+            price = product.Price,
+            stock_quantity = product.StockQuantity,
+            updated_at = product.UpdatedAt
+        });
     }
 }

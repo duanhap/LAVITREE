@@ -61,13 +61,13 @@
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
   - Trạng thái: `[x] DONE` (`test_mcp_tools.py` 10/10 PASS với Core, PostgreSQL và OpenWeather thật. Image agent-service build và chạy được dưới user thường; chưa chạy cả hệ thống bằng docker compose.)
   - Đầu ra: Service chạy port **`8001`** công bố 4 công cụ chuẩn FastMCP (Read-Only: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`), kết nối RAG Task 06 và REST API thật từ Core API (.NET 8).
-- [ ] **TASK-07: Chu trình ReAct Loop (Gemini), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
+- [x] **TASK-07: Chu trình ReAct Loop (Gemini), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
   - Trách nhiệm: **Thành viên B**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[x] DONE` (Code xong và đã review lại ngày 08/11/2026: `test_react_guardrails.py` 25/25 PASS, thử phá 12/12 kiểu đều bị test phát hiện, `test_react_gemini_live.py` 3/3 PASS với Gemini thật nhưng kho thuốc giả lập. Việc còn lại đã chuyển sang TASK-08 mục 0.)
   - Đầu ra: ReAct loop với Gemini (model theo env `GEMINI_MODEL`), **Hard Code Guardrail bằng Python** (lọc thuốc cấm và $DaysToHarvest \le PhiDays$ trực tiếp bằng code trước khi đưa vào LLM), gắn nhãn `[DRAFT_RECOMMENDATION]`, Circuit Breaker & Router tự động hạ cấp về tệp phác đồ IPM cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
-- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
+- [x] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[x] DONE` (Pha 1–3 xong, đã review và sửa ngày 08/11/2026: `test_task08_streaming_trace.py` 12/12, `test_react_guardrails.py` 25/25, `test_rag_accuracy.py` 11/11. Lần đo cuối: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây. Nghiệm thu với dữ liệu và hệ thống thật chuyển sang TASK-S2-BONUS mục 3.7; Web Chat ở A04.)
   - Đầu ra: Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`), trường `citations` trích dẫn trực tiếp từ RAG (chống LLM bịa URL), TTFT $\le 2.0$s, xuất `trace_waterfall.json`, bộ benchmark chạy tự động 5 ca lâm sàng (x3 lần, temp=0) đạt 15/15 PASS.
 
 ### 👨‍💻 Phân công Thành viên A (System, Auth, Web & Early Mobile):
@@ -83,14 +83,21 @@
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] CHỜ ĐÓNG` (Code đã review ngày 07/11/2026. Còn 3 việc: đổi mật khẩu trong DB thật, xác nhận đã đổi `JWT_SECRET_KEY`, merge phần thời tiết của TASK-05. Chi tiết ở mục 5.8 của file task.)
   - Đầu ra: Màn hình Đăng nhập/Đăng ký trên Web (`LoginPage.tsx`, `RegisterPage.tsx`); trang Khám lá (`DiagnosePage.tsx`) hiển thị chẩn đoán, Grad-CAM, IPM; trang Sổ tay bệnh học (`HandbookPage.tsx`); trang Lịch sử cá nhân (`HistoryPage.tsx`) lưu và xem lại các ca khám theo tài khoản (`/history/:id` - W-08).
-- [ ] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
+- [/] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] ACTIVE / ĐANG HOÀN THIỆN SAU ĐÁNH GIÁ TVA` (Đã xử lý 15 lỗi đánh giá: chống oversell atomic, chuẩn hóa URL & lock 4 đoạn, loại bỏ secret hardcode, phân tách bảo mật tri thức công khai, bổ sung giao diện Bác sĩ & ca bệnh khó, dọn sạch dữ liệu test Supabase, cập nhật tài liệu database-schema.md & api-contracts.md)
   - Đầu ra: Trang Cửa hàng Lavitree Store xem thuốc, giỏ hàng, đặt hàng COD giả lập (`POST /api/v1/orders`); Chức năng chính Cổng Admin (`AdminDashboard.tsx`): Nhập bài báo dán văn bản + URL (`POST /ingestions`) $\rightarrow$ AI gợi ý nhãn $\rightarrow$ Admin tick tối đa 4 đoạn ngắn ($\le 800$ ký tự) $\rightarrow$ Core lấy chữ từ RAM lưu nguyên văn (`POST /commit` gán `UnitType`, `IsVerbatim = true`, `IsManualApproved = true`), migration C# gỡ unique `(ModelClass, SourceUrl)` và thêm cột, sửa duplicate check trong `KnowledgeController.cs`, bảng quản lý kho thuốc (`IsAllowed`, `PhiDays`), gắn cờ ca bệnh khó `requires_expert`.
-- [ ] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
+- [/] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] ACTIVE` (Review 08/11/2026: Web Chat đã sửa và chạy thử với Agent giả lập, chưa chạy với Agent thật; Android chưa build được vì thiếu `gradle-wrapper.jar` — BUG-101. Chi tiết mục 5.2 của file task.)
   - Đầu ra: Khung Chat Trợ lý AI trên Web Portal nhận stream SSE mượt mà từ Task 08 của B; khởi tạo base project Android Native (`mobile/android/`) bằng Kotlin & Jetpack Compose, dựng trước khung 2 màn hình chính (Khám lá & Chat).
+  - Việc chuyển sang từ A02/A03: Đã xử lý triệt để BUG-58, BUG-81 → BUG-85.
+
+### 🤝 Việc chung Thành viên A & B:
+- [ ] **TASK-S2-BONUS: Dọn việc tồn Sprint 2 & Nghiệm thu chéo TVA – TVB** *(P0 cho nhóm bắt buộc trước deploy)*
+  - Trách nhiệm: **Thành viên A** (Core API, Web, hạ tầng) & **Thành viên B** (Agent, RAG, Gemini); người làm không tự nghiệm thu dòng của mình.
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Đóng các dòng còn mở của A02/A03 và review 08/11/2026: đổi mật khẩu admin và `JWT_SECRET_KEY` trên production, kiểm tra Secret `ENV_PRODUCTION`, dọn dữ liệu test có thể đã vào Supabase, xác nhận migration, đối chiếu danh mục thuốc (BUG-51), nghiệm thu chéo duyệt/bỏ duyệt → chat và nhập bài với Gemini thật, các lỗi bảo mật và hạ tầng còn lại. Chi tiết: `tasks/sprint-02/task-s2-bonus-hardening-acceptance.md`; mục 3.7 cho Agent: sửa dữ liệu Trichoderma, duyệt tri thức Ca 3–4, benchmark 15/15 với Core thật, tài khoản CSDL chỉ đọc, quota Gemini và mục tiêu thời gian phản hồi. Thêm các việc còn mở của TASK-07/08 (mục 3.7) và TASK-A04 (mục 3.8: build và chạy app Android, Web Chat với Agent thật, `draft_order`).
 
 ---
 

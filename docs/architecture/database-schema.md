@@ -96,8 +96,13 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `GradCamImageUrl` | `VARCHAR(500)` | NULL | Đường dẫn ảnh nhiệt Grad-CAM do AI sinh |
 | `Confidence` | `FLOAT` | NOT NULL | Điểm tin cậy (Ví dụ: 0.946 = 94.6%) |
 | `IsUncertain` | `BOOLEAN` | DEFAULT FALSE | Cờ cảnh báo bất định (confidence $< 0.70$) |
-| `Notes` | `TEXT` | NULL | Ghi chú của nông dân khi theo dõi |
+| `Notes` | `TEXT` | NULL | Ghi chú của nông dân lúc khám; khi nhờ Bác sĩ, mô tả mới được nối thêm sau dòng `[Gửi Bác sĩ]:` (tối đa 4000 ký tự) |
 | `RecoveryStatus` | `VARCHAR(50)` | DEFAULT 'Đang theo dõi' | 'Đang theo dõi' \| 'Đã phục hồi' \| 'Tái phát' |
+| `Top3Json` | `TEXT` | NULL | Dự đoán Top-3 của mô hình Vision dưới dạng JSON (class_name, confidence) |
+| `ConfusionGroup` | `TEXT` | NULL | Nhóm bệnh dễ nhầm do AI Service trả về lúc khám (vd: `TOMATO_LEAF_SPOT`) |
+| `RequiresExpert` | `BOOLEAN` | DEFAULT FALSE | Cờ chuyển ca khó cho Bác sĩ Cây trồng thẩm định (HITL) |
+| `ExpertNotes` | `TEXT` | NULL | Kết luận chuyên môn của Bác sĩ Cây trồng (API giới hạn 2000 ký tự, tách biệt với `Notes` của nông dân) |
+| `ExpertReviewedAt` | `TIMESTAMPTZ` | NULL | Thời điểm Bác sĩ Cây trồng hoàn tất thẩm định ca bệnh |
 | `CreatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm chẩn đoán |
 
 ---
@@ -140,10 +145,13 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 |---|---|---|---|
 | `Id` | `UUID` | PK | Mã đơn hàng |
 | `UserId` | `UUID` | FK $\rightarrow$ Users | Người đặt |
-| `TotalAmount` | `DECIMAL(12,2)` | NOT NULL | Tổng tiền thanh toán |
+| `ReceiverName` | `TEXT` | NULL | Họ tên người nhận hàng tại vườn (API giới hạn 100 ký tự) |
+| `Notes` | `TEXT` | NULL | Ghi chú giao hàng của nông dân |
+| `TotalAmount` | `DECIMAL(12,2)` | NOT NULL | Tổng tiền thanh toán (tính chuẩn từ CSDL) |
 | `PaymentMethod` | `VARCHAR(50)` | DEFAULT 'COD' | 'COD' \| 'VietQR' |
 | `OrderStatus` | `VARCHAR(50)` | DEFAULT 'Pending' | 'Pending' \| 'Paid' \| 'Delivered' |
 | `ShippingAddress` | `VARCHAR(255)` | NOT NULL | Địa chỉ nhận hàng tại vườn |
+| `PhoneNumber` | `TEXT` | NOT NULL | Số di động liên hệ giao hàng (API kiểm tra định dạng `0[35789]` + 8 số) |
 
 #### 10. `OrderItems` (Chi tiết từng món thuốc trong đơn)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |

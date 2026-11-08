@@ -15,6 +15,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Địa chỉ Nginx của Lavitree (không gọi thẳng cổng nội bộ 5000/8000/8001).
+        // Mặc định: web-portal trên máy host khi chạy emulator (docker compose map 3000:80).
+        // Bản thật: ./gradlew assembleRelease -PlavitreeApiBaseUrl=https://<domain-của-nhóm>/
+        val apiBaseUrl = (project.findProperty("lavitreeApiBaseUrl") as String?) ?: "http://10.0.2.2:3000/"
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -38,6 +44,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.11"
@@ -73,6 +80,16 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // CameraX (Lavitree Leaf Capture & Viewfinder)
+    val cameraxVersion = "1.3.3"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+
+    // ExifInterface (BUG-58: EXIF orientation fix)
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")

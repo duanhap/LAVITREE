@@ -8,5 +8,6 @@ public interface IMinioStorageService
 {
     Task EnsureBucketExistsAsync(string bucketName, CancellationToken cancellationToken = default);
     Task<string> UploadFileAsync(string bucketName, string objectName, Stream stream, string contentType, CancellationToken cancellationToken = default);
+    Task DeleteFileAsync(string bucketName, string objectName, CancellationToken cancellationToken = default);
     string GetPublicUrl(string bucketName, string objectName);
 }

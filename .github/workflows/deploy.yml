@@ -33,7 +33,7 @@ jobs:
           
           # Pull base images and build services
           docker compose pull minio postgres || true
-          docker compose build core-api web-portal ai-service
+          docker compose build core-api web-portal ai-service agent-service
           docker compose up -d --remove-orphans
           
           # Clean up dangling docker images to protect EC2 disk

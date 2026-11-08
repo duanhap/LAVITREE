@@ -314,3 +314,5 @@
 - Dialog chi tiết hiện cảnh báo và ghi chú. Sổ tay có trạng thái lỗi riêng. Id sai không còn kẹt trên URL.
 - Bỏ các chữ không có căn cứ: "sản phẩm hợp quy", "40 danh mục", "38 bệnh hại".
 - Xóa mật khẩu đã lộ khỏi seeder, test và tài liệu.
+
+> **Chuyển tiếp (08/11/2026):** Các dòng còn `[ ]` ở mục 5 của file này đã được gom vào `task-s2-bonus-hardening-acceptance.md` (giữ nguyên mã BUG). Theo dõi và tick ở file đó; khi xong thì tick lại ở đây (BUG-80).

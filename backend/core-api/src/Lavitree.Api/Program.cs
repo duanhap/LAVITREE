@@ -42,14 +42,37 @@ builder.Services.AddDbContext<LavitreeDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 // 2. Register AI Vision Service HttpClient
-var aiServiceBaseUrl = Environment.GetEnvironmentVariable("AI_SERVICE_URL")
-    ?? builder.Configuration["AiService:BaseUrl"]
+var isContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+var aiServiceBaseUrl = builder.Configuration["AiService:BaseUrl"]
+    ?? Environment.GetEnvironmentVariable("AI_SERVICE_URL")
     ?? "http://localhost:8000";
+
+// Tự động chuyển localhost sang hostname nội bộ docker khi chạy trong container
+if (isContainer && (aiServiceBaseUrl.Contains("localhost") || aiServiceBaseUrl.Contains("127.0.0.1")))
+{
+    aiServiceBaseUrl = "http://ai-service:8000";
+}
 
 builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
 {
     client.BaseAddress = new Uri(aiServiceBaseUrl);
     client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+// 2.5. Register Agent Service HttpClient (SSOT: api-contracts.md Mục 4.3 & 4.4)
+var agentServiceBaseUrl = builder.Configuration["AgentService:BaseUrl"]
+    ?? Environment.GetEnvironmentVariable("AGENT_SERVICE_URL")
+    ?? "http://localhost:8001";
+
+if (isContainer && (agentServiceBaseUrl.Contains("localhost") || agentServiceBaseUrl.Contains("127.0.0.1")))
+{
+    agentServiceBaseUrl = "http://agent-service:8001";
+}
+
+builder.Services.AddHttpClient("AgentServiceClient", client =>
+{
+    client.BaseAddress = new Uri(agentServiceBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(40);
 });
 
 // 3. Register MinIO Object Storage Service

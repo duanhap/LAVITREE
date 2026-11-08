@@ -18,6 +18,9 @@ import { RegisterPage } from '@/pages/RegisterPage';
 const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
 const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
 const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollectorPage'));
+const StorePage = React.lazy(() => import('@/pages/StorePage'));
+const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
+const ChatPage = React.lazy(() => import('@/pages/ChatPage'));
 
 // Styleguide (Chỉ nạp và hiển thị trong môi trường DEV)
 import { StyleguidePage } from '@/dev/StyleguidePage';
@@ -83,21 +86,20 @@ export const AppRouter: React.FC = () => {
         <Route
           path="/chat"
           element={
-            <ComingSoonPage
-              title="Trợ lý Cây trồng Lavi"
-              description="Tính năng Trợ lý AI hỏi đáp trực tiếp (Streaming SSE & Reasoning Steps) đang được hoàn thiện trong Sprint 2."
-            />
+            <Suspense fallback={<PageSkeleton variant="cards" />}>
+              <ChatPage />
+            </Suspense>
           }
         />
 
         {/* W-09: Cửa hàng vật tư (Sprint 2 - TASK-A03) */}
+        {/* W-09: Cửa hàng vật tư (Sprint 2 - TASK-A03) */}
         <Route
           path="/store"
           element={
-            <ComingSoonPage
-              title="Cửa hàng Vật tư Nông nghiệp"
-              description="Danh mục thuốc bảo vệ thực vật sinh học & phân bón hữu cơ có nguồn gốc rõ ràng đang được tích hợp."
-            />
+            <Suspense fallback={<PageSkeleton variant="cards" />}>
+              <StorePage />
+            </Suspense>
           }
         />
 
@@ -106,10 +108,9 @@ export const AppRouter: React.FC = () => {
           path="/orders"
           element={
             <RequireRole allowedRoles={['FARMER', 'ADMIN']}>
-              <ComingSoonPage
-                title="Đơn hàng của bạn"
-                description="Theo dõi tình trạng đơn đặt hàng vật tư nông nghiệp."
-              />
+              <Suspense fallback={<PageSkeleton variant="list" />}>
+                <OrdersPage />
+              </Suspense>
             </RequireRole>
           }
         />
@@ -135,12 +136,20 @@ export const AppRouter: React.FC = () => {
           path="/admin"
           element={
             <Suspense fallback={<PageSkeleton variant="dashboard" />}>
-              <AdminDashboard />
+              <AdminDashboard defaultTab="ingestion" />
             </Suspense>
           }
         />
         <Route
           path="/admin/knowledge"
+          element={
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminDashboard defaultTab="curation" />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/knowledge-collector"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
               <KnowledgeCollectorPage />
@@ -150,30 +159,24 @@ export const AppRouter: React.FC = () => {
         <Route
           path="/admin/escalations"
           element={
-            <ComingSoonPage
-              title="Thẩm định Ca Chuyên gia"
-              description="Khu vực dành cho chuyên gia BVTV thẩm định các ca bệnh khó hoặc độ tin cậy thấp."
-              actionText="Về Tổng quan Admin"
-              actionHref="/admin"
-            />
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminDashboard defaultTab="escalations" />
+            </Suspense>
           }
         />
         <Route
           path="/admin/inventory"
           element={
-            <ComingSoonPage
-              title="Kho Vật tư & Thuốc BVTV"
-              description="Quản lý tồn kho thuốc, hoạt chất và thời gian cách ly (PHI)."
-              actionText="Về Tổng quan Admin"
-              actionHref="/admin"
-            />
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminDashboard defaultTab="inventory" />
+            </Suspense>
           }
         />
         <Route
           path="/admin/orders"
           element={
             <ComingSoonPage
-              title="Quản lý Đơn hàng"
+              title="Quản lý Đơn hàng Toàn sàn"
               description="Xem và duyệt đơn hàng đặt mua vật tư từ bà con nông dân."
               actionText="Về Tổng quan Admin"
               actionHref="/admin"
