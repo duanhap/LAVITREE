@@ -135,12 +135,14 @@ def test_01_startup_builds_index_on_empty_container():
         assert state["last_error"] is None and state["indexed_documents"] > 0, state
         health = client.get("/health").json()
         assert health["index_ready"] is True and health["status"] == "ok", health
-        response = client.post(
-            "/api/v1/agent/chat",
-            json={"message": "lá bị mốc trắng", "current_disease_code": "Tomato___Late_blight"},
+        # /chat giờ là ReAct thật (cần Gemini), nên tra chỉ mục qua đúng công cụ MCP mà Agent dùng
+        from app.mcp.server import mcp_server
+        lookup = mcp_server.call_tool(
+            "lookup_disease_knowledge",
+            {"disease_code": "Tomato___Late_blight", "query_focus": "lá bị mốc trắng"}
         )
-        final_line = [l for l in response.text.splitlines() if l.startswith("data:") and "citations" in l][0]
-        citations = json.loads(final_line[5:])["citations"]
+        assert not lookup.is_error, lookup.error_message
+        citations = lookup.result["citations"]
         assert citations, "Container mới phải có citation sau khi khởi động"
         assert all(c["source_id"] and "is_verbatim" in c for c in citations)
     _ok(f"Khởi động xong có {state['indexed_documents']} bài và {len(citations)} citation")
@@ -188,7 +190,7 @@ def test_03_reindex_is_atomic():
         model_name = real_embedding.model_name
         dimension = real_embedding.dimension
 
-        def __call__(self, texts):
+        def __call__(self, input):
             raise RuntimeError("embedding lỗi")
 
     pipeline.vector_retriever.embedding_fn = BrokenEmbedding()
@@ -404,8 +406,12 @@ def test_10_model_mismatch_is_detected():
         def __init__(self, name, dim):
             self.model_name, self.dimension = name, dim
 
-        def __call__(self, texts):
-            return [[1.0] + [0.0] * (self.dimension - 1) for _ in texts]
+        def __call__(self, input):
+            return [[1.0] + [0.0] * (self.dimension - 1) for _ in input]
+
+        def name(self):
+            # Chroma 1.x đòi embedding function có name(), giống MultilingualEmbeddingFunction
+            return "default"
 
     persist_dir = tempfile.mkdtemp(prefix="lavitree_rag_model_")
     try:
