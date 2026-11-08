@@ -24,7 +24,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import logoImg from '@/assets/brand/lavitree-logo-64.webp';
-import laviAvatarImg from '@/assets/brand/lavi-avatar-96.webp';
 
 interface NavItem {
   name: string;
@@ -59,7 +58,7 @@ export const AppShell: React.FC = () => {
           {/* Logo & Brand */}
           <Link
             to="/"
-            className="flex items-center space-x-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg p-1"
+            className="hidden md:flex items-center space-x-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg p-1"
           >
             <img
               src={logoImg}
@@ -71,7 +70,7 @@ export const AppShell: React.FC = () => {
                 Lavitree
               </span>
               <span className="text-[11px] text-muted-foreground font-medium mt-0.5">
-                Bác sĩ cây trồng AI
+                Bác sĩ cây trồng
               </span>
             </div>
           </Link>
@@ -110,7 +109,6 @@ export const AppShell: React.FC = () => {
                     className="relative flex items-center gap-2.5 h-10 px-2 rounded-full hover:bg-muted"
                   >
                     <Avatar className="h-8 w-8 border border-border">
-                      <AvatarImage src={laviAvatarImg} alt={user.fullName || user.email} />
                       <AvatarFallback className="bg-secondary text-primary font-bold text-xs">
                         {user.fullName ? user.fullName[0].toUpperCase() : user.email[0].toUpperCase()}
                       </AvatarFallback>
@@ -173,8 +171,9 @@ export const AppShell: React.FC = () => {
                 onClick={() => navigate('/account')}
               >
                 <Avatar className="h-7 w-7 border border-border">
-                  <AvatarImage src={laviAvatarImg} alt="Avatar" />
-                  <AvatarFallback className="text-xs">U</AvatarFallback>
+                  <AvatarFallback className="bg-secondary text-primary font-bold text-xs">
+                    {(user?.fullName || user?.email || 'U')[0].toUpperCase()}
+                  </AvatarFallback>
                 </Avatar>
               </Button>
             ) : (
