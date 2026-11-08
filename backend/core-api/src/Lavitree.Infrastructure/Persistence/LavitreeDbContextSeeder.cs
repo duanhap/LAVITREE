@@ -14,6 +14,10 @@ public static class LavitreeDbContextSeeder
 {
     public static async Task SeedAsync(LavitreeDbContext context, string? customSeedPath = null)
     {
+        // 0. Admin chạy trước: không cần file seed. Image Docker không chứa thư mục seed/,
+        // nếu để sau bước kiểm tra thư mục thì production không bao giờ tạo/đổi được mật khẩu admin (BUG-01).
+        await SeedDefaultAdminUserAsync(context);
+
         var seedDir = ResolveSeedDirectory(customSeedPath);
         if (seedDir == null || !Directory.Exists(seedDir))
         {
@@ -44,9 +48,6 @@ public static class LavitreeDbContextSeeder
         // 3. Seed Sample TreatmentPlans and Products (Tomato___Late_blight)
         var treatmentJsonPath = Path.Combine(seedDir, "sample_treatment_seed.json");
         await SeedTreatmentPlansAndProductsAsync(context, treatmentJsonPath);
-
-        // 4. Seed Default Admin User (Idempotent: Only seed if not exists)
-        await SeedDefaultAdminUserAsync(context);
 
         Console.WriteLine("[Seeder] Database seeding completed successfully.");
     }
