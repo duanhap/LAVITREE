@@ -125,3 +125,5 @@ Còn mở trước khi đóng A03:
 - Migration `AddReceiverNameAndNotesToOrder` cần áp lên DB thật khi deploy.
 - Khóa theo URL khi lưu đoạn nguyên văn (`SemaphoreSlim`) chỉ đúng khi chạy 1 instance Core API. Nếu chạy nhiều instance thì cần chuyển sang advisory lock của PostgreSQL hoặc unique index.
 - Chặng 3 "Bỏ duyệt → chat không còn trích đoạn đó" vẫn chưa có test với Agent thật.
+
+> **Chuyển tiếp (08/11/2026):** BUG-51, BUG-54 và các việc "Còn mở" ở mục 5.2 đã chuyển sang `task-s2-bonus-hardening-acceptance.md`; BUG-58 chuyển sang mục 5.1 của `task-a04-sse-chat-android-init.md`.
