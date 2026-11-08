@@ -30,8 +30,8 @@ public class MinioStorageService : IMinioStorageService
             ?? "minioadmin";
 
         var secretKey = configuration["Minio:SecretKey"]
-            ?? Environment.GetEnvironmentVariable("MINIO_SECRET_KEY")
-            ?? "";
+            ?? Environment.GetEnvironmentVariable("MINIO_SECRET_KEY");
+        if (string.IsNullOrWhiteSpace(secretKey)) secretKey = "minioadmin";
 
         _publicUrl = configuration["Minio:PublicUrl"]
             ?? Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL")
@@ -117,6 +117,22 @@ public class MinioStorageService : IMinioStorageService
         _logger.LogInformation("Uploaded object {ObjectName} to bucket {BucketName}.", objectName, bucketName);
 
         return GetPublicUrl(bucketName, objectName);
+    }
+
+    public async Task DeleteFileAsync(string bucketName, string objectName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var removeArgs = new RemoveObjectArgs()
+                .WithBucket(bucketName)
+                .WithObject(objectName);
+            await _minioClient.RemoveObjectAsync(removeArgs, cancellationToken);
+            _logger.LogInformation("Deleted object {ObjectName} from bucket {BucketName}.", objectName, bucketName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete object {ObjectName} from bucket {BucketName}.", objectName, bucketName);
+        }
     }
 
     public string GetPublicUrl(string bucketName, string objectName)
