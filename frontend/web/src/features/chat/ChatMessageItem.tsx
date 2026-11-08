@@ -25,6 +25,7 @@ import { ChatMessage, Citation } from './types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
+import laviAvatarImg from '@/assets/brand/lavi-avatar-96.webp';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -126,17 +127,18 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
 
   return (
     <div className="flex gap-3 mb-8 items-start">
-      <div className="w-9 h-9 rounded-full bg-emerald-600 border border-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm mt-1">
-        <Bot className="w-5 h-5" />
-      </div>
+      <img
+        src={laviAvatarImg}
+        alt="Lavi"
+        className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 object-contain p-0.5 shrink-0 shadow-sm mt-1 dark:bg-emerald-950/40 dark:border-emerald-800"
+      />
 
       <div className="flex-1 max-w-[92%] sm:max-w-[85%] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl rounded-tl-none p-4 sm:p-5 shadow-sm space-y-4">
         {/* Header tin nhắn AI */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-2">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              Trợ lý Cây trồng Lavi
+              Lavi
             </span>
             {message.is_offline_fallback && (
               <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]">

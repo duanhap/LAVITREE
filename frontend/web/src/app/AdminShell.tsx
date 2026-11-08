@@ -12,6 +12,7 @@ import {
   Menu,
   ShieldAlert,
   LogOut,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCurrentUser } from './RequireRole';
@@ -27,7 +28,8 @@ interface AdminNavItem {
 
 const adminNavItems: AdminNavItem[] = [
   { name: 'Tổng quan', to: '/admin', icon: LayoutDashboard },
-  { name: 'Thu thập Tri thức', to: '/admin/knowledge', icon: Database },
+  { name: 'Nhập bài báo', to: '/admin/ingest', icon: FileText },
+  { name: 'Duyệt tri thức', to: '/admin/knowledge', icon: Database },
   { name: 'Ca chuyên gia', to: '/admin/escalations', icon: UserCheck },
   { name: 'Kho vật tư & thuốc', to: '/admin/inventory', icon: Package },
   { name: 'Đơn hàng', to: '/admin/orders', icon: ShoppingCart },
@@ -58,7 +60,7 @@ export const AdminShell: React.FC = () => {
               Admin
             </span>
           </div>
-          <span className="text-xs text-muted-foreground">Cổng Quản trị Vận hành</span>
+          <span className="text-xs text-muted-foreground">Quản trị vận hành</span>
         </div>
       </div>
 

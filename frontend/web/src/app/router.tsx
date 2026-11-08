@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { AdminShell } from './AdminShell';
+import { AuthLayout } from './AuthLayout';
 import { RequireRole } from './RequireRole';
 import { NotFoundPage } from './NotFoundPage';
 import { ForbiddenPage } from './ForbiddenPage';
@@ -17,6 +18,7 @@ import { RegisterPage } from '@/pages/RegisterPage';
 // Lazy Loaded Pages (BUG-27: Tối ưu bundle size cho mạng đồng ruộng & Admin portal)
 const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
 const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
+const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
 const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollectorPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
 const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
@@ -45,6 +47,12 @@ const ComingSoonPage: React.FC<{ title: string; description: string; actionText?
 export const AppRouter: React.FC = () => {
   return (
     <Routes>
+      {/* ================= AUTH (W-05, W-06): nền video toàn màn hình ================= */}
+      <Route element={<AuthLayout />}>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+      </Route>
+
       {/* ================= USER ROUTES (APPSHELL) ================= */}
       <Route element={<AppShell />}>
         {/* W-01: Khám lá (Trang chủ & alias /diagnose) */}
@@ -54,10 +62,6 @@ export const AppRouter: React.FC = () => {
         {/* W-02 & W-03: Sổ tay bệnh học & Chi tiết bệnh */}
         <Route path="/handbook" element={<HandbookPage />} />
         <Route path="/handbook/:classCode" element={<HandbookPage />} />
-
-        {/* W-05 & W-06: Đăng nhập & Đăng ký */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
 
         {/* W-07 & W-08: Lịch sử khám bệnh cá nhân & Chi tiết */}
         <Route
@@ -92,7 +96,6 @@ export const AppRouter: React.FC = () => {
           }
         />
 
-        {/* W-09: Cửa hàng vật tư (Sprint 2 - TASK-A03) */}
         {/* W-09: Cửa hàng vật tư (Sprint 2 - TASK-A03) */}
         <Route
           path="/store"
@@ -136,6 +139,14 @@ export const AppRouter: React.FC = () => {
           path="/admin"
           element={
             <Suspense fallback={<PageSkeleton variant="dashboard" />}>
+              <AdminOverviewPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/ingest"
+          element={
+            <Suspense fallback={<PageSkeleton variant="list" />}>
               <AdminDashboard defaultTab="ingestion" />
             </Suspense>
           }

@@ -30,6 +30,8 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { HeroVideoBackground } from '@/components/brand/HeroVideoBackground';
+import lavi3dImg from '@/assets/brand/lavi-3d-happy-720.webp';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 // Upload và suy luận AI trên mạng yếu cần lâu hơn timeout chung của API
@@ -148,19 +150,53 @@ export const DiagnosePage: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-6 md:py-10 max-w-5xl space-y-8">
-      {/* Tiêu đề & Giới thiệu */}
-      <div className="text-center space-y-2">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-secondary text-primary text-xs font-semibold">
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>Trí tuệ Nhân tạo ResNet-18 & Grad-CAM Heatmap</span>
-        </div>
-        <h1 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
-          Khám Bệnh Lá Cây Trồng Toàn Trình
-        </h1>
-        <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto">
-          Chụp hoặc tải ảnh lá cây để nhận diện 38 lớp lá khỏe và bệnh hại trên 14 loài cây trồng. Hệ thống cung cấp bản đồ nhiệt nghi vấn và phác đồ xử lý IPM chuẩn khuyến nông.
-        </p>
-      </div>
+      {/* Khối giới thiệu: nền video lá cây + Lavi 3D (chỉ hiện khi chưa có kết quả) */}
+      {!diagnoseData ? (
+        <section className="relative isolate overflow-hidden rounded-3xl bg-emerald-950 text-white shadow-lg">
+          <HeroVideoBackground />
+          <div className="relative z-10 grid items-center gap-6 px-6 py-8 sm:px-10 sm:py-10 md:grid-cols-[1fr_auto]">
+            <div className="space-y-4">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">
+                <Sparkles className="h-3.5 w-3.5" />
+                Miễn phí · Có kết quả sau vài giây
+              </span>
+              <h1 className="text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl">
+                Lá cây có vấn đề?
+                <br />
+                Chụp một tấm, Lavi xem giúp bạn.
+              </h1>
+              <p className="max-w-xl text-sm text-white/85 sm:text-base">
+                Nhận diện bệnh trên 14 loại cây trồng phổ biến, chỉ rõ vùng lá nghi bệnh và gợi ý cách xử lý theo khuyến cáo khuyến nông.
+              </p>
+              <div className="flex flex-wrap gap-3 pt-1">
+                <Button
+                  type="button"
+                  size="lg"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-11 bg-white text-emerald-900 hover:bg-emerald-50 font-semibold"
+                >
+                  <Camera className="mr-2 h-4 w-4" /> Chụp hoặc tải ảnh lá
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="h-11 border-white/50 bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
+                >
+                  <Link to="/chat">Hỏi trợ lý Lavi</Link>
+                </Button>
+              </div>
+            </div>
+            <img
+              src={lavi3dImg}
+              alt="Lavi, trợ lý cây trồng của Lavitree"
+              className="hidden w-40 justify-self-center drop-shadow-[0_20px_40px_rgba(0,0,0,0.35)] motion-safe:animate-[lavi-float_5s_ease-in-out_infinite] sm:block md:w-52"
+            />
+          </div>
+        </section>
+      ) : (
+        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">Kết quả khám lá</h1>
+      )}
 
       {/* KHỐI 1: KHUNG TẢI ẢNH NẾU CHƯA CÓ KẾT QUẢ HOẶC ĐANG CHỌN ẢNH MỚI */}
       {!diagnoseData && (
@@ -363,9 +399,6 @@ export const DiagnosePage: React.FC = () => {
                         <h2 className="text-xl md:text-2xl font-extrabold text-foreground tracking-tight">
                           {diagnoseData.result.disease_name}
                         </h2>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          Mã khoa học: {diagnoseData.result.class_code}
-                        </p>
                       </div>
 
                       {/* Độ tin cậy của mô hình (Dạng %, cấm dùng 'Độ tin cậy cao') */}

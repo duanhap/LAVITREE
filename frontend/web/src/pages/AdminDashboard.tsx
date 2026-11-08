@@ -86,6 +86,25 @@ interface AdminDashboardProps {
   defaultTab?: 'ingestion' | 'curation' | 'inventory' | 'escalations';
 }
 
+const SECTION_COPY: Record<string, { title: string; description: string }> = {
+  ingestion: {
+    title: 'Nhập bài báo',
+    description: 'Dán nguyên văn bài khuyến nông, chọn đoạn cần lưu và gắn nhãn trước khi đưa vào kho tri thức.',
+  },
+  curation: {
+    title: 'Duyệt tri thức',
+    description: 'Duyệt hoặc gỡ duyệt các đoạn trích. Chỉ đoạn đã duyệt mới được trợ lý Lavi dùng để trả lời.',
+  },
+  inventory: {
+    title: 'Kho vật tư & thuốc',
+    description: 'Quản lý giá, tồn kho, thời gian cách ly (PHI) và trạng thái được phép lưu hành.',
+  },
+  escalations: {
+    title: 'Ca chuyên gia',
+    description: 'Các ca khám độ tin cậy thấp hoặc nông dân yêu cầu chuyên gia xem lại.',
+  },
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'ingestion' }) => {
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
   const [diseases, setDiseases] = useState<DiseaseOption[]>([]);
@@ -462,10 +481,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-border">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            Cổng Quản trị Lavitree &amp; Kiểm duyệt HITL
+            {SECTION_COPY[activeTab]?.title ?? 'Quản trị'}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Quản trị cơ sở tri thức RAG nguyên văn, duyệt bài khuyến nông, kho thuốc chuẩn PHI và thẩm định ca bệnh khó.
+            {SECTION_COPY[activeTab]?.description}
           </p>
         </div>
 
@@ -480,26 +499,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         </Button>
       </div>
 
-      {/* Main Tabs Navigation */}
+      {/* Điều hướng giữa các mục nằm ở sidebar AdminShell; trang này chỉ hiển thị nội dung mục đang chọn */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="bg-muted/70 p-1 border border-border grid grid-cols-2 md:grid-cols-4 w-full h-auto">
-          <TabsTrigger value="ingestion" className="gap-2 py-2.5 text-xs sm:text-sm font-semibold">
-            <FileText className="w-4 h-4" />
-            <span>1. Nhập bài báo</span>
-          </TabsTrigger>
-          <TabsTrigger value="curation" className="gap-2 py-2.5 text-xs sm:text-sm font-semibold">
-            <ShieldCheck className="w-4 h-4" />
-            <span>2. Duyệt tri thức (HITL)</span>
-          </TabsTrigger>
-          <TabsTrigger value="inventory" className="gap-2 py-2.5 text-xs sm:text-sm font-semibold">
-            <Package className="w-4 h-4" />
-            <span>3. Kho thuốc BVTV</span>
-          </TabsTrigger>
-          <TabsTrigger value="escalations" className="gap-2 py-2.5 text-xs sm:text-sm font-semibold">
-            <UserCheck className="w-4 h-4" />
-            <span>4. Ca chuyên gia</span>
-          </TabsTrigger>
-        </TabsList>
 
         {/* ========================================================================================= */}
         {/* TAB 1: NHẬP BÀI BÁO NGUYÊN VĂN (HITL INGESTION) */}
@@ -532,7 +533,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                       >
                         {diseases.map((d) => (
                           <option key={d.classCode} value={d.classCode}>
-                            {d.plantName} — {d.commonNameVi} ({d.classCode})
+                            {d.plantName} — {d.commonNameVi}
                           </option>
                         ))}
                       </select>
