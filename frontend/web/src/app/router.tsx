@@ -20,6 +20,7 @@ const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
 const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollectorPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
 const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
+const ChatPage = React.lazy(() => import('@/pages/ChatPage'));
 
 // Styleguide (Chỉ nạp và hiển thị trong môi trường DEV)
 import { StyleguidePage } from '@/dev/StyleguidePage';
@@ -85,10 +86,9 @@ export const AppRouter: React.FC = () => {
         <Route
           path="/chat"
           element={
-            <ComingSoonPage
-              title="Trợ lý Cây trồng Lavi"
-              description="Tính năng Trợ lý AI hỏi đáp trực tiếp (Streaming SSE & Reasoning Steps) đang được hoàn thiện trong Sprint 2."
-            />
+            <Suspense fallback={<PageSkeleton variant="cards" />}>
+              <ChatPage />
+            </Suspense>
           }
         />
 
