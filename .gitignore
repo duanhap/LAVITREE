@@ -41,3 +41,5 @@ Thumbs.db
 docs/brand/*
 
 .orca
+# Vết thực thi Agent tự sinh sau mỗi lượt chat (TASK-08), chứa câu hỏi của người dùng: không commit
+trace_waterfall.json

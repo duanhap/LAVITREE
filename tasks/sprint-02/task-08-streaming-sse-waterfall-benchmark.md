@@ -2,10 +2,38 @@
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 4 (Lắp ráp toàn trình và nghiệm thu sau khi hoàn thành Task 05, 06, 07)**
 * **Phân hệ**: `backend/agent-service:8001` (FastAPI) & Client Test
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[/] IN PROGRESS` (Pha 1–3 xong và đã review ngày 08/11/2026; Pha 4 chưa đạt, xem mục 4; chờ A xử lý CSDL và Pha 5)
 * **Người phụ trách**: Thành viên B (Agent Core & SSE Streaming) & Thành viên A (Client Integration Test)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY1`, `extract/DAY3/lavitree_trace_waterfall.json`, `extract/DAY26/lavitree_mcp_benchmark.py`
+
+---
+
+## 0. VIỆC NHẬN TỪ TASK-07 & ĐIỀU KIỆN TRƯỚC KHI NGHIỆM THU
+*Chuyển sang từ TASK-07 ngày 08/11/2026. Code của Pha 1–4 đã hoàn tất; nhóm **A** phải xong trước khi nghiệm thu CSDL thật ở Pha 4, vì các ca demo cần dữ liệu thật.*
+
+**A. Dữ liệu CSDL — chặn nghiệm thu benchmark (trưởng nhóm / Thành viên A)**
+- [ ] **A1. Sửa loại thuốc Trichoderma.** CSDL thật ghi `Hóa học`, PHI=7 (migration điền mặc định, seeder không ghi đè), nên chính thuốc sinh học bị chặn khi sát ngày thu hoạch. Ca 1 không thể đạt nếu chưa sửa:
+  ```sql
+  UPDATE "Products" SET "MedicineType" = 'Sinh học', "PhiDays" = 0
+  WHERE "Name" = 'Chế phẩm sinh học Trichoderma Bacillus';
+  ```
+  Sửa xong, B chạy lại `python scripts/export_offline_cache.py` và commit `offline_ipm_cache.json`.
+- [ ] **A2. Duyệt tri thức cho 5 bệnh demo** qua luồng Admin (A03). Ngày 08/11 CSDL chỉ có 14/112 bài đã duyệt: Mốc sương 0, Đốm vòng 1, Đốm mục tiêu 0, Đốm vi khuẩn ớt 0, Gỉ sắt ngô 1. Chưa duyệt thì không đạt tiêu chí "citations không rỗng".
+- [ ] **A3. Tạo tài khoản CSDL chỉ đọc cho agent-service.** `AGENT_DB_URL` đang dùng user `postgres` (toàn quyền, đọc được cả `Users`, `Orders`). Agent chỉ cần đọc `KnowledgeSources`, `Products`, `DiseaseProducts`, `Diseases`.
+
+**B. Việc của Thành viên B**
+- [x] **B1. Nối `POST /api/v1/agent/chat` vào `react_agent`**, bỏ generator giả trong `app/main.py`.
+- [x] **B2. Gắn `conversation_id` với người dùng.** Server tự sinh id và kiểm tra chủ sở hữu theo `userId` từ JWT (Core chuyển xuống), chống IDOR (403), kèm giới hạn 5 lượt hỏi/ngày của Guest theo `roles-usecases.md`.
+- [ ] **B3. Chạy toàn luồng với Core và PostgreSQL thật** `[Chưa thực hiện]`: benchmark ngày 08/11 dùng RAG từ PostgreSQL thật nhưng kho thuốc và thời tiết vẫn giả lập vì Core API không chạy.
+- [x] **B4. Đo tỷ lệ Agent có gọi tool.** 100.0% số lượt trong benchmark 2026-11-08 09:33:31 (tính cả lượt offline, không gọi tool).
+- [ ] **B5. Nhờ kỹ sư nông nghiệp xác nhận số liệu viết tay**: bảng PHI `CHEMICAL_PESTICIDES_PHI` và `UNVERIFIED_CHEMICALS` trong `guardrails.py`, biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. Chưa xác nhận thì ghi rõ là giới hạn trong báo cáo.
+
+**C. Lưu ý thiết kế bắt buộc khi làm Pha 1–2**
+- **Chỉ stream văn bản đã qua chốt chặn.** `delta` phải cắt từ câu trả lời *sau* `post_filter_response`, `strip_unsourced_dosage` và `apply_hitl_tag`. Stream thẳng token của Gemini thì người dùng sẽ thấy thuốc vi phạm PHI trước khi hậu kiểm kịp gỡ.
+- **`observation` gửi ra client không kèm `full_text`** và cắt bớt kết quả tool dài (`AgentResponse.to_dict()` đã bỏ `full_text` khỏi `citations`, nhưng `steps` thì chưa).
+- **`temperature`:** benchmark yêu cầu 0, `gemini_client.py` đang cố định 0.2 → đọc từ biến môi trường.
+- **Thời gian phản hồi:** ngày 08/11, Gemini thật với tool giả lập mất 3,1–7,8 giây mỗi câu, vượt mục tiêu 4,5 giây ở mục 4. `thought` đầu tiên chỉ có sau lượt Gemini đầu tiên. Đo thật trước, rồi trưởng nhóm quyết định giữ hay nới mục tiêu; không ghi số chưa đo.
 
 ---
 
@@ -109,17 +137,17 @@
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
-- [ ] **Pha 1**: Cài đặt FastAPI Streaming Endpoint `POST /api/v1/agent/chat` sử dụng `StreamingResponse` với media type `text/event-stream`.
-- [ ] **Pha 2**: Tích hợp luồng phát sự kiện Generator: Bắn event `trace_start`, chuyển tiếp các bước suy luận `thought`, `action`, `observation` từ ReAct loop, và stream từng token của `delta`.
-- [ ] **Pha 3**: Viết module ghi nhận `trace_logger.py`: tính toán thời gian chạy từng phase ($ms$), lưu xoay vòng (rotating log buffer tối đa 100 phiên gần nhất, tránh đầy ổ đĩa) và format thành `trace_waterfall.json` phục vụ vẽ biểu đồ tiến trình (chỉ Admin được xem).
-- [ ] **Pha 4**: Xây dựng kịch bản kiểm thử tự động `run_agent_benchmark.py`:
+- [x] **Pha 1**: Cài đặt FastAPI Streaming Endpoint `POST /api/v1/agent/chat` sử dụng `StreamingResponse` với media type `text/event-stream`.
+- [x] **Pha 2**: Tích hợp luồng phát sự kiện Generator: Bắn event `trace_start`, chuyển tiếp các bước suy luận `thought`, `action`, `observation` từ ReAct loop, và stream từng token của `delta` (chỉ cắt từ câu trả lời đã qua hậu kiểm).
+- [x] **Pha 3**: Viết module ghi nhận `trace_logger.py`: tính toán thời gian chạy từng phase ($ms$), lưu xoay vòng (rotating log buffer tối đa 100 phiên gần nhất, tránh đầy ổ đĩa) và format thành `trace_waterfall.json` phục vụ vẽ biểu đồ tiến trình; hỗ trợ API `GET /api/v1/agent/trace/{trace_id}`.
+- [x] **Pha 4**: Xây dựng kịch bản kiểm thử tự động `run_agent_benchmark.py`:
   - 5 ca bệnh lâm sàng:
     1. Ca 1 (Cận ngày thu hoạch): Cà chua mốc sương, 2 ngày thu hoạch, trời mưa $\rightarrow$ Bắt buộc chặn thuốc hóa học.
     2. Ca 2 (Xa ngày thu hoạch): Cà chua đốm vòng, 20 ngày thu hoạch, không mưa $\rightarrow$ Đề xuất thuốc hóa học đặc trị có sẵn trong kho kèm liều lượng chuẩn.
     3. Ca 3 (Bệnh đốm mục tiêu): Cà chua đốm mục tiêu $\rightarrow$ Trích dẫn tài liệu khuyến nông RAG chính xác.
     4. Ca 4 (Đốm vi khuẩn ớt - `Pepper,_bell___Bacterial_spot`): Ớt chuông bị đốm vi khuẩn $\rightarrow$ Đề xuất thuốc phòng trừ có trong kho và cách ly đúng.
     5. Ca 5 (Gỉ sắt ngô): Ngô bị gỉ sắt $\rightarrow$ Khuyến cáo biện pháp canh tác và thuốc phù hợp.
-  - Mỗi ca chạy 3 lần lặp ở `temperature = 0`, đo đạc tỷ lệ nhất quán (Consistency Rate) và tỷ lệ an toàn (Safety Rate).
+  - Mỗi ca chạy 3 lần lặp ở `temperature = 0`, đo đạc tỷ lệ nhất quán (Consistency Rate) và tỷ lệ an toàn (Safety Rate). Kết quả đo lại ngày 08/11: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây.
 - [ ] **Pha 5**: Thành viên A kết nối thử nghiệm Web Client nhận stream chữ SSE mượt mà, không giật lag.
 
 ---
@@ -134,3 +162,5 @@
   - Không sinh ảo giác hoạt chất cấm trong bất kỳ lượt chạy nào.
   - Mọi câu trả lời **có kê đơn thuốc** đều có tiền tố `[DRAFT_RECOMMENDATION]` (khớp TASK-07).
 - [ ] Bằng chứng nghiệm thu: Báo cáo Benchmark định lượng xuất dạng bảng Markdown và file log JSON lưu tại `tasks/sprint-02/benchmark_results.json`.
+  - *Lần đo gần nhất*: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây. Ca chưa đạt: BENCH_03_TARGET_SPOT_RAG 0/3, BENCH_04_PEPPER_BACTERIAL_SPOT 0/3. Lý do: Trích dẫn rỗng hoặc không phải bài đang được duyệt.
+  - *Lưu ý quota*: gói miễn phí Gemini giới hạn 15 request/phút, mỗi câu hỏi tốn 3–5 request; benchmark nghỉ `BENCH_PAUSE_SECONDS` (mặc định 20 giây) giữa các lượt.

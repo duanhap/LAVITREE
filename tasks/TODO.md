@@ -61,13 +61,13 @@
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
   - Trạng thái: `[x] DONE` (`test_mcp_tools.py` 10/10 PASS với Core, PostgreSQL và OpenWeather thật. Image agent-service build và chạy được dưới user thường; chưa chạy cả hệ thống bằng docker compose.)
   - Đầu ra: Service chạy port **`8001`** công bố 4 công cụ chuẩn FastMCP (Read-Only: `lookup_disease_knowledge`, `check_weather_risk`, `query_pesticide_store`, `verify_phi_safety`), kết nối RAG Task 06 và REST API thật từ Core API (.NET 8).
-- [ ] **TASK-07: Chu trình ReAct Loop (Gemini), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
+- [x] **TASK-07: Chu trình ReAct Loop (Gemini), Bộ Chốt chặn An toàn Code & Router Hạ cấp Ngoại tuyến** *(Ưu tiên 3 - Tuần 2)*
   - Trách nhiệm: **Thành viên B**
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[x] DONE` (Code xong và đã review lại ngày 08/11/2026: `test_react_guardrails.py` 25/25 PASS, thử phá 12/12 kiểu đều bị test phát hiện, `test_react_gemini_live.py` 3/3 PASS với Gemini thật nhưng kho thuốc giả lập. Việc còn lại đã chuyển sang TASK-08 mục 0.)
   - Đầu ra: ReAct loop với Gemini (model theo env `GEMINI_MODEL`), **Hard Code Guardrail bằng Python** (lọc thuốc cấm và $DaysToHarvest \le PhiDays$ trực tiếp bằng code trước khi đưa vào LLM), gắn nhãn `[DRAFT_RECOMMENDATION]`, Circuit Breaker & Router tự động hạ cấp về tệp phác đồ IPM cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
-- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
+- [/] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] IN PROGRESS` (Pha 1–3 xong, đã review và sửa ngày 08/11/2026: `test_task08_streaming_trace.py` 12/12, `test_react_guardrails.py` 25/25, `test_rag_accuracy.py` 11/11. Pha 4 chưa đạt: benchmark 9/15 PASS (2026-11-08 09:33:31, Gemini `gemini-3.5-flash-lite`, Core giả lập theo danh mục seed (Core không chạy), RAG PostgreSQL (15 đoạn đã duyệt)); 0 lượt rơi về offline; trong 15 lượt Gemini chạy thật: TTFT 1.2–1.7 giây, tổng thời gian 3.1–6.7 giây. Còn: A sửa Trichoderma và duyệt tri thức Target Spot/Pepper, chạy với Core thật, Pha 5 Web Client.)
   - Đầu ra: Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`), trường `citations` trích dẫn trực tiếp từ RAG (chống LLM bịa URL), TTFT $\le 2.0$s, xuất `trace_waterfall.json`, bộ benchmark chạy tự động 5 ca lâm sàng (x3 lần, temp=0) đạt 15/15 PASS.
 
 ### 👨‍💻 Phân công Thành viên A (System, Auth, Web & Early Mobile):
