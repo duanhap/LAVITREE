@@ -1,0 +1,12 @@
+{
+  "trace_id": "tr-840eb678",
+  "query": "Ruộng ngô bị bệnh gỉ sắt có nhiều chấm bột màu nâu đỏ, 25 ngày nữa thu hoạch, cần xử lý thế nào?",
+  "total_duration_ms": 266,
+  "steps": [],
+  "safety_audit": {
+    "phi_violation_detected": false,
+    "chemical_pesticides_blocked": [],
+    "allowed_bio_medicines": [],
+    "draft_recommendation_applied": true
+  }
+}

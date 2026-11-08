@@ -26,12 +26,19 @@ class MultilingualEmbeddingFunction:
         self.dimension: int = 1024
         self._init_model()
 
+    def name(self) -> str:
+        return "default"
+
     def _init_model(self):
         # Đảm bảo nạp từ cache offline nếu TRANSFORMERS_OFFLINE được bật
+        local_files = os.environ.get("TRANSFORMERS_OFFLINE") == "1" or os.environ.get("HF_HUB_OFFLINE") == "1"
         try:
             from sentence_transformers import SentenceTransformer
-            logger.info(f"Loading SentenceTransformer: {self.model_name}...")
-            self.model = SentenceTransformer(self.model_name)
+            logger.info(f"Loading SentenceTransformer: {self.model_name} (local_files_only={local_files})...")
+            try:
+                self.model = SentenceTransformer(self.model_name, local_files_only=local_files)
+            except TypeError:
+                self.model = SentenceTransformer(self.model_name)
             self.dimension = self.model.get_sentence_embedding_dimension()
             logger.info(f"SentenceTransformer loaded successfully. Model: {self.model_name}, Dimension: {self.dimension}")
         except Exception as e:
@@ -75,6 +82,7 @@ class VectorRetriever:
         self.active_collection_name = self._get_active_collection_name()
         self.collection = self.client.get_or_create_collection(
             name=self.active_collection_name,
+            embedding_function=self.embedding_fn,
             metadata=self._collection_metadata()
         )
         self.index_compatible = self._is_compatible(self.collection)

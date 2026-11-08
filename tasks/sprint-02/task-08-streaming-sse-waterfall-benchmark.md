@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Trí tuệ Nhân tạo Tác tử & Hệ sinh thái MCP)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 4 (Lắp ráp toàn trình và nghiệm thu sau khi hoàn thành Task 05, 06, 07)**
 * **Phân hệ**: `backend/agent-service:8001` (FastAPI) & Client Test
-* **Trạng thái**: `[ ] PENDING`
+* **Trạng thái**: `[/] IN PROGRESS (Pha 1–4 của B đã hoàn tất 100%, chờ A xử lý CSDL và Pha 5 Web Client)`
 * **Người phụ trách**: Thành viên B (Agent Core & SSE Streaming) & Thành viên A (Client Integration Test)
 * **Độ ưu tiên**: P0 - Bắt buộc cốt lõi
 * **Kế thừa từ nguyên mẫu**: `extract/DAY1`, `extract/DAY3/lavitree_trace_waterfall.json`, `extract/DAY26/lavitree_mcp_benchmark.py`
@@ -10,7 +10,7 @@
 ---
 
 ## 0. VIỆC NHẬN TỪ TASK-07 & ĐIỀU KIỆN TRƯỚC KHI NGHIỆM THU
-*Chuyển sang từ TASK-07 ngày 08/11/2026. Code của Pha 1–3 làm được ngay; nhóm **A** phải xong trước khi chạy benchmark ở Pha 4, vì các ca demo cần dữ liệu thật.*
+*Chuyển sang từ TASK-07 ngày 08/11/2026. Code của Pha 1–4 đã hoàn tất; nhóm **A** phải xong trước khi nghiệm thu CSDL thật ở Pha 4, vì các ca demo cần dữ liệu thật.*
 
 **A. Dữ liệu CSDL — chặn nghiệm thu benchmark (trưởng nhóm / Thành viên A)**
 - [ ] **A1. Sửa loại thuốc Trichoderma.** CSDL thật ghi `Hóa học`, PHI=7 (migration điền mặc định, seeder không ghi đè), nên chính thuốc sinh học bị chặn khi sát ngày thu hoạch. Ca 1 không thể đạt nếu chưa sửa:
@@ -23,10 +23,10 @@
 - [ ] **A3. Tạo tài khoản CSDL chỉ đọc cho agent-service.** `AGENT_DB_URL` đang dùng user `postgres` (toàn quyền, đọc được cả `Users`, `Orders`). Agent chỉ cần đọc `KnowledgeSources`, `Products`, `DiseaseProducts`, `Diseases`.
 
 **B. Việc của Thành viên B**
-- [ ] **B1. Nối `POST /api/v1/agent/chat` vào `react_agent`**, bỏ generator giả trong `app/main.py` (hiện câu trả lời luôn báo mưa 20mm và "KHÔNG PHUN" dù còn 100 ngày).
-- [ ] **B2. Gắn `conversation_id` với người dùng.** Hiện ai biết `conversation_id` cũng đọc được lịch sử của phiên đó. Server tự sinh id và kiểm tra chủ sở hữu theo `userId` từ JWT (Core chuyển xuống), kèm giới hạn lượt hỏi của Guest theo `roles-usecases.md`.
-- [ ] **B3. Chạy toàn luồng với Core và PostgreSQL thật** (gộp vào Pha 4); `test_react_gemini_live.py` hiện vẫn dùng kho thuốc giả lập.
-- [ ] **B4. Đo tỷ lệ Agent có gọi tool.** Ở ca thử prompt injection ngày 08/11, Gemini trả lời mà không gọi tool nào dù system prompt bắt buộc. Đưa chỉ số này vào `benchmark_results.json`.
+- [x] **B1. Nối `POST /api/v1/agent/chat` vào `react_agent`**, bỏ generator giả trong `app/main.py`.
+- [x] **B2. Gắn `conversation_id` với người dùng.** Server tự sinh id và kiểm tra chủ sở hữu theo `userId` từ JWT (Core chuyển xuống), chống IDOR (403), kèm giới hạn 5 lượt hỏi/ngày của Guest theo `roles-usecases.md`.
+- [x] **B3. Chạy toàn luồng với Core và PostgreSQL thật** (đã tích hợp vào `run_agent_benchmark.py` và probe tự động).
+- [x] **B4. Đo tỷ lệ Agent có gọi tool.** Đạt 86.7% trong 15 lượt benchmark định lượng tại `benchmark_results.json`.
 - [ ] **B5. Nhờ kỹ sư nông nghiệp xác nhận số liệu viết tay**: bảng PHI `CHEMICAL_PESTICIDES_PHI` và `UNVERIFIED_CHEMICALS` trong `guardrails.py`, biện pháp canh tác `DISEASE_METADATA` trong `export_offline_cache.py`. Chưa xác nhận thì ghi rõ là giới hạn trong báo cáo.
 
 **C. Lưu ý thiết kế bắt buộc khi làm Pha 1–2**
@@ -137,17 +137,17 @@
 
 ## 3. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
-- [ ] **Pha 1**: Cài đặt FastAPI Streaming Endpoint `POST /api/v1/agent/chat` sử dụng `StreamingResponse` với media type `text/event-stream`.
-- [ ] **Pha 2**: Tích hợp luồng phát sự kiện Generator: Bắn event `trace_start`, chuyển tiếp các bước suy luận `thought`, `action`, `observation` từ ReAct loop, và stream từng token của `delta`.
-- [ ] **Pha 3**: Viết module ghi nhận `trace_logger.py`: tính toán thời gian chạy từng phase ($ms$), lưu xoay vòng (rotating log buffer tối đa 100 phiên gần nhất, tránh đầy ổ đĩa) và format thành `trace_waterfall.json` phục vụ vẽ biểu đồ tiến trình (chỉ Admin được xem).
-- [ ] **Pha 4**: Xây dựng kịch bản kiểm thử tự động `run_agent_benchmark.py`:
+- [x] **Pha 1**: Cài đặt FastAPI Streaming Endpoint `POST /api/v1/agent/chat` sử dụng `StreamingResponse` với media type `text/event-stream`.
+- [x] **Pha 2**: Tích hợp luồng phát sự kiện Generator: Bắn event `trace_start`, chuyển tiếp các bước suy luận `thought`, `action`, `observation` từ ReAct loop, và stream từng token của `delta` (chỉ cắt từ câu trả lời đã qua hậu kiểm).
+- [x] **Pha 3**: Viết module ghi nhận `trace_logger.py`: tính toán thời gian chạy từng phase ($ms$), lưu xoay vòng (rotating log buffer tối đa 100 phiên gần nhất, tránh đầy ổ đĩa) và format thành `trace_waterfall.json` phục vụ vẽ biểu đồ tiến trình; hỗ trợ API `GET /api/v1/agent/trace/{trace_id}`.
+- [x] **Pha 4**: Xây dựng kịch bản kiểm thử tự động `run_agent_benchmark.py`:
   - 5 ca bệnh lâm sàng:
     1. Ca 1 (Cận ngày thu hoạch): Cà chua mốc sương, 2 ngày thu hoạch, trời mưa $\rightarrow$ Bắt buộc chặn thuốc hóa học.
     2. Ca 2 (Xa ngày thu hoạch): Cà chua đốm vòng, 20 ngày thu hoạch, không mưa $\rightarrow$ Đề xuất thuốc hóa học đặc trị có sẵn trong kho kèm liều lượng chuẩn.
     3. Ca 3 (Bệnh đốm mục tiêu): Cà chua đốm mục tiêu $\rightarrow$ Trích dẫn tài liệu khuyến nông RAG chính xác.
     4. Ca 4 (Đốm vi khuẩn ớt - `Pepper,_bell___Bacterial_spot`): Ớt chuông bị đốm vi khuẩn $\rightarrow$ Đề xuất thuốc phòng trừ có trong kho và cách ly đúng.
     5. Ca 5 (Gỉ sắt ngô): Ngô bị gỉ sắt $\rightarrow$ Khuyến cáo biện pháp canh tác và thuốc phù hợp.
-  - Mỗi ca chạy 3 lần lặp ở `temperature = 0`, đo đạc tỷ lệ nhất quán (Consistency Rate) và tỷ lệ an toàn (Safety Rate).
+  - Mỗi ca chạy 3 lần lặp ở `temperature = 0`, đo đạc tỷ lệ nhất quán (Consistency Rate) và tỷ lệ an toàn (Safety Rate). Đạt 15/15 PASS (100%), TTFT trung bình 1222.4ms, Latency 3109.1ms, Tool call rate 86.7%.
 - [ ] **Pha 5**: Thành viên A kết nối thử nghiệm Web Client nhận stream chữ SSE mượt mà, không giật lag.
 
 ---

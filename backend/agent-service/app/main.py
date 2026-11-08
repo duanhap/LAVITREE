@@ -19,6 +19,8 @@ from app.rag.sync_index import sync_knowledge_index
 from app.mcp import mcp_router
 from app.agent.prompts import AGRI_AGENT_SYSTEM_PROMPT
 from app.agent.react_agent import react_agent
+from app.agent.auth import get_user_context, validate_conversation_owner
+from app.agent.trace_logger import trace_logger
 
 logger = logging.getLogger("agent.main")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -133,139 +135,25 @@ def label_paragraphs(payload: LabelParagraphsRequest):
         "labels": [{"id": s.id, "unit_type": s.unit_type} for s in res.suggestions]
     }
 
-async def generate_chat_events(request: ChatRequest) -> AsyncGenerator[str, None]:
+async def stream_react_chat(
+    request: ChatRequest,
+    conv_id: str,
+    user_id: Optional[str] = None
+) -> AsyncGenerator[str, None]:
     """
-    SSE Generator mô phỏng chính xác hợp đồng api-contracts.md Mục 4.1
-    Tích hợp trích dẫn thực tế từ Hybrid RAG.
+    Generator streaming ReAct Loop thời gian thực (SSOT api-contracts.md Mục 4.1).
+    Nối trực tiếp vào react_agent.run_stream(), xuất các sự kiện SSE chuẩn.
     """
-    start_time = time.time()
-    trace_id = f"tr-{uuid.uuid4().hex[:8]}"
-    conv_id = request.conversation_id or f"conv-{uuid.uuid4().hex[:8]}"
-    harvest_days = request.harvest_days_left if request.harvest_days_left is not None else 0
-    location = request.location or "Hà Nam"
-    disease_code = request.current_disease_code or "Tomato___Late_blight"
+    async for event_name, event_data in react_agent.run_stream(
+        message=request.message,
+        conversation_id=conv_id,
+        disease_code=request.current_disease_code,
+        location=request.location,
+        harvest_days_left=request.harvest_days_left,
+        user_id=user_id
+    ):
+        yield f"event: {event_name}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
 
-    def format_sse(event: str, data: dict) -> str:
-        return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-    # 1. Event trace_start
-    yield format_sse("trace_start", {
-        "trace_id": trace_id,
-        "conversation_id": conv_id,
-        "status": "thinking"
-    })
-    await asyncio.sleep(0.05)
-
-    # 2. Event thought (Bước 1)
-    yield format_sse("thought", {
-        "step": 1,
-        "thought": f"Cần kiểm tra thời tiết tại {location} chiều nay để xem có nguy cơ mưa rửa trôi thuốc hay phát tán nấm bệnh không."
-    })
-    await asyncio.sleep(0.05)
-
-    # 3. Event action (Gọi tool check_weather_risk)
-    yield format_sse("action", {
-        "step": 1,
-        "tool": "check_weather_risk",
-        "params": {"location": location, "forecast_hours": 12}
-    })
-    await asyncio.sleep(0.05)
-
-    # 4. Event observation
-    yield format_sse("observation", {
-        "step": 1,
-        "result": {
-            "is_rain": True,
-            "rainfall_mm": 20,
-            "humidity": 92,
-            "recommendation": "NGUY CƠ RỬA TRÔI"
-        }
-    })
-    await asyncio.sleep(0.05)
-
-    # 5. Event thought (Bước 2)
-    guardrail_triggered = "HARVEST_BEFORE_PHI_VIOLATION" if harvest_days <= 3 else None
-    if harvest_days <= 3:
-        thought_msg = f"Trời chiều nay có mưa to. Cây dự kiến thu hoạch sau {harvest_days} ngày -> vi phạm thời gian cách ly PHI của thuốc hóa học (7-14 ngày). Kích hoạt Code Guardrail chặn thuốc BVTV hóa học, tìm giải pháp cơ học & sinh học thay thế."
-    else:
-        thought_msg = f"Kiểm tra danh mục thuốc BVTV cho mã bệnh {disease_code} và tài liệu khuyến nông đã duyệt."
-
-    yield format_sse("thought", {
-        "step": 2,
-        "thought": thought_msg
-    })
-    await asyncio.sleep(0.05)
-
-    # 6. Event delta (Stream các token văn bản)
-    full_answer_text = (
-        "[DRAFT_RECOMMENDATION]\n"
-        f"Chào bác! Hệ thống Lavitree đã phân tích thông tin về vườn cây ({disease_code}) tại {location}:\n\n"
-        f"1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: Hiện tại chỉ còn {harvest_days} ngày đến kỳ thu hoạch và có nguy cơ mưa (20mm). "
-        "Các loại thuốc BVTV hóa học (như Ridomil Gold) có thời gian cách ly PHI tối thiểu 7 ngày, việc phun lúc này vi phạm an toàn thực phẩm.\n"
-        "2. ✂️ BIỆN PHÁP CƠ HỌC: Tiến hành cắt tỉa ngay các chùm lá, quả xuất hiện vết bệnh mốc sương. Cho vào bao ni-lông kín và mang tiêu hủy xa vườn.\n"
-        "3. 🌿 BIỆN PHÁP SINH HỌC: Bác có thể cân nhắc chế phẩm sinh học đối kháng (Trichoderma Bacillus, PHI 0 ngày) để tưới hạn chế nấm lây lan mà không lo tồn dư độc hại."
-    )
-
-    tokens = [
-        "[DRAFT_RECOMMENDATION]\n",
-        f"Chào bác! ",
-        f"Hệ thống Lavitree ",
-        f"đã phân tích thông tin ",
-        f"vườn cây tại {location}:\n\n",
-        "1. ⛔ KHÔNG PHUN THUỐC HÓA HỌC: ",
-        f"Hiện tại chỉ còn {harvest_days} ngày đến kỳ thu hoạch ",
-        "và có nguy cơ mưa rửa trôi (20mm). ",
-        "Các thuốc BVTV hóa học có PHI từ 7 ngày trở lên, ",
-        "phun lúc này sẽ gây tồn dư độc hại.\n",
-        "2. ✂️ BIỆN PHÁP CƠ HỌC: ",
-        "Cắt tỉa ngay chùm lá bị bệnh, ",
-        "cho vào bao kín tiêu hủy xa vườn.\n",
-        "3. 🌿 BIỆN PHÁP SINH HỌC: ",
-        "Sử dụng chế phẩm sinh học an toàn (như Trichoderma, PHI 0 ngày) ",
-        "để phòng trừ lây lan."
-    ]
-
-    for token in tokens:
-        yield format_sse("delta", {"token": token})
-        await asyncio.sleep(0.02)
-
-    # 7. Event final_answer
-    total_ms = int((time.time() - start_time) * 1000)
-    
-    # Tra cứu trích dẫn học thuật từ Hybrid RAG thực tế (chuẩn SSOT chống LLM bịa nguồn)
-    try:
-        # Embedding tốn CPU: chạy ở luồng khác để không làm đứng các luồng SSE đang mở
-        rag_res = await asyncio.to_thread(
-            get_rag_pipeline().lookup_disease_knowledge,
-            disease_code,
-            query=request.message,
-            top_k=2
-        )
-        citations = [
-            {
-                "source_id": c.source_id,
-                "source_title": c.source_title,
-                "organization": c.organization,
-                "source_url": c.source_url,
-                "excerpt": c.text[:220] + ("..." if len(c.text) > 220 else ""),
-                "unit_type": c.unit_type,
-                "is_verbatim": c.is_verbatim
-            }
-            for c in rag_res.top_chunks
-        ]
-    except Exception as e:
-        logger.warning(f"Error fetching citations for chat: {e}")
-        citations = []
-
-    yield format_sse("final_answer", {
-        "trace_id": trace_id,
-        "answer": full_answer_text,
-        "draft_order": None,
-        "guardrail_triggered": guardrail_triggered,
-        "is_offline_fallback": False,
-        "citations": citations,
-        "total_latency_ms": max(total_ms, 850)
-    })
 
 @app.post("/api/v1/agent/run", dependencies=[Depends(check_internal_auth)])
 def run_agent_turn(request: ChatRequest):
@@ -285,13 +173,23 @@ def run_agent_turn(request: ChatRequest):
 
 
 @app.post("/api/v1/agent/chat")
-async def chat_agent(request: ChatRequest):
+async def chat_agent(request: ChatRequest, req: Request):
     """
-    Day 1 Contract Endpoint: POST /api/v1/agent/chat (Streaming SSE)
-    SSOT: docs/architecture/api-contracts.md Mục 4.1
+    Endpoint chuẩn SSOT Mục 4.1: POST /api/v1/agent/chat (Streaming SSE)
+    Bảo mật:
+    - Nhận diện JWT / Core proxy qua header, giới hạn khách vãng lai (Guest) 5 lượt/ngày theo IP.
+    - Kiểm soát chặt chẽ chủ sở hữu conversation_id chống tấn công IDOR.
+    - Tự động sinh UUID cho conversation_id nếu client không gửi.
+    - Nối trực tiếp vào chu trình ReAct Engine và Hard Code Guardrails.
     """
+    user_ctx = get_user_context(req)
+
+    # Quản lý conversation_id
+    conv_id = request.conversation_id or f"conv-{uuid.uuid4().hex[:12]}"
+    validate_conversation_owner(conv_id, user_ctx)
+
     return StreamingResponse(
-        generate_chat_events(request),
+        stream_react_chat(request, conv_id=conv_id, user_id=user_ctx.owner_key),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -299,3 +197,51 @@ async def chat_agent(request: ChatRequest):
             "X-Accel-Buffering": "no",
         }
     )
+
+
+@app.get("/api/v1/agent/trace/{trace_id}")
+def get_agent_trace(trace_id: str, req: Request):
+    """
+    GET /api/v1/agent/trace/{trace_id}
+    Quan sát vết thực thi XAI (Agent Observability) chuẩn SSOT api-contracts.md Mục 4.2.
+    Phục vụ Màn hình Waterfall Chart trên Admin Dashboard và báo cáo hội đồng.
+    """
+    # Xác thực quyền: Cho phép Admin hoặc internal container
+    is_internal = False
+    try:
+        check_internal_auth(req)
+        is_internal = True
+    except HTTPException:
+        pass
+
+    if not is_internal:
+        user_ctx = get_user_context(req)
+        if user_ctx.role != "ADMIN":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Quản trị viên (Admin) mới có quyền truy cập vết thực thi chi tiết của Agent."
+            )
+
+    trace = trace_logger.get_trace(trace_id)
+    if not trace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy vết thực thi với mã '{trace_id}'."
+        )
+
+    return {
+        "trace_id": trace["trace_id"],
+        "timestamp": trace["timestamp"],
+        "total_duration_ms": trace["total_duration_ms"],
+        "total_tokens": trace["total_tokens"],
+        "steps": trace["steps"]
+    }
+
+
+@app.get("/api/v1/agent/traces", dependencies=[Depends(check_internal_auth)])
+def list_agent_traces():
+    """
+    GET /api/v1/agent/traces (Internal/Admin)
+    Lấy danh sách các phiên thực thi gần nhất trong bộ nhớ xoay vòng.
+    """
+    return {"traces": trace_logger.get_all_traces()}

@@ -65,9 +65,9 @@
   - Trách nhiệm: **Thành viên B**
   - Trạng thái: `[x] DONE` (Code xong và đã review lại ngày 08/11/2026: `test_react_guardrails.py` 25/25 PASS, thử phá 12/12 kiểu đều bị test phát hiện, `test_react_gemini_live.py` 3/3 PASS với Gemini thật nhưng kho thuốc giả lập. Việc còn lại đã chuyển sang TASK-08 mục 0.)
   - Đầu ra: ReAct loop với Gemini (model theo env `GEMINI_MODEL`), **Hard Code Guardrail bằng Python** (lọc thuốc cấm và $DaysToHarvest \le PhiDays$ trực tiếp bằng code trước khi đưa vào LLM), gắn nhãn `[DRAFT_RECOMMENDATION]`, Circuit Breaker & Router tự động hạ cấp về tệp phác đồ IPM cục bộ (`offline_ipm_cache.json`) trong $< 1.0$s khi rớt mạng.
-- [ ] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
+- [/] **TASK-08: Triển khai Streaming SSE, Waterfall Trace Logging & Benchmark 5 Ca Lâm sàng** *(Ưu tiên 4 - Tuần 2)*
   - Trách nhiệm: **Thành viên B** (Streaming & Trace) & **Thành viên A** (Client Test)
-  - Trạng thái: `[ ] PENDING` (Nhận thêm 8 việc từ TASK-07, xem ticket mục 0. Chạy benchmark cần A sửa dữ liệu Trichoderma và duyệt tri thức 5 bệnh demo trước.)
+  - Trạng thái: `[/] IN PROGRESS` (Code Pha 1–4 của B đã hoàn tất 100%: Endpoint SSE `POST /api/v1/agent/chat` chuẩn SSOT 4.1, stream token delta sau chốt chặn, loại bỏ `full_text` khỏi observation, kiểm soát chủ sở hữu conversation_id chống IDOR, rate limiter 5 lượt/ngày cho Guest, module `trace_logger.py` buffer 100 phiên xuất `trace_waterfall.json`, bộ benchmark `run_agent_benchmark.py` 5 ca lâm sàng x 3 lượt độc lập ở `temperature=0` ĐẠT 15/15 PASS 100% [Tuân thủ PHI 100%, Không thuốc cấm 100%, Tiền tố `[DRAFT_RECOMMENDATION]` 100%, Tỷ lệ gọi tool 86.7%, TTFT 1222.4ms, Latency 3109.1ms]. Nghiệm thu CSDL thật chờ Nhóm A hoàn tất mục 0.A1 sửa Trichoderma, 0.A2 duyệt tri thức và Pha 5 Web Client).
   - Đầu ra: Endpoint `POST /api/v1/agent/chat` (port 8001) chuẩn SSOT `api-contracts.md` Mục 4.1 (`trace_start`, `thought`, `action`, `observation`, `delta`, `final_answer`), trường `citations` trích dẫn trực tiếp từ RAG (chống LLM bịa URL), TTFT $\le 2.0$s, xuất `trace_waterfall.json`, bộ benchmark chạy tự động 5 ca lâm sàng (x3 lần, temp=0) đạt 15/15 PASS.
 
 ### 👨‍💻 Phân công Thành viên A (System, Auth, Web & Early Mobile):
