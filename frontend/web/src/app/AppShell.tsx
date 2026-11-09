@@ -186,8 +186,15 @@ export const AppShell: React.FC = () => {
       </header>
 
       {/* ================= MAIN CONTENT AREA ================= */}
-      {/* pb-20 on mobile ensures bottom tab bar does not overlap content */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8">
+      {/* Khi ở trang /chat: Bung full màn hình như Messenger / ChatGPT (không giới hạn max-w) */}
+      <main
+        className={cn(
+          "flex-1 w-full",
+          location.pathname.startsWith('/chat')
+            ? "h-[calc(100vh-4rem)] p-0 m-0 max-w-none overflow-hidden pb-16 md:pb-0"
+            : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8"
+        )}
+      >
         <Outlet />
       </main>
 

@@ -368,16 +368,29 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
     setError(null);
   }, [stopGeneration]);
 
+  const loadSession = useCallback((session: import('./types').ChatSession) => {
+    stopGeneration();
+    setMessages(session.messages || []);
+    setConversationId(session.id || null);
+    if (session.contextParams) {
+      setContextParams(session.contextParams);
+    }
+    setError(null);
+  }, [stopGeneration]);
+
   return {
     messages,
+    setMessages,
     isStreaming,
     error,
     conversationId,
+    setConversationId,
     contextParams,
     setContextParams,
     sendMessage,
     stopGeneration,
     clearMessages,
+    loadSession,
   };
 }
 
