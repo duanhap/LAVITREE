@@ -115,8 +115,9 @@
 - `src/features/chat/ChatMessageItem.tsx`: Đồng bộ semantic color tokens `bg-card`, `border-border`.
 - `src/app/AppShell.tsx`: Mở rộng layout full-bleed cho route `/chat`.
 - `src/pages/ChatPage.tsx`: Viết lại toàn bộ trang với Sidebar Lịch sử, New Chat và Giao diện Messenger/ChatGPT chuẩn.
+- `src/pages/AdminDashboard.tsx`: Tách ô chọn lớp bệnh mục tiêu ở form Nhập bài báo (`/admin/ingest`) thành 2 ô chọn riêng biệt: Loài cây trồng & Tên bệnh hại; Gộp các đoạn trích cùng 1 bài báo ở tab Duyệt tri thức thành 1 dòng duy nhất kèm tính năng mở rộng/thu gọn xem chi tiết từng đoạn.
 
 ### 5.4. Bằng chứng Kiểm nghiệm
-- Chạy `npm run build` (bao gồm TypeScript `tsc` check): **Thành công 100%** không có bất kỳ lỗi biên dịch nào (`✓ built in 13.66s`).
+- Chạy `npm run build` (bao gồm TypeScript `tsc` check): **Thành công 100%** không có bất kỳ lỗi biên dịch nào (`✓ built in 10.01s`).
 
 
