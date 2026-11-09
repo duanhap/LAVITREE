@@ -52,3 +52,12 @@ export interface ChatContextParams {
   harvest_days_left: number | null;
   current_disease_code: string | null;
 }
+
+export interface ChatSession {
+  id: string; // conversation_id
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+  contextParams: ChatContextParams;
+}
