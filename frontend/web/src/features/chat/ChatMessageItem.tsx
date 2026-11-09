@@ -133,11 +133,11 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
         className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 object-contain p-0.5 shrink-0 shadow-sm mt-1 dark:bg-emerald-950/40 dark:border-emerald-800"
       />
 
-      <div className="flex-1 max-w-[92%] sm:max-w-[85%] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl rounded-tl-none p-4 sm:p-5 shadow-sm space-y-4">
+      <div className="flex-1 max-w-[92%] sm:max-w-[85%] bg-card text-card-foreground border border-border rounded-2xl rounded-tl-none p-4 sm:p-5 shadow-xs space-y-4">
         {/* Header tin nhắn AI */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+            <span className="font-semibold text-sm text-foreground flex items-center gap-1.5">
               Lavi
             </span>
             {message.is_offline_fallback && (
@@ -171,11 +171,11 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
 
         {/* Khối các bước suy luận ReAct (XAI Observability) */}
         {hasTraceSteps && (
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/40 overflow-hidden text-xs">
+          <div className="rounded-xl border border-border bg-muted/40 overflow-hidden text-xs">
             <button
               type="button"
               onClick={() => setIsStepsOpen(!isStepsOpen)}
-              className="w-full flex items-center justify-between px-3.5 py-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/40 transition-colors"
+              className="w-full flex items-center justify-between px-3.5 py-2 text-foreground/80 hover:bg-muted/70 transition-colors"
             >
               <div className="flex items-center gap-2 font-medium">
                 <BrainCircuit className="w-4 h-4 text-emerald-600" />
@@ -185,16 +185,16 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
             </button>
 
             {isStepsOpen && (
-              <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2.5 max-h-64 overflow-y-auto">
+              <div className="p-3 border-t border-border space-y-2.5 max-h-64 overflow-y-auto">
                 {message.traceSteps?.map((step, idx) => (
-                  <div key={idx} className="flex gap-2 items-start text-zinc-600 dark:text-zinc-400">
-                    <span className="font-mono text-[10px] bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-700 dark:text-zinc-300 mt-0.5">
+                  <div key={idx} className="flex gap-2 items-start text-muted-foreground">
+                    <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-foreground mt-0.5 border border-border">
                       #{step.step}
                     </span>
                     <div className="flex-1">
                       {step.type === 'thought' && (
-                        <div className="text-zinc-800 dark:text-zinc-200">
-                          <span className="font-medium text-blue-700 dark:text-blue-400">Suy nghĩ: </span>
+                        <div className="text-foreground">
+                          <span className="font-medium text-emerald-700 dark:text-emerald-400">Suy nghĩ: </span>
                           {step.thought}
                         </div>
                       )}
@@ -205,14 +205,14 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
                             Gọi công cụ: {step.tool}
                           </div>
                           {step.params && (
-                            <div className="mt-1 text-[10px] text-zinc-600 dark:text-zinc-400 overflow-x-auto">
+                            <div className="mt-1 text-[10px] text-muted-foreground overflow-x-auto">
                               Tham số: {JSON.stringify(step.params)}
                             </div>
                           )}
                         </div>
                       )}
                       {step.type === 'observation' && (
-                        <div className="text-zinc-600 dark:text-zinc-400 italic text-[11px] bg-zinc-100/70 dark:bg-zinc-800/40 p-1.5 rounded border border-zinc-200 dark:border-zinc-800">
+                        <div className="text-muted-foreground italic text-[11px] bg-muted/50 p-1.5 rounded border border-border">
                           <span>Kết quả: </span>
                           {typeof step.observation === 'string'
                             ? step.observation
@@ -301,13 +301,13 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
               {message.draft_order.items.map((item, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between bg-white dark:bg-zinc-900 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs"
+                  className="flex items-center justify-between bg-card p-2.5 rounded-lg border border-border text-xs"
                 >
                   <div>
-                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                    <span className="font-semibold text-foreground">
                       {item.product_name || `Thuốc mã #${item.product_id}`}
                     </span>
-                    <span className="text-zinc-500 ml-2">Số lượng: {item.quantity}</span>
+                    <span className="text-muted-foreground ml-2">Số lượng: {item.quantity}</span>
                   </div>
 
                   <Button

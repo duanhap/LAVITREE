@@ -84,3 +84,39 @@
 - Nút xóa: đã build, **chưa bấm thử trên API thật**.
 - Thấy thêm (lỗi có sẵn): ở khoảng 820px, thanh menu trên cùng bị xuống dòng chữ ("Khám / lá"); cần rà ở mục responsive.
 
+---
+
+## 5. ĐỢT 3 (09/11/2026): ĐẠI TU GIAO DIỆN TRỢ LÝ CHAT LAVI — FULL SCREEN, LỊCH SỬ CHAT, NEW CHAT & SỬA MÀU SẮC
+
+### 5.1. Bối cảnh & Vấn đề khắc phục
+- **Lỗi giao diện (Giao diện cũ)**:
+  - Khung chat bị giới hạn bề ngang (`max-w-4xl` lồng trong `max-w-7xl` của `AppShell`), thụt sâu và để lại 2 bên lề chết lớn, trông chật chội và không giống một ứng dụng AI hội thoại hiện đại.
+  - Khi màn hình ở chế độ sáng (Light Mode), thanh tiêu đề, các thẻ gợi ý câu hỏi và ô nhập liệu bị kích hoạt class nền đen đặc (`dark:bg-zinc-900`) trên nền trang màu kem/trắng, tạo cảm giác "củ chuối", chữ xám mờ khó đọc và mất đồng bộ thiết kế.
+  - Thiếu chức năng Lịch sử hội thoại (Chat History) và nút Tạo cuộc trò chuyện mới (+ New Chat) khiến người dùng bị dồn hết tin nhắn vào 1 luồng duy nhất hoặc mất phiên khi reload.
+
+### 5.2. Giải pháp Hiện thực hóa
+1. **Bố cục Toàn màn hình (Full-Screen Messenger / ChatGPT style)**:
+   - Điều chỉnh `AppShell.tsx`: Khi ở route `/chat`, thẻ `<main>` tự động giải phóng giới hạn container (`h-[calc(100vh-4rem)] max-w-none p-0 m-0 overflow-hidden`), lấp đầy 100% diện tích màn hình.
+   - Bố cục 2 cột linh hoạt:
+     - **Sidebar trái (Lịch sử hội thoại & New Chat)**: Chiều rộng 320px, có nút thu gọn/mở rộng mượt mà (`PanelLeftClose` / `PanelLeft`).
+     - **Khung Chat trung tâm**: Căn giữa dòng tin nhắn tối đa 4xl tạo độ thoải mái cho mắt đọc, nền bung tràn mép màn hình.
+2. **Quản lý Đa phiên Hội thoại (Chat Sessions History & New Chat)**:
+   - Thêm nút **"+ Đoạn chat mới"** nổi bật trên đầu sidebar (màu xanh thương hiệu Emerald).
+   - Tự động gom cụm các phiên trò chuyện, lấy câu hỏi đầu tiên làm tiêu đề, lưu trữ bền vững vào `localStorage` (`lavitree_chat_sessions_v2`).
+   - Hỗ trợ xem lại lịch sử các phiên cũ, chuyển đổi tức thì giữa các phiên hoặc xóa từng đoạn chat / xóa toàn bộ lịch sử.
+3. **Chuẩn hóa Màu sắc & Độ tương phản (Light / Dark Consistency)**:
+   - Thay thế toàn bộ mã màu hardcode đen `dark:bg-zinc-900` bằng semantic design tokens shadcn (`bg-card`, `bg-background`, `border-border`, `text-foreground`, `text-muted-foreground`).
+   - Màn hình chào Lavi 3D và 4 thẻ câu hỏi gợi ý nhanh hiển thị màu thẻ card sáng rõ, viền mượt, hover đổ màu bạc hà nhạt (`hover:bg-emerald-50/70`), chữ sắc nét tuyệt đối.
+   - Hộp nhập liệu phía dưới được ghim nổi (floating pinned bar) với hiệu ứng viền sáng Emerald khi focus.
+
+### 5.3. File tác động
+- `src/features/chat/types.ts`: Bổ sung interface `ChatSession`.
+- `src/features/chat/useAgentChat.ts`: Xuất các hàm `loadSession`, `setMessages`, `setConversationId`.
+- `src/features/chat/ChatMessageItem.tsx`: Đồng bộ semantic color tokens `bg-card`, `border-border`.
+- `src/app/AppShell.tsx`: Mở rộng layout full-bleed cho route `/chat`.
+- `src/pages/ChatPage.tsx`: Viết lại toàn bộ trang với Sidebar Lịch sử, New Chat và Giao diện Messenger/ChatGPT chuẩn.
+
+### 5.4. Bằng chứng Kiểm nghiệm
+- Chạy `npm run build` (bao gồm TypeScript `tsc` check): **Thành công 100%** không có bất kỳ lỗi biên dịch nào (`✓ built in 13.66s`).
+
+
