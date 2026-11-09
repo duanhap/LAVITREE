@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import {
   FileText, ShieldCheck, CheckCircle2, AlertCircle, RefreshCw,
   ExternalLink, Search, Filter, Layers, Database, Package,
-  UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2
+  UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
+  ChevronDown, ChevronUp, ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -111,6 +112,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
   // ==================== TAB 1: NHẬP BÀI BÁO (HITL INGESTION) ====================
   const [ingestClass, setIngestClass] = useState<string>('Tomato___Late_blight');
+  const [selectedPlant, setSelectedPlant] = useState<string>('Cà chua');
   const [ingestUrl, setIngestUrl] = useState<string>('');
   const [ingestTitle, setIngestTitle] = useState<string>('');
   const [ingestOrg, setIngestOrg] = useState<string>('');
@@ -159,13 +161,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     const fetchDiseases = async () => {
       try {
         const res = await apiClient.get('/diseases');
-        setDiseases(res.data || []);
+        const list: DiseaseOption[] = res.data || [];
+        setDiseases(list);
+        if (list.length > 0) {
+          const match = list.find((d) => d.classCode === ingestClass);
+          if (match) {
+            setSelectedPlant(match.plantName);
+          } else {
+            setSelectedPlant(list[0].plantName);
+            setIngestClass(list[0].classCode);
+          }
+        }
       } catch {
         // fallback
       }
     };
     fetchDiseases();
   }, []);
+
+  // Lọc danh sách loài cây duy nhất và các bệnh thuộc loài cây đang chọn
+  const uniquePlants = React.useMemo(() => {
+    const set = new Set<string>();
+    diseases.forEach((d) => {
+      if (d.plantName) set.add(d.plantName);
+    });
+    return Array.from(set);
+  }, [diseases]);
+
+  const filteredDiseasesByPlant = React.useMemo(() => {
+    if (!selectedPlant) return diseases;
+    return diseases.filter((d) => d.plantName === selectedPlant);
+  }, [diseases, selectedPlant]);
+
+  const handlePlantChange = (plant: string) => {
+    setSelectedPlant(plant);
+    const matching = diseases.filter((d) => d.plantName === plant);
+    if (matching.length > 0) {
+      setIngestClass(matching[0].classCode);
+    }
+  };
 
   // Sync defaultTab prop when route changes
   useEffect(() => {
@@ -385,6 +419,94 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     return true;
   });
 
+  // Chế độ xem: Gộp theo bài viết (mặc định bật) và Quản lý mở rộng chi tiết bài
+  const [groupByArticle, setGroupByArticle] = useState<boolean>(true);
+  const [expandedArticleKeys, setExpandedArticleKeys] = useState<Set<string>>(new Set());
+
+  const toggleExpandArticle = (key: string) => {
+    setExpandedArticleKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  interface GroupedArticle {
+    key: string;
+    sourceTitle: string;
+    sourceUrl: string;
+    organization: string;
+    plantName: string;
+    diseaseName: string;
+    modelClass: string;
+    paragraphs: KnowledgeSourceItem[];
+    approvedCount: number;
+    totalCount: number;
+  }
+
+  const groupedArticles = React.useMemo<GroupedArticle[]>(() => {
+    const map = new Map<string, GroupedArticle>();
+
+    filteredSources.forEach((s) => {
+      const key = `${s.sourceUrl || ''}:::${s.sourceTitle || ''}:::${s.modelClass || ''}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          sourceTitle: s.sourceTitle,
+          sourceUrl: s.sourceUrl,
+          organization: s.organization,
+          plantName: s.plantName,
+          diseaseName: s.diseaseName,
+          modelClass: s.modelClass,
+          paragraphs: [],
+          approvedCount: 0,
+          totalCount: 0,
+        });
+      }
+      const group = map.get(key)!;
+      group.paragraphs.push(s);
+      group.totalCount += 1;
+      if (s.isManualApproved) {
+        group.approvedCount += 1;
+      }
+    });
+
+    return Array.from(map.values());
+  }, [filteredSources]);
+
+  const handleToggleApproveArticle = async (article: GroupedArticle) => {
+    const isAllApproved = article.approvedCount === article.totalCount;
+    const targetApproved = !isAllApproved;
+    const targetIds = article.paragraphs.map((p) => p.id);
+
+    try {
+      setBatchActionLoading(true);
+      await apiClient.patch('/knowledge/sources/approve-batch', {
+        source_ids: targetIds,
+        is_approved: targetApproved,
+        reviewer_notes: targetApproved ? 'Duyệt toàn bộ bài báo' : 'Bỏ duyệt toàn bộ bài báo',
+      });
+
+      setSources((prev) =>
+        prev.map((s) => (targetIds.includes(s.id) ? { ...s, isManualApproved: targetApproved } : s))
+      );
+
+      toast.success(
+        targetApproved
+          ? `Đã duyệt toàn bộ ${targetIds.length} đoạn của bài viết "${article.sourceTitle}".`
+          : `Đã bỏ duyệt ${targetIds.length} đoạn của bài viết "${article.sourceTitle}".`
+      );
+    } catch (err: any) {
+      toast.error('Lỗi khi thao tác bài viết: ' + getErrorMessage(err));
+    } finally {
+      setBatchActionLoading(false);
+    }
+  };
+
   // ==================== TAB 3 LOGIC ====================
   const fetchMedicines = async () => {
     try {
@@ -541,21 +663,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
                 <CardContent>
                   <form onSubmit={handleParseArticle} className="space-y-3.5 text-xs">
-                    <div>
-                      <label className="font-semibold text-foreground block mb-1">
-                        1. Lớp bệnh mục tiêu *
+                    {/* Tách thành 2 ô riêng biệt: Cây trồng và Bệnh hại */}
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-foreground block">
+                        1. Đối tượng cây trồng & Bệnh hại mục tiêu *
                       </label>
-                      <select
-                        value={ingestClass}
-                        onChange={(e) => setIngestClass(e.target.value)}
-                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-xs focus:ring-2 focus:ring-ring outline-hidden"
-                      >
-                        {diseases.map((d) => (
-                          <option key={d.classCode} value={d.classCode}>
-                            {d.plantName} — {d.commonNameVi}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {/* Ô 1: Loài cây */}
+                        <div>
+                          <label className="text-[11px] text-muted-foreground block mb-1">
+                            Loài cây trồng:
+                          </label>
+                          <select
+                            value={selectedPlant}
+                            onChange={(e) => handlePlantChange(e.target.value)}
+                            className="w-full px-3 py-2 bg-background border border-border rounded-lg text-xs focus:ring-2 focus:ring-ring outline-hidden"
+                          >
+                            {uniquePlants.map((plant) => (
+                              <option key={plant} value={plant}>
+                                {plant}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Ô 2: Tên bệnh */}
+                        <div>
+                          <label className="text-[11px] text-muted-foreground block mb-1">
+                            Tên bệnh hại:
+                          </label>
+                          <select
+                            value={ingestClass}
+                            onChange={(e) => setIngestClass(e.target.value)}
+                            className="w-full px-3 py-2 bg-background border border-border rounded-lg text-xs focus:ring-2 focus:ring-ring outline-hidden"
+                          >
+                            {filteredDiseasesByPlant.map((d) => (
+                              <option key={d.classCode} value={d.classCode}>
+                                {d.commonNameVi}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
                     </div>
 
                     <div>
@@ -880,6 +1029,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loadingSources ? 'animate-spin' : ''}`} />
                 Làm mới
               </Button>
+
+              {/* Nút chuyển đổi chế độ xem: Gộp theo bài viết hoặc xem từng dòng */}
+              <Button
+                variant={groupByArticle ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setGroupByArticle(!groupByArticle)}
+                className={`h-9 text-xs gap-1.5 ${
+                  groupByArticle
+                    ? 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
+                    : 'bg-card border-border hover:bg-muted text-foreground'
+                }`}
+                title={
+                  groupByArticle
+                    ? 'Đang gộp theo bài viết. Bấm để xem danh sách phẳng từng dòng'
+                    : 'Đang xem từng dòng. Bấm để gộp theo bài viết'
+                }
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>{groupByArticle ? 'Gộp bài viết' : 'Từng dòng'}</span>
+              </Button>
             </div>
           </div>
 
@@ -887,148 +1056,465 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           <Card className="border-border bg-card shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">
-                <thead className="bg-muted/50 border-b border-border text-muted-foreground font-semibold">
-                  <tr>
-                    <th className="p-3 w-8">
-                      <input
-                        type="checkbox"
-                        checked={
-                          filteredSources.length > 0 &&
-                          filteredSources.every((s) => selectedSourceIds.includes(s.id))
-                        }
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedSourceIds(filteredSources.map((s) => s.id));
-                          } else {
-                            setSelectedSourceIds([]);
-                          }
-                        }}
-                        className="rounded"
-                      />
-                    </th>
-                    <th className="p-3">Bài viết &amp; Cơ quan</th>
-                    <th className="p-3">Cây – Bệnh</th>
-                    <th className="p-3">Dạng bài</th>
-                    <th className="p-3">Nội dung trích đoạn</th>
-                    <th className="p-3 text-center">Trạng thái</th>
-                    <th className="p-3 text-right">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {loadingSources ? (
-                    <tr>
-                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                        Đang tải danh sách nguồn tri thức...
-                      </td>
-                    </tr>
-                  ) : filteredSources.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                        Không tìm thấy bài viết nào phù hợp.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredSources.map((s) => {
-                      const isSelected = selectedSourceIds.includes(s.id);
-                      return (
-                        <tr
-                          key={s.id}
-                          className={`hover:bg-muted/30 transition-colors ${
-                            isSelected ? 'bg-emerald-50/40' : ''
-                          }`}
-                        >
-                          <td className="p-3">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedSourceIds((prev) => [...prev, s.id]);
-                                } else {
-                                  setSelectedSourceIds((prev) => prev.filter((id) => id !== s.id));
-                                }
-                              }}
-                              className="rounded"
-                            />
-                          </td>
-                          <td className="p-3 max-w-[220px]">
-                            <div className="font-bold text-foreground line-clamp-1">{s.sourceTitle}</div>
-                            <div className="text-[11px] text-muted-foreground line-clamp-1">{s.organization}</div>
-                            <a
-                              href={s.sourceUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[10px] text-emerald-700 hover:underline inline-flex items-center gap-0.5 mt-0.5"
-                            >
-                              <span>Xem bài gốc</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          </td>
-                          <td className="p-3 whitespace-nowrap">
-                            <span className="font-semibold text-foreground block">{s.plantName}</span>
-                            <span className="text-[11px] text-muted-foreground">{s.diseaseName}</span>
-                          </td>
-                          <td className="p-3 whitespace-nowrap">
-                            {s.isVerbatim ? (
-                              <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
-                                Nguyên văn
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-muted-foreground text-[10px]">
-                                Tóm tắt
-                              </Badge>
-                            )}
-                            <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
-                              {s.unitType || 'SUMMARY'}
-                            </div>
-                          </td>
-                          <td className="p-3 max-w-[280px]">
-                            <p className="line-clamp-2 italic text-muted-foreground font-serif">
-                              "{s.evidenceText}"
-                            </p>
-                          </td>
-                          <td className="p-3 text-center whitespace-nowrap">
-                            {s.isManualApproved ? (
-                              <Badge className="bg-emerald-700 text-white text-[10px]">
-                                <Check className="w-3 h-3 mr-1" />
-                                Đã duyệt
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]">
-                                <Clock className="w-3 h-3 mr-1" />
-                                Chưa duyệt
-                              </Badge>
-                            )}
-                          </td>
-                          <td className="p-3 text-right whitespace-nowrap">
-                            <Button
-                              size="sm"
-                              variant={s.isManualApproved ? 'outline' : 'default'}
-                              onClick={() => handleToggleApprove(s.id, s.isManualApproved)}
-                              className={`h-7 px-2.5 text-xs ${
-                                s.isManualApproved
-                                  ? 'text-muted-foreground hover:text-destructive'
-                                  : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
-                              }`}
-                            >
-                              {s.isManualApproved ? 'Bỏ duyệt' : 'Duyệt bài'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setDeleteTarget(s)}
-                              className="ml-1 h-7 w-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                              aria-label="Xóa đoạn tri thức"
-                              title="Xóa đoạn tri thức"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                {groupByArticle ? (
+                  // ==================== BẢNG CHẾ ĐỘ GỘP THEO BÀI VIẾT ====================
+                  <>
+                    <thead className="bg-muted/50 border-b border-border text-muted-foreground font-semibold">
+                      <tr>
+                        <th className="p-3 w-8">
+                          <input
+                            type="checkbox"
+                            checked={
+                              filteredSources.length > 0 &&
+                              filteredSources.every((s) => selectedSourceIds.includes(s.id))
+                            }
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedSourceIds(filteredSources.map((s) => s.id));
+                              } else {
+                                setSelectedSourceIds([]);
+                              }
+                            }}
+                            className="rounded"
+                          />
+                        </th>
+                        <th className="p-3">Bài viết &amp; Cơ quan</th>
+                        <th className="p-3">Cây – Bệnh</th>
+                        <th className="p-3 text-center">Các đoạn trích</th>
+                        <th className="p-3 text-center">Trạng thái duyệt</th>
+                        <th className="p-3 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {loadingSources ? (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                            Đang tải danh sách nguồn tri thức...
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
+                      ) : groupedArticles.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                            Không tìm thấy bài viết nào phù hợp.
+                          </td>
+                        </tr>
+                      ) : (
+                        groupedArticles.map((group) => {
+                          const isExpanded = expandedArticleKeys.has(group.key);
+                          const isGroupAllSelected = group.paragraphs.every((p) =>
+                            selectedSourceIds.includes(p.id)
+                          );
+                          const isGroupSomeSelected =
+                            !isGroupAllSelected &&
+                            group.paragraphs.some((p) => selectedSourceIds.includes(p.id));
+                          const isAllApproved = group.approvedCount === group.totalCount;
+
+                          return (
+                            <React.Fragment key={group.key}>
+                              {/* Dòng bài viết tổng hợp */}
+                              <tr
+                                className={`hover:bg-muted/30 transition-colors ${
+                                  isExpanded ? 'bg-muted/20 font-medium' : ''
+                                }`}
+                              >
+                                <td className="p-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isGroupAllSelected}
+                                    ref={(el) => {
+                                      if (el) el.indeterminate = isGroupSomeSelected;
+                                    }}
+                                    onChange={(e) => {
+                                      const groupIds = group.paragraphs.map((p) => p.id);
+                                      if (e.target.checked) {
+                                        setSelectedSourceIds((prev) => [
+                                          ...prev,
+                                          ...groupIds.filter((id) => !prev.includes(id)),
+                                        ]);
+                                      } else {
+                                        setSelectedSourceIds((prev) =>
+                                          prev.filter((id) => !groupIds.includes(id))
+                                        );
+                                      }
+                                    }}
+                                    className="rounded"
+                                  />
+                                </td>
+                                <td className="p-3 max-w-[280px]">
+                                  <div className="flex items-start gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleExpandArticle(group.key)}
+                                      className="text-muted-foreground hover:text-emerald-700 mt-0.5 p-0.5 rounded hover:bg-muted transition-colors shrink-0 cursor-pointer"
+                                      title={isExpanded ? 'Thu gọn' : 'Bấm xem chi tiết các đoạn'}
+                                    >
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-4 h-4 text-emerald-700" />
+                                      ) : (
+                                        <ChevronRight className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                    <div className="min-w-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleExpandArticle(group.key)}
+                                        className="font-bold text-foreground text-left line-clamp-1 hover:text-emerald-700 hover:underline block cursor-pointer"
+                                      >
+                                        {group.sourceTitle}
+                                      </button>
+                                      <div className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
+                                        {group.organization}
+                                      </div>
+                                      <a
+                                        href={group.sourceUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[10px] text-emerald-700 hover:underline inline-flex items-center gap-0.5 mt-0.5"
+                                      >
+                                        <span>Xem bài gốc</span>
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="p-3 whitespace-nowrap">
+                                  <span className="font-semibold text-foreground block">{group.plantName}</span>
+                                  <span className="text-[11px] text-muted-foreground">{group.diseaseName}</span>
+                                </td>
+                                <td className="p-3 text-center whitespace-nowrap">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => toggleExpandArticle(group.key)}
+                                    className="h-7 px-2.5 text-xs gap-1.5 border-border bg-card hover:bg-muted text-foreground"
+                                  >
+                                    <Layers className="w-3.5 h-3.5 text-emerald-700" />
+                                    <span>{group.totalCount} đoạn trích</span>
+                                    {isExpanded ? (
+                                      <ChevronUp className="w-3 h-3 text-muted-foreground" />
+                                    ) : (
+                                      <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                                    )}
+                                  </Button>
+                                </td>
+                                <td className="p-3 text-center whitespace-nowrap">
+                                  {isAllApproved ? (
+                                    <Badge className="bg-emerald-700 text-white text-[10px] gap-1">
+                                      <Check className="w-3 h-3" />
+                                      Đã duyệt ({group.approvedCount}/{group.totalCount})
+                                    </Badge>
+                                  ) : group.approvedCount === 0 ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] gap-1"
+                                    >
+                                      <Clock className="w-3 h-3" />
+                                      Chưa duyệt (0/{group.totalCount})
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-blue-50 text-blue-800 border-blue-300 text-[10px] gap-1"
+                                    >
+                                      Duyệt một phần ({group.approvedCount}/{group.totalCount})
+                                    </Badge>
+                                  )}
+                                </td>
+                                <td className="p-3 text-right whitespace-nowrap">
+                                  <Button
+                                    size="sm"
+                                    variant={isAllApproved ? 'outline' : 'default'}
+                                    disabled={batchActionLoading}
+                                    onClick={() => handleToggleApproveArticle(group)}
+                                    className={`h-7 px-2.5 text-xs ${
+                                      isAllApproved
+                                        ? 'text-muted-foreground hover:text-destructive'
+                                        : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
+                                    }`}
+                                  >
+                                    {isAllApproved ? 'Bỏ duyệt cả bài' : 'Duyệt cả bài'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => toggleExpandArticle(group.key)}
+                                    className="ml-1 h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                  >
+                                    {isExpanded ? 'Thu gọn' : 'Xem chi tiết'}
+                                  </Button>
+                                </td>
+                              </tr>
+
+                              {/* Dòng mở rộng chi tiết các đoạn */}
+                              {isExpanded && (
+                                <tr className="bg-muted/20 border-b border-border/80">
+                                  <td colSpan={6} className="p-3 sm:p-4 pl-6 sm:pl-12">
+                                    <div className="space-y-2.5 rounded-xl border border-border/70 bg-card p-3 sm:p-3.5 shadow-2xs">
+                                      <div className="text-xs font-semibold text-foreground flex items-center justify-between border-b border-border/60 pb-2">
+                                        <span className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
+                                          <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                                          Chi tiết {group.paragraphs.length} đoạn trích của bài báo:
+                                        </span>
+                                        <span className="text-[11px] text-muted-foreground font-normal">
+                                          Đã duyệt {group.approvedCount}/{group.totalCount} đoạn
+                                        </span>
+                                      </div>
+
+                                      <div className="space-y-2">
+                                        {group.paragraphs.map((p, pIdx) => {
+                                          const isParagraphSelected = selectedSourceIds.includes(p.id);
+                                          return (
+                                            <div
+                                              key={p.id}
+                                              className={`p-2.5 sm:p-3 rounded-lg border text-xs transition-colors ${
+                                                isParagraphSelected
+                                                  ? 'border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20'
+                                                  : 'border-border/70 bg-background hover:border-border'
+                                              }`}
+                                            >
+                                              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                                                <div className="flex items-center gap-2">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={isParagraphSelected}
+                                                    onChange={(e) => {
+                                                      if (e.target.checked) {
+                                                        setSelectedSourceIds((prev) => [...prev, p.id]);
+                                                      } else {
+                                                        setSelectedSourceIds((prev) =>
+                                                          prev.filter((id) => id !== p.id)
+                                                        );
+                                                      }
+                                                    }}
+                                                    className="rounded"
+                                                  />
+                                                  <span className="font-semibold text-foreground text-xs">
+                                                    Đoạn #{pIdx + 1}
+                                                  </span>
+                                                  {p.isVerbatim ? (
+                                                    <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                                                      Nguyên văn
+                                                    </Badge>
+                                                  ) : (
+                                                    <Badge
+                                                      variant="outline"
+                                                      className="text-muted-foreground text-[10px]"
+                                                    >
+                                                      Tóm tắt
+                                                    </Badge>
+                                                  )}
+                                                  <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border border-border">
+                                                    {p.unitType || 'SUMMARY'}
+                                                  </span>
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                  {p.isManualApproved ? (
+                                                    <Badge className="bg-emerald-700 text-white text-[10px] gap-1">
+                                                      <Check className="w-2.5 h-2.5" />
+                                                      Đã duyệt
+                                                    </Badge>
+                                                  ) : (
+                                                    <Badge
+                                                      variant="outline"
+                                                      className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] gap-1"
+                                                    >
+                                                      <Clock className="w-2.5 h-2.5" />
+                                                      Chưa duyệt
+                                                    </Badge>
+                                                  )}
+
+                                                  <Button
+                                                    size="sm"
+                                                    variant={p.isManualApproved ? 'outline' : 'default'}
+                                                    onClick={() =>
+                                                      handleToggleApprove(p.id, p.isManualApproved)
+                                                    }
+                                                    className={`h-6 px-2 text-[11px] ${
+                                                      p.isManualApproved
+                                                        ? 'text-muted-foreground hover:text-destructive'
+                                                        : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
+                                                    }`}
+                                                  >
+                                                    {p.isManualApproved ? 'Bỏ duyệt' : 'Duyệt'}
+                                                  </Button>
+
+                                                  <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => setDeleteTarget(p)}
+                                                    className="h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                    title="Xóa đoạn này"
+                                                  >
+                                                    <Trash2 className="h-3 w-3" />
+                                                  </Button>
+                                                </div>
+                                              </div>
+
+                                              <p className="text-muted-foreground italic font-serif leading-relaxed text-xs pl-6">
+                                                "{p.evidenceText}"
+                                              </p>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </>
+                ) : (
+                  // ==================== BẢNG CHẾ ĐỘ DANH SÁCH TỪNG DÒNG (FLAT LIST) ====================
+                  <>
+                    <thead className="bg-muted/50 border-b border-border text-muted-foreground font-semibold">
+                      <tr>
+                        <th className="p-3 w-8">
+                          <input
+                            type="checkbox"
+                            checked={
+                              filteredSources.length > 0 &&
+                              filteredSources.every((s) => selectedSourceIds.includes(s.id))
+                            }
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedSourceIds(filteredSources.map((s) => s.id));
+                              } else {
+                                setSelectedSourceIds([]);
+                              }
+                            }}
+                            className="rounded"
+                          />
+                        </th>
+                        <th className="p-3">Bài viết &amp; Cơ quan</th>
+                        <th className="p-3">Cây – Bệnh</th>
+                        <th className="p-3">Dạng bài</th>
+                        <th className="p-3">Nội dung trích đoạn</th>
+                        <th className="p-3 text-center">Trạng thái</th>
+                        <th className="p-3 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {loadingSources ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                            Đang tải danh sách nguồn tri thức...
+                          </td>
+                        </tr>
+                      ) : filteredSources.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                            Không tìm thấy bài viết nào phù hợp.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredSources.map((s) => {
+                          const isSelected = selectedSourceIds.includes(s.id);
+                          return (
+                            <tr
+                              key={s.id}
+                              className={`hover:bg-muted/30 transition-colors ${
+                                isSelected ? 'bg-emerald-50/40' : ''
+                              }`}
+                            >
+                              <td className="p-3">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedSourceIds((prev) => [...prev, s.id]);
+                                    } else {
+                                      setSelectedSourceIds((prev) => prev.filter((id) => id !== s.id));
+                                    }
+                                  }}
+                                  className="rounded"
+                                />
+                              </td>
+                              <td className="p-3 max-w-[220px]">
+                                <div className="font-bold text-foreground line-clamp-1">{s.sourceTitle}</div>
+                                <div className="text-[11px] text-muted-foreground line-clamp-1">{s.organization}</div>
+                                <a
+                                  href={s.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] text-emerald-700 hover:underline inline-flex items-center gap-0.5 mt-0.5"
+                                >
+                                  <span>Xem bài gốc</span>
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                <span className="font-semibold text-foreground block">{s.plantName}</span>
+                                <span className="text-[11px] text-muted-foreground">{s.diseaseName}</span>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                {s.isVerbatim ? (
+                                  <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                                    Nguyên văn
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-muted-foreground text-[10px]">
+                                    Tóm tắt
+                                  </Badge>
+                                )}
+                                <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
+                                  {s.unitType || 'SUMMARY'}
+                                </div>
+                              </td>
+                              <td className="p-3 max-w-[280px]">
+                                <p className="line-clamp-2 italic text-muted-foreground font-serif">
+                                  "{s.evidenceText}"
+                                </p>
+                              </td>
+                              <td className="p-3 text-center whitespace-nowrap">
+                                {s.isManualApproved ? (
+                                  <Badge className="bg-emerald-700 text-white text-[10px]">
+                                    <Check className="w-3 h-3 mr-1" />
+                                    Đã duyệt
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]">
+                                    <Clock className="w-3 h-3 mr-1" />
+                                    Chưa duyệt
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="p-3 text-right whitespace-nowrap">
+                                <Button
+                                  size="sm"
+                                  variant={s.isManualApproved ? 'outline' : 'default'}
+                                  onClick={() => handleToggleApprove(s.id, s.isManualApproved)}
+                                  className={`h-7 px-2.5 text-xs ${
+                                    s.isManualApproved
+                                      ? 'text-muted-foreground hover:text-destructive'
+                                      : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
+                                  }`}
+                                >
+                                  {s.isManualApproved ? 'Bỏ duyệt' : 'Duyệt bài'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setDeleteTarget(s)}
+                                  className="ml-1 h-7 w-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label="Xóa đoạn tri thức"
+                                  title="Xóa đoạn tri thức"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </>
+                )}
               </table>
             </div>
           </Card>
