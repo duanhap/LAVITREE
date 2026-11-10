@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Scan,
   BookOpen,
@@ -44,6 +44,7 @@ import { useAuth } from '@/context/AuthContext';
 export const AppShell: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = () => {
     logout();
@@ -129,6 +130,10 @@ export const AppShell: React.FC = () => {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigate('/account')}>
+                    <UserIcon className="mr-2 h-4 w-4" />
+                    <span>Tài khoản của tôi</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/history')}>
                     <History className="mr-2 h-4 w-4" />
                     <span>Lịch sử khám</span>
@@ -206,13 +211,10 @@ export const AppShell: React.FC = () => {
       >
         {navItems.map((item) => {
           const Icon = item.icon;
-          // Với mục Tài khoản, nếu chưa đăng nhập điều hướng đến /login
-          const targetUrl = item.to === '/account' && !isAuthenticated ? '/login' : item.to;
-
           return (
             <NavLink
               key={item.to}
-              to={targetUrl}
+              to={item.to}
               className={({ isActive }) =>
                 cn(
                   'flex flex-col items-center justify-center w-full h-full py-1 text-[11px] font-medium transition-colors select-none focus-visible:outline-none',

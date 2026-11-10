@@ -12,6 +12,7 @@ import TreatmentSteps from '@/features/diagnose/components/TreatmentSteps';
 import RecommendedProducts from '@/features/diagnose/components/RecommendedProducts';
 import VerifiedSourcesList from '@/features/diagnose/components/VerifiedSourcesList';
 import Top3List from '@/features/diagnose/components/Top3List';
+import LeafCropper from '@/features/diagnose/components/LeafCropper';
 import { formatPercent } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -28,6 +29,7 @@ import {
   Info,
   HelpCircle,
   UserCheck,
+  Crop,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HeroVideoBackground } from '@/components/brand/HeroVideoBackground';
@@ -41,6 +43,9 @@ export const DiagnosePage: React.FC = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
 
+  // Ảnh gốc người dùng chọn (giữ lại để cắt lại) và ảnh đã cắt sẽ gửi đi khám
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
+  const [isCropping, setIsCropping] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState<string>('');
@@ -59,10 +64,19 @@ export const DiagnosePage: React.FC = () => {
       toast.error('Kích thước tệp vượt quá 10MB. Vui lòng chọn ảnh nhẹ hơn.');
       return;
     }
-    setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    // Bắt buộc qua bước cắt: nền ảnh làm mô hình nhận diện sai
+    setOriginalFile(file);
+    setIsCropping(true);
+    setSelectedFile(null);
+    setPreviewUrl(null);
     setDiagnoseData(null);
     setErrorMessage(null);
+  };
+
+  const handleCropConfirm = (cropped: File) => {
+    setSelectedFile(cropped);
+    setPreviewUrl(URL.createObjectURL(cropped));
+    setIsCropping(false);
   };
 
   // Thu hồi object URL cũ khi đổi ảnh hoặc rời trang để không giữ ảnh trong bộ nhớ
@@ -74,6 +88,8 @@ export const DiagnosePage: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) selectFile(file);
+    // Cho phép chọn lại đúng tệp vừa chọn
+    e.target.value = '';
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -123,6 +139,8 @@ export const DiagnosePage: React.FC = () => {
   };
 
   const handleReset = () => {
+    setOriginalFile(null);
+    setIsCropping(false);
     setSelectedFile(null);
     setPreviewUrl(null);
     setNotes('');
@@ -239,7 +257,13 @@ export const DiagnosePage: React.FC = () => {
               id="leaf-upload-input"
             />
 
-            {!previewUrl ? (
+            {isCropping && originalFile ? (
+              <LeafCropper
+                file={originalFile}
+                onConfirm={handleCropConfirm}
+                onChooseAnother={() => fileInputRef.current?.click()}
+              />
+            ) : !previewUrl ? (
               <div
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleDrop}
@@ -258,18 +282,31 @@ export const DiagnosePage: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl border border-border bg-muted">
+                <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-xl border border-border bg-muted">
                   <img
                     src={previewUrl}
-                    alt="Xem trước ảnh lá"
-                    className="h-full w-full object-cover"
+                    alt="Ảnh lá đã cắt, sẽ gửi đi khám"
+                    className="h-full w-full object-contain"
                   />
+                </div>
+                <div className="flex flex-wrap justify-center gap-2">
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsCropping(true)}
+                    disabled={isLoading}
+                    className="h-10 text-xs"
+                  >
+                    <Crop className="h-3.5 w-3.5 mr-1" /> Cắt lại
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
                     size="sm"
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute bottom-3 right-3 bg-card/90 backdrop-blur-sm text-xs shadow-md border border-border"
+                    disabled={isLoading}
+                    className="h-10 text-xs"
                   >
                     <Camera className="h-3.5 w-3.5 mr-1" /> Đổi ảnh khác
                   </Button>

@@ -538,7 +538,7 @@ export const StorePage: React.FC = () => {
       {/* Cart Drawer (Sheet) */}
       <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
-          <SheetHeader className="p-5 border-b border-border">
+          <SheetHeader className="p-5 pr-16 border-b border-border">
             <SheetTitle className="text-lg font-bold flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-emerald-700" />
               <span>Giỏ hàng Vật tư</span>
@@ -578,25 +578,28 @@ export const StorePage: React.FC = () => {
                   <div className="flex items-center gap-1.5 shrink-0 bg-muted/60 p-1 rounded-md border border-border">
                     <button
                       onClick={() => updateQuantity(item.product.id, -1)}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-card text-foreground"
+                      aria-label="Giảm số lượng"
+                      className="w-9 h-9 flex items-center justify-center rounded hover:bg-card text-foreground"
                     >
-                      <Minus className="w-3 h-3" />
+                      <Minus className="w-4 h-4" />
                     </button>
-                    <span className="w-6 text-center text-xs font-bold">{item.quantity}</span>
+                    <span className="w-7 text-center text-sm font-bold tabular-nums">{item.quantity}</span>
                     <button
                       onClick={() => updateQuantity(item.product.id, 1)}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-card text-foreground"
+                      aria-label="Tăng số lượng"
+                      className="w-9 h-9 flex items-center justify-center rounded hover:bg-card text-foreground"
                     >
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-4 h-4" />
                     </button>
                   </div>
 
                   <button
                     onClick={() => removeFromCart(item.product.id)}
-                    className="text-muted-foreground hover:text-destructive p-1 rounded"
+                    className="w-10 h-10 flex items-center justify-center shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
                     title="Xóa khỏi giỏ"
+                    aria-label={`Xóa ${item.product.name} khỏi giỏ`}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
               ))
