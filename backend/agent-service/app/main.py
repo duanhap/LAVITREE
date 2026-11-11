@@ -132,7 +132,15 @@ def label_paragraphs(payload: LabelParagraphsRequest):
             detail="AI suggestion is unavailable"
         )
     return {
-        "labels": [{"id": s.id, "unit_type": s.unit_type} for s in res.suggestions]
+        "labels": [
+            {
+                "id": s.id,
+                "unit_type": s.unit_type,
+                "mentions": [m.model_dump() for m in s.mentions],
+            }
+            for s in res.suggestions
+        ],
+        "metadata": res.metadata.model_dump() if res.metadata else None
     }
 
 async def stream_react_chat(

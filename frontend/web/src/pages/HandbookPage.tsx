@@ -21,8 +21,33 @@ import {
   Package,
   Clock,
   MessageSquare,
+  Image as ImageIcon,
+  ZoomIn,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+export interface KnowledgeImageItem {
+  id: number;
+  model_class: string;
+  plant_name: string;
+  disease_name: string;
+  source_url: string;
+  image_url: string;
+  storage_key?: string | null;
+  caption: string;
+  plant_part: 'LEAF' | 'FRUIT' | 'STEM' | 'WHOLE_PLANT' | string;
+  credit: string;
+  license_note?: string;
+  is_manual_approved: boolean;
+  created_at: string;
+}
+
+const PLANT_PART_LABELS: Record<string, { label: string; badgeColor: string }> = {
+  LEAF: { label: 'Lá cây', badgeColor: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' },
+  FRUIT: { label: 'Hoa / Quả', badgeColor: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20' },
+  STEM: { label: 'Thân / Cành', badgeColor: 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20' },
+  WHOLE_PLANT: { label: 'Toàn cây', badgeColor: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20' },
+};
 
 export interface DiseaseListItem {
   id: number;
@@ -76,6 +101,12 @@ export const HandbookPage: React.FC = () => {
   const [isDetailLoading, setIsDetailLoading] = useState<boolean>(false);
   const [isDetailOpen, setIsDetailOpen] = useState<boolean>(false);
 
+  // Ảnh triệu chứng thực tế (Task-15 Phase 2)
+  const [symptomImages, setSymptomImages] = useState<KnowledgeImageItem[]>([]);
+  const [loadingImages, setLoadingImages] = useState<boolean>(false);
+  const [selectedImagePart, setSelectedImagePart] = useState<string>('ALL');
+  const [zoomedImage, setZoomedImage] = useState<KnowledgeImageItem | null>(null);
+
   // Tải danh sách bệnh từ API
   const fetchDiseases = async () => {
     setIsLoading(true);
@@ -103,12 +134,30 @@ export const HandbookPage: React.FC = () => {
     }
   }, [classCode]);
 
+  const fetchSymptomImages = async (code: string) => {
+    setLoadingImages(true);
+    try {
+      const res = await apiClient.get<KnowledgeImageItem[]>('/knowledge/images', {
+        params: { model_class: code, is_approved: true }
+      });
+      setSymptomImages(res.data || []);
+    } catch {
+      setSymptomImages([]);
+    } finally {
+      setLoadingImages(false);
+    }
+  };
+
   const openDetailByCode = async (code: string) => {
     setIsDetailLoading(true);
     setIsDetailOpen(true);
+    setSymptomImages([]);
+    setSelectedImagePart('ALL');
     try {
       const res = await apiClient.get<DiseaseDetailData>(`/diseases/by-class/${encodeURIComponent(code)}`);
       setDetailData(res.data);
+      // Tải hình ảnh triệu chứng thực tế tương ứng với mã bệnh
+      fetchSymptomImages(code);
     } catch (err: unknown) {
       toast.error('Không tìm thấy chi tiết bệnh hại yêu cầu.');
       setIsDetailOpen(false);
@@ -121,6 +170,8 @@ export const HandbookPage: React.FC = () => {
   const handleCloseDetail = () => {
     setIsDetailOpen(false);
     setDetailData(null);
+    setSymptomImages([]);
+    setZoomedImage(null);
     if (classCode) {
       navigate('/handbook');
     }
@@ -385,6 +436,134 @@ export const HandbookPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* HÌNH ẢNH TRIỆU CHỨNG THỰC TẾ (TASK-15 PHASE 2) */}
+              <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/50 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="h-4 w-4 text-primary" />
+                    <h4 className="text-sm font-bold text-foreground">
+                      Hình ảnh triệu chứng thực địa
+                    </h4>
+                    {symptomImages.length > 0 && (
+                      <Badge variant="secondary" className="text-[11px] font-semibold">
+                        {symptomImages.length} ảnh
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Bộ lọc theo bộ phận cây nếu có nhiều ảnh */}
+                  {symptomImages.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedImagePart('ALL')}
+                        className={`rounded-full px-2.5 py-0.5 font-medium transition-colors ${
+                          selectedImagePart === 'ALL'
+                            ? 'bg-primary text-white shadow-2xs'
+                            : 'bg-secondary text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Tất cả ({symptomImages.length})
+                      </button>
+                      {(['LEAF', 'FRUIT', 'STEM', 'WHOLE_PLANT'] as const).map((part) => {
+                        const count = symptomImages.filter((img) => img.plant_part === part).length;
+                        if (count === 0) return null;
+                        return (
+                          <button
+                            key={part}
+                            type="button"
+                            onClick={() => setSelectedImagePart(part)}
+                            className={`rounded-full px-2.5 py-0.5 font-medium transition-colors ${
+                              selectedImagePart === part
+                                ? 'bg-primary text-white shadow-2xs'
+                                : 'bg-secondary text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            {PLANT_PART_LABELS[part]?.label || part} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {loadingImages ? (
+                  <div className="flex items-center justify-center py-6">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  </div>
+                ) : symptomImages.length === 0 ? (
+                  <div className="py-4 text-center text-xs text-muted-foreground">
+                    Chưa có hình ảnh triệu chứng thực địa nào được phê duyệt cho bệnh này.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {symptomImages
+                      .filter((img) => selectedImagePart === 'ALL' || img.plant_part === selectedImagePart)
+                      .map((img) => {
+                        const partMeta = PLANT_PART_LABELS[img.plant_part] || {
+                          label: img.plant_part,
+                          badgeColor: 'bg-secondary text-foreground border-border',
+                        };
+                        return (
+                          <div
+                            key={img.id}
+                            className="group relative overflow-hidden rounded-xl border border-border bg-secondary/20 transition-all hover:border-primary/50 flex flex-col justify-between"
+                          >
+                            <div
+                              className="relative aspect-4/3 w-full bg-muted overflow-hidden cursor-pointer"
+                              onClick={() => setZoomedImage(img)}
+                            >
+                              <img
+                                src={img.image_url}
+                                alt={img.caption || detailData.commonNameVi}
+                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                              <div className="absolute top-2 left-2">
+                                <span
+                                  className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-semibold border backdrop-blur-xs ${partMeta.badgeColor}`}
+                                >
+                                  {partMeta.label}
+                                </span>
+                              </div>
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <span className="rounded-full bg-black/60 p-1.5 text-white shadow-md">
+                                  <ZoomIn className="h-4 w-4" />
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="p-2.5 text-xs space-y-1.5">
+                              <p className="text-foreground font-medium line-clamp-2 leading-relaxed">
+                                {img.caption}
+                              </p>
+                              <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/40">
+                                <span className="truncate max-w-[170px]" title={img.credit}>
+                                  Ảnh: <strong>{img.credit}</strong>
+                                </span>
+                                {img.source_url && (
+                                  <a
+                                    href={img.source_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-0.5 text-primary hover:underline font-medium shrink-0"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <span>Nguồn</span>
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+
               {/* Phác đồ xử lý IPM */}
               {detailData.treatmentPlans && detailData.treatmentPlans.length > 0 && (
                 <div className="space-y-3">
@@ -477,6 +656,60 @@ export const HandbookPage: React.FC = () => {
                     <Sparkles className="h-3.5 w-3.5 mr-1" /> Khám bệnh ngay
                   </Button>
                 </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      {/* DIALOG PHÓNG TO ẢNH TRIỆU CHỨNG */}
+      <Dialog open={zoomedImage !== null} onOpenChange={(open) => !open && setZoomedImage(null)}>
+        <DialogContent className="max-w-3xl p-4 sm:p-6 rounded-2xl">
+          {zoomedImage && (
+            <div className="space-y-4">
+              <DialogHeader className="space-y-1 text-left">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs font-semibold">
+                    {PLANT_PART_LABELS[zoomedImage.plant_part]?.label || zoomedImage.plant_part}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">•</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {zoomedImage.plant_name} — {zoomedImage.disease_name}
+                  </span>
+                </div>
+                <DialogTitle className="text-base font-bold text-foreground">
+                  {zoomedImage.caption}
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                  Chi tiết ảnh triệu chứng {zoomedImage.caption}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl bg-black/5 border border-border">
+                <img
+                  src={zoomedImage.image_url}
+                  alt={zoomedImage.caption}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-2 border-t border-border">
+                <div>
+                  Nguồn/Bản quyền: <strong className="text-foreground">{zoomedImage.credit}</strong>
+                  {zoomedImage.license_note && (
+                    <span className="italic block text-[11px] mt-0.5">{zoomedImage.license_note}</span>
+                  )}
+                </div>
+                {zoomedImage.source_url && (
+                  <a
+                    href={zoomedImage.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline font-semibold"
+                  >
+                    <span>Xem bài báo nguồn</span>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
               </div>
             </div>
           )}

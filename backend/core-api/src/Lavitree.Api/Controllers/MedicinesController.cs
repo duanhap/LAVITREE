@@ -111,6 +111,8 @@ public class MedicinesController : ControllerBase
                     IsAllowed = p.IsAllowed,
                     RainResistant = p.RainResistant,
                     StockQuantity = p.StockQuantity,
+                    Availability = p.Availability ?? "IN_STOCK",
+                    InfoSourceUrl = p.InfoSourceUrl,
                     ImageUrl = FormatImageUrl(p.ImageUrl ?? ""),
                     TargetDiseases = p.DiseaseProducts
                         .Where(dp => dp.Disease != null)
@@ -274,6 +276,39 @@ public class MedicinesController : ControllerBase
         };
     }
 
+    // Danh sách hoạt chất cấm theo TT 75/2025/TT-BNNMT & QĐ 278/QĐ-BNN-BVTV (đồng bộ guardrails.py)
+    public static readonly HashSet<string> BannedIngredients = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "paraquat",
+        "pa-ra-quat",
+        "para-quat",
+        "gramoxone",
+        "2,4-d",
+        "2.4-d",
+        "2,4d",
+        "2.4d",
+        "chlorpyrifos",
+        "carbofuran",
+        "glyphosate",
+        "monocrotophos",
+        "methamidophos",
+        "endosulfan"
+    };
+
+    public const string FarmingSupplyType = "Vật tư canh tác";
+    private static readonly HashSet<string> ValidMedicineTypes = new(StringComparer.Ordinal) { "Hóa học", "Sinh học", FarmingSupplyType };
+    private static readonly HashSet<string> ValidAvailabilities = new(StringComparer.Ordinal) { "IN_STOCK", "OUT_OF_STOCK", "NOT_SOLD" };
+
+    private static bool IsHttpUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
+
+    public static bool IsBannedIngredient(string? ingredient)
+    {
+        if (string.IsNullOrWhiteSpace(ingredient)) return false;
+        var lower = ingredient.ToLowerInvariant();
+        return BannedIngredients.Any(banned => lower.Contains(banned));
+    }
+
     public class MedicineItemDto
     {
         [JsonPropertyName("id")]
@@ -283,7 +318,7 @@ public class MedicinesController : ControllerBase
         public string Name { get; set; } = string.Empty;
 
         [JsonPropertyName("active_ingredient")]
-        public string ActiveIngredient { get; set; } = string.Empty;
+        public string? ActiveIngredient { get; set; }
 
         [JsonPropertyName("medicine_type")]
         public string MedicineType { get; set; } = "Hóa học";
@@ -295,7 +330,7 @@ public class MedicinesController : ControllerBase
         public string DosageInstruction { get; set; } = string.Empty;
 
         [JsonPropertyName("phi_days")]
-        public int PhiDays { get; set; } = 7;
+        public int? PhiDays { get; set; }
 
         [JsonPropertyName("is_allowed")]
         public bool IsAllowed { get; set; } = true;
@@ -305,6 +340,12 @@ public class MedicinesController : ControllerBase
 
         [JsonPropertyName("stock_quantity")]
         public int StockQuantity { get; set; } = 100;
+
+        [JsonPropertyName("availability")]
+        public string Availability { get; set; } = "IN_STOCK";
+
+        [JsonPropertyName("info_source_url")]
+        public string? InfoSourceUrl { get; set; }
 
         [JsonPropertyName("image_url")]
         public string ImageUrl { get; set; } = string.Empty;
@@ -326,6 +367,135 @@ public class MedicinesController : ControllerBase
 
         [JsonPropertyName("stock_quantity")]
         public int? StockQuantity { get; set; }
+
+        [JsonPropertyName("availability")]
+        public string? Availability { get; set; }
+
+        [JsonPropertyName("info_source_url")]
+        public string? InfoSourceUrl { get; set; }
+
+        [JsonPropertyName("medicine_type")]
+        public string? MedicineType { get; set; }
+    }
+
+    /// <summary>
+    /// POST /api/v1/medicines
+    /// Thêm thuốc/vật tư mới vào kho (Admin) (TASK-15 Pha 3)
+    /// </summary>
+    [HttpPost]
+    public async Task<IActionResult> CreateMedicine([FromBody] Lavitree.Application.DTOs.CreateProductRequestDto dto)
+    {
+        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
+        if (!isAdmin)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên để thêm sản phẩm vào kho." });
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var medicineType = dto.MedicineType?.Trim() ?? string.Empty;
+        if (!ValidMedicineTypes.Contains(medicineType))
+        {
+            return BadRequest(new { detail = "Loại sản phẩm phải là 'Hóa học', 'Sinh học' hoặc 'Vật tư canh tác'." });
+        }
+        var availability = string.IsNullOrWhiteSpace(dto.Availability) ? "IN_STOCK" : dto.Availability.Trim().ToUpperInvariant();
+        if (!ValidAvailabilities.Contains(availability))
+        {
+            return BadRequest(new { detail = "Tình trạng bán phải là IN_STOCK, OUT_OF_STOCK hoặc NOT_SOLD." });
+        }
+        var isFarmingSupply = medicineType == FarmingSupplyType;
+
+        // Link nguồn: chỉ http/https (chặn javascript: khi hiển thị ở trang Admin); thuốc bắt buộc có
+        var infoSourceUrl = string.IsNullOrWhiteSpace(dto.InfoSourceUrl) ? null : dto.InfoSourceUrl.Trim();
+        if (infoSourceUrl != null && !IsHttpUrl(infoSourceUrl))
+        {
+            return BadRequest(new { detail = "Link nguồn phải là địa chỉ http(s) hợp lệ." });
+        }
+        if (!isFarmingSupply && infoSourceUrl == null)
+        {
+            return BadRequest(new { detail = "Thuốc hóa học/sinh học bắt buộc có link nguồn nơi tra PHI và liều (nhãn, trang nhà sản xuất)." });
+        }
+
+        // Chốt chặn thuốc cấm: quét cả tên với mọi loại (tránh khai "vật tư" để lách)
+        if (IsBannedIngredient(dto.ActiveIngredient) || IsBannedIngredient(dto.Name))
+        {
+            return BadRequest(new { detail = $"Hoạt chất hoặc tên sản phẩm '{dto.ActiveIngredient ?? dto.Name}' nằm trong Danh mục thuốc BVTV cấm sử dụng tại Việt Nam theo Thông tư 75/2025. Tuyệt đối không được phép đưa vào lưu hành." });
+        }
+
+        // Với thuốc hóa học & sinh học: bắt buộc nhập PHI >= 0
+        if (!isFarmingSupply)
+        {
+            if (!dto.PhiDays.HasValue || dto.PhiDays.Value < 0 || dto.PhiDays.Value > 365)
+            {
+                return BadRequest(new { detail = "Thuốc BVTV hóa học/sinh học bắt buộc phải nhập thời gian cách ly (PHI) từ 0 đến 365 ngày." });
+            }
+        }
+
+        var product = new Lavitree.Domain.Entities.Product
+        {
+            Name = dto.Name.Trim(),
+            ActiveIngredient = isFarmingSupply ? null : dto.ActiveIngredient?.Trim(),
+            MedicineType = medicineType,
+            Price = dto.Price,
+            DosageInstruction = dto.DosageInstruction.Trim(),
+            PhiDays = isFarmingSupply ? null : dto.PhiDays,
+            StockQuantity = dto.StockQuantity,
+            Availability = availability,
+            InfoSourceUrl = infoSourceUrl,
+            IsAllowed = dto.IsAllowed && !IsBannedIngredient(dto.ActiveIngredient),
+            RainResistant = false,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _dbContext.Products.Add(product);
+        await _dbContext.SaveChangesAsync();
+
+        // Gắn với bệnh mục tiêu nếu có
+        if (!string.IsNullOrWhiteSpace(dto.TargetDiseaseCode))
+        {
+            var disease = await _dbContext.Diseases
+                .FirstOrDefaultAsync(d => d.ClassCode.ToLower() == dto.TargetDiseaseCode.Trim().ToLower());
+            if (disease != null)
+            {
+                _dbContext.DiseaseProducts.Add(new Lavitree.Domain.Entities.DiseaseProduct
+                {
+                    DiseaseId = disease.Id,
+                    ProductId = product.Id
+                });
+                await _dbContext.SaveChangesAsync();
+            }
+        }
+
+        // Cập nhật trạng thái suggestion nếu được tạo từ suggestion
+        if (dto.SuggestionId.HasValue)
+        {
+            var suggestion = await _dbContext.ProductSuggestions
+                .FirstOrDefaultAsync(s => s.Id == dto.SuggestionId.Value);
+            if (suggestion != null)
+            {
+                suggestion.Status = "ADDED";
+                suggestion.ProductId = product.Id;
+                suggestion.ResolvedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+            }
+        }
+
+        return CreatedAtAction(nameof(Search), new { id = product.Id }, new
+        {
+            id = product.Id,
+            name = product.Name,
+            active_ingredient = product.ActiveIngredient,
+            medicine_type = product.MedicineType,
+            price = product.Price,
+            phi_days = product.PhiDays,
+            availability = product.Availability,
+            is_allowed = product.IsAllowed,
+            stock_quantity = product.StockQuantity
+        });
     }
 
     /// <summary>
@@ -349,6 +519,10 @@ public class MedicinesController : ControllerBase
 
         if (dto.IsAllowed.HasValue)
         {
+            if (dto.IsAllowed.Value && (IsBannedIngredient(product.ActiveIngredient) || IsBannedIngredient(product.Name)))
+            {
+                return BadRequest(new { detail = "Sản phẩm nằm trong danh mục thuốc BVTV cấm sử dụng tại Việt Nam theo Thông tư 75/2025. Không thể bật lưu hành." });
+            }
             product.IsAllowed = dto.IsAllowed.Value;
         }
 
@@ -379,6 +553,42 @@ public class MedicinesController : ControllerBase
             product.StockQuantity = dto.StockQuantity.Value;
         }
 
+        if (!string.IsNullOrWhiteSpace(dto.Availability))
+        {
+            var availability = dto.Availability.Trim().ToUpperInvariant();
+            if (!ValidAvailabilities.Contains(availability))
+            {
+                return BadRequest(new { detail = "Tình trạng bán phải là IN_STOCK, OUT_OF_STOCK hoặc NOT_SOLD." });
+            }
+            product.Availability = availability;
+        }
+
+        if (dto.InfoSourceUrl != null)
+        {
+            var url = dto.InfoSourceUrl.Trim();
+            if (url.Length > 0 && !IsHttpUrl(url))
+            {
+                return BadRequest(new { detail = "Link nguồn phải là địa chỉ http(s) hợp lệ." });
+            }
+            product.InfoSourceUrl = url.Length > 0 ? url : null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.MedicineType))
+        {
+            var medicineType = dto.MedicineType.Trim();
+            if (!ValidMedicineTypes.Contains(medicineType))
+            {
+                return BadRequest(new { detail = "Loại sản phẩm phải là 'Hóa học', 'Sinh học' hoặc 'Vật tư canh tác'." });
+            }
+            product.MedicineType = medicineType;
+        }
+
+        // Đổi vật tư thành thuốc mà chưa có PHI: báo lỗi rõ thay vì để CHECK constraint ném 500
+        if (product.MedicineType != FarmingSupplyType && !product.PhiDays.HasValue)
+        {
+            return BadRequest(new { detail = "Thuốc hóa học/sinh học bắt buộc có thời gian cách ly (phi_days)." });
+        }
+
         product.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
 
@@ -390,6 +600,9 @@ public class MedicinesController : ControllerBase
             phi_days = product.PhiDays,
             price = product.Price,
             stock_quantity = product.StockQuantity,
+            availability = product.Availability,
+            info_source_url = product.InfoSourceUrl,
+            medicine_type = product.MedicineType,
             updated_at = product.UpdatedAt
         });
     }

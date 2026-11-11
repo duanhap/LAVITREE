@@ -294,7 +294,7 @@ public class DiagnoseController : ControllerBase
         {
             Id = dp.Product.Id,
             Name = dp.Product.Name,
-            ActiveIngredient = dp.Product.ActiveIngredient,
+            ActiveIngredient = dp.Product.ActiveIngredient ?? string.Empty,
             Price = dp.Product.Price,
             Unit = "Gói / Chai chuẩn",
             ImageUrl = dp.Product.ImageUrl,
@@ -537,7 +537,7 @@ public class DiagnoseController : ControllerBase
             {
                 Id = dp.Product.Id,
                 Name = dp.Product.Name,
-                ActiveIngredient = dp.Product.ActiveIngredient,
+                ActiveIngredient = dp.Product.ActiveIngredient ?? string.Empty,
                 Price = dp.Product.Price,
                 Unit = "Gói / Chai chuẩn",
                 ImageUrl = dp.Product.ImageUrl,

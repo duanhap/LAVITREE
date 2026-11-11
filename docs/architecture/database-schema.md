@@ -60,7 +60,7 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `IsolationDays` | `VARCHAR(50)` | NULL | Thời gian cách ly an toàn (PHI: "7-14 ngày", để trống nếu là biện pháp sinh học/canh tác) |
 
 #### 4. `KnowledgeSources` (Kho bài báo đối chứng & Kỹ thuật canh tác)
-*Khớp 100% với dữ liệu thu thập được từ `KnowledgeSources_rows.csv` (112 bản ghi). Từ Sprint 2, một bài báo có thể sinh **nhiều dòng** (mỗi đoạn nguyên văn được duyệt = 1 dòng, tối đa 4 đoạn / `SourceUrl`), nên **không** đặt Unique trên `(ModelClass, SourceUrl)`. Chống trùng do Core API kiểm tra: không lưu hai đoạn trùng chữ của cùng `SourceUrl`; seeder kiểm tra theo `Id` khi nạp lại CSV.*
+*Khớp 100% với dữ liệu thu thập được từ `KnowledgeSources_rows.csv` (112 bản ghi). Từ Sprint 2 & Sprint 3 (TASK-15), một bài báo có thể sinh **nhiều dòng** (mỗi đoạn nguyên văn được duyệt = 1 dòng, tối đa 8 đoạn / `SourceUrl` và $\le \max(1200, 30\%)$ độ dài bài viết), nên **không** đặt Unique trên `(ModelClass, SourceUrl)`. Chống trùng do Core API kiểm tra: không lưu hai đoạn trùng chữ của cùng `SourceUrl`; seeder kiểm tra theo `Id` khi nạp lại CSV.*
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `Id` | `UUID` | PK | Mã nguồn tri thức |
@@ -81,6 +81,24 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `SourceQuality`| `VARCHAR(50)`  | DEFAULT 'Cao' | Cao \| Trung bình \| Duyệt ngoại lệ |
 | `IsManualApproved` | `BOOLEAN` | DEFAULT FALSE | Đã kiểm duyệt thủ công |
 | `ReviewerNotes`| `TEXT`         | NULL | Ghi chú người duyệt |
+
+#### 4b. `KnowledgeImages` (Kho ảnh triệu chứng thực địa theo bộ phận cây — Task-15 Phase 2)
+*Lưu trữ ảnh thực tế của bệnh theo bộ phận (lá, quả, thân, toàn cây), hiển thị trong Sổ tay bệnh học `/handbook/:classCode` và phục vụ nông dân đối chiếu thực địa.*
+| Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `Id` | `SERIAL` | PK | Mã định danh ảnh triệu chứng |
+| `ModelClass` | `VARCHAR(100)` | INDEX, NOT NULL | Mã nhãn bệnh (khớp với `Diseases.ClassCode`) |
+| `SourceUrl` | `VARCHAR(500)` | NOT NULL | Link bài viết gốc có chứa ảnh triệu chứng |
+| `ImageUrl` | `VARCHAR(500)` | NULL | Đường dẫn HTTPS ảnh ngoài (nếu không tải lên MinIO) |
+| `StorageKey` | `VARCHAR(255)` | NULL | Khóa tệp trên MinIO bucket `lavitree-images` (đã xóa EXIF) |
+| `Caption` | `VARCHAR(300)` | NOT NULL | Chú thích / mô tả triệu chứng lâm sàng thể hiện trong ảnh |
+| `PlantPart` | `VARCHAR(20)` | NOT NULL, DEFAULT 'LEAF' | Bộ phận cây: `LEAF` \| `FRUIT` \| `STEM` \| `WHOLE_PLANT` |
+| `Credit` | `VARCHAR(200)` | NOT NULL | Tác giả / cơ quan sở hữu bản quyền ảnh |
+| `LicenseNote` | `VARCHAR(200)` | NULL | Ghi chú giấy phép sử dụng (trích dẫn học thuật, CC-BY...) |
+| `IsManualApproved` | `BOOLEAN` | NOT NULL, DEFAULT TRUE | Trạng thái duyệt của Admin (chỉ ảnh đã duyệt mới hiện lên Sổ tay) |
+| `IsDeleted` | `BOOLEAN` | NOT NULL, DEFAULT FALSE | Đánh dấu xóa mềm |
+| `CreatedAt` | `TIMESTAMPTZ` | NOT NULL, DEFAULT NOW() | Thời gian tạo |
+| `UpdatedAt` | `TIMESTAMPTZ` | NULL | Thời gian cập nhật |
 
 ---
 
@@ -109,20 +127,24 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 
 ### Nhóm 3: Tiệm thuốc Bảo Vệ Thực Vật & Đơn Hàng (E-Commerce)
 
-#### 6. `Products` (Danh mục thuốc đặc trị & chế phẩm sinh học - SSOT)
+#### 6. `Products` (Danh mục thuốc đặc trị & chế phẩm sinh học & vật tư canh tác - SSOT)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `Id` | `SERIAL` | PK | Mã sản phẩm |
-| `Name` | `VARCHAR(150)` | NOT NULL | Tên thương mại (Ridomil Gold, Antracol, Trichoderma...) |
-| `ActiveIngredient` | `VARCHAR(150)` | NOT NULL | Hoạt chất chính (Mancozeb, Metalaxyl-M, Propineb...) |
+| `Name` | `VARCHAR(150)` | NOT NULL | Tên thương mại (Ridomil Gold, Antracol, Trichoderma, Bẫy dính...) |
+| `ActiveIngredient` | `VARCHAR(150)` | NULL | Hoạt chất chính (Mancozeb, Metalaxyl-M, Propineb... null đối với vật tư canh tác) |
 | `Price` | `DECIMAL(12,2)` | NOT NULL | Đơn giá niêm yết (VNĐ) |
-| `DosageInstruction`| `TEXT` | NOT NULL | Hướng dẫn liều lượng pha phun |
+| `DosageInstruction`| `TEXT` | NOT NULL | Hướng dẫn liều lượng pha phun hoặc cách lắp đặt |
 | `ImageUrl` | `VARCHAR(500)` | NULL | Hình ảnh bao bì sản phẩm |
 | `StockQuantity` | `INT` | DEFAULT 100 | Số lượng tồn kho |
-| `PhiDays` | `INT` | DEFAULT 7 | Thời gian cách ly an toàn (PHI tính theo ngày) |
-| `IsAllowed` | `BOOLEAN` | DEFAULT TRUE | Trạng thái cho phép lưu hành tại VN (Cục BVTV) |
+| `PhiDays` | `INT` | NULL | Thời gian cách ly an toàn (PHI tính theo ngày; null đối với vật tư canh tác) |
+| `IsAllowed` | `BOOLEAN` | DEFAULT TRUE | Trạng thái cho phép lưu hành tại VN (Cục BVTV / TT 75/2025) |
 | `RainResistant` | `BOOLEAN` | DEFAULT FALSE | Khả năng chống chịu mưa rửa trôi của thuốc |
-| `MedicineType` | `VARCHAR(50)` | DEFAULT 'Hóa học' | 'Hóa học' \| 'Sinh học' \| 'Hóa chất cấm' |
+| `MedicineType` | `VARCHAR(50)` | DEFAULT 'Hóa học' | 'Hóa học' \| 'Sinh học' \| 'Vật tư canh tác' |
+| `Availability` | `VARCHAR(20)` | NOT NULL, DEFAULT 'IN_STOCK', CHECK | 'IN_STOCK' \| 'OUT_OF_STOCK' \| 'NOT_SOLD' (Cửa hàng không bán - chỉ tư vấn kỹ thuật) |
+| `InfoSourceUrl` | `VARCHAR(500)` | NULL | Nơi Admin tra PHI/liều (nhãn, trang nhà sản xuất). Bắt buộc với thuốc (kiểm tra ở Core API) |
+
+*Ràng buộc CHECK (migration `20261111080000_AddProductSuggestionsAndRefineProducts`): `CK_Products_PhiDays_RequiredForMedicine` (`PhiDays IS NOT NULL OR MedicineType = 'Vật tư canh tác'`) và `CK_Products_Availability`.*
 
 #### 7. `DiseaseProducts` (Bảng trung gian: Bệnh $\leftrightarrow$ Thuốc đặc trị)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
@@ -161,6 +183,19 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `ProductId` | `INT` | FK $\rightarrow$ Products | Mua loại thuốc nào |
 | `Quantity` | `INT` | NOT NULL | Số lượng mua |
 | `UnitPrice` | `DECIMAL(12,2)` | NOT NULL | Đơn giá tại thời điểm đặt |
+
+#### 11. `ProductSuggestions` (Gợi ý vật tư trích xuất từ bài báo tri thức — Task-15 Phase 3)
+| Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `Id` | `SERIAL` | PK | Khóa chính tự tăng |
+| `KnowledgeSourceId` | `UUID` | FK $\rightarrow$ KnowledgeSources | Mã đoạn văn bản nguồn chứa cụm từ gợi ý |
+| `ModelClass` | `VARCHAR(100)` | INDEX, NOT NULL | Mã định danh lớp bệnh liên quan |
+| `MentionText` | `VARCHAR(200)` | NOT NULL | Cụm từ vật tư, hoạt chất hoặc biện pháp xuất hiện nguyên văn |
+| `Kind` | `VARCHAR(50)` | NOT NULL | Phân loại: 'CHEMICAL' \| 'BIOLOGICAL' \| 'SUPPLY' \| 'PRACTICE' |
+| `Status` | `VARCHAR(50)` | DEFAULT 'PENDING' | Trạng thái xử lý: 'PENDING' \| 'LINKED' \| 'ADDED' \| 'DISMISSED' |
+| `ProductId` | `INT` | NULL, FK $\rightarrow$ Products | Sản phẩm đã liên kết trong kho (nếu có) |
+| `CreatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm tạo gợi ý |
+| `ResolvedAt` | `TIMESTAMPTZ` | NULL | Thời điểm Admin xử lý giải quyết |
 
 ---
 

@@ -129,3 +129,8 @@
   - Trách nhiệm: **Thành viên B** (Agent Memory) & **Thành viên A** (Database Schema)
   - Trạng thái: [ ] PENDING
   - Đầu ra: Lưu trữ phiên chat bền vững vào PostgreSQL (ChatSessions & ChatMessages), nén ngữ cảnh tự động (Context Compaction khi > 3000 tokens); Tool MCP lookup_farmer_history đọc DiagnosisRecords để theo dõi tiến trình hồi phục cây trồng; Quản lý hồ sơ dài hạn FarmerProfile (địa phương, thổ nhưỡng, tiêu chuẩn VietGAP) phục vụ cá nhân hóa sâu sắc.
+
+- [ ] **TASK-15: Nhập bài báo v2 — Dán cả trang, AI tự điền, ảnh triệu chứng, gợi ý vật tư**
+  - Trách nhiệm: **Trưởng nhóm** (chia lại cho A/B sau nếu cần)
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Pha 1: dán cả trang và tự lọc rác, AI tự điền thông tin bài trong cùng lần gọi gán nhãn, nới giới hạn trích theo tỉ lệ bài (đề xuất ≤ 30%, tối đa 8 đoạn, chờ chốt). Pha 2: ảnh triệu chứng có ghi nguồn, hiện ở Sổ tay. Pha 3: gợi ý vật tư từ đoạn trích, Admin tự nhập PHI/nguồn, trạng thái `NOT_SOLD`, vật tư canh tác, chốt chặn thuốc cấm tạm thời. Pha 4: quản lý thuốc cấm, đoạn SUMMARY có duyệt. Chi tiết: `tasks/sprint-03/task-15-knowledge-ingestion-v2.md`.

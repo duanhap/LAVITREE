@@ -7,24 +7,21 @@ namespace Lavitree.Application.DTOs;
 
 public class IngestArticleRequestDto
 {
-    [Required(ErrorMessage = "Lớp bệnh (model_class) không được để trống.")]
     [JsonPropertyName("model_class")]
-    public string ModelClass { get; set; } = string.Empty;
+    public string? ModelClass { get; set; }
 
     [Required(ErrorMessage = "Đường dẫn bài viết (source_url) không được để trống.")]
     [Url(ErrorMessage = "Đường dẫn bài viết phải là URL hợp lệ (http:// hoặc https://).")]
     [JsonPropertyName("source_url")]
     public string SourceUrl { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "Tiêu đề bài viết (source_title) không được để trống.")]
     [MaxLength(500, ErrorMessage = "Tiêu đề không được vượt quá 500 ký tự.")]
     [JsonPropertyName("source_title")]
-    public string SourceTitle { get; set; } = string.Empty;
+    public string? SourceTitle { get; set; }
 
-    [Required(ErrorMessage = "Cơ quan / Tác giả (organization) không được để trống.")]
     [MaxLength(255, ErrorMessage = "Tên cơ quan không được vượt quá 255 ký tự.")]
     [JsonPropertyName("organization")]
-    public string Organization { get; set; } = string.Empty;
+    public string? Organization { get; set; }
 
     [JsonPropertyName("published_date")]
     public string? PublishedDate { get; set; }
@@ -33,6 +30,15 @@ public class IngestArticleRequestDto
     [MaxLength(50000, ErrorMessage = "Văn bản bài báo không được vượt quá 50.000 ký tự.")]
     [JsonPropertyName("article_text")]
     public string ArticleText { get; set; } = string.Empty;
+}
+
+public class MentionDto
+{
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "CHEMICAL"; // CHEMICAL | BIOLOGICAL | SUPPLY | PRACTICE
 }
 
 public class ParagraphDto
@@ -45,6 +51,24 @@ public class ParagraphDto
 
     [JsonPropertyName("suggested_unit_type")]
     public string? SuggestedUnitType { get; set; }
+
+    [JsonPropertyName("mentions")]
+    public List<MentionDto> Mentions { get; set; } = new();
+}
+
+public class SuggestedMetadataDto
+{
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
+
+    [JsonPropertyName("source_title")]
+    public string? SourceTitle { get; set; }
+
+    [JsonPropertyName("organization")]
+    public string? Organization { get; set; }
+
+    [JsonPropertyName("published_date")]
+    public string? PublishedDate { get; set; }
 }
 
 public class IngestArticleResponseDto
@@ -55,8 +79,14 @@ public class IngestArticleResponseDto
     [JsonPropertyName("expires_at")]
     public DateTime ExpiresAt { get; set; }
 
+    [JsonPropertyName("article_length")]
+    public int ArticleLength { get; set; }
+
     [JsonPropertyName("paragraphs")]
     public List<ParagraphDto> Paragraphs { get; set; } = new();
+
+    [JsonPropertyName("suggested_metadata")]
+    public SuggestedMetadataDto? SuggestedMetadata { get; set; }
 
     [JsonPropertyName("ai_suggestion_available")]
     public bool AiSuggestionAvailable { get; set; } = true;
@@ -76,9 +106,23 @@ public class CommitSelectionDto
 
 public class CommitIngestionRequestDto
 {
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
+
+    [MaxLength(500, ErrorMessage = "Tiêu đề không được vượt quá 500 ký tự.")]
+    [JsonPropertyName("source_title")]
+    public string? SourceTitle { get; set; }
+
+    [MaxLength(255, ErrorMessage = "Tên cơ quan không được vượt quá 255 ký tự.")]
+    [JsonPropertyName("organization")]
+    public string? Organization { get; set; }
+
+    [JsonPropertyName("published_date")]
+    public string? PublishedDate { get; set; }
+
     [Required(ErrorMessage = "Danh sách đoạn trích không được để trống.")]
     [MinLength(1, ErrorMessage = "Cần chọn ít nhất 1 đoạn trích dẫn.")]
-    [MaxLength(4, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 4 đoạn nguyên văn.")]
+    [MaxLength(8, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 8 đoạn nguyên văn.")]
     [JsonPropertyName("selections")]
     public List<CommitSelectionDto> Selections { get; set; } = new();
 
@@ -143,7 +187,7 @@ public class ApproveBatchResponseDto
 public class AgentLabelParagraphsRequest
 {
     [JsonPropertyName("model_class")]
-    public string ModelClass { get; set; } = string.Empty;
+    public string? ModelClass { get; set; }
 
     [JsonPropertyName("paragraphs")]
     public List<AgentParagraphItem> Paragraphs { get; set; } = new();
@@ -158,10 +202,28 @@ public class AgentParagraphItem
     public string Text { get; set; } = string.Empty;
 }
 
+public class AgentSuggestedMetadata
+{
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
+
+    [JsonPropertyName("source_title")]
+    public string? SourceTitle { get; set; }
+
+    [JsonPropertyName("organization")]
+    public string? Organization { get; set; }
+
+    [JsonPropertyName("published_date")]
+    public string? PublishedDate { get; set; }
+}
+
 public class AgentLabelParagraphsResponse
 {
     [JsonPropertyName("labels")]
     public List<AgentParagraphLabel> Labels { get; set; } = new();
+
+    [JsonPropertyName("metadata")]
+    public AgentSuggestedMetadata? Metadata { get; set; }
 }
 
 public class AgentParagraphLabel
@@ -171,6 +233,108 @@ public class AgentParagraphLabel
 
     [JsonPropertyName("unit_type")]
     public string UnitType { get; set; } = string.Empty;
+
+    [JsonPropertyName("mentions")]
+    public List<MentionDto> Mentions { get; set; } = new();
+}
+
+public class ProductSuggestionDto
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("knowledge_source_id")]
+    public Guid KnowledgeSourceId { get; set; }
+
+    [JsonPropertyName("model_class")]
+    public string ModelClass { get; set; } = string.Empty;
+
+    [JsonPropertyName("plant_name")]
+    public string PlantName { get; set; } = string.Empty;
+
+    [JsonPropertyName("disease_name")]
+    public string DiseaseName { get; set; } = string.Empty;
+
+    [JsonPropertyName("mention_text")]
+    public string MentionText { get; set; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "CHEMICAL"; // CHEMICAL | BIOLOGICAL | SUPPLY | PRACTICE
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "PENDING"; // PENDING | ADDED | LINKED | DISMISSED
+
+    [JsonPropertyName("product_id")]
+    public int? ProductId { get; set; }
+
+    [JsonPropertyName("product_name")]
+    public string? ProductName { get; set; }
+
+    [JsonPropertyName("evidence_text")]
+    public string? EvidenceText { get; set; }
+
+    [JsonPropertyName("source_url")]
+    public string? SourceUrl { get; set; }
+
+    [JsonPropertyName("source_title")]
+    public string? SourceTitle { get; set; }
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("resolved_at")]
+    public DateTime? ResolvedAt { get; set; }
+}
+
+public class LinkProductSuggestionRequestDto
+{
+    [Required]
+    [JsonPropertyName("product_id")]
+    public int ProductId { get; set; }
+}
+
+public class CreateProductRequestDto
+{
+    [Required(ErrorMessage = "Tên sản phẩm không được để trống.")]
+    [MaxLength(200)]
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("active_ingredient")]
+    public string? ActiveIngredient { get; set; }
+
+    [Required]
+    [JsonPropertyName("medicine_type")]
+    public string MedicineType { get; set; } = "Hóa học"; // "Hóa học" | "Sinh học" | "Vật tư canh tác"
+
+    [Required]
+    [Range(0, 1000000000)]
+    [JsonPropertyName("price")]
+    public decimal Price { get; set; }
+
+    [JsonPropertyName("dosage_instruction")]
+    public string DosageInstruction { get; set; } = "Theo hướng dẫn trên nhãn";
+
+    [JsonPropertyName("phi_days")]
+    public int? PhiDays { get; set; }
+
+    [JsonPropertyName("stock_quantity")]
+    public int StockQuantity { get; set; } = 100;
+
+    [JsonPropertyName("availability")]
+    public string Availability { get; set; } = "IN_STOCK"; // IN_STOCK | OUT_OF_STOCK | NOT_SOLD
+
+    [JsonPropertyName("info_source_url")]
+    public string? InfoSourceUrl { get; set; }
+
+    [JsonPropertyName("target_disease_code")]
+    public string? TargetDiseaseCode { get; set; }
+
+    [JsonPropertyName("suggestion_id")]
+    public int? SuggestionId { get; set; }
+
+    [JsonPropertyName("is_allowed")]
+    public bool IsAllowed { get; set; } = false;
 }
 
 public class AgentReindexRequest

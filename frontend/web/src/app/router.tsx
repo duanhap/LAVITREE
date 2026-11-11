@@ -169,6 +169,14 @@ export const AppRouter: React.FC = () => {
           }
         />
         <Route
+          path="/admin/images"
+          element={
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminDashboard defaultTab="images" />
+            </Suspense>
+          }
+        />
+        <Route
           path="/admin/knowledge-collector"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
