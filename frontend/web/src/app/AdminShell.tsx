@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   LogOut,
   FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCurrentUser } from './RequireRole';
@@ -30,6 +31,7 @@ const adminNavItems: AdminNavItem[] = [
   { name: 'Tổng quan', to: '/admin', icon: LayoutDashboard },
   { name: 'Nhập bài báo', to: '/admin/ingest', icon: FileText },
   { name: 'Duyệt tri thức', to: '/admin/knowledge', icon: Database },
+  { name: 'Ảnh triệu chứng', to: '/admin/images', icon: ImageIcon },
   { name: 'Ca chuyên gia', to: '/admin/escalations', icon: UserCheck },
   { name: 'Kho vật tư & thuốc', to: '/admin/inventory', icon: Package },
   { name: 'Đơn hàng', to: '/admin/orders', icon: ShoppingCart },

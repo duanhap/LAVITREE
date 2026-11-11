@@ -328,10 +328,37 @@ def test_08_label_paragraphs():
     ])
     response = _label_with_gemini_text(client, injected)
     assert response.status_code == 200
-    assert response.json() == {"labels": [{"id": "P1", "unit_type": "SYMPTOMS"}]}, response.text
+    assert [(l["id"], l["unit_type"]) for l in response.json()["labels"]] == [("P1", "SYMPTOMS")], response.text
     _ok("Guardrail loại P99, nhãn lạ, id trùng, phần tử sai kiểu")
 
-    for bad in ('{"labels": []}', "khong phai json", None):
+    with_mentions = json.dumps({"labels": [{"id": "P1", "unit_type": "SYMPTOMS", "mentions": [
+        {"text": "lớp mốc trắng", "kind": "PRACTICE"},
+        {"text": "Ridomil Gold", "kind": "CHEMICAL"},
+        {"text": "mốc", "kind": "HACKED"},
+        "Mancozeb",
+    ]}]})
+    res_m = _label_with_gemini_text(client, with_mentions)
+    assert res_m.status_code == 200
+    assert res_m.json()["labels"][0]["mentions"] == [{"text": "lớp mốc trắng", "kind": "PRACTICE"}], res_m.text
+    _ok("Mentions: chỉ giữ cụm từ có nguyên văn trong đoạn, loại sai kiểu (chống bịa), và trả về cho Core")
+
+    valid_with_meta = json.dumps({
+        "labels": [{"id": "P1", "unit_type": "SYMPTOMS"}],
+        "metadata": {
+            "model_class": "Tomato___Late_blight",
+            "source_title": "Bài báo thử nghiệm",
+            "organization": "Khuyến nông",
+            "published_date": "2024"
+        }
+    })
+    res_meta = _label_with_gemini_text(client, valid_with_meta)
+    assert res_meta.status_code == 200
+    assert [(l["id"], l["unit_type"]) for l in res_meta.json()["labels"]] == [("P1", "SYMPTOMS")]
+    assert res_meta.json()["metadata"]["model_class"] == "Tomato___Late_blight"
+    assert res_meta.json()["metadata"]["source_title"] == "Bài báo thử nghiệm"
+    _ok("Trích xuất và thẩm định metadata (38 lớp, năm xuất bản, cơ quan)")
+
+    for bad in ("khong phai json", "12345", None):
         assert _label_with_gemini_text(client, bad).status_code == 503, bad
     with patch("google.genai.Client", side_effect=RuntimeError("down")), patch.dict(os.environ, {"GEMINI_API_KEY": "fake"}):
         assert client.post(LABEL_URL, headers=AUTH, json=LABEL_BODY).status_code == 503

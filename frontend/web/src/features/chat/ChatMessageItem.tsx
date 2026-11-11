@@ -251,7 +251,8 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
         )}
 
         {/* Nội dung câu trả lời chính (Markdown Rendering an toàn) */}
-        <div className="prose prose-sm dark:prose-invert max-w-none text-zinc-800 dark:text-zinc-200 leading-relaxed break-words">
+        {/* Dự án không dùng plugin typography: tự định dạng danh sách, tiêu đề, đoạn cho markdown */}
+        <div className="text-sm sm:text-[15px] text-foreground leading-relaxed break-words [&_p]:my-2 [&_p:first-child]:mt-0 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_strong]:font-semibold [&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-bold [&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:font-semibold [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_hr]:my-3 [&_hr]:border-border">
           <ReactMarkdown
             components={{
               // Chặn các thẻ HTML nguy hiểm, style chuẩn Be Vietnam Pro

@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ==============================================================================
@@ -135,15 +135,23 @@ class QueryPesticideStoreInput(BaseModel):
 class PesticideItem(BaseModel):
     id: int
     name: str
-    active_ingredient: str
-    medicine_type: str
+    active_ingredient: Optional[str] = ""
+    medicine_type: str = "Hóa học"
     price: float
     dosage_instruction: str = Field(..., min_length=1)
-    phi_days: int = Field(..., ge=0, le=1000)
+    phi_days: Optional[int] = Field(None, ge=0, le=1000)
     is_allowed: bool = Field(...)
     rain_resistant: bool = False
     stock_quantity: int = 0
     image_url: str = ""
+    availability: Literal["IN_STOCK", "OUT_OF_STOCK", "NOT_SOLD"] = "IN_STOCK"
+
+    @model_validator(mode="after")
+    def _phi_required_for_medicines(self) -> "PesticideItem":
+        # TASK-15: chỉ vật tư canh tác được thiếu PHI. Thuốc thiếu PHI thì từ chối (fail-closed, contract 3.4)
+        if self.phi_days is None and self.medicine_type != "Vật tư canh tác":
+            raise ValueError("phi_days is required for pesticides")
+        return self
 
 
 class QueryPesticideStoreOutput(BaseModel):
@@ -164,18 +172,18 @@ class VerifyPhiSafetyInput(BaseModel):
         le=3650,
         description="Số ngày còn lại dự kiến đến thời điểm thu hoạch nông sản."
     )
-    phi_days: int = Field(
-        ...,
+    phi_days: Optional[int] = Field(
+        default=None,
         ge=0,
         le=1000,
-        description="Thời gian cách ly Pre-Harvest Interval (PHI) của thuốc BVTV tính theo ngày."
+        description="Thời gian cách ly Pre-Harvest Interval (PHI) của thuốc BVTV tính theo ngày. Để trống (None) nếu là vật tư canh tác."
     )
 
 
 class VerifyPhiSafetyOutput(BaseModel):
     harvest_days_left: int
-    phi_days: int
+    phi_days: Optional[int] = None
     is_safe: bool
-    risk_level: Literal["SAFE", "CRITICAL_VIOLATION"]
+    risk_level: Literal["SAFE", "CRITICAL_VIOLATION", "NOT_APPLICABLE"]
     message: str
     guardrail_code: Optional[str] = None

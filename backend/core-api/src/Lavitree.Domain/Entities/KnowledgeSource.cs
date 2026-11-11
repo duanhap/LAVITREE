@@ -33,4 +33,7 @@ public class KnowledgeSource : BaseEntity
     // Ingestion Verbatim Extensions (TASK-A03)
     public string UnitType { get; set; } = "SUMMARY"; // SUMMARY | SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT
     public bool IsVerbatim { get; set; } = false; // True = trích đoạn nguyên văn bài báo, False = tóm tắt AI
+
+    // Navigation
+    public ICollection<ProductSuggestion> ProductSuggestions { get; set; } = new List<ProductSuggestion>();
 }

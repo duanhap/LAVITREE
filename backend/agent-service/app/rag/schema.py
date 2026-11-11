@@ -39,14 +39,26 @@ class ParagraphItem(BaseModel):
     id: str = Field(..., min_length=1, max_length=50, description="Mã định danh đoạn trích")
     text: str = Field(..., min_length=1, max_length=2000, description="Nội dung văn bản đoạn trích (tối đa 2000 ký tự)")
 
+class MentionItem(BaseModel):
+    text: str = Field(..., max_length=200, description="Cụm từ nguyên văn xuất hiện trong đoạn")
+    kind: str = Field(..., description="CHEMICAL | BIOLOGICAL | SUPPLY | PRACTICE")
+
 class SuggestedParagraph(BaseModel):
     id: str
     unit_type: str  # SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT
+    mentions: List[MentionItem] = Field(default_factory=list)
+
+class SuggestedMetadata(BaseModel):
+    model_class: Optional[str] = None
+    source_title: Optional[str] = None
+    organization: Optional[str] = None
+    published_date: Optional[str] = None
 
 class LabelParagraphsRequest(BaseModel):
-    model_class: str = Field(..., min_length=1, max_length=100, description="Mã bệnh (ví dụ: Tomato___Late_blight)")
+    model_class: Optional[str] = Field(default=None, max_length=100, description="Mã bệnh (tùy chọn, ví dụ: Tomato___Late_blight)")
     paragraphs: List[ParagraphItem] = Field(..., min_length=1, max_length=200, description="Danh sách đoạn văn bản cần gán nhãn (tối đa 200 đoạn)")
 
 class LabelParagraphsResponse(BaseModel):
     suggestions: List[SuggestedParagraph] = Field(default_factory=list)
+    metadata: Optional[SuggestedMetadata] = None
     ai_suggestion_available: bool = True

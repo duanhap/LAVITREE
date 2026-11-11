@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -18,8 +19,10 @@ using System.Collections.Concurrent;
 using System.Web;
 using Lavitree.Api.Filters;
 using Lavitree.Application.DTOs;
+using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
+using Lavitree.Infrastructure.Services;
 
 namespace Lavitree.Api.Controllers;
 
@@ -33,19 +36,22 @@ public class KnowledgeController : ControllerBase
     private readonly IMemoryCache _memoryCache;
     private readonly IConfiguration _configuration;
     private readonly ILogger<KnowledgeController> _logger;
+    private readonly IMinioStorageService _minioStorageService;
 
     public KnowledgeController(
         LavitreeDbContext dbContext,
         IHttpClientFactory httpClientFactory,
         IMemoryCache memoryCache,
         IConfiguration configuration,
-        ILogger<KnowledgeController> logger)
+        ILogger<KnowledgeController> logger,
+        IMinioStorageService minioStorageService)
     {
         _dbContext = dbContext;
         _httpClientFactory = httpClientFactory;
         _memoryCache = memoryCache;
         _configuration = configuration;
         _logger = logger;
+        _minioStorageService = minioStorageService;
     }
 
     public class CachedIngestionSession
@@ -58,7 +64,9 @@ public class KnowledgeController : ControllerBase
         public string SourceTitle { get; set; } = string.Empty;
         public string Organization { get; set; } = string.Empty;
         public string? PublishedDate { get; set; }
+        public int ArticleLength { get; set; }
         public List<ParagraphDto> Paragraphs { get; set; } = new();
+        public SuggestedMetadataDto? SuggestedMetadata { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
@@ -434,9 +442,9 @@ public class KnowledgeController : ControllerBase
 
         var existingSameClass = existingSources.FirstOrDefault(s => s.ModelClass == dto.ModelClass);
 
-        if (dto.IsManualApproved && existingSources.Count >= 4)
+        if (dto.IsManualApproved && existingSources.Count >= 8)
         {
-            return BadRequest(new { message = "Mỗi URL bài viết chỉ được phép lưu tối đa 4 đoạn nguyên văn theo quy tắc trích dẫn." });
+            return BadRequest(new { message = "Mỗi URL bài viết chỉ được phép lưu tối đa 8 đoạn nguyên văn theo quy tắc trích dẫn (TASK-15)." });
         }
 
         if (existingSameClass != null && !existingSameClass.IsVerbatim)
@@ -636,36 +644,64 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = "Văn bản bài báo không có đoạn nào đạt độ dài tối thiểu (>= 40 ký tự)." });
         }
 
-        // Gọi Agent Service để AI gợi ý nhãn theo số đoạn (timeout 35s, graceful fallback)
-        var labelMap = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs);
-        bool aiAvailable = labelMap.Count > 0;
+        // Gọi Agent Service để AI gợi ý nhãn theo số đoạn & trích xuất metadata (timeout 35s, graceful fallback)
+        var (labelMap, agentMetadata) = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs);
+        bool aiAvailable = labelMap.Count > 0 || agentMetadata != null;
 
         foreach (var p in validParagraphs)
         {
-            if (labelMap.TryGetValue(p.Id, out var suggested))
+            if (labelMap.TryGetValue(p.Id, out var labelItem))
             {
-                p.SuggestedUnitType = suggested;
+                p.SuggestedUnitType = labelItem.UnitType;
+                p.Mentions = labelItem.Mentions ?? new List<MentionDto>();
             }
         }
 
-        var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == dto.ModelClass);
+        // Ưu tiên: Nếu Admin đã điền ở Bước 1 thì dùng của Admin, ngược lại lấy gợi ý từ Agent
+        var chosenModelClass = !string.IsNullOrWhiteSpace(dto.ModelClass) 
+            ? dto.ModelClass.Trim() 
+            : (agentMetadata?.ModelClass?.Trim() ?? string.Empty);
+
+        var chosenSourceTitle = !string.IsNullOrWhiteSpace(dto.SourceTitle)
+            ? dto.SourceTitle.Trim()
+            : (agentMetadata?.SourceTitle?.Trim() ?? string.Empty);
+
+        var chosenOrg = !string.IsNullOrWhiteSpace(dto.Organization)
+            ? dto.Organization.Trim()
+            : (agentMetadata?.Organization?.Trim() ?? string.Empty);
+
+        var chosenDate = !string.IsNullOrWhiteSpace(dto.PublishedDate)
+            ? dto.PublishedDate.Trim()
+            : agentMetadata?.PublishedDate?.Trim();
+
+        var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == chosenModelClass);
         var plantName = classMeta?.PlantName ?? "Cây trồng";
-        var diseaseName = classMeta?.DiseaseName ?? dto.ModelClass;
+        var diseaseName = classMeta?.DiseaseName ?? chosenModelClass;
 
         var ingestionId = $"ing-{Guid.NewGuid():N}"[..12];
         var expiresAt = DateTime.UtcNow.AddHours(1);
 
+        var suggestedMetadataDto = new SuggestedMetadataDto
+        {
+            ModelClass = string.IsNullOrWhiteSpace(chosenModelClass) ? null : chosenModelClass,
+            SourceTitle = string.IsNullOrWhiteSpace(chosenSourceTitle) ? null : chosenSourceTitle,
+            Organization = string.IsNullOrWhiteSpace(chosenOrg) ? null : chosenOrg,
+            PublishedDate = chosenDate
+        };
+
         var session = new CachedIngestionSession
         {
             IngestionId = ingestionId,
-            ModelClass = dto.ModelClass,
+            ModelClass = chosenModelClass,
             PlantName = plantName,
             DiseaseName = diseaseName,
             SourceUrl = dto.SourceUrl.Trim(),
-            SourceTitle = dto.SourceTitle.Trim(),
-            Organization = dto.Organization.Trim(),
-            PublishedDate = dto.PublishedDate?.Trim(),
+            SourceTitle = chosenSourceTitle,
+            Organization = chosenOrg,
+            PublishedDate = chosenDate,
+            ArticleLength = dto.ArticleText.Length,
             Paragraphs = validParagraphs,
+            SuggestedMetadata = suggestedMetadataDto,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -675,7 +711,9 @@ public class KnowledgeController : ControllerBase
         {
             IngestionId = ingestionId,
             ExpiresAt = expiresAt,
+            ArticleLength = dto.ArticleText.Length,
             Paragraphs = validParagraphs,
+            SuggestedMetadata = suggestedMetadataDto,
             AiSuggestionAvailable = aiAvailable
         });
     }
@@ -704,9 +742,9 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = "Cần chọn ít nhất 1 đoạn trích dẫn để lưu." });
         }
 
-        if (dto.Selections.Count > 4)
+        if (dto.Selections.Count > 8)
         {
-            return BadRequest(new { detail = "Mỗi bài chỉ được trích dẫn tối đa 4 đoạn nguyên văn." });
+            return BadRequest(new { detail = "Mỗi bài chỉ được trích dẫn tối đa 8 đoạn nguyên văn (TASK-15)." });
         }
 
         var allowedUnitTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -730,7 +768,7 @@ public class KnowledgeController : ControllerBase
 
         // Kiểm tra tồn tại trong session RAM & độ dài <= 800 ký tự
         var sessionDict = session.Paragraphs.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
-        var chosenParagraphs = new List<(string Id, string Text, string UnitType)>();
+        var chosenParagraphs = new List<(string Id, string Text, string UnitType, List<MentionDto> Mentions)>();
 
         foreach (var sel in dto.Selections)
         {
@@ -744,7 +782,16 @@ public class KnowledgeController : ControllerBase
                 return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {para.Text.Length} ký tự, vượt quá giới hạn 800 ký tự cho phép." });
             }
 
-            chosenParagraphs.Add((sel.ParagraphId, para.Text, sel.UnitType.ToUpperInvariant()));
+            chosenParagraphs.Add((sel.ParagraphId, para.Text, sel.UnitType.ToUpperInvariant(), para.Mentions ?? new List<MentionDto>()));
+        }
+
+        // Quy tắc trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT):
+        // Tổng số ký tự các đoạn trích dẫn của bài <= max(1200 ký tự, 30% độ dài bài viết)
+        var totalSelectedChars = chosenParagraphs.Sum(p => p.Text.Length);
+        var allowedCharsQuota = Math.Max(1200, (int)Math.Floor(session.ArticleLength * 0.30));
+        if (session.ArticleLength > 0 && totalSelectedChars > allowedCharsQuota)
+        {
+            return BadRequest(new { detail = $"Tổng độ dài các đoạn đã chọn ({totalSelectedChars:N0} ký tự) vượt quá giới hạn trích dẫn hợp lý cho bài viết này ({allowedCharsQuota:N0} ký tự, tối đa 30% độ dài bài báo theo quy định TASK-15)." });
         }
 
         // Kiểm tra số lượng đoạn nguyên văn đã lưu trong CSDL của URL này (chuẩn hoá)
@@ -763,16 +810,57 @@ public class KnowledgeController : ControllerBase
                 .Where(s => NormalizeUrl(s.SourceUrl) == normalizedUrl)
                 .ToList();
 
-            if (existingVerbatim.Count + chosenParagraphs.Count > 4)
+            if (existingVerbatim.Count + chosenParagraphs.Count > 8)
             {
                 await transaction.RollbackAsync();
-                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 4 đoạn nguyên văn cho mỗi URL theo quy định trích dẫn hợp lý (Điều 25 Luật SHTT)." });
+                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 8 đoạn nguyên văn cho mỗi URL theo quy định trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT)." });
             }
+
+            // Hạn mức ký tự tính CỘNG DỒN với các đoạn đã lưu trước đó của cùng URL,
+            // nếu không Admin chia nhỏ nhiều lần commit là vượt được 30% bài
+            var existingChars = existingVerbatim.Sum(s => (s.EvidenceText ?? string.Empty).Length);
+            if (session.ArticleLength > 0 && existingChars + totalSelectedChars > allowedCharsQuota)
+            {
+                await transaction.RollbackAsync();
+                return BadRequest(new { detail = $"Bài báo này đã lưu {existingChars:N0} ký tự nguyên văn. Thêm {totalSelectedChars:N0} ký tự sẽ vượt giới hạn trích dẫn hợp lý {allowedCharsQuota:N0} ký tự (30% bài, tối thiểu 1.200)." });
+            }
+
+            // Xác định metadata cuối cùng do Admin duyệt / sửa ở Bước 2
+            var finalModelClass = !string.IsNullOrWhiteSpace(dto.ModelClass) 
+                ? dto.ModelClass.Trim() 
+                : session.ModelClass;
+
+            if (string.IsNullOrWhiteSpace(finalModelClass))
+            {
+                await transaction.RollbackAsync();
+                return BadRequest(new { detail = "Vui lòng chọn Cây trồng - Bệnh hại mục tiêu trước khi phê duyệt lưu." });
+            }
+
+            var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == finalModelClass);
+            if (classMeta == null)
+            {
+                await transaction.RollbackAsync();
+                return BadRequest(new { detail = $"Mã lớp '{finalModelClass}' không thuộc 38 lớp được hỗ trợ." });
+            }
+            var plantName = classMeta.PlantName;
+            var diseaseName = classMeta.DiseaseName;
+
+            var finalSourceTitle = !string.IsNullOrWhiteSpace(dto.SourceTitle)
+                ? dto.SourceTitle.Trim()
+                : (!string.IsNullOrWhiteSpace(session.SourceTitle) ? session.SourceTitle : "Bài báo khuyến nông");
+
+            var finalOrg = !string.IsNullOrWhiteSpace(dto.Organization)
+                ? dto.Organization.Trim()
+                : (!string.IsNullOrWhiteSpace(session.Organization) ? session.Organization : "Trung tâm Khuyến nông");
+
+            var finalDate = !string.IsNullOrWhiteSpace(dto.PublishedDate)
+                ? dto.PublishedDate.Trim()
+                : (session.PublishedDate ?? "Không ghi ngày");
 
             var createdSources = new List<KnowledgeSource>();
             var now = DateTime.UtcNow;
 
-            foreach (var (pId, text, unitType) in chosenParagraphs)
+            foreach (var (pId, text, unitType, mentions) in chosenParagraphs)
             {
                 var cleanText = text.Trim();
                 // Bỏ qua nếu đoạn trùng chữ 100% với một đoạn đã lưu của cùng URL
@@ -794,13 +882,13 @@ public class KnowledgeController : ControllerBase
                 var source = new KnowledgeSource
                 {
                     Id = Guid.NewGuid(),
-                    ModelClass = session.ModelClass,
-                    PlantName = session.PlantName,
-                    DiseaseName = session.DiseaseName,
+                    ModelClass = finalModelClass,
+                    PlantName = plantName,
+                    DiseaseName = diseaseName,
                     SourceUrl = normalizedUrl, // Lưu URL đã chuẩn hóa
-                    SourceTitle = session.SourceTitle,
-                    Organization = session.Organization,
-                    PublishedDate = session.PublishedDate ?? "Không ghi ngày",
+                    SourceTitle = finalSourceTitle,
+                    Organization = finalOrg,
+                    PublishedDate = finalDate,
                     MatchLevel = "Khớp trực tiếp",
                     SourceScope = "Việt Nam",
                     EvidenceText = text, // 100% nguyên văn từ bản lưu tạm
@@ -825,6 +913,64 @@ public class KnowledgeController : ControllerBase
             }
 
             _dbContext.KnowledgeSources.AddRange(createdSources);
+            await _dbContext.SaveChangesAsync();
+
+            // Pha 3 (TASK-15 mục 5.1): CHỈ LƯU GỢI Ý, không tự gắn thuốc với bệnh (quyết định số 1).
+            // Khớp hoạt chất thì ghi sẵn ProductId để Admin bấm "Gắn SP" xác nhận; endpoint link mới tạo DiseaseProducts.
+            var allProducts = await _dbContext.Products
+                .AsNoTracking()
+                .Where(p => !p.IsDeleted)
+                .ToListAsync();
+
+            // Gợi ý Admin đã bỏ qua không hiện lại với cùng cụm từ và cùng bệnh
+            var dismissedMentions = new HashSet<string>(
+                await _dbContext.ProductSuggestions
+                    .Where(s => !s.IsDeleted && s.Status == "DISMISSED" && s.ModelClass == finalModelClass)
+                    .Select(s => s.MentionText.ToLower())
+                    .ToListAsync(),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var createdSource in createdSources)
+            {
+                var matchedPara = chosenParagraphs.FirstOrDefault(cp => cp.Text == createdSource.EvidenceText);
+                if (matchedPara.Mentions == null || matchedPara.Mentions.Count == 0) continue;
+
+                var seenInSource = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var mention in matchedPara.Mentions)
+                {
+                    var mentionText = mention.Text?.Trim() ?? string.Empty;
+                    var mentionKind = (mention.Kind ?? string.Empty).Trim().ToUpperInvariant();
+                    if (mentionText.Length < 2 || mentionText.Length > 200 || !ValidMentionKinds.Contains(mentionKind)) continue;
+
+                    // Chống bịa lớp 2 ở Core: cụm từ phải có nguyên văn trong đoạn đã lưu
+                    if (!createdSource.EvidenceText.Contains(mentionText, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!seenInSource.Add(mentionText) || dismissedMentions.Contains(mentionText)) continue;
+
+                    // So khớp theo HOẠT CHẤT (không theo tên thương mại); biện pháp canh tác không có sản phẩm
+                    Product? matchedProduct = null;
+                    if (mentionKind is "CHEMICAL" or "BIOLOGICAL")
+                    {
+                        matchedProduct = allProducts.FirstOrDefault(p =>
+                            !string.IsNullOrWhiteSpace(p.ActiveIngredient) &&
+                            p.ActiveIngredient.Trim().Length >= 4 &&
+                            mentionText.Length >= 4 &&
+                            (p.ActiveIngredient.Contains(mentionText, StringComparison.OrdinalIgnoreCase) ||
+                             mentionText.Contains(p.ActiveIngredient.Trim(), StringComparison.OrdinalIgnoreCase)));
+                    }
+
+                    _dbContext.ProductSuggestions.Add(new ProductSuggestion
+                    {
+                        KnowledgeSourceId = createdSource.Id,
+                        ModelClass = finalModelClass,
+                        MentionText = mentionText,
+                        Kind = mentionKind,
+                        Status = "PENDING",
+                        ProductId = matchedProduct?.Id,
+                        CreatedAt = now
+                    });
+                }
+            }
+
             await _dbContext.SaveChangesAsync();
             await transaction.CommitAsync();
 
@@ -1006,16 +1152,18 @@ public class KnowledgeController : ControllerBase
         }
     }
 
-    private async Task<Dictionary<string, string>> RequestAgentLabelingAsync(string modelClass, List<ParagraphDto> paragraphs)
+    private async Task<(Dictionary<string, AgentParagraphLabel> LabelMap, AgentSuggestedMetadata? Metadata)> RequestAgentLabelingAsync(string? modelClass, List<ParagraphDto> paragraphs)
     {
-        var labelMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var labelMap = new Dictionary<string, AgentParagraphLabel>(StringComparer.OrdinalIgnoreCase);
+        AgentSuggestedMetadata? metadata = null;
+
         try
         {
             // CHỈ GỬI các đoạn có Text.Length <= 800 ký tự (các đoạn dài hơn không được chọn theo quy định và sẽ làm Agent 422)
             var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 800).ToList();
             if (eligibleParagraphs.Count == 0)
             {
-                return labelMap;
+                return (labelMap, metadata);
             }
 
             var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
@@ -1044,10 +1192,11 @@ public class KnowledgeController : ControllerBase
                     {
                         if (!string.IsNullOrWhiteSpace(item.Id) && !string.IsNullOrWhiteSpace(item.UnitType))
                         {
-                            labelMap[item.Id] = item.UnitType;
+                            labelMap[item.Id] = item;
                         }
                     }
                 }
+                metadata = resDto?.Metadata;
             }
             else
             {
@@ -1059,7 +1208,7 @@ public class KnowledgeController : ControllerBase
             _logger.LogWarning(ex, "Timeout or error calling agent-service /internal/knowledge/label-paragraphs. Fallback to manual.");
         }
 
-        return labelMap;
+        return (labelMap, metadata);
     }
 
     private string GetInternalApiKey()
@@ -1123,5 +1272,440 @@ public class KnowledgeController : ControllerBase
         }
 
         return $"{scheme}://{host}{port}{path}{query}".TrimEnd('/');
+    }
+
+    private const string KnowledgeBucketName = "lavitree-images";
+    private static readonly HashSet<string> ValidMentionKinds = new(StringComparer.Ordinal)
+    {
+        "CHEMICAL", "BIOLOGICAL", "SUPPLY", "PRACTICE"
+    };
+    private static readonly HashSet<string> AllowedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".webp"
+    };
+
+    // =========================================================================
+    // 5. QUẢN LÝ ẢNH TRIỆU CHỨNG (TASK-15 PHA 2)
+    // =========================================================================
+
+    // 5.1. GET /api/v1/knowledge/images
+    [HttpGet("images")]
+    public async Task<IActionResult> GetKnowledgeImages(
+        [FromQuery] string? model_class = null,
+        [FromQuery] string? plant_part = null,
+        [FromQuery] bool? is_approved = null,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        var isAdmin = IsAdminUser(out _);
+
+        var query = _dbContext.KnowledgeImages
+            .AsNoTracking()
+            .Where(img => !img.IsDeleted);
+
+        // Khách hoặc người dùng thường chỉ thấy ảnh đã duyệt
+        if (!isAdmin)
+        {
+            query = query.Where(img => img.IsManualApproved);
+        }
+        else if (is_approved.HasValue)
+        {
+            query = query.Where(img => img.IsManualApproved == is_approved.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(model_class))
+        {
+            query = query.Where(img => img.ModelClass == model_class.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(plant_part))
+        {
+            query = query.Where(img => img.PlantPart == plant_part.Trim().ToUpperInvariant());
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(img =>
+                img.Caption.ToLower().Contains(s) ||
+                img.Credit.ToLower().Contains(s) ||
+                img.ModelClass.ToLower().Contains(s));
+        }
+
+        var list = await query
+            .OrderByDescending(img => img.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var dtoList = list.Select(img =>
+        {
+            var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == img.ModelClass);
+            var displayUrl = !string.IsNullOrWhiteSpace(img.StorageKey)
+                ? _minioStorageService.GetPublicUrl(KnowledgeBucketName, img.StorageKey)
+                : (img.ImageUrl ?? string.Empty);
+
+            return new KnowledgeImageDto
+            {
+                Id = img.Id,
+                ModelClass = img.ModelClass,
+                PlantName = classMeta?.PlantName ?? "Cây trồng",
+                DiseaseName = classMeta?.DiseaseName ?? img.ModelClass,
+                SourceUrl = img.SourceUrl,
+                ImageUrl = displayUrl,
+                StorageKey = img.StorageKey,
+                Caption = img.Caption,
+                PlantPart = img.PlantPart,
+                Credit = img.Credit,
+                LicenseNote = img.LicenseNote,
+                IsManualApproved = img.IsManualApproved,
+                CreatedAt = img.CreatedAt
+            };
+        }).ToList();
+
+        return Ok(dtoList);
+    }
+
+    // 5.2. POST /api/v1/knowledge/images (Admin tải ảnh lên MinIO hoặc dán HTTPS URL)
+    [HttpPost("images")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> CreateKnowledgeImage(
+        [FromForm] CreateKnowledgeImageRequestDto dto,
+        [FromForm] IFormFile? file = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == dto.ModelClass);
+        if (classMeta == null)
+        {
+            return BadRequest(new { detail = $"Mã lớp '{dto.ModelClass}' không thuộc 38 lớp được hỗ trợ." });
+        }
+
+        if (!dto.SourceUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !dto.SourceUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { detail = "Đường dẫn bài viết gốc (source_url) phải là URL hợp lệ." });
+        }
+
+        string? storageKey = null;
+        string? externalImageUrl = null;
+
+        if (file != null && file.Length > 0)
+        {
+            var ext = Path.GetExtension(file.FileName);
+            if (string.IsNullOrEmpty(ext) || !AllowedImageExtensions.Contains(ext))
+            {
+                return BadRequest(new { detail = "Định dạng tệp không được hỗ trợ. Chỉ chấp nhận .jpg, .jpeg, .png, .webp." });
+            }
+
+            if (file.Length > 10 * 1024 * 1024)
+            {
+                return BadRequest(new { detail = "Kích thước tệp vượt quá giới hạn 10MB." });
+            }
+
+            byte[] cleanImage;
+            try
+            {
+                await using var origStream = file.OpenReadStream();
+                cleanImage = await ImageMetadataStripper.StripAsync(origStream, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Lỗi giải mã hoặc xóa metadata của ảnh tải lên.");
+                return UnprocessableEntity(new { detail = "Tệp hình ảnh bị lỗi cấu trúc hoặc không thể giải mã." });
+            }
+
+            var objectName = $"knowledge-images/{Guid.NewGuid():N}_{dto.PlantPart.ToLowerInvariant()}{ext}";
+            var contentType = ext.ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".webp" => "image/webp",
+                _ => "application/octet-stream"
+            };
+
+            try
+            {
+                using var memStream = new MemoryStream(cleanImage);
+                await _minioStorageService.UploadFileAsync(
+                    KnowledgeBucketName,
+                    objectName,
+                    memStream,
+                    contentType,
+                    cancellationToken);
+                storageKey = objectName;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi tải ảnh triệu chứng lên MinIO.");
+                return StatusCode(StatusCodes.Status502BadGateway, new { detail = "Lỗi khi lưu trữ ảnh lên dịch vụ MinIO." });
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(dto.ImageUrl))
+        {
+            var trimmedUrl = dto.ImageUrl.Trim();
+            if (!trimmedUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { detail = "Ảnh ngoài bắt buộc phải sử dụng giao thức HTTPS bảo mật (https://)." });
+            }
+            externalImageUrl = trimmedUrl;
+        }
+        else
+        {
+            return BadRequest(new { detail = "Vui lòng đính kèm tệp ảnh tải lên hoặc cung cấp đường dẫn ảnh ngoài (https://)." });
+        }
+
+        var imageEntity = new KnowledgeImage
+        {
+            ModelClass = dto.ModelClass.Trim(),
+            SourceUrl = NormalizeUrl(dto.SourceUrl),
+            ImageUrl = externalImageUrl,
+            StorageKey = storageKey,
+            Caption = dto.Caption.Trim(),
+            PlantPart = dto.PlantPart.Trim().ToUpperInvariant(),
+            Credit = dto.Credit.Trim(),
+            LicenseNote = dto.LicenseNote?.Trim(),
+            IsManualApproved = dto.IsManualApproved ?? true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _dbContext.KnowledgeImages.Add(imageEntity);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var displayUrl = !string.IsNullOrWhiteSpace(imageEntity.StorageKey)
+            ? _minioStorageService.GetPublicUrl(KnowledgeBucketName, imageEntity.StorageKey)
+            : (imageEntity.ImageUrl ?? string.Empty);
+
+        return StatusCode(StatusCodes.Status201Created, new KnowledgeImageDto
+        {
+            Id = imageEntity.Id,
+            ModelClass = imageEntity.ModelClass,
+            PlantName = classMeta.PlantName,
+            DiseaseName = classMeta.DiseaseName,
+            SourceUrl = imageEntity.SourceUrl,
+            ImageUrl = displayUrl,
+            StorageKey = imageEntity.StorageKey,
+            Caption = imageEntity.Caption,
+            PlantPart = imageEntity.PlantPart,
+            Credit = imageEntity.Credit,
+            LicenseNote = imageEntity.LicenseNote,
+            IsManualApproved = imageEntity.IsManualApproved,
+            CreatedAt = imageEntity.CreatedAt
+        });
+    }
+
+    // 5.3. PATCH /api/v1/knowledge/images/{id}/approve (Admin duyệt / bỏ duyệt ảnh)
+    [HttpPatch("images/{id}/approve")]
+    public async Task<IActionResult> ApproveKnowledgeImage(
+        int id,
+        [FromBody] ApproveKnowledgeImageRequestDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        var image = await _dbContext.KnowledgeImages.FirstOrDefaultAsync(img => img.Id == id && !img.IsDeleted, cancellationToken);
+        if (image == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy ảnh triệu chứng." });
+        }
+
+        image.IsManualApproved = dto.IsApproved;
+        image.UpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = $"Đã cập nhật trạng thái duyệt ảnh #{id}.", is_approved = image.IsManualApproved });
+    }
+
+    // 5.4. DELETE /api/v1/knowledge/images/{id} (Admin gỡ ảnh)
+    [HttpDelete("images/{id}")]
+    public async Task<IActionResult> DeleteKnowledgeImage(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        var image = await _dbContext.KnowledgeImages.FirstOrDefaultAsync(img => img.Id == id && !img.IsDeleted, cancellationToken);
+        if (image == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy ảnh triệu chứng." });
+        }
+
+        image.IsDeleted = true;
+        image.UpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = $"Đã xóa ảnh triệu chứng #{id} thành công." });
+    }
+
+    // =========================================================================
+    // 6. GỢI Ý VẬT TƯ & THUỐC TỪ TRI THỨC (TASK-15 PHA 3)
+    // =========================================================================
+
+    // 6.1. GET /api/v1/knowledge/product-suggestions
+    [HttpGet("product-suggestions")]
+    public async Task<IActionResult> GetProductSuggestions(
+        [FromQuery] string? model_class = null,
+        [FromQuery] string? kind = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        var query = _dbContext.ProductSuggestions
+            .Include(ps => ps.KnowledgeSource)
+            .Include(ps => ps.Product)
+            .Where(ps => !ps.IsDeleted)
+            .AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(model_class) && model_class != "ALL")
+        {
+            query = query.Where(ps => ps.ModelClass == model_class);
+        }
+
+        if (!string.IsNullOrWhiteSpace(kind) && kind != "ALL")
+        {
+            query = query.Where(ps => ps.Kind == kind);
+        }
+
+        if (!string.IsNullOrWhiteSpace(status) && status != "ALL")
+        {
+            query = query.Where(ps => ps.Status == status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim().ToLower();
+            query = query.Where(ps => ps.MentionText.ToLower().Contains(q) ||
+                                      (ps.KnowledgeSource != null && ps.KnowledgeSource.EvidenceText.ToLower().Contains(q)));
+        }
+
+        var list = await query
+            .OrderByDescending(ps => ps.CreatedAt)
+            .Take(200)
+            .ToListAsync(cancellationToken);
+
+        var results = list.Select(ps =>
+        {
+            var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == ps.ModelClass);
+            return new ProductSuggestionDto
+            {
+                Id = ps.Id,
+                KnowledgeSourceId = ps.KnowledgeSourceId,
+                ModelClass = ps.ModelClass,
+                PlantName = classMeta?.PlantName ?? "Cây trồng",
+                DiseaseName = classMeta?.DiseaseName ?? ps.ModelClass,
+                MentionText = ps.MentionText,
+                Kind = ps.Kind,
+                Status = ps.Status,
+                ProductId = ps.ProductId,
+                ProductName = ps.Product?.Name,
+                EvidenceText = ps.KnowledgeSource?.EvidenceText,
+                SourceUrl = ps.KnowledgeSource?.SourceUrl,
+                SourceTitle = ps.KnowledgeSource?.SourceTitle,
+                CreatedAt = ps.CreatedAt,
+                ResolvedAt = ps.ResolvedAt
+            };
+        }).ToList();
+
+        return Ok(results);
+    }
+
+    // 6.2. POST /api/v1/knowledge/product-suggestions/{id}/link
+    [HttpPost("product-suggestions/{id}/link")]
+    public async Task<IActionResult> LinkProductSuggestion(
+        int id,
+        [FromBody] LinkProductSuggestionRequestDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        var suggestion = await _dbContext.ProductSuggestions
+            .Include(ps => ps.KnowledgeSource)
+            .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
+
+        if (suggestion == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
+        }
+
+        var product = await _dbContext.Products
+            .FirstOrDefaultAsync(p => p.Id == dto.ProductId && !p.IsDeleted, cancellationToken);
+
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm cần gắn kết." });
+        }
+
+        suggestion.Status = "LINKED";
+        suggestion.ProductId = product.Id;
+        suggestion.ResolvedAt = DateTime.UtcNow;
+
+        // Tự động liên kết vào DiseaseProducts nếu bệnh đã có trong bảng Diseases
+        var disease = await _dbContext.Diseases
+            .FirstOrDefaultAsync(d => d.ClassCode == suggestion.ModelClass, cancellationToken);
+        if (disease != null)
+        {
+            var exists = await _dbContext.DiseaseProducts
+                .AnyAsync(dp => dp.DiseaseId == disease.Id && dp.ProductId == product.Id, cancellationToken);
+            if (!exists)
+            {
+                _dbContext.DiseaseProducts.Add(new DiseaseProduct
+                {
+                    DiseaseId = disease.Id,
+                    ProductId = product.Id
+                });
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Ok(new { message = $"Đã gắn gợi ý '{suggestion.MentionText}' với sản phẩm '{product.Name}' thành công." });
+    }
+
+    // 6.3. POST /api/v1/knowledge/product-suggestions/{id}/dismiss
+    [HttpPost("product-suggestions/{id}/dismiss")]
+    public async Task<IActionResult> DismissProductSuggestion(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        var suggestion = await _dbContext.ProductSuggestions
+            .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
+
+        if (suggestion == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
+        }
+
+        suggestion.Status = "DISMISSED";
+        suggestion.ResolvedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Ok(new { message = $"Đã bỏ qua gợi ý '{suggestion.MentionText}'." });
     }
 }

@@ -154,6 +154,70 @@ namespace Lavitree.Infrastructure.Migrations
                     b.ToTable("DiseaseProducts");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.KnowledgeImage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Caption")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Credit")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsManualApproved")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LicenseNote")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ModelClass")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PlantPart")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SourceUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("StorageKey")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ModelClass");
+
+                    b.ToTable("KnowledgeImages");
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.KnowledgeSource", b =>
                 {
                     b.Property<Guid>("Id")
@@ -357,8 +421,15 @@ namespace Lavitree.Infrastructure.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("ActiveIngredient")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Availability")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("IN_STOCK");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -370,6 +441,10 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Property<string>("ImageUrl")
                         .HasColumnType("text");
 
+                    b.Property<string>("InfoSourceUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<bool>("IsAllowed")
                         .HasColumnType("boolean");
 
@@ -378,13 +453,16 @@ namespace Lavitree.Infrastructure.Migrations
 
                     b.Property<string>("MedicineType")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("Hóa học");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("PhiDays")
+                    b.Property<int?>("PhiDays")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("Price")
@@ -401,7 +479,75 @@ namespace Lavitree.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Products");
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_Availability", "\"Availability\" IN ('IN_STOCK', 'OUT_OF_STOCK', 'NOT_SOLD')");
+
+                            t.HasCheckConstraint("CK_Products_PhiDays_RequiredForMedicine", "\"PhiDays\" IS NOT NULL OR \"MedicineType\" = 'Vật tư canh tác'");
+                        });
+                });
+
+            modelBuilder.Entity("Lavitree.Domain.Entities.ProductSuggestion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("CHEMICAL");
+
+                    b.Property<Guid>("KnowledgeSourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MentionText")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ModelClass")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("ProductId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("PENDING");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KnowledgeSourceId");
+
+                    b.HasIndex("ModelClass");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("ProductSuggestions");
                 });
 
             modelBuilder.Entity("Lavitree.Domain.Entities.TreatmentPlan", b =>
@@ -564,6 +710,24 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.ProductSuggestion", b =>
+                {
+                    b.HasOne("Lavitree.Domain.Entities.KnowledgeSource", "KnowledgeSource")
+                        .WithMany("ProductSuggestions")
+                        .HasForeignKey("KnowledgeSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Lavitree.Domain.Entities.Product", "Product")
+                        .WithMany("ProductSuggestions")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("KnowledgeSource");
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.TreatmentPlan", b =>
                 {
                     b.HasOne("Lavitree.Domain.Entities.Disease", "Disease")
@@ -584,6 +748,11 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("TreatmentPlans");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.KnowledgeSource", b =>
+                {
+                    b.Navigation("ProductSuggestions");
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.Order", b =>
                 {
                     b.Navigation("Items");
@@ -599,6 +768,8 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("DiseaseProducts");
 
                     b.Navigation("OrderItems");
+
+                    b.Navigation("ProductSuggestions");
                 });
 
             modelBuilder.Entity("Lavitree.Domain.Entities.User", b =>

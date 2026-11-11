@@ -23,16 +23,18 @@ import { Textarea } from '@/components/ui/textarea';
 interface ProductItem {
   id: number;
   name: string;
-  active_ingredient: string;
+  active_ingredient?: string;
   medicine_type: string;
   price: number;
   dosage_instruction: string;
-  phi_days: number;
+  phi_days?: number | null;
   is_allowed: boolean;
   rain_resistant: boolean;
   stock_quantity: number;
   image_url: string;
   target_diseases: string[];
+  availability?: string; // IN_STOCK | OUT_OF_STOCK | NOT_SOLD
+  info_source_url?: string;
 }
 
 interface CartItem {
@@ -64,9 +66,10 @@ export const StorePage: React.FC = () => {
 
   // Bộ lọc
   const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'Sinh học' | 'Hóa học'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'Sinh học' | 'Hóa học' | 'Vật tư canh tác'>('ALL');
   const [phiFilter, setPhiFilter] = useState(false); // PHI <= 3 ngày (An toàn cận thu hoạch)
   const [rainFilter, setRainFilter] = useState(false);
+  const [onlySellingFilter, setOnlySellingFilter] = useState(false); // Chỉ hàng đang bán
   const [selectedDisease, setSelectedDisease] = useState(initialDisease);
 
   // Giỏ hàng (Cart) theo người dùng
@@ -182,10 +185,14 @@ export const StorePage: React.FC = () => {
   const filteredProducts = products.filter((p) => {
     if (!p.is_allowed) return false;
 
+    if (onlySellingFilter && (p.availability === 'NOT_SOLD' || p.stock_quantity <= 0)) {
+      return false;
+    }
+
     if (searchTerm) {
       const query = searchTerm.toLowerCase();
       const matchName = p.name.toLowerCase().includes(query);
-      const matchIngredient = p.active_ingredient.toLowerCase().includes(query);
+      const matchIngredient = p.active_ingredient?.toLowerCase().includes(query) ?? false;
       if (!matchName && !matchIngredient) return false;
     }
 
@@ -193,7 +200,7 @@ export const StorePage: React.FC = () => {
       return false;
     }
 
-    if (phiFilter && p.phi_days > 3) {
+    if (phiFilter && (p.phi_days == null || p.phi_days > 3)) {
       return false;
     }
 
@@ -337,15 +344,39 @@ export const StorePage: React.FC = () => {
               <FlaskConical className="w-3.5 h-3.5 mr-1" />
               Hóa học
             </Button>
+            <Button
+              type="button"
+              variant={typeFilter === 'Vật tư canh tác' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setTypeFilter('Vật tư canh tác')}
+              className={typeFilter === 'Vật tư canh tác' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-xs text-muted-foreground'}
+            >
+              <Package className="w-3.5 h-3.5 mr-1" />
+              Vật tư canh tác
+            </Button>
           </div>
         </div>
 
-        {/* Bộ lọc đặc thù: Cận thu hoạch (PHI <= 3) & Chống mưa */}
+        {/* Bộ lọc đặc thù: Cận thu hoạch (PHI <= 3) & Chống mưa & Chỉ hàng đang bán */}
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/60 text-xs">
           <span className="text-muted-foreground font-medium flex items-center gap-1">
             <Filter className="w-3.5 h-3.5" />
             Lọc an toàn:
           </span>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={onlySellingFilter ? 'default' : 'outline'}
+            onClick={() => setOnlySellingFilter(!onlySellingFilter)}
+            className={`h-7 px-2.5 text-xs rounded-full ${
+              onlySellingFilter
+                ? 'bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-700'
+                : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
+            }`}
+          >
+            Chỉ hàng đang bán
+          </Button>
 
           <Button
             type="button"
@@ -454,31 +485,49 @@ export const StorePage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredProducts.map((p) => {
             const isBio = p.medicine_type === 'Sinh học';
-            const isSafePhi = p.phi_days <= 3;
+            const isFarmingSupply = p.medicine_type === 'Vật tư canh tác';
+            const isNotSold = p.availability === 'NOT_SOLD';
+            const isSafePhi = p.phi_days != null && p.phi_days <= 3;
 
             return (
               <Card key={p.id} className="flex flex-col overflow-hidden hover:shadow-md transition-shadow border-border bg-card">
                 <CardHeader className="p-4 pb-2 space-y-2">
-                  <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center justify-between gap-1 flex-wrap">
                     <Badge
                       variant="outline"
                       className={
-                        isBio
+                        isFarmingSupply
+                          ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300'
+                          : isBio
                           ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                           : 'bg-blue-50 text-blue-800 border-blue-300'
                       }
                     >
-                      {isBio ? <Leaf className="w-3 h-3 mr-1" /> : <FlaskConical className="w-3 h-3 mr-1" />}
+                      {isFarmingSupply ? (
+                        <Package className="w-3 h-3 mr-1" />
+                      ) : isBio ? (
+                        <Leaf className="w-3 h-3 mr-1" />
+                      ) : (
+                        <FlaskConical className="w-3 h-3 mr-1" />
+                      )}
                       {p.medicine_type}
                     </Badge>
 
-                    {isSafePhi ? (
+                    {isNotSold ? (
+                      <Badge variant="secondary" className="bg-muted text-muted-foreground text-[10px] font-semibold border-border">
+                        Chỉ tham khảo
+                      </Badge>
+                    ) : isFarmingSupply ? (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                        Không cần PHI
+                      </Badge>
+                    ) : isSafePhi ? (
                       <Badge className="bg-emerald-700 text-white hover:bg-emerald-700 text-[11px] font-semibold">
                         PHI {p.phi_days} ngày (Cận hái)
                       </Badge>
                     ) : (
                       <Badge variant="outline" className="text-xs text-muted-foreground border-border">
-                        PHI {p.phi_days} ngày
+                        PHI {p.phi_days ?? '—'} ngày
                       </Badge>
                     )}
                   </div>
@@ -487,9 +536,15 @@ export const StorePage: React.FC = () => {
                     {p.name}
                   </CardTitle>
 
-                  <p className="text-xs text-muted-foreground font-medium line-clamp-1">
-                    Hoạt chất: <span className="text-foreground">{p.active_ingredient}</span>
-                  </p>
+                  {p.active_ingredient ? (
+                    <p className="text-xs text-muted-foreground font-medium line-clamp-1">
+                      Hoạt chất: <span className="text-foreground">{p.active_ingredient}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">
+                      Quy cách: Vật tư bảo vệ thực vật
+                    </p>
+                  )}
                 </CardHeader>
 
                 <CardContent className="p-4 pt-1 flex-1 flex flex-col justify-between space-y-3">
@@ -500,11 +555,13 @@ export const StorePage: React.FC = () => {
                   <div className="flex items-center justify-between pt-2 border-t border-border/60">
                     <div>
                       <div className="text-lg font-extrabold text-emerald-800">
-                        {p.price.toLocaleString('vi-VN')} đ
+                        {p.price > 0 ? `${p.price.toLocaleString('vi-VN')} đ` : 'Giá tham khảo'}
                       </div>
                       <div className="text-[11px] text-muted-foreground">
-                        {p.stock_quantity > 0 ? (
-                          <span className="text-emerald-700 font-medium">Còn {p.stock_quantity} chai/gói</span>
+                        {isNotSold ? (
+                          <span className="text-muted-foreground italic">Cửa hàng không bán</span>
+                        ) : p.stock_quantity > 0 ? (
+                          <span className="text-emerald-700 font-medium">Còn {p.stock_quantity} sản phẩm</span>
                         ) : (
                           <span className="text-destructive font-medium">Tạm hết hàng</span>
                         )}
@@ -520,14 +577,29 @@ export const StorePage: React.FC = () => {
                 </CardContent>
 
                 <CardFooter className="p-4 pt-0">
-                  <Button
-                    className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-50"
-                    disabled={p.stock_quantity <= 0}
-                    onClick={() => addToCart(p)}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Thêm vào giỏ</span>
-                  </Button>
+                  {isNotSold ? (
+                    <div className="w-full space-y-1.5">
+                      <Button
+                        variant="outline"
+                        disabled
+                        className="w-full text-xs font-semibold bg-muted/50 text-muted-foreground border-dashed"
+                      >
+                        Cửa hàng không bán
+                      </Button>
+                      <p className="text-[10px] text-muted-foreground italic leading-tight text-center">
+                        Bà con có thể tìm mua tại đại lý vật tư nông nghiệp. Đọc kỹ nhãn trước khi dùng.
+                      </p>
+                    </div>
+                  ) : (
+                    <Button
+                      className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-50"
+                      disabled={p.stock_quantity <= 0}
+                      onClick={() => addToCart(p)}
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Thêm vào giỏ</span>
+                    </Button>
+                  )}
                 </CardFooter>
               </Card>
             );
@@ -538,7 +610,7 @@ export const StorePage: React.FC = () => {
       {/* Cart Drawer (Sheet) */}
       <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
-          <SheetHeader className="p-5 border-b border-border">
+          <SheetHeader className="p-5 pr-16 border-b border-border">
             <SheetTitle className="text-lg font-bold flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-emerald-700" />
               <span>Giỏ hàng Vật tư</span>
@@ -578,25 +650,28 @@ export const StorePage: React.FC = () => {
                   <div className="flex items-center gap-1.5 shrink-0 bg-muted/60 p-1 rounded-md border border-border">
                     <button
                       onClick={() => updateQuantity(item.product.id, -1)}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-card text-foreground"
+                      aria-label="Giảm số lượng"
+                      className="w-9 h-9 flex items-center justify-center rounded hover:bg-card text-foreground"
                     >
-                      <Minus className="w-3 h-3" />
+                      <Minus className="w-4 h-4" />
                     </button>
-                    <span className="w-6 text-center text-xs font-bold">{item.quantity}</span>
+                    <span className="w-7 text-center text-sm font-bold tabular-nums">{item.quantity}</span>
                     <button
                       onClick={() => updateQuantity(item.product.id, 1)}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-card text-foreground"
+                      aria-label="Tăng số lượng"
+                      className="w-9 h-9 flex items-center justify-center rounded hover:bg-card text-foreground"
                     >
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-4 h-4" />
                     </button>
                   </div>
 
                   <button
                     onClick={() => removeFromCart(item.product.id)}
-                    className="text-muted-foreground hover:text-destructive p-1 rounded"
+                    className="w-10 h-10 flex items-center justify-center shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
                     title="Xóa khỏi giỏ"
+                    aria-label={`Xóa ${item.product.name} khỏi giỏ`}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
               ))

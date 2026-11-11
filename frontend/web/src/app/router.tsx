@@ -23,6 +23,7 @@ const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollect
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
 const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
 const ChatPage = React.lazy(() => import('@/pages/ChatPage'));
+const AccountPage = React.lazy(() => import('@/pages/AccountPage'));
 
 // Styleguide (Chỉ nạp và hiển thị trong môi trường DEV)
 import { StyleguidePage } from '@/dev/StyleguidePage';
@@ -84,7 +85,15 @@ export const AppRouter: React.FC = () => {
             </RequireRole>
           }
         />
-        <Route path="/account" element={<Navigate to="/history" replace />} />
+        {/* W-10: Tài khoản (khách thấy lời mời đăng nhập, không bị chuyển hướng) */}
+        <Route
+          path="/account"
+          element={
+            <Suspense fallback={<PageSkeleton variant="detail" />}>
+              <AccountPage />
+            </Suspense>
+          }
+        />
 
         {/* W-04: Trợ lý AI Lavi (Sprint 2 - TASK-A04) */}
         <Route
@@ -156,6 +165,14 @@ export const AppRouter: React.FC = () => {
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
               <AdminDashboard defaultTab="curation" />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/images"
+          element={
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminDashboard defaultTab="images" />
             </Suspense>
           }
         />

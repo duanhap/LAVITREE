@@ -516,6 +516,18 @@ class TestGuardrailRegressions(unittest.TestCase):
         self.assertEqual(pre_filter_medicines([boundary], 7)[0], [], "DaysToHarvest = PhiDays vẫn phải bị chặn")
         self.assertEqual(len(pre_filter_medicines([boundary], 8)[0]), 1)
 
+    def test_farming_supply_without_phi_does_not_block_medicines(self):
+        """TASK-15: thêm một cái lưới (không PHI) không được làm Lavi mất gợi ý thuốc hay bật cảnh báo đỏ."""
+        net = {"name": "Lưới chắn côn trùng", "active_ingredient": None, "phi_days": None, "is_allowed": True,
+               "medicine_type": "Vật tư canh tác", "availability": "NOT_SOLD"}
+        chem = {"name": "Thuốc A", "active_ingredient": "x", "phi_days": 7, "is_allowed": True, "medicine_type": "Hóa học"}
+        kept, violated, _ = pre_filter_medicines([net, chem], 30)
+        self.assertEqual(kept, [net, chem])
+        self.assertFalse(violated)
+        # Thuốc thiếu PHI vẫn bị chặn; khai "vật tư" với tên thuốc cấm vẫn bị chặn
+        self.assertEqual(pre_filter_medicines([dict(chem, phi_days=None)], 30)[0], [])
+        self.assertEqual(pre_filter_medicines([dict(net, name="Paraquat")], 30)[0], [])
+
     def test_post_filter_removes_leftover_dosage(self):
         for bad in ("Bác dùng Ridomil Gold. Pha 50g cho bình 16L rồi phun ngay.",
                     "- Thuốc: Ridomil\n- Liều: 50g cho bình 16L",

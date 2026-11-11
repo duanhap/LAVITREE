@@ -131,17 +131,31 @@ def query_pesticide_store(
 
 def verify_phi_safety(
     harvest_days_left: int,
-    phi_days: int
+    phi_days: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Kiểm tra an toàn thời gian cách ly (Pre-Harvest Interval - PHI).
     Kích hoạt báo động đỏ bảo thủ nếu số ngày còn lại đến kỳ thu hoạch <= thời gian cách ly của thuốc.
+    Với vật tư canh tác (phi_days is None), trả về an toàn với risk_level="NOT_APPLICABLE".
     SSOT: api-contracts.md Mục 4.2
     """
     valid_input = VerifyPhiSafetyInput(
         harvest_days_left=harvest_days_left,
         phi_days=phi_days
     )
+
+    if valid_input.phi_days is None:
+        output = VerifyPhiSafetyOutput(
+            harvest_days_left=valid_input.harvest_days_left,
+            phi_days=None,
+            is_safe=True,
+            risk_level="NOT_APPLICABLE",
+            message=(
+                "KHÔNG ÁP DỤNG: chỉ vật tư canh tác hoặc biện pháp cơ học mới không có thời gian cách ly (PHI). "
+                "Nếu đây là thuốc BVTV thì thiếu PHI, phải đọc PHI trên nhãn và KHÔNG được coi là an toàn."
+            )
+        )
+        return output.model_dump()
 
     # Chốt chặn quy tắc cứng: DaysToHarvest <= PhiDays -> CRITICAL_VIOLATION
     if valid_input.harvest_days_left <= valid_input.phi_days:

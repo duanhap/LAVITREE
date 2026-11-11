@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 logger = logging.getLogger("agent.guardrails")
 
 DRAFT_RECOMMENDATION_TAG = "[DRAFT_RECOMMENDATION]"
+FARMING_SUPPLY_TYPE = "Vật tư canh tác"
 HARVEST_BEFORE_PHI_VIOLATION = "HARVEST_BEFORE_PHI_VIOLATION"
 PHI_WARNING_TITLE = "⛔ NGUY CƠ TỒN DƯ THUỐC BVTV"
 
@@ -171,7 +172,13 @@ def pre_filter_medicines(
             blocked_reasons.append(reason)
             continue
 
-        # 2. Kiểm tra an toàn thời gian cách ly (PHI)
+        # 2. Vật tư canh tác (lưới, bẫy dính...) không phải thuốc, không có PHI (TASK-15 mục 5.5).
+        # So khớp đúng chuỗi loại; thuốc hóa học/sinh học thiếu PHI vẫn bị coi là 999 ngày (fail-closed) ở dưới.
+        if medicine_type == FARMING_SUPPLY_TYPE:
+            filtered.append(med)
+            continue
+
+        # 3. Kiểm tra an toàn thời gian cách ly (PHI)
         # Chỉ chế phẩm sinh học PHI=0 mới dùng được khi không rõ ngày thu hoạch hoặc thu hoạch ngay
         phi_days = 999 if raw_phi_days is None else int(raw_phi_days)
         is_safe_biological = medicine_type.lower() == "sinh học" and phi_days == 0

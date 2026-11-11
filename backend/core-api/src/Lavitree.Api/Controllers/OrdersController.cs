@@ -80,9 +80,16 @@ public class OrdersController : ControllerBase
                     return BadRequest(new { detail = $"Sản phẩm '{product.Name}' hiện không được phép lưu hành hoặc đã bị đình chỉ theo quy định." });
                 }
 
+                // Chốt chặn hàng tham khảo không kinh doanh (Availability == NOT_SOLD)
+                if (string.Equals(product.Availability, "NOT_SOLD", StringComparison.OrdinalIgnoreCase))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return BadRequest(new { detail = $"Sản phẩm '{product.Name}' là mặt hàng tham khảo, cửa hàng không trực tiếp kinh doanh. Bà con vui lòng tìm mua tại đại lý vật tư nông nghiệp địa phương." });
+                }
+
                 // Trừ tồn kho ATOMIC có điều kiện trực tiếp trên CSDL để chống Race Condition (bán âm kho)
                 var affected = await _dbContext.Products
-                    .Where(p => p.Id == item.ProductId && p.IsAllowed && !p.IsDeleted && p.StockQuantity >= item.Quantity)
+                    .Where(p => p.Id == item.ProductId && p.IsAllowed && p.Availability != "NOT_SOLD" && !p.IsDeleted && p.StockQuantity >= item.Quantity)
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(p => p.StockQuantity, p => p.StockQuantity - item.Quantity)
                         .SetProperty(p => p.UpdatedAt, DateTime.UtcNow), cancellationToken);

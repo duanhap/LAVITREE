@@ -697,45 +697,56 @@
 
 ---
 
-### 3.10. `POST /api/v1/knowledge/ingestions` (Nhập bài báo — Bước 1: Dán văn bản, AI đề xuất đoạn trích)
-*Chức năng chính của Kho tri thức (TASK-A03). Admin dán văn bản bài báo; hệ thống **không tự tải URL** (không có rủi ro SSRF, đọc được cả bài PDF/trang dựng bằng JavaScript vì Admin tự copy chữ).*
+### 3.10. `POST /api/v1/knowledge/ingestions` (Nhập bài báo — Bước 1: Dán văn bản, AI đề xuất đoạn trích & tự điền thông tin bài)
+*Chức năng chính của Kho tri thức (TASK-A03, nâng cấp TASK-15). Admin dán văn bản bài báo; hệ thống **không tự tải URL** (không có rủi ro SSRF, đọc được cả bài PDF/trang dựng bằng JavaScript vì Admin tự copy chữ).*
 - **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
 - **Request Body (`application/json`)**:
   ```json
   {
-    "model_class": "Tomato___Late_blight",
     "source_url": "https://khuyennongvn.gov.vn/...",
-    "source_title": "Một số loại bệnh hại trên cây cà chua và biện pháp phòng trừ",
-    "organization": "Trung tâm Khuyến nông Quốc gia",
-    "published_date": "2023",
-    "article_text": "<toàn bộ chữ của bài báo do Admin copy và dán vào>"
+    "article_text": "<toàn bộ chữ của bài báo do Admin copy và dán vào>",
+    "model_class": "Tomato___Late_blight", // Tùy chọn (Optional): nếu Admin đã chọn trước
+    "source_title": "Một số loại bệnh hại trên cây cà chua", // Tùy chọn (Optional)
+    "organization": "Trung tâm Khuyến nông Quốc gia", // Tùy chọn (Optional)
+    "published_date": "2023" // Tùy chọn (Optional)
   }
   ```
 - **Xử lý phía Core API**:
   1. Kiểm tra: `source_url` là `http/https`; `article_text` dài tối đa 50.000 ký tự.
   2. Tách `article_text` thành các đoạn theo dòng trống, bỏ đoạn quá ngắn (< 40 ký tự), đánh số `P1, P2, …` (tối đa 200 đoạn).
-  3. Gọi Agent `POST /internal/knowledge/label-paragraphs` (Mục 4.4) để nhận đề xuất nhãn theo **số đoạn**.
-  4. Lưu tạm danh sách đoạn trong bộ nhớ (`IMemoryCache`, hết hạn 1 giờ) theo `ingestion_id`. **Không ghi toàn văn vào PostgreSQL.**
+  3. Gọi Agent `POST /internal/knowledge/label-paragraphs` (Mục 4.4) để nhận đề xuất nhãn và trích xuất thông tin bài (`metadata`).
+  4. Lưu tạm danh sách đoạn và độ dài bài (`article_length`) trong bộ nhớ (`IMemoryCache`, hết hạn 1 giờ) theo `ingestion_id`. **Không ghi toàn văn vào PostgreSQL.**
 - **Response Body (`200 OK`)**:
   ```json
   {
     "ingestion_id": "ing-5f2c9a",
     "expires_at": "2026-11-03T15:00:00Z",
+    "article_length": 3450,
     "paragraphs": [
       { "id": "P1", "text": "Bệnh sương mai do nấm Phytophthora infestans gây ra...", "suggested_unit_type": "CAUSE_CONDITIONS" },
       { "id": "P2", "text": "Vết bệnh ban đầu là những đốm xanh xám...", "suggested_unit_type": "SYMPTOMS" },
       { "id": "P3", "text": "Liên hệ tòa soạn...", "suggested_unit_type": null }
     ],
+    "suggested_metadata": {
+      "model_class": "Tomato___Late_blight",
+      "source_title": "Kỹ thuật phòng trừ bệnh mốc sương trên cà chua vụ đông",
+      "organization": "Trung tâm Khuyến nông Quốc gia",
+      "published_date": "2023"
+    },
     "ai_suggestion_available": true
   }
   ```
-  - Agent lỗi, trả `503` hoặc không phản hồi (Mục 4.4) → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn và `ai_suggestion_available: false`; Admin tự gán nhãn.
+  - Agent lỗi, trả `503` hoặc không phản hồi (Mục 4.4) → vẫn trả `200` với `suggested_unit_type: null` cho mọi đoạn, `suggested_metadata: null` và `ai_suggestion_available: false`; Admin tự điền thông tin và gán nhãn.
 
-### 3.11. `POST /api/v1/knowledge/ingestions/{ingestion_id}/commit` (Nhập bài báo — Bước 2: Admin tick chọn đoạn = Duyệt)
+### 3.11. `POST /api/v1/knowledge/ingestions/{ingestion_id}/commit` (Nhập bài báo — Bước 2: Admin duyệt thông tin & tick chọn đoạn = Duyệt)
 - **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
 - **Request Body (`application/json`)**:
   ```json
   {
+    "model_class": "Tomato___Late_blight",
+    "source_title": "Kỹ thuật phòng trừ bệnh mốc sương trên cà chua vụ đông",
+    "organization": "Trung tâm Khuyến nông Quốc gia",
+    "published_date": "2023",
     "selections": [
       { "paragraph_id": "P2", "unit_type": "SYMPTOMS" },
       { "paragraph_id": "P1", "unit_type": "CAUSE_CONDITIONS" }
@@ -746,7 +757,10 @@
   - Client chỉ gửi **số đoạn**, không gửi chữ. Core tự lấy chữ từ bản lưu tạm theo `ingestion_id`, nên đoạn được lưu **chắc chắn là nguyên văn**.
 - **Quy tắc kiểm tra (Core API)**:
   - `unit_type` thuộc: `SYMPTOMS` | `CAUSE_CONDITIONS` | `PREVENTION` | `TREATMENT` (`SUMMARY` chỉ dành cho dữ liệu cũ, không chọn được ở đây).
-  - **Tối đa 4 đoạn nguyên văn cho mỗi `source_url`** (tính cả các đoạn đã lưu trước đó). Mỗi đoạn dài tối đa 800 ký tự. Vượt giới hạn → `400`.
+  - **Giới hạn trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT)**:
+    - Trần cứng tối đa **8 đoạn nguyên văn** cho mỗi `source_url` (nâng từ 4 lên 8).
+    - Tổng số ký tự các đoạn trích dẫn của URL $\le \max(1.200\text{ ký tự},\ 30\% \times \text{Độ dài bài báo})$.
+    - Mỗi đoạn dài tối đa 800 ký tự. Vượt giới hạn → `400 Bad Request`.
   - Đoạn trùng chữ với một đoạn đã lưu của cùng `source_url` → bỏ qua, không lưu lần hai.
   - `ingestion_id` hết hạn → `410 Gone` (Admin dán lại bài).
 - **Kết quả**: Mỗi đoạn được tick → 1 dòng `KnowledgeSources` với `EvidenceText` = chữ của đoạn, `UnitType` = nhãn đã chọn, `IsVerbatim = true`, `IsManualApproved = true` (**tick chọn chính là duyệt**). Sau đó Core gọi `POST /internal/reindex` (Mục 4.3).
@@ -774,6 +788,180 @@
     "is_indexing": false,
     "last_indexed_at": "2026-11-08T08:15:00Z",
     "indexed_count": 112
+  }
+  ```
+
+---
+
+### 3.12. Quản lý Ảnh Triệu chứng Bệnh Cây Thực địa (`KnowledgeImages` — Task-15 Phase 2)
+
+#### 3.12.1. `GET /api/v1/knowledge/images` (Lấy danh sách ảnh triệu chứng)
+- **Truy cập**: Public (người dùng thường chỉ xem ảnh đã duyệt `is_manual_approved = true`), Admin xem toàn bộ và lọc theo trạng thái duyệt.
+- **Query Parameters**:
+  - `model_class` (string, optional): Lọc theo mã lớp bệnh (vd: `Tomato___Late_blight`).
+  - `plant_part` (string, optional): Lọc theo bộ phận cây (`LEAF`, `FRUIT`, `STEM`, `WHOLE_PLANT`).
+  - `is_approved` (bool, optional): Lọc trạng thái duyệt (chỉ admin có quyền truyền `false`).
+  - `search` (string, optional): Tìm kiếm từ khóa theo chú thích, tác giả, bài viết gốc.
+- **Response Body (`200 OK`)**:
+  ```json
+  [
+    {
+      "id": 1,
+      "model_class": "Tomato___Late_blight",
+      "plant_name": "Cà chua",
+      "disease_name": "Bệnh mốc sương",
+      "source_url": "https://khuyennongvn.gov.vn/benh-moc-suong-ca-chua",
+      "image_url": "https://minio.lavitree.internal/lavitree-images/knowledge-images/abc123_leaf.jpg",
+      "storage_key": "knowledge-images/abc123_leaf.jpg",
+      "caption": "Vết đốm úng nước màu nâu xám xuất hiện ở rìa lá cà chua, mặt dưới có mốc trắng",
+      "plant_part": "LEAF",
+      "credit": "Trung tâm Khuyến nông Quốc gia",
+      "license_note": "Trích dẫn phi thương mại phục vụ học thuật và khuyến nông",
+      "is_manual_approved": true,
+      "created_at": "2026-11-11T07:30:00Z"
+    }
+  ]
+  ```
+
+#### 3.12.2. `POST /api/v1/knowledge/images` (Admin thêm ảnh triệu chứng mới)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Content-Type**: `multipart/form-data`
+- **Form Fields**:
+  - `ModelClass` (string, required): 1 trong 38 mã lớp mô hình.
+  - `SourceUrl` (string, required): URL bài viết khuyến nông gốc (bắt đầu bằng `http://` hoặc `https://`).
+  - `Caption` (string, required, ≤ 300 ký tự): Mô tả triệu chứng lâm sàng thể hiện trong ảnh.
+  - `PlantPart` (string, required): `LEAF` | `FRUIT` | `STEM` | `WHOLE_PLANT`.
+  - `Credit` (string, required, ≤ 200 ký tự): Tác giả / cơ quan sở hữu bản quyền ảnh.
+  - `LicenseNote` (string, optional, ≤ 200 ký tự): Ghi chú giấy phép sử dụng.
+  - `IsManualApproved` (bool, optional, default: `true`): Duyệt ngay để hiển thị trong Sổ tay.
+  - `File` (file, optional nếu có `ImageUrl`): Tệp ảnh tải lên (.jpg, .jpeg, .png, .webp ≤ 10MB). Tự động xóa EXIF/GPS qua `ImageMetadataStripper` và lưu vào MinIO bucket `lavitree-images`.
+  - `ImageUrl` (string, optional nếu có `File`): URL ảnh trực tiếp ngoài (bắt buộc giao thức `https://`).
+- **Response Body (`201 Created`)**: Trả về `KnowledgeImageDto` tương ứng.
+
+#### 3.12.3. `PATCH /api/v1/knowledge/images/{id}/approve` (Admin duyệt / bỏ duyệt ảnh)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "is_approved": true
+  }
+  ```
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "id": 1,
+    "is_manual_approved": true,
+    "message": "Đã cập nhật trạng thái duyệt ảnh triệu chứng."
+  }
+  ```
+
+#### 3.12.4. `DELETE /api/v1/knowledge/images/{id}` (Admin gỡ ảnh triệu chứng)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "id": 1,
+    "message": "Đã gỡ ảnh triệu chứng thành công."
+  }
+  ```
+
+---
+
+### 3.13. Quản lý Gợi ý Vật tư & Hoạt chất từ Tri thức (`ProductSuggestions` — Task-15 Phase 3)
+
+#### 3.13.1. `GET /api/v1/knowledge/product-suggestions` (Lấy danh sách gợi ý vật tư)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Query Parameters**:
+  - `status` (string, optional): `PENDING` | `ADDED` | `LINKED` | `DISMISSED` | `ALL` (mặc định: `ALL`).
+  - `model_class` (string, optional): Lọc theo mã lớp bệnh.
+  - `kind` (string, optional): `CHEMICAL` | `BIOLOGICAL` | `SUPPLY` | `PRACTICE`.
+  - `search` (string, optional): Tìm theo tên vật tư, hoạt chất, tên bệnh.
+- **Response Body (`200 OK`)**:
+  ```json
+  [
+    {
+      "id": 1,
+      "knowledge_source_id": "c1f7a83b-9a2e-4b6a-81a1-8d4e9f123456",
+      "model_class": "Tomato___Late_blight",
+      "plant_name": "Cà chua",
+      "disease_name": "Bệnh mốc sương",
+      "mention_text": "Ridomil Gold 68WG",
+      "kind": "CHEMICAL",
+      "status": "LINKED",
+      "product_id": 1,
+      "product_name": "Ridomil Gold 68WG",
+      "evidence_text": "Phun luân phiên Ridomil Gold 68WG để ngăn chặn nấm mốc sương phát triển lây lan...",
+      "source_url": "https://khuyennongvn.gov.vn/benh-moc-suong-ca-chua",
+      "source_title": "Kỹ thuật phòng trừ bệnh mốc sương",
+      "created_at": "2026-11-11T08:00:00Z",
+      "resolved_at": "2026-11-11T08:05:00Z"
+    }
+  ]
+  ```
+
+#### 3.13.2. `POST /api/v1/knowledge/product-suggestions/{id}/link` (Gắn gợi ý vào sản phẩm có sẵn)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Hành vi**: Đây là **chỗ duy nhất** tạo `DiseaseProducts` từ gợi ý. Lúc commit bài báo, Core chỉ lưu gợi ý `PENDING`; nếu cụm từ trùng **hoạt chất** của sản phẩm trong kho thì ghi sẵn `product_id` để Admin bấm xác nhận (AI chỉ gợi ý, Admin quyết định). Gợi ý đã `DISMISSED` không được tạo lại với cùng cụm từ và cùng bệnh.
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "product_id": 1
+  }
+  ```
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "message": "Đã gắn gợi ý 'Metalaxyl' với sản phẩm 'Ridomil Gold 68WG' thành công."
+  }
+  ```
+
+#### 3.13.3. `POST /api/v1/knowledge/product-suggestions/{id}/dismiss` (Bỏ qua gợi ý)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "message": "Đã bỏ qua gợi ý 'Metalaxyl'."
+  }
+  ```
+
+#### 3.13.4. `POST /api/v1/medicines` (Admin thêm thuốc / vật tư nông nghiệp mới)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Quy chuẩn An toàn**:
+  - Đối chiếu với danh sách `BANNED_INGREDIENTS` của `backend/agent-service/app/agent/guardrails.py` (8 hoạt chất: `paraquat`, `2,4-d`, `chlorpyrifos`, `carbofuran`, `glyphosate`, `monocrotophos`, `methamidophos`, `endosulfan`, kèm các cách viết khác và tên thương phẩm `gramoxone`; chưa đối chiếu từng dòng với phụ lục TT 75/2025, xem BUG-93), quét cả tên và hoạt chất với mọi loại sản phẩm. Trùng thì trả `400`, không tạo sản phẩm; `PATCH` cũng không bật được `is_allowed`.
+  - Thuốc (`Hóa học`, `Sinh học`) bắt buộc có `phi_days` (0–365) và `info_source_url` (http/https, nơi tra PHI và liều). CSDL có CHECK `CK_Products_PhiDays_RequiredForMedicine`.
+  - `medicine_type` chỉ nhận `Hóa học` | `Sinh học` | `Vật tư canh tác`; `availability` chỉ nhận `IN_STOCK` | `OUT_OF_STOCK` | `NOT_SOLD` (CHECK `CK_Products_Availability`).
+  - `is_allowed` mặc định `false`: Admin phải tick "Đã đối chiếu Danh mục thuốc BVTV được phép" mới bật.
+  - Nếu `MedicineType = 'Vật tư canh tác'`: Không yêu cầu `PhiDays` (cho phép `null`), không bắt buộc `ActiveIngredient`.
+  - Hỗ trợ gắn `SuggestionId`: Nếu truyền `suggestion_id`, gợi ý tương ứng sẽ tự động chuyển sang trạng thái `ADDED`.
+- **Request Body (`application/json`)**:
+  ```json
+  {
+    "name": "Bẫy dính màu vàng Pheromone",
+    "medicine_type": "Vật tư canh tác",
+    "active_ingredient": null,
+    "price": 35000,
+    "dosage_instruction": "Treo 20 bẫy/1000m2 ở độ cao cách ngọn cây 15-20cm",
+    "phi_days": null,
+    "stock_quantity": 100,
+    "availability": "IN_STOCK",
+    "info_source_url": "https://khuyennongvn.gov.vn/ky-thuat-dat-bay-dinh",
+    "target_disease_code": "Tomato___Late_blight",
+    "is_allowed": true,
+    "suggestion_id": 2
+  }
+  ```
+- **Response Body (`201 Created`)**:
+  ```json
+  {
+    "id": 15,
+    "name": "Bẫy dính màu vàng Pheromone",
+    "active_ingredient": null,
+    "medicine_type": "Vật tư canh tác",
+    "price": 35000,
+    "phi_days": null,
+    "availability": "IN_STOCK",
+    "is_allowed": true,
+    "stock_quantity": 100
   }
   ```
 
@@ -944,14 +1132,14 @@
 
 ---
 
-### 4.4. `POST /internal/knowledge/label-paragraphs` (AI gợi ý nhãn cho từng đoạn bài báo — Nội bộ)
-*Core API gọi khi Admin nhập bài báo (Mục 3.10). Agent chỉ trả về **số đoạn + nhãn**, không viết ra chữ nào, nên không thể bịa đoạn trích. Không đọc / ghi PostgreSQL.*
+### 4.4. `POST /internal/knowledge/label-paragraphs` (AI gợi ý nhãn và trích xuất thông tin bài báo — Nội bộ)
+*Core API gọi khi Admin nhập bài báo (Mục 3.10). Agent trả về **số đoạn + nhãn** và **thông tin bài đề xuất (`metadata`)**, không viết ra chữ đoạn trích nào, nên không thể bịa đoạn trích. Không đọc / ghi PostgreSQL.*
 - **Network Scope & Headers**: giống Mục 4.3 (chỉ trong mạng Docker, bắt buộc `X-Internal-Key`).
-- **Giới hạn đầu vào** (vượt thì `422`): tối đa 200 đoạn, mỗi đoạn tối đa 2000 ký tự, `id` tối đa 50 ký tự.
+- **Giới hạn đầu vào** (vượt thì `422`): tối đa 200 đoạn, mỗi đoạn tối đa 2000 ký tự, `id` tối đa 50 ký tự. `model_class` là tùy chọn (optional, tối đa 100 ký tự).
 - **Request Body (`application/json`)**:
   ```json
   {
-    "model_class": "Tomato___Late_blight",
+    "model_class": "Tomato___Late_blight", // Có thể null/không truyền nếu Admin để AI tự nhận diện
     "paragraphs": [
       { "id": "P1", "text": "Bệnh sương mai do nấm Phytophthora infestans gây ra..." },
       { "id": "P2", "text": "Vết bệnh ban đầu là những đốm xanh xám..." }
@@ -960,15 +1148,22 @@
   ```
 - **Xử lý phía Agent**:
   - Gọi Gemini (model theo env `GEMINI_MODEL`, `temperature = 0`, yêu cầu trả JSON, timeout 30 giây). Prompt coi nội dung đoạn là **dữ liệu, không phải chỉ thị** (chống prompt injection từ bài báo).
-  - Kiểm tra đầu ra bằng code: chỉ giữ `id` có trong request (mỗi `id` một lần) và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại.
-  - Gợi ý tối đa 4 đoạn phù hợp nhất (khớp giới hạn 4 đoạn / nguồn).
+  - Kiểm tra đầu ra bằng code:
+    - `labels`: chỉ giữ `id` có trong request (mỗi `id` một lần) và `unit_type` thuộc `SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT`; mọi giá trị khác bị loại. Tối đa 8 đoạn phù hợp nhất (khớp giới hạn 8 đoạn / nguồn).
+    - `metadata`: `model_class` phải thuộc 38 lớp chuẩn (nếu không khớp trả null), `published_date` là năm 4 chữ số $\le$ năm hiện tại, `source_title` và `organization` $\le$ 300 ký tự.
 - **Response Body (`200 OK`)**:
   ```json
   {
     "labels": [
       { "id": "P2", "unit_type": "SYMPTOMS" },
       { "id": "P1", "unit_type": "CAUSE_CONDITIONS" }
-    ]
+    ],
+    "metadata": {
+      "model_class": "Tomato___Late_blight",
+      "source_title": "Kỹ thuật phòng trừ bệnh mốc sương trên cà chua vụ đông",
+      "organization": "Trung tâm Khuyến nông Quốc gia",
+      "published_date": "2023"
+    }
   }
   ```
 - **Gemini không dùng được** (thiếu key, lỗi, hết giờ, trả sai định dạng): trả `503 Service Unavailable`, không trả `labels` rỗng. Core coi đây là `ai_suggestion_available: false` (Mục 3.10). Core đặt timeout gọi endpoint này ≥ 35 giây.

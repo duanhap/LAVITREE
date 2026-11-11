@@ -5,6 +5,7 @@ import { sanitizeInternalRedirect } from '@/lib/safe-redirect';
 import { getErrorMessage, getValidationErrors } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -176,9 +177,8 @@ export const RegisterPage: React.FC = () => {
               <Label htmlFor="password" className="text-sm font-medium text-foreground">
                 Mật khẩu <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 placeholder="Tối thiểu 8 ký tự"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -198,9 +198,8 @@ export const RegisterPage: React.FC = () => {
               <Label htmlFor="confirmPassword" className="text-sm font-medium text-foreground">
                 Xác nhận mật khẩu <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <PasswordInput
                 id="confirmPassword"
-                type="password"
                 placeholder="Nhập lại mật khẩu trên"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
