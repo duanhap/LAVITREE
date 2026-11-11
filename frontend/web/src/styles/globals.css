@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/*
+ * Lavitree chưa có giao diện tối. Mặc định Tailwind v4 bật `dark:` theo chế độ tối của hệ điều hành,
+ * làm chữ sáng màu hiện trên nền trắng (không đọc được). Chỉ bật `dark:` khi có class `.dark`.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     /* Nền & Chữ chính - SSOT: ui-ux.md mục 2 */

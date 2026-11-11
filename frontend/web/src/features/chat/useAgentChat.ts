@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { ChatMessage, ChatContextParams, TraceStep } from './types';
+import apiClient from '@/lib/api-client';
 
 export interface UseAgentChatOptions {
   initialDiseaseCode?: string | null;
@@ -15,7 +16,8 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
 
   // Lưu trữ ngữ cảnh canh tác nông nghiệp
   const [contextParams, setContextParams] = useState<ChatContextParams>({
-    location: options.initialLocation || 'Hà Nam',
+    // Không đặt địa phương mặc định: người dùng chưa nhập thì Agent không tự kiểm tra thời tiết nơi khác
+    location: options.initialLocation || '',
     harvest_days_left: null,
     current_disease_code: options.initialDiseaseCode || null,
   });
@@ -115,7 +117,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         const payload = {
           message: trimmed,
           conversation_id: conversationId || undefined,
-          location: mergedParams.location || 'Hà Nam',
+          location: mergedParams.location?.trim() || null,
           harvest_days_left: mergedParams.harvest_days_left ?? null,
           current_disease_code: mergedParams.current_disease_code || null,
         };
@@ -144,8 +146,26 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           }
 
           if (response.status === 401) {
-            window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+            // Core API mới là nơi quyết định phiên đăng nhập. Agent từ chối token có thể do Agent
+            // cấu hình sai khóa JWT; không được vì thế mà đăng xuất người dùng.
+            // Hỏi lại Core: nếu Core cũng trả 401 thì interceptor của apiClient tự đăng xuất.
+            let coreAcceptsToken = false;
+            try {
+              await apiClient.get('/auth/me');
+              coreAcceptsToken = true;
+            } catch {
+              coreAcceptsToken = false;
+            }
+            if (coreAcceptsToken) {
+              throw new Error(
+                'Trợ lý Lavi chưa xác thực được tài khoản của bạn (lỗi cấu hình máy chủ). Bạn vẫn đang đăng nhập; vui lòng thử lại sau.'
+              );
+            }
             throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+          }
+
+          if (response.status === 503) {
+            throw new Error(errDetail || 'Trợ lý Lavi tạm thời chưa sẵn sàng. Vui lòng thử lại sau.');
           }
 
           if (response.status === 429) {

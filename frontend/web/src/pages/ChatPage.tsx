@@ -32,6 +32,15 @@ import laviAvatarImg from '@/assets/brand/lavi-avatar-192.webp';
 import lavi3dImg from '@/assets/brand/lavi-3d-happy-720.webp';
 
 const SESSIONS_STORAGE_KEY = 'lavitree_chat_sessions_v2';
+const LOCATION_STORAGE_KEY = 'lavitree_garden_location';
+
+function readSavedLocation(): string {
+  try {
+    return localStorage.getItem(LOCATION_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
 
 export const ChatPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -72,12 +81,14 @@ export const ChatPage: React.FC = () => {
     loadSession,
   } = useAgentChat({
     initialDiseaseCode: classCodeParam,
-    initialLocation: 'Hà Nam',
+    initialLocation: readSavedLocation(),
   });
 
   const [inputMessage, setInputMessage] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Chỉ tự cuộn theo câu trả lời khi người dùng đang ở cuối khung; kéo lên đọc lại thì không bị giật xuống
+  const stickToBottomRef = useRef(true);
 
   // Tự động lưu sessions vào localStorage khi có thay đổi
   useEffect(() => {
@@ -158,10 +169,33 @@ export const ChatPage: React.FC = () => {
     }
   }, [classCodeParam, setContextParams]);
 
-  // Tự động cuộn xuống đáy khi có tin nhắn mới hoặc streaming token
+  // Nhớ địa phương người dùng đã nhập cho lần sau
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    try {
+      localStorage.setItem(LOCATION_STORAGE_KEY, contextParams.location || '');
+    } catch {
+      // ignore
+    }
+  }, [contextParams.location]);
+
+  // Cuộn riêng khung tin nhắn (scrollIntoView sẽ cuộn cả trang, làm trôi thanh điều hướng)
+  useEffect(() => {
+    const el = scrollAreaRef.current;
+    if (el && stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages, isStreaming]);
+
+  const handleScroll = () => {
+    const el = scrollAreaRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
+
+  const focusInput = () => {
+    // Đợi React vẽ xong rồi mới đặt lại con trỏ vào ô nhập
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   // Hành động: Bắt đầu một đoạn chat mới (New Chat - ChatGPT / Messenger style)
   const handleNewChat = useCallback(() => {
@@ -216,11 +250,13 @@ export const ChatPage: React.FC = () => {
 
   const handleSend = () => {
     if (!inputMessage.trim() || isStreaming) return;
+    stickToBottomRef.current = true;
     sendMessage(inputMessage);
     setInputMessage('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+    focusInput();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -232,21 +268,28 @@ export const ChatPage: React.FC = () => {
 
   const handleQuickQuestion = (question: string) => {
     if (isStreaming) return;
+    stickToBottomRef.current = true;
     sendMessage(question);
+    focusInput();
   };
 
+  // Câu hỏi gợi ý không gắn địa danh hay tên thuốc cụ thể; câu thời tiết chỉ hiện khi người dùng đã nhập địa phương
+  const location = (contextParams.location || '').trim();
+  const weatherQuestion = location
+    ? `Hôm nay ở ${location} có mưa không, tôi phun thuốc được không?`
+    : 'Làm sao để thuốc không bị mưa rửa trôi sau khi phun?';
   const quickQuestions = diseaseNameVi
     ? [
-        `Cây đang bị ${diseaseNameVi}, nguyên nhân do nấm hay vi khuẩn?`,
-        `Thời tiết hôm nay tại ${contextParams.location} có mưa không, tôi có thể phun thuốc được không?`,
-        `Nếu vườn chỉ còn 3 ngày nữa thu hoạch thì xử lý ${diseaseNameVi} như thế nào an toàn?`,
-        `Có chế phẩm sinh học đối kháng nào trị được bệnh này không?`,
+        `Bệnh ${diseaseNameVi} do nấm hay vi khuẩn gây ra, lây lan thế nào?`,
+        `Xử lý ${diseaseNameVi} thế nào khi còn ít ngày nữa là thu hoạch?`,
+        `Có chế phẩm sinh học nào dùng được cho bệnh ${diseaseNameVi} không?`,
+        weatherQuestion,
       ]
     : [
-        `Thời tiết hôm nay tại ${contextParams.location} có nguy cơ mưa rửa trôi thuốc BVTV không?`,
-        `Cách phân biệt bệnh mốc sương và đốm lá thán thư trên cây cà chua?`,
-        `Thuốc Ridomil Gold có thời gian cách ly (PHI) bao nhiêu ngày?`,
-        `Cần lưu ý gì khi phun thuốc bảo vệ thực vật để không kháng thuốc?`,
+        'Lá cà chua có đốm nâu, viền vàng là bị bệnh gì?',
+        'Phân biệt bệnh sương mai và bệnh đốm vòng trên cà chua thế nào?',
+        'Trước khi thu hoạch bao lâu thì phải ngưng phun thuốc?',
+        weatherQuestion,
       ];
 
   return (
@@ -475,7 +518,7 @@ export const ChatPage: React.FC = () => {
                   onChange={e =>
                     setContextParams(prev => ({ ...prev, location: e.target.value.slice(0, 120) }))
                   }
-                  placeholder="VD: Hà Nam, Lâm Đồng, Sơn La..."
+                  placeholder="VD: Đức Trọng, Lâm Đồng"
                   className="h-8 text-xs bg-background"
                 />
               </div>
@@ -518,14 +561,18 @@ export const ChatPage: React.FC = () => {
         )}
 
         {/* Khu vực Tin nhắn (Cuộn tự do, căn giữa tối ưu tầm nhìn như ChatGPT / Messenger) */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
+        <div
+          ref={scrollAreaRef}
+          onScroll={handleScroll}
+          className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6"
+        >
           <div className="max-w-3xl sm:max-w-4xl mx-auto w-full space-y-6">
             {messages.length === 0 ? (
-              <div className="py-8 sm:py-12 flex flex-col items-center justify-center text-center space-y-6">
+              <div className="py-2 sm:py-6 flex flex-col items-center justify-center text-center space-y-4">
                 <img
                   src={lavi3dImg}
-                  alt="Lavi 3D Mascot"
-                  className="w-32 sm:w-36 drop-shadow-md motion-safe:animate-[lavi-float_5s_ease-in-out_infinite]"
+                  alt=""
+                  className="w-24 sm:w-28 drop-shadow-md motion-safe:animate-[lavi-float_5s_ease-in-out_infinite]"
                 />
 
                 <div className="max-w-md space-y-2">
@@ -538,7 +585,7 @@ export const ChatPage: React.FC = () => {
                 </div>
 
                 {/* 4 Câu hỏi gợi ý nhanh — màu sắc Card sáng rõ, không bị khối đen cụt lủn */}
-                <div className="w-full max-w-2xl space-y-2.5 text-left pt-2">
+                <div className="w-full max-w-2xl space-y-2.5 text-left">
                   <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5 px-1">
                     <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Câu hỏi gợi ý bà con có thể hỏi ngay:</span>
@@ -564,7 +611,6 @@ export const ChatPage: React.FC = () => {
             ) : (
               messages.map(msg => <ChatMessageItem key={msg.id} message={msg} />)
             )}
-            <div ref={messagesEndRef} />
           </div>
         </div>
 
@@ -587,11 +633,11 @@ export const ChatPage: React.FC = () => {
                   onKeyDown={handleKeyDown}
                   placeholder={
                     isStreaming
-                      ? 'Trợ lý Lavi đang suy nghĩ và tra cứu câu trả lời...'
-                      : 'Nhập câu hỏi về tình trạng bệnh, thời tiết hoặc liều lượng thuốc (Enter để gửi)...'
+                      ? 'Lavi đang trả lời… bạn cứ gõ câu tiếp theo'
+                      : 'Hỏi Lavi về bệnh cây, thời tiết hoặc thuốc (Enter để gửi, Shift+Enter xuống dòng)'
                   }
-                  disabled={isStreaming}
                   maxLength={2000}
+                  aria-label="Câu hỏi cho Lavi"
                   className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden px-2.5 py-1.5 max-h-36 leading-relaxed"
                 />
 

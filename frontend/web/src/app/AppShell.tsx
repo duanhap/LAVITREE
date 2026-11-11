@@ -51,10 +51,17 @@ export const AppShell: React.FC = () => {
     navigate('/login');
   };
 
+  const isChatRoute = location.pathname.startsWith('/chat');
+
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary">
+    <div
+      className={cn(
+        'flex flex-col bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary',
+        isChatRoute ? 'h-dvh overflow-hidden' : 'min-h-screen'
+      )}
+    >
       {/* ================= DESKTOP HEADER (>= 768px) ================= */}
-      <header className="sticky top-0 z-40 w-full border-b border-border bg-card/90 backdrop-blur-md">
+      <header className="sticky top-0 z-40 w-full shrink-0 border-b border-border bg-card/90 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           {/* Logo & Brand */}
           <Link
@@ -195,8 +202,8 @@ export const AppShell: React.FC = () => {
       <main
         className={cn(
           "flex-1 w-full",
-          location.pathname.startsWith('/chat')
-            ? "h-[calc(100vh-4rem)] p-0 m-0 max-w-none overflow-hidden pb-16 md:pb-0"
+          isChatRoute
+            ? "flex-1 min-h-0 p-0 m-0 max-w-none overflow-hidden pb-16 md:pb-0"
             : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8"
         )}
       >

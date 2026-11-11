@@ -26,6 +26,10 @@ services:
       - CORE_API_URL=http://core-api:8080
       - AGENT_DB_URL=${AGENT_DB_URL:?AGENT_DB_URL must be set (read-only DB user)}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
+      # Agent tự xác thực JWT do Core phát hành (fail-closed): phải dùng đúng khóa, issuer, audience của Core
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
+      - JWT_ISSUER=${JWT_ISSUER:-LavitreeCoreApi}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-LavitreeClients}
     depends_on:
       - postgres
     ports:
