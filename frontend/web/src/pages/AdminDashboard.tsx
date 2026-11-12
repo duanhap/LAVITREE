@@ -162,12 +162,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [diseases, setDiseases] = useState<DiseaseOption[]>([]);
 
   // ==================== TAB 1: NHẬP BÀI BÁO (HITL INGESTION) ====================
-  const [ingestClass, setIngestClass] = useState<string>('Tomato___Late_blight');
-  const [selectedPlant, setSelectedPlant] = useState<string>('Cà chua');
+  // Mục 3 là "Tùy chọn - để AI tự đoán": không chọn sẵn cây/bệnh
+  const [ingestClass, setIngestClass] = useState<string>('');
+  // true khi cây/bệnh do AI đoán từ bài trước: bài mới phải đoán lại, không mang theo
+  const [classFromAi, setClassFromAi] = useState<boolean>(false);
+  const [selectedPlant, setSelectedPlant] = useState<string>('');
   const [ingestUrl, setIngestUrl] = useState<string>('');
   const [ingestTitle, setIngestTitle] = useState<string>('');
   const [ingestOrg, setIngestOrg] = useState<string>('');
-  const [ingestDate, setIngestDate] = useState<string>('2024');
+  const [ingestDate, setIngestDate] = useState<string>('');
   const [ingestText, setIngestText] = useState<string>('');
   const [ingesting, setIngesting] = useState<boolean>(false);
   const [ingestionResult, setIngestionResult] = useState<IngestionResponse | null>(null);
@@ -274,15 +277,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         const res = await apiClient.get('/diseases');
         const list: DiseaseOption[] = res.data || [];
         setDiseases(list);
-        if (list.length > 0) {
-          const match = list.find((d) => d.classCode === ingestClass);
-          if (match) {
-            setSelectedPlant(match.plantName);
-          } else {
-            setSelectedPlant(list[0].plantName);
-            setIngestClass(list[0].classCode);
-          }
-        }
+        // Không tự chọn bệnh đầu danh sách (trước đây luôn ra "Táo") để AI tự nhận diện
       } catch {
         // fallback
       }
@@ -306,9 +301,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
   const handlePlantChange = (plant: string) => {
     setSelectedPlant(plant);
-    const matching = diseases.filter((d) => d.plantName === plant);
-    if (matching.length > 0) {
-      setIngestClass(matching[0].classCode);
+    setClassFromAi(false);
+    // Đổi cây thì bỏ bệnh không thuộc cây đó; không tự đoán bệnh đầu danh sách
+    const current = diseases.find((d) => d.classCode === ingestClass);
+    if (!current || current.plantName !== plant) {
+      setIngestClass('');
     }
   };
 
@@ -363,8 +360,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         if (/^(chia sẻ|bình luận|tin liên quan|xem thêm|bài viết liên quan|từ khóa|tag|hotline|liên hệ|quảng cáo)\b/i.test(text)) return true;
         if (/^(điện thoại|sđt|hotline|email|fax):\s*[\d\s.\-]+$/i.test(text)) return true;
         if (/^(facebook|zalo|twitter|youtube|in)\b/i.test(lower)) return true;
+        // Hotline/quảng cáo: có số điện thoại đi kèm từ khóa liên hệ, hoặc dòng footer quen thuộc
+        const hasPhone = /(\+84|\b0)\d{2,3}[\s.-]?\d{3}[\s.-]?\d{3,4}\b/.test(text);
+        if (text.length <= 300 && hasPhone && /hotline|zalo|liên hệ|tư vấn|đặt hàng|mua hàng|gọi/i.test(text)) return true;
+        if (/^bạn đang đọc bài viết|^đăng ký nhận bản tin/i.test(text)) return true;
         return false;
       };
+
+      // Dòng ngắn chỉ giữ khi là tiêu đề mục ("Biện pháp hóa học:", "4. Biện pháp quản lý");
+      // Core sẽ ghép tiêu đề mục vào đoạn ngay sau để không mất ngữ cảnh
+      const isHeading = (el: Element | null, text: string): boolean =>
+        (!!el && /^H[1-6]$/.test(el.tagName)) ||
+        /:\s*$/.test(text) ||
+        /^(\d+|[IVX]+|[a-zđ])[.)]\s+\S/i.test(text);
+      const keep = (el: Element | null, text: string): boolean =>
+        !isNoise(text) && (text.length >= 30 || (text.length >= 3 && isHeading(el, text)));
 
       const mainEl = doc.querySelector('article') ||
                      doc.querySelector('[role="main"]') ||
@@ -378,21 +388,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       if (!mainEl) return '';
 
       const lines: string[] = [];
+      const seen = new Set<string>();
+      const push = (t: string) => {
+        const norm = t.replace(/\s+/g, ' ').trim();
+        if (!norm || seen.has(norm)) return; // footer lặp 2 lần, li lồng p...
+        seen.add(norm);
+        lines.push(norm);
+      };
+
+      // Tiêu đề bài và ngày đăng thường nằm ngoài <article>: giữ lại để AI điền metadata
+      const titleText = (doc.querySelector('h1')?.textContent || '').trim();
+      if (titleText && !isNoise(titleText)) push(titleText);
+      const dateEl = doc.querySelector('time, .date, .post-date, .publish-date, .detail-time');
+      const dateText = (dateEl?.getAttribute('datetime') || dateEl?.textContent || '').trim();
+      if (dateText && dateText.length <= 80) push(`Ngày đăng: ${dateText}`);
+
       const blocks = mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
       if (blocks.length > 0) {
         blocks.forEach((b) => {
           const t = (b.textContent || '').trim();
-          if (!isNoise(t) && t.length >= 30) {
-            lines.push(t);
-          }
+          if (keep(b, t)) push(t);
         });
       } else {
-        const raw = (mainEl.textContent || '').split(/\r?\n/);
-        raw.forEach((r) => {
+        (mainEl.textContent || '').split(/\r?\n/).forEach((r) => {
           const t = r.trim();
-          if (!isNoise(t) && t.length >= 30) {
-            lines.push(t);
-          }
+          if (keep(null, t)) push(t);
         });
       }
 
@@ -402,7 +422,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  const resetArticleState = () => {
+    setIngestionResult(null);
+    setSelectedParagraphs({});
+    setIngestTitle('');
+    setIngestOrg('');
+    setIngestDate('');
+    if (classFromAi) {
+      setIngestClass('');
+      setSelectedPlant('');
+      setClassFromAi(false);
+    }
+  };
+
   const handlePasteArticleText = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    resetArticleState();
     const htmlData = e.clipboardData.getData('text/html');
     if (htmlData && htmlData.length > 100) {
       const cleaned = cleanArticleTextFromHtml(htmlData);
@@ -430,27 +464,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const res = await apiClient.post<IngestionResponse>('/knowledge/ingestions', {
         model_class: ingestClass || undefined,
         source_url: ingestUrl.trim(),
-        source_title: ingestTitle.trim() || undefined,
-        organization: ingestOrg.trim() || undefined,
-        published_date: ingestDate.trim() || undefined,
+        // Tiêu đề/cơ quan/năm luôn để AI đọc lại từ bài đang dán; Admin sửa ở bước 2
         article_text: ingestText.trim(),
       }, { timeout: 45000 });
 
       setIngestionResult(res.data);
 
-      // Điền metadata do AI gợi ý nếu có
-      if (res.data.suggested_metadata) {
+      // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập)
+      if (!res.data.suggested_metadata) {
+        setIngestTitle('');
+        setIngestOrg('');
+        setIngestDate('');
+      } else {
         const meta = res.data.suggested_metadata;
-        if (meta.source_title && !ingestTitle.trim()) {
-          setIngestTitle(meta.source_title);
-        }
-        if (meta.organization && !ingestOrg.trim()) {
-          setIngestOrg(meta.organization);
-        }
-        if (meta.published_date) {
-          setIngestDate(meta.published_date);
-        }
+        setIngestTitle(meta.source_title || '');
+        setIngestOrg(meta.organization || '');
+        setIngestDate(meta.published_date || '');
         if (meta.model_class) {
+          if (meta.model_class !== ingestClass) setClassFromAi(true);
           setIngestClass(meta.model_class);
           const found = diseases.find((d) => d.classCode === meta.model_class);
           if (found) {
@@ -473,7 +504,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.success(
         res.data.ai_suggestion_available
           ? `Tách thành công ${res.data.paragraphs.length} đoạn. AI đã gợi ý nhãn và thông tin bài.`
-          : `Tách thành công ${res.data.paragraphs.length} đoạn (Agent bận, vui lòng tự gán nhãn).`
+          : `Tách thành công ${res.data.paragraphs.length} đoạn, nhưng AI đang quá tải nên chưa gợi ý nhãn. Bạn tự chọn đoạn và nhãn, hoặc bấm Tách đoạn lại sau ít phút.`
       );
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -539,9 +570,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       );
 
       // Reset form
-      setIngestionResult(null);
+      resetArticleState();
       setIngestText('');
-      setIngestTitle('');
       setIngestUrl('');
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -1248,7 +1278,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         type="url"
                         placeholder="https://khuyennongvn.gov.vn/..."
                         value={ingestUrl}
-                        onChange={(e) => setIngestUrl(e.target.value)}
+                        onChange={(e) => {
+                          setIngestUrl(e.target.value);
+                          if (ingestionResult) resetArticleState();
+                        }}
                         required
                         className="text-xs"
                       />
@@ -1292,7 +1325,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         rows={11}
                         placeholder="Dán toàn bộ nội dung bài báo vào đây. Hệ thống sẽ tự lọc thẻ rác HTML, tách thành các đoạn P1, P2... và gọi AI trích xuất tiêu đề, phân loại bệnh."
                         value={ingestText}
-                        onChange={(e) => setIngestText(e.target.value)}
+                        onChange={(e) => {
+                          setIngestText(e.target.value);
+                          if (ingestionResult) resetArticleState();
+                        }}
                         onPaste={handlePasteArticleText}
                         required
                         maxLength={50000}
@@ -1335,7 +1371,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           </label>
                           <select
                             value={ingestClass}
-                            onChange={(e) => setIngestClass(e.target.value)}
+                            onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
                             className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs focus:ring-1 focus:ring-ring"
                           >
                             <option value="">-- Để AI tự nhận diện --</option>
@@ -1420,7 +1456,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           </label>
                           <select
                             value={ingestClass}
-                            onChange={(e) => setIngestClass(e.target.value)}
+                            onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
                             className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
                           >
                             {filteredDiseasesByPlant.map((d) => (
@@ -1507,7 +1543,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             variant="secondary"
                             className={totalSelectedChars > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
                           >
-                            Ký tự: {totalSelectedChars.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((totalSelectedChars / allowedCharsQuota) * 100).toFixed(0)}%)
+                            <span title="Giới hạn = 30% độ dài bài, tối thiểu 1.200 ký tự">
+                              Ký tự: {totalSelectedChars.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((totalSelectedChars / allowedCharsQuota) * 100).toFixed(0)}%)
+                            </span>
                           </Badge>
                         </div>
                       </div>
@@ -1516,7 +1554,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     <CardContent className="p-4 flex-1 overflow-y-auto max-h-[500px] space-y-3">
                       {/* Danh sách các đoạn liên quan */}
                       {ingestionResult.paragraphs
-                        .filter((p) => p.suggested_unit_type !== null)
+                        .filter((p) => !ingestionResult.ai_suggestion_available || p.suggested_unit_type !== null)
                         .map((para) => {
                           const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
                           const isTooLong = para.text.length > 800;
@@ -1579,7 +1617,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 </select>
                               </div>
 
-                              <p className="text-xs text-foreground/90 font-serif italic pl-6 leading-relaxed">
+                              <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
                                 "{para.text}"
                               </p>
 
@@ -1613,7 +1651,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         })}
 
                       {/* Nhóm đoạn AI gắn nhãn null (Đoạn không liên quan/rác) - Mặc định thu gọn theo Section 3.1 */}
-                      {ingestionResult.paragraphs.some((p) => p.suggested_unit_type === null) && (
+                      {ingestionResult.ai_suggestion_available && ingestionResult.paragraphs.some((p) => p.suggested_unit_type === null) && (
                         <div className="pt-2 border-t border-border">
                           <button
                             type="button"
@@ -1622,7 +1660,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           >
                             <span className="flex items-center gap-1.5">
                               {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                              <span>Đoạn không liên quan (AI đánh giá là rác): {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn</span>
+                              <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
                             </span>
                             <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
                           </button>
@@ -1688,7 +1726,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         </select>
                                       </div>
 
-                                      <p className="text-xs text-muted-foreground font-serif italic pl-6 leading-relaxed">
+                                      <p className="text-xs text-muted-foreground italic pl-6 leading-relaxed">
                                         "{para.text}"
                                       </p>
 
@@ -1723,6 +1761,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         className="text-xs bg-background"
                       />
 
+                      {totalSelectedChars > allowedCharsQuota && (
+                        <p className="text-xs text-destructive font-medium">
+                          Đã chọn {totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
+                          (30% bài, tối thiểu 1.200). Bỏ bớt đoạn để lưu được.
+                        </p>
+                      )}
+                      {!ingestClass && (
+                        <p className="text-xs text-destructive font-medium">Chọn Loài cây và Bệnh hại mục tiêu ở trên trước khi lưu.</p>
+                      )}
                       <Button
                         onClick={handleCommitParagraphs}
                         disabled={committing || countSelected === 0 || countSelected > 8 || totalSelectedChars > allowedCharsQuota || !ingestClass}
@@ -2146,7 +2193,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                                 </div>
                                               </div>
 
-                                              <p className="text-muted-foreground italic font-serif leading-relaxed text-xs pl-6">
+                                              <p className="text-muted-foreground italic leading-relaxed text-xs pl-6">
                                                 "{p.evidenceText}"
                                               </p>
                                             </div>
@@ -2262,7 +2309,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 </div>
                               </td>
                               <td className="p-3 max-w-[280px]">
-                                <p className="line-clamp-2 italic text-muted-foreground font-serif">
+                                <p className="line-clamp-2 italic text-muted-foreground">
                                   "{s.evidenceText}"
                                 </p>
                               </td>
@@ -2411,8 +2458,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 onClick={() => {
                   setNewImagePlant(selectedPlant || (uniquePlants[0] ?? 'Cà chua'));
                   setNewImageClass(ingestClass || diseases[0]?.classCode || 'Tomato___Late_blight');
-                  setNewImageSourceUrl(ingestUrl || '');
-                  setNewImageCredit(ingestOrg || '');
+                  setNewImageSourceUrl('');
+                  setNewImageCredit('');
                   setAddImageModalOpen(true);
                 }}
                 className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary-hover text-white font-semibold"
@@ -2442,8 +2489,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 onClick={() => {
                   setNewImagePlant(selectedPlant || (uniquePlants[0] ?? 'Cà chua'));
                   setNewImageClass(ingestClass || diseases[0]?.classCode || 'Tomato___Late_blight');
-                  setNewImageSourceUrl(ingestUrl || '');
-                  setNewImageCredit(ingestOrg || '');
+                  setNewImageSourceUrl('');
+                  setNewImageCredit('');
                   setAddImageModalOpen(true);
                 }}
                 className="gap-1.5 text-xs bg-primary text-white"
@@ -2984,6 +3031,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     </Button>
                                     )}
 
+                                    {sug.kind !== 'PRACTICE' && (
                                     <Button
                                       size="sm"
                                       variant="outline"
@@ -2997,6 +3045,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                       <LinkIcon className="w-3 h-3 mr-1" />
                                       <span>Gắn SP</span>
                                     </Button>
+                                    )}
 
                                     <Button
                                       size="sm"
@@ -3309,7 +3358,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   className="w-full px-2.5 py-2 bg-background border border-border rounded-lg text-xs"
                 >
                   <option value="">-- Chọn sản phẩm phù hợp --</option>
-                  {medicines.map((m) => (
+                  {medicines
+                    .filter((m) => !isIngredientBanned(m.name) && !isIngredientBanned(m.active_ingredient || ''))
+                    .map((m) => (
                     <option key={m.id} value={m.id}>
                       #{m.id} - {m.name} ({m.medicine_type}{m.active_ingredient ? ` - ${m.active_ingredient}` : ''})
                     </option>
@@ -3349,7 +3400,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             </DialogTitle>
             <DialogDescription className="text-xs">
               {fromSuggestion
-                ? 'Thông tin đã được điền sẵn từ nội dung bài báo khoa học. Sau khi lưu, gợi ý sẽ được đánh dấu đã thêm (ADDED).'
+                ? 'Chỉ tên và hoạt chất lấy từ bài báo. PHI, giá, tồn kho và link nguồn bạn tự tra trên nhãn thuốc rồi nhập. Sau khi lưu, gợi ý được đánh dấu đã thêm.'
                 : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
             </DialogDescription>
           </DialogHeader>

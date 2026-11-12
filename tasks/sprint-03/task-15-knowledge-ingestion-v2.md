@@ -391,3 +391,27 @@ Rà toàn bộ thay đổi chưa commit của Pha 1–3. Các lỗi dưới đâ
 - Trang kết quả khám (`DiagnoseController`) vẫn liệt kê sản phẩm `NOT_SOLD` như hàng mua được (API đặt hàng đã chặn). Cần thêm `availability` vào `ProductDto`.
 - Chưa có test Core cho các luồng mới; chưa chạy migration trên CSDL thật (chỉ kiểm tra bằng `dotnet ef migrations script`).
 - Kiểm thử: Agent `test_react_guardrails` 26/26; `test_rag_accuracy -k test_08` qua; `test_mcp_tools` và `test_task08_streaming_trace` còn các lỗi **giống hệt bản `HEAD`** (cần Core chạy thật/mạng). Core `dotnet build` 0 cảnh báo, 0 lỗi. Web `tsc` sạch, `npm run build` thành công.
+
+---
+
+## 11. TRẢI NGHIỆM THẬT VÀ SỬA LỖI ĐỢT 2 (13/11/2026, trưởng nhóm)
+
+Chạy cả hệ thống trên máy với Postgres local, làm đúng như Admin: dán bài, tách đoạn, lưu, xử lý gợi ý vật tư, rồi hỏi Lavi. Gộp thêm báo cáo của một agent khác test trang Admin trên production (code cũ, dừng trước bước Lưu). Migration `20261111080000` chạy được trên CSDL trống, nên mục "chưa chạy migration" ở mục 10 đã đóng.
+
+| # | Lỗi | Đã sửa |
+|---|---|---|
+| R13 | Dán bài mới vẫn gửi tiêu đề, cơ quan và bệnh do AI đoán của bài trước | Dán bài hoặc đổi URL thì xóa kết quả cũ; metadata luôn để AI đọc lại; bệnh do AI đoán không mang sang bài sau |
+| R14 | Năm xuất bản luôn "2024": form điền sẵn và ví dụ trong prompt ghi "2024" | Bỏ cả hai; Agent chỉ nhận năm xuất hiện trong bài, bỏ chuỗi mẫu `<...>` AI chép từ prompt |
+| R15 | Mục 3 "Tùy chọn" nhưng chọn sẵn cây/bệnh, tải trang lại nhảy sang "Táo" | Để trống; đổi cây không tự chọn bệnh đầu danh sách |
+| R16 | Gemini 503 khoảng một nửa số lần, mọi đoạn bị đưa vào ô "AI đánh giá là rác" | Agent thử lại tối đa 3 lần (ngân sách 12s, Core chờ 35s); vẫn lỗi thì hiện mọi đoạn để tự gắn nhãn, báo đúng lý do |
+| R17 | Đoạn trích vỡ dấu ("ná m") do phông Georgia | Bỏ `font-serif` |
+| R18 | Dán bài mất tiêu đề, ngày, tiêu đề mục; lọt hotline và footer lặp | Web giữ `h1`, ngày đăng, tiêu đề mục, bỏ hotline có số điện thoại và dòng trùng; Core ghép tiêu đề mục ngắn vào đoạn sau, giữ dòng ngắn ở đầu bài cho AI đọc metadata, bỏ dòng liên hệ/quảng cáo |
+| R19 | Nút Lưu tắt không nói lý do | Dòng giải thích vượt hạn mức (30% bài, tối thiểu 1.200) và nhắc chọn cây/bệnh |
+| R20 | AI trích tên nấm gây bệnh thành "Sinh học" | Prompt cấm đưa tác nhân gây bệnh vào mentions |
+| R21 | Tên thương mại (Ridomil Gold 68WG) không khớp sản phẩm có sẵn, dễ tạo trùng | Khớp cả theo tên sản phẩm (≥ 5 ký tự), không khớp sản phẩm chứa hoạt chất cấm |
+| R22 | `link` gắn được thuốc cấm vào bệnh, gắn lại được gợi ý đã xử lý | Core trả `400` và `409`; web ẩn thuốc cấm khỏi danh sách chọn |
+| R23 | Modal ảnh ở trang Ảnh dính URL/cơ quan của bài đang nhập; nút "Gắn SP" ở biện pháp canh tác; câu "đã điền sẵn từ bài báo" sai | Đã sửa |
+
+**Kiểm thử:** `test_rag_accuracy -k test_08` qua (thêm 3 test: năm bịa, chuỗi mẫu, thử lại khi 503); `test_react_guardrails` 26/26; Core build sạch; web `tsc` và `npm run build` đạt. Chạy tay bằng Chrome headless trên Postgres local: năm 2015 và 2022 lấy đúng từ bài; bài thứ 2 nhận đúng `Potato___Early_blight` và tiêu đề mới; "Ridomil Gold 68WG" khớp SP #1; tắt Agent vẫn chọn được cả 7 đoạn; gắn thuốc cấm bị `400`, gắn lại bị `409`; Lavi trích nguyên văn bài vừa nạp.
+
+**Còn mở:** xem `tasks/error/ui/ux.md` mục 13–24 (sửa thẻ vật tư, tách đoạn dài, Reindex hiện JSON, bảng gợi ý, modal kho, trang Duyệt tri thức và Ảnh) và mục 30–33 (dữ liệu Supabase, cần duyệt).

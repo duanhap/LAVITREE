@@ -3,6 +3,7 @@ import os
 import re
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Any, Optional, List, Dict
 from app.rag.schema import (
@@ -78,6 +79,18 @@ VALID_MENTION_KINDS = {"CHEMICAL", "BIOLOGICAL", "SUPPLY", "PRACTICE"}
 MAX_SUGGESTIONS = 8
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 GEMINI_TIMEOUT_MS = 30_000
+LABEL_MAX_ATTEMPTS = 3
+LABEL_RETRY_BACKOFF_SECONDS = 2.0
+LABEL_RETRY_BUDGET_SECONDS = 12.0
+
+
+def _is_transient_gemini_error(exc: Exception) -> bool:
+    """Lỗi quá tải tạm thời của Gemini (503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED) đáng thử lại."""
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code in (429, 500, 503):
+        return True
+    text = str(exc)
+    return any(k in text for k in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "high demand"))
 
 
 def _filter_suggestions(raw_labels: Any, paragraphs_map: Dict[str, str]) -> List[SuggestedParagraph]:
@@ -120,8 +133,22 @@ def _filter_suggestions(raw_labels: Any, paragraphs_map: Dict[str, str]) -> List
     return safe
 
 
-def _filter_metadata(raw_meta: Any, default_class: Optional[str] = None) -> Optional[SuggestedMetadata]:
-    """Code guardrail thẩm định metadata bài báo: khớp 38 lớp, năm <= hiện tại, chuỗi <= 300 ký tự."""
+def _clean_meta_text(value: Any) -> Optional[str]:
+    """Bỏ chuỗi rỗng và chuỗi mẫu kiểu '<Tiêu đề bài viết...>' mà AI chép lại từ prompt."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()[:300]
+    if not text or (text.startswith("<") and text.endswith(">")) or text.lower() in ("null", "none", "n/a"):
+        return None
+    return text
+
+
+def _filter_metadata(
+    raw_meta: Any,
+    default_class: Optional[str] = None,
+    article_text: Optional[str] = None,
+) -> Optional[SuggestedMetadata]:
+    """Code guardrail thẩm định metadata bài báo: khớp 38 lớp, năm <= hiện tại và có trong bài, chuỗi <= 300 ký tự."""
     if not isinstance(raw_meta, dict):
         if default_class and default_class in ALL_38_MODEL_CLASSES:
             return SuggestedMetadata(model_class=default_class)
@@ -131,17 +158,8 @@ def _filter_metadata(raw_meta: Any, default_class: Optional[str] = None) -> Opti
     if not isinstance(m_class, str) or m_class not in ALL_38_MODEL_CLASSES:
         m_class = default_class if (default_class and default_class in ALL_38_MODEL_CLASSES) else None
 
-    s_title = raw_meta.get("source_title")
-    if isinstance(s_title, str):
-        s_title = s_title.strip()[:300] or None
-    else:
-        s_title = None
-
-    org = raw_meta.get("organization")
-    if isinstance(org, str):
-        org = org.strip()[:300] or None
-    else:
-        org = None
+    s_title = _clean_meta_text(raw_meta.get("source_title"))
+    org = _clean_meta_text(raw_meta.get("organization"))
 
     p_date = raw_meta.get("published_date")
     if p_date is not None:
@@ -151,6 +169,9 @@ def _filter_metadata(raw_meta: Any, default_class: Optional[str] = None) -> Opti
             year = int(match.group(1))
             current_year = datetime.now().year
             p_date = str(year) if 1900 <= year <= current_year else None
+            # Chống bịa: năm phải xuất hiện trong bài (prompt cũ có ví dụ "2024" nên AI hay chép lại)
+            if p_date and article_text is not None and p_date not in article_text:
+                p_date = None
         else:
             p_date = None
     else:
@@ -288,9 +309,9 @@ Nhiệm vụ:
    {class_context}
 2. Trích xuất thông tin tổng quan của bài viết:
    - model_class: Mã lớp bệnh trong 38 mã chuẩn (ví dụ: Tomato___Late_blight, Potato___Early_blight, Corn_(maize)___Common_rust_...).
-   - source_title: Tiêu đề bài viết (nếu nhận diện được từ các đoạn).
-   - organization: Cơ quan hoặc viện tác giả phát hành (ví dụ: Trung tâm Khuyến nông Quốc gia, Cục Trồng trọt...).
-   - published_date: Năm xuất bản 4 chữ số (ví dụ: 2023, 2024...).
+   - source_title: Tiêu đề bài viết nếu có trong các đoạn, nếu không có thì null.
+   - organization: Cơ quan hoặc tác giả phát hành nếu có ghi trong bài, nếu không có thì null.
+   - published_date: Năm xuất bản 4 chữ số CÓ GHI TRONG BÀI. Không thấy năm trong bài thì null, TUYỆT ĐỐI không đoán.
 3. Trong mỗi đoạn được gán nhãn, trích xuất danh sách các cụm từ (mentions) được nhắc tới:
    - text: Cụm từ NGUYÊN VĂN xuất hiện trong đoạn (tên hoạt chất, thuốc, chế phẩm sinh học, vật tư hoặc biện pháp).
    - kind: Loại cụm từ, thuộc 1 trong 4 loại:
@@ -298,6 +319,7 @@ Nhiệm vụ:
      * BIOLOGICAL: Chế phẩm sinh học, nấm đối kháng, vi sinh (Trichoderma, Bacillus, dầu neem...).
      * SUPPLY: Vật tư canh tác, thiết bị phụ trợ (Lưới chắn côn trùng, bẫy dính vàng, bạt phủ nilon...).
      * PRACTICE: Biện pháp canh tác cơ học (Tỉa cành thông thoáng, luân canh cây trồng, xử lý vôi bột...).
+   - KHÔNG đưa vào mentions tên tác nhân gây bệnh (nấm, vi khuẩn, virus, côn trùng gây hại như Phytophthora infestans, Alternaria solani, Xanthomonas...). Đó là thứ gây bệnh, không phải vật tư hay thuốc.
 
 Các nhãn hợp lệ DUY NHẤT cho đoạn:
 - SYMPTOMS: Mô tả triệu chứng, dấu hiệu nhận biết trên lá/thân/quả.
@@ -324,9 +346,9 @@ Yêu cầu đầu ra: Trả về DUY NHẤT một JSON Object hợp lệ (không
   ],
   "metadata": {{
     "model_class": "Tomato___Late_blight",
-    "source_title": "Tiêu đề bài viết trích xuất",
-    "organization": "Cơ quan phát hành",
-    "published_date": "2024"
+    "source_title": null,
+    "organization": null,
+    "published_date": null
   }}
 }}
 Chỉ chọn tối đa {MAX_SUGGESTIONS} đoạn tiêu biểu và có giá trị nhất cho danh sách 'labels'.
@@ -339,14 +361,29 @@ Chỉ chọn tối đa {MAX_SUGGESTIONS} đoạn tiêu biểu và có giá trị
                 api_key=api_key,
                 http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_MS)
             )
-            response = client.models.generate_content(
-                model=os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    response_mime_type="application/json"
-                )
-            )
+            response = None
+            started = time.monotonic()
+            for attempt in range(LABEL_MAX_ATTEMPTS):
+                try:
+                    response = client.models.generate_content(
+                        model=os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.0,
+                            response_mime_type="application/json"
+                        )
+                    )
+                    break
+                except Exception as e:
+                    # Gemini quá tải (503/429) thường hết sau vài giây: thử lại, nhưng không vượt ngân sách
+                    # thời gian để Core (chờ tối đa 35s) còn nhận được phản hồi
+                    elapsed = time.monotonic() - started
+                    if (attempt + 1 >= LABEL_MAX_ATTEMPTS or not _is_transient_gemini_error(e)
+                            or elapsed > LABEL_RETRY_BUDGET_SECONDS):
+                        raise
+                    wait = LABEL_RETRY_BACKOFF_SECONDS * (attempt + 1)
+                    logger.warning(f"Gemini labeling busy (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                    time.sleep(wait)
             raw_data = json.loads(response.text or "")
             if isinstance(raw_data, dict):
                 raw_labels = raw_data.get("labels", [])
@@ -362,7 +399,11 @@ Chỉ chọn tối đa {MAX_SUGGESTIONS} đoạn tiêu biểu và có giá trị
 
         paragraphs_map = {p.id: p.text for p in request.paragraphs}
         suggestions = _filter_suggestions(raw_labels, paragraphs_map)
-        metadata = _filter_metadata(raw_meta, default_class=request.model_class)
+        metadata = _filter_metadata(
+            raw_meta,
+            default_class=request.model_class,
+            article_text="\n".join(p.text for p in request.paragraphs),
+        )
 
         return LabelParagraphsResponse(
             suggestions=suggestions,
