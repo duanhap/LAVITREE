@@ -102,6 +102,13 @@ public class CommitSelectionDto
     [RegularExpression(@"^(SYMPTOMS|CAUSE_CONDITIONS|PREVENTION|TREATMENT)$", ErrorMessage = "unit_type phải thuộc: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT.")]
     [JsonPropertyName("unit_type")]
     public string UnitType { get; set; } = string.Empty;
+
+    [MaxLength(800, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 800 ký tự.")]
+    [JsonPropertyName("custom_text")]
+    public string? CustomText { get; set; }
+
+    [JsonPropertyName("mentions")]
+    public List<MentionDto>? Mentions { get; set; }
 }
 
 public class CommitIngestionRequestDto

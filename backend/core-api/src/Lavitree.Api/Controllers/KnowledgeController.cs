@@ -65,6 +65,7 @@ public class KnowledgeController : ControllerBase
         public string Organization { get; set; } = string.Empty;
         public string? PublishedDate { get; set; }
         public int ArticleLength { get; set; }
+        public string ArticleText { get; set; } = string.Empty;
         public List<ParagraphDto> Paragraphs { get; set; } = new();
         public SuggestedMetadataDto? SuggestedMetadata { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -722,6 +723,7 @@ public class KnowledgeController : ControllerBase
             Organization = chosenOrg,
             PublishedDate = chosenDate,
             ArticleLength = dto.ArticleText.Length,
+            ArticleText = dto.ArticleText,
             Paragraphs = validParagraphs,
             SuggestedMetadata = suggestedMetadataDto,
             CreatedAt = DateTime.UtcNow
@@ -788,23 +790,60 @@ public class KnowledgeController : ControllerBase
             }
         }
 
-        // Kiểm tra tồn tại trong session RAM & độ dài <= 800 ký tự
+        // Kiểm tra tồn tại trong session RAM & độ dài <= 800 ký tự (hỗ trợ đoạn tách và chỉnh sửa mentions)
         var sessionDict = session.Paragraphs.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
         var chosenParagraphs = new List<(string Id, string Text, string UnitType, List<MentionDto> Mentions)>();
 
         foreach (var sel in dto.Selections)
         {
-            if (!sessionDict.TryGetValue(sel.ParagraphId, out var para))
+            string chosenText;
+            List<MentionDto> chosenMentions;
+
+            if (sessionDict.TryGetValue(sel.ParagraphId, out var para))
             {
-                return BadRequest(new { detail = $"Không tìm thấy đoạn '{sel.ParagraphId}' trong phiên nhập bài." });
+                if (!string.IsNullOrWhiteSpace(sel.CustomText))
+                {
+                    chosenText = sel.CustomText.Trim();
+                    if (!session.ArticleText.Contains(chosenText, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return BadRequest(new { detail = $"Nội dung đoạn '{sel.ParagraphId}' không khớp nguyên văn với bài báo gốc (quy định Điều 25 Luật SHTT)." });
+                    }
+                }
+                else
+                {
+                    chosenText = para.Text;
+                }
+                chosenMentions = sel.Mentions ?? para.Mentions ?? new List<MentionDto>();
+            }
+            else
+            {
+                // Đoạn tách từ đoạn gốc (ví dụ P1_1, P1_2)
+                if (!string.IsNullOrWhiteSpace(sel.CustomText))
+                {
+                    chosenText = sel.CustomText.Trim();
+                    if (!session.ArticleText.Contains(chosenText, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return BadRequest(new { detail = $"Nội dung đoạn tách '{sel.ParagraphId}' không khớp nguyên văn với bài báo gốc." });
+                    }
+                    chosenMentions = sel.Mentions ?? new List<MentionDto>();
+                }
+                else
+                {
+                    return BadRequest(new { detail = $"Không tìm thấy đoạn '{sel.ParagraphId}' trong phiên nhập bài." });
+                }
             }
 
-            if (para.Text.Length > 800)
+            if (chosenText.Length < 30)
             {
-                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {para.Text.Length} ký tự, vượt quá giới hạn 800 ký tự cho phép." });
+                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' quá ngắn ({chosenText.Length} ký tự, tối thiểu 30 ký tự)." });
             }
 
-            chosenParagraphs.Add((sel.ParagraphId, para.Text, sel.UnitType.ToUpperInvariant(), para.Mentions ?? new List<MentionDto>()));
+            if (chosenText.Length > 800)
+            {
+                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {chosenText.Length} ký tự, vượt quá giới hạn 800 ký tự cho phép." });
+            }
+
+            chosenParagraphs.Add((sel.ParagraphId, chosenText, sel.UnitType.ToUpperInvariant(), chosenMentions));
         }
 
         // Quy tắc trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT):

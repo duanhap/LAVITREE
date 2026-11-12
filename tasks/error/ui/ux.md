@@ -25,9 +25,9 @@ Ký hiệu: `[x]` đã sửa trên nhánh, chưa push; `[ ]` còn lại; `[!]` c
 [x] 10. Bộ lọc khi dán bài làm mất tiêu đề bài, ngày đăng, tiêu đề mục ("Biện pháp hóa học:") nhưng lại để lọt hotline và footer lặp. Đã giữ tiêu đề, ngày và tiêu đề mục, bỏ hotline có số điện thoại và dòng trùng. Core ghép tiêu đề mục ngắn vào đoạn ngay sau, giữ dòng ngắn ở đầu bài cho AI đọc metadata.
 [x] 11. Nút Lưu tắt im lặng khi vượt hạn mức. Giờ có dòng giải thích "vượt giới hạn trích dẫn … (30% bài, tối thiểu 1.200)" và nhắc chọn cây/bệnh. Mẫu số 1.200 là đúng luật (tối thiểu 1.200 ký tự), không phải lỗi.
 [x] 12. AI trích tên nấm gây bệnh (Phytophthora infestans) thành "Sinh học". Prompt đã cấm đưa tác nhân gây bệnh vào mentions.
-[ ] 13. Thẻ vật tư/biện pháp AI trích ra chỉ xem được: cần thêm, xóa, đổi loại trước khi lưu.
-[ ] 14. Đoạn dài hơn 800 ký tự bị khóa: cần nút tách đôi ngay tại chỗ thay vì sửa ô dán bên trái rồi gọi AI lại.
-[ ] 15. "Trạng thái Reindex" hiện JSON thô: đổi sang câu dễ đọc (đang chạy / xong lúc … / lỗi).
+[x] 13. Thẻ vật tư/biện pháp AI trích ra chỉ xem được: đã cho phép thêm mới (phải có trong đoạn trích), xóa thẻ và đổi loại (Hóa học / Sinh học / Vật tư / Canh tác) trực tiếp trước khi lưu.
+[x] 14. Đoạn dài hơn 800 ký tự bị khóa: đã thêm nút và dialog "Tách đoạn" tự động ngắt theo dấu câu gần điểm giữa (hoặc sửa thủ công), mỗi đoạn con <= 800 ký tự được tick chọn và gán nhãn độc lập.
+[x] 15. "Trạng thái Reindex" hiện JSON thô: đã thiết kế lại Dialog với thẻ trạng thái trực quan, 3 chỉ số (số đoạn đã vector hóa, lần thành công gần nhất, hàng đợi), và nút làm mới trạng thái.
 
 ### B. Gợi ý vật tư (`/admin/inventory`, tab Gợi ý)
 [x] 16. Tên thương mại (Ridomil Gold 68WG, Antracol 70WP) không khớp với sản phẩm đã có, Admin dễ bấm "Tạo SP" ra sản phẩm trùng. Core giờ khớp cả theo tên sản phẩm (không khớp với sản phẩm chứa hoạt chất cấm).

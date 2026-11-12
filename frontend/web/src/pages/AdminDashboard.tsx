@@ -13,7 +13,7 @@ import {
   ExternalLink, Search, Filter, Layers, Database, Package,
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
   ChevronDown, ChevronUp, ChevronRight, Sparkles, Image as ImageIcon,
-  Plus, UploadCloud, Link as LinkIcon, ZoomIn
+  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -181,6 +181,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [committing, setCommitting] = useState<boolean>(false);
   const [showNoiseParagraphs, setShowNoiseParagraphs] = useState<boolean>(false);
 
+  // Tách đoạn > 800 ký tự (hoặc theo ý Admin)
+  const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
+  const [splitTargetPara, setSplitTargetPara] = useState<ParagraphItem | null>(null);
+  const [splitPart1, setSplitPart1] = useState<string>('');
+  const [splitPart2, setSplitPart2] = useState<string>('');
+
+  // Thêm / sửa thẻ vật tư (mentions)
+  const [addingMentionParaId, setAddingMentionParaId] = useState<string | null>(null);
+  const [newMentionText, setNewMentionText] = useState<string>('');
+  const [newMentionKind, setNewMentionKind] = useState<string>('CHEMICAL');
+
   // ==================== TAB 2: KIỂM DUYỆT TRI THỨC (CURATION) ====================
   const [sources, setSources] = useState<KnowledgeSourceItem[]>([]);
   const [loadingSources, setLoadingSources] = useState<boolean>(false);
@@ -196,6 +207,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [reindexStatusOpen, setReindexStatusOpen] = useState<boolean>(false);
   const [reindexStatusData, setReindexStatusData] = useState<any>(null);
   const [loadingReindexStatus, setLoadingReindexStatus] = useState<boolean>(false);
+  const [showRawReindexJson, setShowRawReindexJson] = useState<boolean>(false);
 
   // ==================== TAB: ẢNH TRIỆU CHỨNG (TASK-15 PHASE 2) ====================
   const [knowledgeImages, setKnowledgeImages] = useState<KnowledgeImageItem[]>([]);
@@ -513,6 +525,198 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  // ==================== TÁCH ĐOẠN & QUẢN LÝ MENTIONS (HITL INGESTION) ====================
+  const autoSplitText = (fullText: string): { part1: string; part2: string } => {
+    const text = fullText.trim();
+    const mid = Math.floor(text.length / 2);
+
+    // 1. Tìm các điểm kết thúc câu gần điểm giữa nhất (. \n ? !)
+    const sentenceRegex = /([.?!]\s+|\r?\n\s*)/g;
+    let match: RegExpExecArray | null;
+    let bestIndex = -1;
+    let minDiff = Infinity;
+
+    while ((match = sentenceRegex.exec(text)) !== null) {
+      const cut = match.index + match[1].length;
+      const len1 = cut;
+      const len2 = text.length - cut;
+      if (len1 >= 30 && len2 >= 30 && len1 <= 800 && len2 <= 800) {
+        const diff = Math.abs(cut - mid);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIndex = cut;
+        }
+      }
+    }
+
+    // 2. Nếu không tìm được dấu ngắt câu thỏa mãn, tìm dấu phẩy, chấm phẩy hoặc khoảng trắng
+    if (bestIndex === -1) {
+      const clauseRegex = /([,;]\s+|\s+)/g;
+      while ((match = clauseRegex.exec(text)) !== null) {
+        const cut = match.index + match[1].length;
+        const len1 = cut;
+        const len2 = text.length - cut;
+        if (len1 >= 30 && len2 >= 30 && len1 <= 800 && len2 <= 800) {
+          const diff = Math.abs(cut - mid);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestIndex = cut;
+          }
+        }
+      }
+    }
+
+    if (bestIndex !== -1) {
+      return {
+        part1: text.substring(0, bestIndex).trim(),
+        part2: text.substring(bestIndex).trim(),
+      };
+    }
+
+    // 3. Fallback: ngắt tại điểm an toàn <= 800
+    const safeCut = Math.min(Math.max(mid, 30), 800);
+    return {
+      part1: text.substring(0, safeCut).trim(),
+      part2: text.substring(safeCut).trim(),
+    };
+  };
+
+  const handleOpenSplitModal = (para: ParagraphItem) => {
+    setSplitTargetPara(para);
+    const { part1, part2 } = autoSplitText(para.text);
+    setSplitPart1(part1);
+    setSplitPart2(part2);
+    setSplitModalOpen(true);
+  };
+
+  const handleConfirmSplit = () => {
+    if (!splitTargetPara || !ingestionResult) return;
+    const p1 = splitPart1.trim();
+    const p2 = splitPart2.trim();
+    if (p1.length < 30 || p2.length < 30) {
+      toast.error('Mỗi đoạn sau khi tách phải có ít nhất 30 ký tự.');
+      return;
+    }
+    if (p1.length > 800 || p2.length > 800) {
+      toast.error('Mỗi đoạn sau khi tách không được vượt quá 800 ký tự.');
+      return;
+    }
+
+    const baseId = splitTargetPara.id;
+    const id1 = `${baseId}_1`;
+    const id2 = `${baseId}_2`;
+
+    const mentions1 = (splitTargetPara.mentions || []).filter((m) =>
+      p1.toLowerCase().includes(m.text.toLowerCase())
+    );
+    const mentions2 = (splitTargetPara.mentions || []).filter((m) =>
+      p2.toLowerCase().includes(m.text.toLowerCase())
+    );
+
+    const newPara1: ParagraphItem = {
+      id: id1,
+      text: p1,
+      suggested_unit_type: splitTargetPara.suggested_unit_type,
+      mentions: mentions1,
+    };
+    const newPara2: ParagraphItem = {
+      id: id2,
+      text: p2,
+      suggested_unit_type: splitTargetPara.suggested_unit_type,
+      mentions: mentions2,
+    };
+
+    const updatedParagraphs = ingestionResult.paragraphs.flatMap((p) =>
+      p.id === baseId ? [newPara1, newPara2] : [p]
+    );
+
+    setIngestionResult({
+      ...ingestionResult,
+      paragraphs: updatedParagraphs,
+    });
+
+    setSelectedParagraphs((prev) => {
+      const next = { ...prev };
+      delete next[baseId];
+      next[id1] = {
+        selected: false,
+        unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
+      };
+      next[id2] = {
+        selected: false,
+        unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
+      };
+      return next;
+    });
+
+    setSplitModalOpen(false);
+    setSplitTargetPara(null);
+    toast.success(`Đã tách đoạn ${baseId} thành 2 đoạn ${id1} và ${id2} hợp lệ (mỗi đoạn ≤ 800 ký tự).`);
+  };
+
+  const handleRemoveMention = (paraId: string, mentionIndex: number) => {
+    if (!ingestionResult) return;
+    setIngestionResult({
+      ...ingestionResult,
+      paragraphs: ingestionResult.paragraphs.map((p) => {
+        if (p.id !== paraId) return p;
+        const updatedMentions = (p.mentions || []).filter((_, idx) => idx !== mentionIndex);
+        return { ...p, mentions: updatedMentions };
+      }),
+    });
+  };
+
+  const handleChangeMentionKind = (paraId: string, mentionIndex: number, newKind: string) => {
+    if (!ingestionResult) return;
+    setIngestionResult({
+      ...ingestionResult,
+      paragraphs: ingestionResult.paragraphs.map((p) => {
+        if (p.id !== paraId) return p;
+        const updatedMentions = (p.mentions || []).map((m, idx) =>
+          idx === mentionIndex ? { ...m, kind: newKind } : m
+        );
+        return { ...p, mentions: updatedMentions };
+      }),
+    });
+  };
+
+  const handleAddMention = (paraId: string) => {
+    if (!ingestionResult) return;
+    const target = ingestionResult.paragraphs.find((p) => p.id === paraId);
+    if (!target) return;
+
+    const textToAdd = newMentionText.trim();
+    if (textToAdd.length < 2) {
+      toast.error('Cụm từ vật tư / hoạt chất phải có ít nhất 2 ký tự.');
+      return;
+    }
+    if (!target.text.toLowerCase().includes(textToAdd.toLowerCase())) {
+      toast.error('Cụm từ phải xuất hiện nguyên văn trong đoạn văn này (quy định Điều 25 Luật SHTT).');
+      return;
+    }
+
+    if ((target.mentions || []).some((m) => m.text.toLowerCase() === textToAdd.toLowerCase())) {
+      toast.error('Cụm từ này đã có trong danh sách thẻ.');
+      return;
+    }
+
+    setIngestionResult({
+      ...ingestionResult,
+      paragraphs: ingestionResult.paragraphs.map((p) => {
+        if (p.id !== paraId) return p;
+        return {
+          ...p,
+          mentions: [...(p.mentions || []), { text: textToAdd, kind: newMentionKind }],
+        };
+      }),
+    });
+
+    setAddingMentionParaId(null);
+    setNewMentionText('');
+    setNewMentionKind('CHEMICAL');
+    toast.success(`Đã thêm thẻ "${textToAdd}".`);
+  };
+
   const handleCommitParagraphs = async () => {
     if (!ingestionResult) return;
 
@@ -523,10 +727,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
     const selections = Object.entries(selectedParagraphs)
       .filter(([_, val]) => val.selected)
-      .map(([id, val]) => ({
-        paragraph_id: id,
-        unit_type: val.unitType,
-      }));
+      .map(([id, val]) => {
+        const p = ingestionResult.paragraphs.find((x) => x.id === id);
+        return {
+          paragraph_id: id,
+          unit_type: val.unitType,
+          custom_text: p?.text,
+          mentions: p?.mentions || [],
+        };
+      });
 
     if (selections.length === 0) {
       toast.error('Vui lòng tick chọn ít nhất 1 đoạn nguyên văn để phê duyệt.');
@@ -1568,7 +1777,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   : 'bg-card border-border hover:bg-muted/40'
                               }`}
                             >
-                              <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                                 <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
                                   <input
                                     type="checkbox"
@@ -1596,39 +1805,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   )}
                                 </label>
 
-                                <select
-                                  value={state.unitType}
-                                  disabled={!state.selected}
-                                  onChange={(e) => {
-                                    setSelectedParagraphs((prev) => ({
-                                      ...prev,
-                                      [para.id]: {
-                                        ...state,
-                                        unitType: e.target.value,
-                                      },
-                                    }));
-                                  }}
-                                  className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
-                                >
-                                  <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
-                                  <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
-                                  <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
-                                  <option value="TREATMENT">Điều trị (TREATMENT)</option>
-                                </select>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleOpenSplitModal(para)}
+                                    className={`h-6 text-[10px] gap-1 px-2 border ${
+                                      isTooLong
+                                        ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
+                                        : 'border-border text-muted-foreground hover:text-foreground'
+                                    }`}
+                                    title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
+                                  >
+                                    <Scissors className="w-3 h-3" />
+                                    <span>Tách đoạn</span>
+                                  </Button>
+
+                                  <select
+                                    value={state.unitType}
+                                    disabled={!state.selected}
+                                    onChange={(e) => {
+                                      setSelectedParagraphs((prev) => ({
+                                        ...prev,
+                                        [para.id]: {
+                                          ...state,
+                                          unitType: e.target.value,
+                                        },
+                                      }));
+                                    }}
+                                    className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
+                                  >
+                                    <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
+                                    <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
+                                    <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
+                                    <option value="TREATMENT">Điều trị (TREATMENT)</option>
+                                  </select>
+                                </div>
                               </div>
 
                               <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
                                 "{para.text}"
                               </p>
 
-                              {/* Gợi ý vật tư/hoạt chất trích xuất từ đoạn (Task-15 Phase 3) */}
-                              {para.mentions && para.mentions.length > 0 && (
-                                <div className="flex flex-wrap items-center gap-1.5 pl-6 mt-2 pt-2 border-t border-border/40">
-                                  <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất trích xuất:</span>
-                                  {para.mentions.map((m, mIdx) => (
+                              {/* Thẻ vật tư/hoạt chất/biện pháp: xem, đổi loại, xóa, hoặc thêm mới */}
+                              <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất:</span>
+                                  {(para.mentions || []).map((m, mIdx) => (
                                     <span
                                       key={mIdx}
-                                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
                                         m.kind === 'CHEMICAL'
                                           ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                           : m.kind === 'BIOLOGICAL'
@@ -1638,14 +1865,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           : 'bg-purple-100 text-purple-800 border border-purple-300'
                                       }`}
                                     >
-                                      {m.text}
-                                      <span className="ml-1 opacity-65 text-[9px]">
-                                        ({m.kind === 'CHEMICAL' ? 'Hóa học' : m.kind === 'BIOLOGICAL' ? 'Sinh học' : m.kind === 'SUPPLY' ? 'Vật tư' : 'Canh tác'})
-                                      </span>
+                                      <span>{m.text}</span>
+                                      <select
+                                        value={m.kind}
+                                        onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                        className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0"
+                                        title="Đổi phân loại vật tư"
+                                      >
+                                        <option value="CHEMICAL">Hóa học</option>
+                                        <option value="BIOLOGICAL">Sinh học</option>
+                                        <option value="SUPPLY">Vật tư</option>
+                                        <option value="PRACTICE">Canh tác</option>
+                                      </select>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveMention(para.id, mIdx)}
+                                        className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                        title="Xóa thẻ này"
+                                      >
+                                        <X className="w-2.5 h-2.5" />
+                                      </button>
                                     </span>
                                   ))}
+
+                                  {addingMentionParaId !== para.id && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAddingMentionParaId(para.id);
+                                        setNewMentionText('');
+                                        setNewMentionKind('CHEMICAL');
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
+                                      title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" />
+                                      <span>Thêm cụm từ</span>
+                                    </button>
+                                  )}
                                 </div>
-                              )}
+
+                                {addingMentionParaId === para.id && (
+                                  <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
+                                    <Input
+                                      type="text"
+                                      value={newMentionText}
+                                      onChange={(e) => setNewMentionText(e.target.value)}
+                                      placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
+                                      className="h-7 text-[11px] bg-background w-56"
+                                      autoFocus
+                                    />
+                                    <select
+                                      value={newMentionKind}
+                                      onChange={(e) => setNewMentionKind(e.target.value)}
+                                      className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
+                                    >
+                                      <option value="CHEMICAL">Hóa học</option>
+                                      <option value="BIOLOGICAL">Sinh học</option>
+                                      <option value="SUPPLY">Vật tư canh tác</option>
+                                      <option value="PRACTICE">Biện pháp canh tác</option>
+                                    </select>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => handleAddMention(para.id)}
+                                      className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white"
+                                    >
+                                      Thêm
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setAddingMentionParaId(null)}
+                                      className="h-7 text-[11px] px-2 text-muted-foreground"
+                                    >
+                                      Hủy
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
@@ -1682,7 +1981,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           : 'bg-card border-border'
                                       }`}
                                     >
-                                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                                      <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                                         <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
                                           <input
                                             type="checkbox"
@@ -1703,46 +2002,145 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           <span className="text-muted-foreground font-normal text-[10px]">
                                             ({para.text.length} ký tự)
                                           </span>
+                                          {isTooLong && (
+                                            <Badge variant="destructive" className="text-[10px] h-5">
+                                              Vượt quá 800 ký tự
+                                            </Badge>
+                                          )}
                                         </label>
 
-                                        <select
-                                          value={state.unitType}
-                                          disabled={!state.selected}
-                                          onChange={(e) => {
-                                            setSelectedParagraphs((prev) => ({
-                                              ...prev,
-                                              [para.id]: {
-                                                ...state,
-                                                unitType: e.target.value,
-                                              },
-                                            }));
-                                          }}
-                                          className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
-                                        >
-                                          <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
-                                          <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
-                                          <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
-                                          <option value="TREATMENT">Điều trị (TREATMENT)</option>
-                                        </select>
+                                        <div className="flex items-center gap-2">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => handleOpenSplitModal(para)}
+                                            className={`h-6 text-[10px] gap-1 px-2 border ${
+                                              isTooLong
+                                                ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
+                                                : 'border-border text-muted-foreground hover:text-foreground'
+                                            }`}
+                                            title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
+                                          >
+                                            <Scissors className="w-3 h-3" />
+                                            <span>Tách đoạn</span>
+                                          </Button>
+
+                                          <select
+                                            value={state.unitType}
+                                            disabled={!state.selected}
+                                            onChange={(e) => {
+                                              setSelectedParagraphs((prev) => ({
+                                                ...prev,
+                                                [para.id]: {
+                                                  ...state,
+                                                  unitType: e.target.value,
+                                                },
+                                              }));
+                                            }}
+                                            className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
+                                          >
+                                            <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
+                                            <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
+                                            <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
+                                            <option value="TREATMENT">Điều trị (TREATMENT)</option>
+                                          </select>
+                                        </div>
                                       </div>
 
                                       <p className="text-xs text-muted-foreground italic pl-6 leading-relaxed">
                                         "{para.text}"
                                       </p>
 
-                                      {para.mentions && para.mentions.length > 0 && (
-                                        <div className="flex flex-wrap items-center gap-1.5 pl-6 mt-2 pt-2 border-t border-border/40">
-                                          <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất trích xuất:</span>
-                                          {para.mentions.map((m, mIdx) => (
+                                      {/* Thẻ vật tư/hoạt chất/biện pháp */}
+                                      <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất:</span>
+                                          {(para.mentions || []).map((m, mIdx) => (
                                             <span
                                               key={mIdx}
-                                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border"
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border"
                                             >
-                                              {m.text}
+                                              <span>{m.text}</span>
+                                              <select
+                                                value={m.kind}
+                                                onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                                className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0"
+                                                title="Đổi phân loại vật tư"
+                                              >
+                                                <option value="CHEMICAL">Hóa học</option>
+                                                <option value="BIOLOGICAL">Sinh học</option>
+                                                <option value="SUPPLY">Vật tư</option>
+                                                <option value="PRACTICE">Canh tác</option>
+                                              </select>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRemoveMention(para.id, mIdx)}
+                                                className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                                title="Xóa thẻ này"
+                                              >
+                                                <X className="w-2.5 h-2.5" />
+                                              </button>
                                             </span>
                                           ))}
+
+                                          {addingMentionParaId !== para.id && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAddingMentionParaId(para.id);
+                                                setNewMentionText('');
+                                                setNewMentionKind('CHEMICAL');
+                                              }}
+                                              className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
+                                              title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
+                                            >
+                                              <Plus className="w-2.5 h-2.5" />
+                                              <span>Thêm cụm từ</span>
+                                            </button>
+                                          )}
                                         </div>
-                                      )}
+
+                                        {addingMentionParaId === para.id && (
+                                          <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
+                                            <Input
+                                              type="text"
+                                              value={newMentionText}
+                                              onChange={(e) => setNewMentionText(e.target.value)}
+                                              placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
+                                              className="h-7 text-[11px] bg-background w-56"
+                                              autoFocus
+                                            />
+                                            <select
+                                              value={newMentionKind}
+                                              onChange={(e) => setNewMentionKind(e.target.value)}
+                                              className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
+                                            >
+                                              <option value="CHEMICAL">Hóa học</option>
+                                              <option value="BIOLOGICAL">Sinh học</option>
+                                              <option value="SUPPLY">Vật tư canh tác</option>
+                                              <option value="PRACTICE">Biện pháp canh tác</option>
+                                            </select>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => handleAddMention(para.id)}
+                                              className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white"
+                                            >
+                                              Thêm
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() => setAddingMentionParaId(null)}
+                                              className="h-7 text-[11px] px-2 text-muted-foreground"
+                                            >
+                                              Hủy
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -3659,32 +4057,229 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         </DialogContent>
       </Dialog>
 
+      {/* ========================================================================================= */}
+      {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (> 800 KÝ TỰ HOẶC THEO Ý ADMIN) */}
+      {/* ========================================================================================= */}
+      <Dialog open={splitModalOpen} onOpenChange={setSplitModalOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Scissors className="w-4 h-4 text-emerald-700" />
+              <span>Tách đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Quy định trích dẫn HITL yêu cầu mỗi đoạn tối đa 800 ký tự. Hệ thống đã tự động tìm dấu câu kết thúc gần điểm giữa nhất để tách thành 2 đoạn nguyên văn hợp lệ.
+            </DialogDescription>
+          </DialogHeader>
+
+          {splitTargetPara && (
+            <div className="space-y-4 py-2 text-xs">
+              <div className="flex items-center justify-between text-[11px] bg-muted/50 p-2.5 rounded-lg border border-border">
+                <span>Độ dài đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const res = autoSplitText(splitTargetPara.text);
+                    setSplitPart1(res.part1);
+                    setSplitPart2(res.part2);
+                    toast.info('Đã tự động tính toán lại vị trí tách theo dấu câu.');
+                  }}
+                  className="h-6 text-[10px] gap-1 px-2"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" />
+                  Tách tự động theo câu
+                </Button>
+              </div>
+
+              {/* Đoạn 1 */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                    <span>Đoạn 1 ({splitTargetPara.id}_1)</span>
+                  </label>
+                  <span className={`text-[11px] font-mono font-medium ${
+                    splitPart1.trim().length > 800 || splitPart1.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
+                  }`}>
+                    {splitPart1.trim().length} / 800 ký tự {splitPart1.trim().length > 800 ? '(Vượt quá 800)' : splitPart1.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                  </span>
+                </div>
+                <Textarea
+                  value={splitPart1}
+                  onChange={(e) => setSplitPart1(e.target.value)}
+                  rows={4}
+                  className="text-xs bg-background leading-relaxed"
+                  placeholder="Nội dung nửa đầu..."
+                />
+              </div>
+
+              {/* Đoạn 2 */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                    <span>Đoạn 2 ({splitTargetPara.id}_2)</span>
+                  </label>
+                  <span className={`text-[11px] font-mono font-medium ${
+                    splitPart2.trim().length > 800 || splitPart2.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
+                  }`}>
+                    {splitPart2.trim().length} / 800 ký tự {splitPart2.trim().length > 800 ? '(Vượt quá 800)' : splitPart2.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                  </span>
+                </div>
+                <Textarea
+                  value={splitPart2}
+                  onChange={(e) => setSplitPart2(e.target.value)}
+                  rows={4}
+                  className="text-xs bg-background leading-relaxed"
+                  placeholder="Nội dung nửa sau..."
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-end gap-2">
+            <Button size="sm" variant="outline" onClick={() => setSplitModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleConfirmSplit}
+              disabled={
+                !splitPart1.trim() ||
+                !splitPart2.trim() ||
+                splitPart1.trim().length > 800 ||
+                splitPart2.trim().length > 800 ||
+                splitPart1.trim().length < 30 ||
+                splitPart2.trim().length < 30
+              }
+              className="bg-emerald-700 hover:bg-emerald-800 text-white"
+            >
+              Xác nhận tách thành 2 đoạn
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================================= */}
+      {/* DIALOG TRẠNG THÁI REINDEX RAG (AGENT SERVICE) */}
+      {/* ========================================================================================= */}
       <Dialog open={reindexStatusOpen} onOpenChange={setReindexStatusOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-base font-bold flex items-center gap-2">
               <Database className="w-4 h-4 text-emerald-700" />
-              <span>Trạng thái Reindex của Agent Service</span>
+              <span>Trạng thái Đồng bộ Tri thức (RAG Reindex)</span>
             </DialogTitle>
+            <DialogDescription className="text-xs">
+              Đồng bộ dữ liệu vector sang Agent Service để Trợ lý Lavi truy xuất khi tư vấn nông vụ.
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="py-2 text-xs">
+          <div className="py-2 text-xs space-y-3">
             {loadingReindexStatus ? (
-              <div className="text-center py-6 text-muted-foreground">
+              <div className="text-center py-8 text-muted-foreground">
                 <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-700" />
-                Đang truy vấn Agent Service...
+                Đang truy vấn trạng thái từ Agent Service...
               </div>
             ) : reindexStatusData ? (
-              <pre className="p-3 bg-muted rounded-lg font-mono text-[11px] overflow-x-auto border border-border">
-                {JSON.stringify(reindexStatusData, null, 2)}
-              </pre>
+              <>
+                {/* Trạng thái hoạt động chính */}
+                {reindexStatusData.running ? (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2.5 text-blue-900">
+                    <RefreshCw className="w-4 h-4 animate-spin text-blue-700 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-xs">Đang đồng bộ dữ liệu vector trong nền</div>
+                      <div className="text-[11px] text-blue-700">Agent Service đang tính toán embedding cho các bài viết mới.</div>
+                    </div>
+                  </div>
+                ) : reindexStatusData.last_error ? (
+                  <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg flex items-center gap-2.5 text-destructive">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-xs">Lần đồng bộ gần nhất gặp sự cố</div>
+                      <div className="text-[11px] opacity-90">{reindexStatusData.last_error}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2.5 text-emerald-900">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-xs">Hệ thống đồng bộ hoạt động bình thường</div>
+                      <div className="text-[11px] text-emerald-700">Kho tri thức đã được lập chỉ mục và sẵn sàng cho Trợ lý Lavi.</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3 Metric cards */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase font-medium">Đoạn đã lập chỉ mục</div>
+                    <div className="text-base font-bold text-foreground mt-0.5 font-mono">
+                      {reindexStatusData.indexed_documents?.toLocaleString('vi-VN') ?? 0}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase font-medium">Lần thành công gần nhất</div>
+                    <div className="text-[11px] font-semibold text-foreground mt-1">
+                      {reindexStatusData.last_success_at
+                        ? new Date(reindexStatusData.last_success_at).toLocaleString('vi-VN', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : 'Chưa có'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase font-medium">Hàng đợi nền</div>
+                    <div className="text-[11px] font-semibold mt-1">
+                      {reindexStatusData.pending ? (
+                        <span className="text-amber-700">Có yêu cầu chờ</span>
+                      ) : (
+                        <span className="text-emerald-700">Đã đồng bộ hết</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Collapsible raw JSON */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowRawReindexJson(!showRawReindexJson)}
+                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground font-medium"
+                  >
+                    {showRawReindexJson ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    <span>{showRawReindexJson ? 'Ẩn phản hồi JSON' : 'Xem phản hồi JSON kỹ thuật'}</span>
+                  </button>
+                  {showRawReindexJson && (
+                    <pre className="mt-2 p-3 bg-muted rounded-lg font-mono text-[10px] overflow-x-auto border border-border max-h-40">
+                      {JSON.stringify(reindexStatusData, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              </>
             ) : (
-              <p className="text-muted-foreground">Không có dữ liệu phản hồi.</p>
+              <p className="text-muted-foreground py-4 text-center">Không có dữ liệu phản hồi.</p>
             )}
           </div>
 
-          <DialogFooter>
-            <Button size="sm" variant="outline" onClick={() => setReindexStatusOpen(false)}>
+          <DialogFooter className="flex items-center justify-between sm:justify-between w-full">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={loadingReindexStatus}
+              onClick={checkReindexStatus}
+              className="gap-1.5 text-xs"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingReindexStatus ? 'animate-spin' : ''}`} />
+              Làm mới trạng thái
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setReindexStatusOpen(false)}>
               Đóng
             </Button>
           </DialogFooter>
