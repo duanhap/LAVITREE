@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -180,6 +180,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [commitNotes, setCommitNotes] = useState<string>('Đã đối chiếu với bài viết gốc');
   const [committing, setCommitting] = useState<boolean>(false);
   const [showNoiseParagraphs, setShowNoiseParagraphs] = useState<boolean>(false);
+
+  // Chế độ sửa bài đã lưu (/admin/ingest?edit=<url>)
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editParam = searchParams.get('edit');
+  const [editUrl, setEditUrl] = useState<string | null>(null);
+  const [editRows, setEditRows] = useState<KnowledgeSourceItem[]>([]);
+  const [editLoading, setEditLoading] = useState<boolean>(false);
+  const [editSaving, setEditSaving] = useState<boolean>(false);
+  const [editOriginalMeta, setEditOriginalMeta] = useState({ modelClass: '', title: '', org: '', date: '' });
+  const [summaryDrafts, setSummaryDrafts] = useState<Record<string, string>>({});
 
   // Tách đoạn > 800 ký tự (hoặc theo ý Admin)
   const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
@@ -437,6 +448,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const resetArticleState = () => {
     setIngestionResult(null);
     setSelectedParagraphs({});
+    // Đang sửa bài đã lưu: giữ thông tin bài, chỉ bỏ kết quả tách đoạn
+    if (editUrl) return;
     setIngestTitle('');
     setIngestOrg('');
     setIngestDate('');
@@ -460,6 +473,128 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  // ==================== SỬA BÀI ĐÃ LƯU ====================
+  const loadArticleForEdit = async (url: string, keepForm = false) => {
+    try {
+      setEditLoading(true);
+      const res = await apiClient.get<{ source_url: string; sources: KnowledgeSourceItem[] }>(
+        '/knowledge/sources/by-url',
+        { params: { url } }
+      );
+      const rows = res.data.sources || [];
+      setEditRows(rows);
+      setSummaryDrafts(Object.fromEntries(rows.filter((r) => !r.isVerbatim).map((r) => [r.id, r.evidenceText])));
+      setEditUrl(url);
+      const first = rows[0];
+      if (first) {
+        const date = first.publishedDate && first.publishedDate !== 'Không ghi ngày' ? first.publishedDate : '';
+        setEditOriginalMeta({ modelClass: first.modelClass, title: first.sourceTitle, org: first.organization, date });
+        if (!keepForm) {
+          setIngestUrl(res.data.source_url || url);
+          setIngestClass(first.modelClass);
+          setSelectedPlant(first.plantName);
+          setClassFromAi(false);
+          setIngestTitle(first.sourceTitle);
+          setIngestOrg(first.organization);
+          setIngestDate(date);
+          setIngestText('');
+          setIngestionResult(null);
+          setSelectedParagraphs({});
+        }
+      }
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+      setEditUrl(null);
+      setEditRows([]);
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'ingestion') return;
+    if (editParam) {
+      loadArticleForEdit(editParam);
+    } else if (editUrl) {
+      exitEditMode(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam, activeTab]);
+
+  const exitEditMode = (clearParam = true) => {
+    setEditUrl(null);
+    setEditRows([]);
+    setSummaryDrafts({});
+    setIngestUrl('');
+    setIngestText('');
+    setIngestTitle('');
+    setIngestOrg('');
+    setIngestDate('');
+    setIngestClass('');
+    setSelectedPlant('');
+    setIngestionResult(null);
+    setSelectedParagraphs({});
+    if (clearParam) navigate('/admin/ingest', { replace: true });
+  };
+
+  const editMetaDirty = !!editUrl && (
+    ingestClass !== editOriginalMeta.modelClass ||
+    ingestTitle.trim() !== editOriginalMeta.title ||
+    ingestOrg.trim() !== editOriginalMeta.org ||
+    ingestDate.trim() !== editOriginalMeta.date
+  );
+
+  const saveEditedArticleMeta = async (silent = false): Promise<boolean> => {
+    if (!editUrl) return true;
+    if (!ingestClass) {
+      toast.error('Chọn Loài cây và Bệnh hại trước khi lưu.');
+      return false;
+    }
+    try {
+      setEditSaving(true);
+      const res = await apiClient.patch('/knowledge/sources/by-url', {
+        source_url: editUrl,
+        model_class: ingestClass,
+        source_title: ingestTitle.trim(),
+        organization: ingestOrg.trim(),
+        published_date: ingestDate.trim(),
+      });
+      if (!silent) {
+        toast.success(`Đã lưu thông tin bài cho ${res.data.updated_count} đoạn. Các đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.`);
+      }
+      await loadArticleForEdit(editUrl, true);
+      return true;
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+      return false;
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string }) => {
+    try {
+      setEditSaving(true);
+      const res = await apiClient.patch(`/knowledge/sources/${row.id}`, body);
+      if (res.data.reindex_status !== 'skipped') {
+        toast.success('Đã lưu đoạn. Đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.');
+      }
+      if (editUrl) await loadArticleForEdit(editUrl, true);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const collapseWs = (t: string) => t.replace(/\s+/g, ' ').trim();
+  const savedVerbatimTexts = React.useMemo(
+    () => new Set(editRows.filter((r) => r.isVerbatim).map((r) => collapseWs(r.evidenceText))),
+    [editRows]
+  );
+  const existingVerbatimCount = editRows.filter((r) => r.isVerbatim).length;
+  const existingVerbatimChars = editRows.filter((r) => r.isVerbatim).reduce((a, r) => a + r.evidenceText.length, 0);
+
   const handleParseArticle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ingestUrl.trim()) {
@@ -482,8 +617,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
       setIngestionResult(res.data);
 
-      // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập)
-      if (!res.data.suggested_metadata) {
+      // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập).
+      // Đang sửa bài đã lưu thì giữ thông tin bài hiện có, không để AI ghi đè.
+      if (editUrl) {
+        // giữ nguyên
+      } else if (!res.data.suggested_metadata) {
         setIngestTitle('');
         setIngestOrg('');
         setIngestDate('');
@@ -742,8 +880,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return;
     }
 
-    if (selections.length > 8) {
-      toast.error('Mỗi bài viết chỉ được trích dẫn tối đa 8 đoạn nguyên văn (TASK-15).');
+    if (selections.length + existingVerbatimCount > 8) {
+      toast.error(existingVerbatimCount > 0
+        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 8 đoạn (TASK-15).`
+        : 'Mỗi bài viết chỉ được trích dẫn tối đa 8 đoạn nguyên văn (TASK-15).');
       return;
     }
 
@@ -757,10 +897,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     const articleLen = ingestionResult.article_length || ingestText.length || 1;
     const allowedQuota = Math.max(1200, Math.floor(articleLen * 0.3));
 
-    if (currentSelectedChars > allowedQuota) {
+    if (currentSelectedChars + existingVerbatimChars > allowedQuota) {
       toast.error(`Tổng số ký tự các đoạn đã chọn (${currentSelectedChars.toLocaleString('vi-VN')}) vượt quá giới hạn trích dẫn hợp lý (${allowedQuota.toLocaleString('vi-VN')} ký tự, tối đa 30% bài theo TASK-15).`);
       return;
     }
+
+    // Đang sửa bài: lưu thông tin bài trước để đoạn cũ và đoạn mới cùng tiêu đề/bệnh
+    if (editMetaDirty && !(await saveEditedArticleMeta(true))) return;
 
     try {
       setCommitting(true);
@@ -777,6 +920,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.success(
         `Đã lưu và duyệt ${res.data.created_source_ids?.length || selections.length} đoạn nguyên văn vào CSDL (${reindexText}).`
       );
+
+      if (editUrl) {
+        // Ở lại chế độ sửa, nạp lại danh sách đoạn đã lưu
+        setIngestionResult(null);
+        setSelectedParagraphs({});
+        setIngestText('');
+        await loadArticleForEdit(editUrl, true);
+        return;
+      }
 
       // Reset form
       resetArticleState();
@@ -798,6 +950,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }, 0);
   const articleLength = ingestionResult?.article_length || ingestText.length || 1;
   const allowedCharsQuota = Math.max(1200, Math.floor(articleLength * 0.3));
+  // Hạn mức 8 đoạn / 30% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
+  const countWithSaved = countSelected + existingVerbatimCount;
+  const charsWithSaved = totalSelectedChars + existingVerbatimChars;
 
   // ==================== TAB 2 LOGIC ====================
   const fetchSources = async () => {
@@ -844,6 +999,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setSelectedSourceIds((prev) => prev.filter((id) => id !== deleteTarget.id));
       toast.success('Đã xóa đoạn tri thức. Lavi sẽ không dùng đoạn này nữa.');
       setDeleteTarget(null);
+      if (editUrl) await loadArticleForEdit(editUrl, true);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1491,6 +1647,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           setIngestUrl(e.target.value);
                           if (ingestionResult) resetArticleState();
                         }}
+                        readOnly={!!editUrl}
+                        title={editUrl ? 'Đang sửa bài đã lưu: URL cố định. Bấm "Thoát sửa" để nhập bài mới.' : undefined}
                         required
                         className="text-xs"
                       />
@@ -1618,7 +1776,221 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
             {/* Cột phải: Danh sách đoạn trích và chọn commit */}
             <div className="lg:col-span-7 space-y-4">
-              {!ingestionResult ? (
+              {/* BƯỚC 2A: THÔNG TIN BÀI BÁO (AI đề xuất, hoặc bài đã lưu khi đang sửa) */}
+              {(ingestionResult || editUrl) && (
+                <Card className="border-border bg-card shadow-xs">
+                  <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="text-xs font-bold flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-emerald-700" />
+                        <span>Thông tin bài viết &amp; Phân loại</span>
+                      </CardTitle>
+                      {editUrl ? (
+                        <Badge variant="outline" className="text-blue-800 border-blue-300 bg-blue-50 text-[10px]">
+                          Đang sửa bài đã lưu
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]">
+                          AI đề xuất, vui lòng kiểm tra lại
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-3 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-semibold text-foreground block mb-1">
+                          Loài cây trồng *
+                        </label>
+                        <select
+                          value={selectedPlant}
+                          onChange={(e) => handlePlantChange(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                        >
+                          {uniquePlants.map((plant) => (
+                            <option key={plant} value={plant}>
+                              {plant}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="font-semibold text-foreground block mb-1">
+                          Bệnh hại mục tiêu *
+                        </label>
+                        <select
+                          value={ingestClass}
+                          onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
+                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                        >
+                          {filteredDiseasesByPlant.map((d) => (
+                            <option key={d.classCode} value={d.classCode}>
+                              {d.commonNameVi}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-foreground block mb-1">
+                        Tiêu đề bài viết trích dẫn *
+                      </label>
+                      <Input
+                        type="text"
+                        value={ingestTitle}
+                        onChange={(e) => setIngestTitle(e.target.value)}
+                        placeholder="Tiêu đề bài viết..."
+                        className="text-xs bg-background"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div className="sm:col-span-2">
+                        <label className="font-semibold text-foreground block mb-1">
+                          Cơ quan / Tác giả *
+                        </label>
+                        <Input
+                          type="text"
+                          value={ingestOrg}
+                          onChange={(e) => setIngestOrg(e.target.value)}
+                          placeholder="Trung tâm Khuyến nông..."
+                          className="text-xs bg-background"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold text-foreground block mb-1">
+                          Năm xuất bản
+                        </label>
+                        <Input
+                          type="text"
+                          value={ingestDate}
+                          onChange={(e) => setIngestDate(e.target.value)}
+                          placeholder="2024"
+                          className="text-xs bg-background"
+                        />
+                      </div>
+                    </div>
+                    {editUrl && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <span className="text-[11px] text-muted-foreground">
+                          Áp cho cả {editRows.length} đoạn của bài. Lưu xong các đoạn chuyển về "Chờ duyệt".
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!editMetaDirty || editSaving || !ingestClass}
+                          onClick={() => saveEditedArticleMeta()}
+                          className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white"
+                        >
+                          {editSaving ? 'Đang lưu...' : 'Lưu thông tin bài'}
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {editUrl && (
+                <Card className="border-border bg-card shadow-xs">
+                  <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <CardTitle className="text-xs font-bold flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-emerald-700" />
+                        <span>Các đoạn đã lưu của bài ({editRows.length})</span>
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-muted-foreground">
+                          Nguyên văn: {existingVerbatimCount}/8 đoạn, {existingVerbatimChars.toLocaleString('vi-VN')} ký tự
+                        </span>
+                        <Button type="button" size="sm" variant="outline" onClick={() => exitEditMode()} className="h-7 text-xs">
+                          Thoát sửa
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-2.5 text-xs max-h-[420px] overflow-y-auto">
+                    {editLoading && editRows.length === 0 ? (
+                      <p className="text-muted-foreground">Đang tải bài đã lưu...</p>
+                    ) : (
+                      editRows.map((row) => (
+                        <div key={row.id} className="p-3 rounded-lg border border-border bg-background space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
+                                {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
+                              </Badge>
+                              {row.isManualApproved ? (
+                                <Badge className="bg-emerald-700 text-white text-[10px]">Đã duyệt</Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]">Chờ duyệt</Badge>
+                              )}
+                              <span className="text-[11px] text-muted-foreground">{row.evidenceText.length} ký tự</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {row.isVerbatim && (
+                                <select
+                                  value={(row.unitType || 'SYMPTOMS').toUpperCase()}
+                                  disabled={editSaving}
+                                  onChange={(e) => updateSavedUnit(row, { unit_type: e.target.value })}
+                                  className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium"
+                                  aria-label="Loại nội dung"
+                                >
+                                  <option value="SYMPTOMS">Triệu chứng</option>
+                                  <option value="CAUSE_CONDITIONS">Nguyên nhân</option>
+                                  <option value="PREVENTION">Phòng ngừa</option>
+                                  <option value="TREATMENT">Điều trị</option>
+                                </select>
+                              )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setDeleteTarget(row)}
+                                className="h-7 px-2 text-muted-foreground hover:text-destructive"
+                                title="Xoá đoạn này"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                          {row.isVerbatim ? (
+                            <p className="text-foreground/90 leading-relaxed whitespace-pre-line">{row.evidenceText}</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <Textarea
+                                rows={4}
+                                value={summaryDrafts[row.id] ?? row.evidenceText}
+                                onChange={(e) => setSummaryDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                                maxLength={4000}
+                                className="text-xs"
+                              />
+                              <div className="flex justify-end">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={editSaving || (summaryDrafts[row.id] ?? row.evidenceText).trim() === row.evidenceText.trim()}
+                                  onClick={() => updateSavedUnit(row, { evidence_text: summaryDrafts[row.id] })}
+                                  className="h-7 text-xs"
+                                >
+                                  Lưu tóm tắt
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                    <p className="text-[11px] text-muted-foreground pt-1">
+                      Đoạn nguyên văn không sửa chữ được (phải đúng lời bài báo), chỉ đổi loại hoặc xoá. Muốn thêm đoạn nguyên văn:
+                      dán lại bài vào ô 2 bên trái rồi bấm <strong>Tách đoạn</strong>; đoạn đã lưu sẽ hiện nhãn "Đã lưu".
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {!ingestionResult ? (editUrl ? null : (
                 <div className="p-12 text-center bg-card border border-border rounded-xl h-full flex flex-col items-center justify-center space-y-3">
                   <FileText className="w-12 h-12 text-muted-foreground/30" />
                   <h3 className="text-base font-bold text-foreground">Chưa có dữ liệu bài báo</h3>
@@ -1626,99 +1998,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     Dán URL và nội dung bài báo ở cột bên trái rồi bấm <strong>"Tách đoạn &amp; AI Tự Điền Thông Tin"</strong> để bắt đầu trích dẫn nguyên văn.
                   </p>
                 </div>
-              ) : (
+              )) : (
                 <div className="space-y-4">
-                  {/* BƯỚC 2A: THÔNG TIN BÀI BÁO (AI ĐỀ XUẤT - ADMIN XÁC NHẬN) */}
-                  <Card className="border-border bg-card shadow-xs">
-                    <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
-                      <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-xs font-bold flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-emerald-700" />
-                          <span>Thông tin bài viết &amp; Phân loại</span>
-                        </CardTitle>
-                        <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]">
-                          AI đề xuất, vui lòng kiểm tra lại
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-4 space-y-3 text-xs">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Loài cây trồng *
-                          </label>
-                          <select
-                            value={selectedPlant}
-                            onChange={(e) => handlePlantChange(e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                          >
-                            {uniquePlants.map((plant) => (
-                              <option key={plant} value={plant}>
-                                {plant}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Bệnh hại mục tiêu *
-                          </label>
-                          <select
-                            value={ingestClass}
-                            onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                          >
-                            {filteredDiseasesByPlant.map((d) => (
-                              <option key={d.classCode} value={d.classCode}>
-                                {d.commonNameVi}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="font-semibold text-foreground block mb-1">
-                          Tiêu đề bài viết trích dẫn *
-                        </label>
-                        <Input
-                          type="text"
-                          value={ingestTitle}
-                          onChange={(e) => setIngestTitle(e.target.value)}
-                          placeholder="Tiêu đề bài viết..."
-                          className="text-xs bg-background"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <div className="sm:col-span-2">
-                          <label className="font-semibold text-foreground block mb-1">
-                            Cơ quan / Tác giả *
-                          </label>
-                          <Input
-                            type="text"
-                            value={ingestOrg}
-                            onChange={(e) => setIngestOrg(e.target.value)}
-                            placeholder="Trung tâm Khuyến nông..."
-                            className="text-xs bg-background"
-                          />
-                        </div>
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Năm xuất bản
-                          </label>
-                          <Input
-                            type="text"
-                            value={ingestDate}
-                            onChange={(e) => setIngestDate(e.target.value)}
-                            placeholder="2024"
-                            className="text-xs bg-background"
-                          />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
                   {/* BƯỚC 2B: DANH SÁCH ĐOẠN TRÍCH NGUYÊN VĂN */}
                   <Card className="border-border bg-card shadow-xs flex flex-col">
                     <CardHeader className="pb-3 border-b border-border">
@@ -1744,16 +2025,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge
                             variant="secondary"
-                            className={countSelected > 8 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                            className={countWithSaved > 8 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
                           >
-                            Đoạn: {countSelected} / 8
+                            Đoạn: {countWithSaved} / 8
                           </Badge>
                           <Badge
                             variant="secondary"
-                            className={totalSelectedChars > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                            className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
                           >
                             <span title="Giới hạn = 30% độ dài bài, tối thiểu 1.200 ký tự">
-                              Ký tự: {totalSelectedChars.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((totalSelectedChars / allowedCharsQuota) * 100).toFixed(0)}%)
+                              Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((charsWithSaved / allowedCharsQuota) * 100).toFixed(0)}%)
                             </span>
                           </Badge>
                         </div>
@@ -1767,6 +2048,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         .map((para) => {
                           const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
                           const isTooLong = para.text.length > 800;
+                          const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                          // Dòng tiêu đề/ngày đăng (< 40 ký tự, không phải đoạn tách) chỉ để AI đọc thông tin bài
+                          const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
 
                           return (
                             <div
@@ -1782,7 +2066,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   <input
                                     type="checkbox"
                                     checked={state.selected}
-                                    disabled={isTooLong || (!state.selected && countSelected >= 8)}
+                                    disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
                                     onChange={(e) => {
                                       setSelectedParagraphs((prev) => ({
                                         ...prev,
@@ -1798,6 +2082,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   <span className="text-muted-foreground font-normal text-[11px]">
                                     ({para.text.length} ký tự)
                                   </span>
+                                  {isSaved && (
+                                    <Badge variant="outline" className="text-[10px] h-5 border-emerald-300 text-emerald-800 bg-emerald-50">
+                                      Đã lưu
+                                    </Badge>
+                                  )}
                                   {isTooLong && (
                                     <Badge variant="destructive" className="text-[10px] h-5">
                                       Vượt quá 800 ký tự
@@ -1971,6 +2260,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 .map((para) => {
                                   const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
                                   const isTooLong = para.text.length > 800;
+                                  const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                                  // Dòng tiêu đề/ngày đăng (< 40 ký tự, không phải đoạn tách) chỉ để AI đọc thông tin bài
+                                  const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
 
                                   return (
                                     <div
@@ -1986,7 +2278,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           <input
                                             type="checkbox"
                                             checked={state.selected}
-                                            disabled={isTooLong || (!state.selected && countSelected >= 8)}
+                                            disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
                                             onChange={(e) => {
                                               setSelectedParagraphs((prev) => ({
                                                 ...prev,
@@ -2159,9 +2451,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         className="text-xs bg-background"
                       />
 
-                      {totalSelectedChars > allowedCharsQuota && (
+                      {charsWithSaved > allowedCharsQuota && (
                         <p className="text-xs text-destructive font-medium">
-                          Đã chọn {totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
+                          {existingVerbatimChars > 0 ? `Đã lưu ${existingVerbatimChars.toLocaleString('vi-VN')} + chọn thêm ` : 'Đã chọn '}{totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
                           (30% bài, tối thiểu 1.200). Bỏ bớt đoạn để lưu được.
                         </p>
                       )}
@@ -2170,7 +2462,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                       )}
                       <Button
                         onClick={handleCommitParagraphs}
-                        disabled={committing || countSelected === 0 || countSelected > 8 || totalSelectedChars > allowedCharsQuota || !ingestClass}
+                        disabled={committing || editSaving || countSelected === 0 || countWithSaved > 8 || charsWithSaved > allowedCharsQuota || !ingestClass}
                         className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
                       >
                         {committing ? (
@@ -2481,6 +2773,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     className="ml-1 h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                                   >
                                     {isExpanded ? 'Thu gọn' : 'Xem chi tiết'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => navigate(`/admin/ingest?edit=${encodeURIComponent(group.sourceUrl)}`)}
+                                    className="ml-1 h-7 px-2.5 text-xs"
+                                    title="Mở bài ở trang Nhập bài báo để sửa thông tin, đổi loại đoạn, thêm đoạn nguyên văn"
+                                  >
+                                    Sửa bài
                                   </Button>
                                 </td>
                               </tr>

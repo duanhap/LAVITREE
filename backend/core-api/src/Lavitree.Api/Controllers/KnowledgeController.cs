@@ -590,6 +590,228 @@ public class KnowledgeController : ControllerBase
         });
     }
 
+    private static readonly HashSet<string> VerbatimUnitTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SYMPTOMS", "CAUSE_CONDITIONS", "PREVENTION", "TREATMENT"
+    };
+
+    private static string CollapseWhitespace(string text) => Regex.Replace(text, @"\s+", " ").Trim();
+
+    private static string ContentTypeForUnit(string unitType) => unitType switch
+    {
+        "SYMPTOMS" => "Triệu chứng",
+        "CAUSE_CONDITIONS" => "Nguyên nhân & Điều kiện phát sinh",
+        "PREVENTION" => "Biện pháp phòng ngừa",
+        "TREATMENT" => "Biện pháp điều trị",
+        _ => unitType
+    };
+
+    private async Task<List<KnowledgeSource>> LoadArticleRowsAsync(string normalizedUrl, bool tracking)
+    {
+        // URL cũ (seed CSV) có thể chưa chuẩn hoá nên so khớp sau khi chuẩn hoá cả hai phía
+        var query = _dbContext.KnowledgeSources.Where(s => !s.IsDeleted);
+        if (!tracking) query = query.AsNoTracking();
+        var all = await query.ToListAsync();
+        return all.Where(s => NormalizeUrl(s.SourceUrl) == normalizedUrl)
+            .OrderByDescending(s => s.IsVerbatim)
+            .ThenBy(s => s.CreatedAt)
+            .ToList();
+    }
+
+    // 4.2a. GET /api/v1/knowledge/sources/by-url?url=... (Mở lại bài đã lưu để sửa)
+    [HttpGet("sources/by-url")]
+    public async Task<IActionResult> GetArticleByUrl([FromQuery] string? url)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        var normalizedUrl = NormalizeUrl(url ?? string.Empty);
+        if (string.IsNullOrEmpty(normalizedUrl))
+        {
+            return BadRequest(new { detail = "Thiếu URL bài viết." });
+        }
+
+        var rows = await LoadArticleRowsAsync(normalizedUrl, tracking: false);
+        if (rows.Count == 0)
+        {
+            return NotFound(new { detail = "Không tìm thấy bài viết đã lưu với URL này." });
+        }
+
+        return Ok(new
+        {
+            source_url = rows[0].SourceUrl,
+            normalized_url = normalizedUrl,
+            verbatim_count = rows.Count(r => r.IsVerbatim),
+            verbatim_chars = rows.Where(r => r.IsVerbatim).Sum(r => (r.EvidenceText ?? string.Empty).Length),
+            sources = rows
+        });
+    }
+
+    // 4.2b. PATCH /api/v1/knowledge/sources/by-url (Sửa thông tin chung của bài, áp cho mọi đoạn cùng URL)
+    [HttpPatch("sources/by-url")]
+    public async Task<IActionResult> UpdateArticle([FromBody] UpdateArticleRequestDto dto)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var normalizedUrl = NormalizeUrl(dto.SourceUrl);
+        ClassMetadata? classMeta = null;
+        if (!string.IsNullOrWhiteSpace(dto.ModelClass))
+        {
+            classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == dto.ModelClass.Trim());
+            if (classMeta == null)
+            {
+                return BadRequest(new { detail = $"Mã lớp '{dto.ModelClass}' không thuộc 38 lớp được hỗ trợ." });
+            }
+        }
+
+        var urlLock = _urlLocks.GetOrAdd(normalizedUrl, _ => new SemaphoreSlim(1, 1));
+        await urlLock.WaitAsync();
+        try
+        {
+            var rows = await LoadArticleRowsAsync(normalizedUrl, tracking: true);
+            if (rows.Count == 0)
+            {
+                return NotFound(new { detail = "Không tìm thấy bài viết đã lưu với URL này." });
+            }
+
+            var now = DateTime.UtcNow;
+            var changedIds = new List<Guid>();
+            foreach (var s in rows)
+            {
+                var before = (s.ModelClass, s.SourceTitle, s.Organization, s.PublishedDate);
+                if (classMeta != null)
+                {
+                    s.ModelClass = classMeta.ModelClass;
+                    s.PlantName = classMeta.PlantName;
+                    s.DiseaseName = classMeta.DiseaseName;
+                }
+                if (!string.IsNullOrWhiteSpace(dto.SourceTitle)) s.SourceTitle = dto.SourceTitle.Trim();
+                if (!string.IsNullOrWhiteSpace(dto.Organization)) s.Organization = dto.Organization.Trim();
+                if (dto.PublishedDate != null)
+                {
+                    s.PublishedDate = string.IsNullOrWhiteSpace(dto.PublishedDate) ? "Không ghi ngày" : dto.PublishedDate.Trim();
+                }
+
+                if (before != (s.ModelClass, s.SourceTitle, s.Organization, s.PublishedDate))
+                {
+                    // Sửa xong phải duyệt lại; bỏ duyệt + reindex để Lavi không dùng bản cũ trong lúc chờ
+                    s.IsManualApproved = false;
+                    s.ReviewerNotes = "Đã sửa thông tin bài, chờ duyệt lại";
+                    s.UpdatedAt = now;
+                    changedIds.Add(s.Id);
+                }
+            }
+
+            if (changedIds.Count == 0)
+            {
+                return Ok(new { updated_count = 0, reindex_status = "skipped" });
+            }
+
+            if (classMeta != null)
+            {
+                // Gợi ý vật tư chưa xử lý đi theo bệnh mới của bài
+                var pending = await _dbContext.ProductSuggestions
+                    .Where(p => !p.IsDeleted && p.Status == "PENDING" && changedIds.Contains(p.KnowledgeSourceId))
+                    .ToListAsync();
+                foreach (var p in pending) p.ModelClass = classMeta.ModelClass;
+            }
+
+            await _dbContext.SaveChangesAsync();
+            var reindexStatus = await TriggerReindexAsync(null, "unapprove");
+
+            return Ok(new { updated_count = changedIds.Count, reindex_status = reindexStatus });
+        }
+        finally
+        {
+            urlLock.Release();
+        }
+    }
+
+    // 4.2c. PATCH /api/v1/knowledge/sources/{id} (Sửa một đoạn: nguyên văn chỉ đổi loại, tóm tắt sửa được chữ)
+    [HttpPatch("sources/{id:guid}")]
+    public async Task<IActionResult> UpdateSourceUnit(Guid id, [FromBody] UpdateSourceUnitRequestDto dto)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var source = await _dbContext.KnowledgeSources.FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted);
+        if (source == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy đoạn tri thức." });
+        }
+
+        var changed = false;
+        if (!string.IsNullOrWhiteSpace(dto.UnitType))
+        {
+            var unit = dto.UnitType.Trim().ToUpperInvariant();
+            if (!source.IsVerbatim)
+            {
+                if (unit != (source.UnitType ?? "SUMMARY").ToUpperInvariant())
+                {
+                    return BadRequest(new { detail = "Đoạn tóm tắt không đổi loại được. Muốn có đoạn Triệu chứng/Phòng trị, hãy dán lại bài và chọn đoạn nguyên văn." });
+                }
+            }
+            else
+            {
+                if (!VerbatimUnitTypes.Contains(unit))
+                {
+                    return BadRequest(new { detail = $"Loại nội dung '{dto.UnitType}' không hợp lệ. Chỉ chấp nhận: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT." });
+                }
+                if (!string.Equals(source.UnitType, unit, StringComparison.OrdinalIgnoreCase))
+                {
+                    source.UnitType = unit;
+                    source.ContentType = ContentTypeForUnit(unit);
+                    changed = true;
+                }
+            }
+        }
+
+        if (dto.EvidenceText != null && dto.EvidenceText.Trim() != (source.EvidenceText ?? string.Empty).Trim())
+        {
+            if (source.IsVerbatim)
+            {
+                // Sửa chữ thì không còn là nguyên văn của bài báo, Lavi sẽ trích sai lời nguồn
+                return BadRequest(new { detail = "Không sửa chữ trong đoạn nguyên văn. Nếu cần đoạn khác, hãy xoá đoạn này rồi dán lại bài để chọn đoạn mới." });
+            }
+            if (dto.EvidenceText.Trim().Length < 20)
+            {
+                return BadRequest(new { detail = "Đoạn tóm tắt phải có ít nhất 20 ký tự." });
+            }
+            source.EvidenceText = dto.EvidenceText.Trim();
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return Ok(new { source_id = source.Id, is_manual_approved = source.IsManualApproved, reindex_status = "skipped" });
+        }
+
+        source.IsManualApproved = false;
+        source.ReviewerNotes = "Đã sửa đoạn, chờ duyệt lại";
+        source.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+
+        var reindexStatus = await TriggerReindexAsync(source.Id.ToString(), "unapprove");
+        return Ok(new { source_id = source.Id, is_manual_approved = false, reindex_status = reindexStatus });
+    }
+
     // 4.3. POST /api/v1/knowledge/ingestions (Nhập bài báo - Bước 1: Dán văn bản, AI gợi ý đoạn)
     [HttpPost("ingestions")]
     public async Task<IActionResult> IngestArticle([FromBody] IngestArticleRequestDto dto)
@@ -799,38 +1021,45 @@ public class KnowledgeController : ControllerBase
             string chosenText;
             List<MentionDto> chosenMentions;
 
-            if (sessionDict.TryGetValue(sel.ParagraphId, out var para))
+            // Đoạn gốc (P3) hoặc đoạn tách từ đoạn gốc (P3_1, P3_2). So với đoạn đã tách trong phiên,
+            // không so với toàn văn: Core đã ghép tiêu đề mục vào đầu đoạn và gộp khoảng trắng nên
+            // đoạn hợp lệ không còn nằm nguyên chuỗi trong toàn văn. So khớp phân biệt hoa thường.
+            var baseId = sel.ParagraphId;
+            if (!sessionDict.ContainsKey(baseId))
             {
-                if (!string.IsNullOrWhiteSpace(sel.CustomText))
+                var cut = baseId.IndexOf('_');
+                if (cut > 0) baseId = baseId[..cut];
+            }
+
+            if (!sessionDict.TryGetValue(baseId, out var para))
+            {
+                return BadRequest(new { detail = $"Không tìm thấy đoạn '{sel.ParagraphId}' trong phiên nhập bài." });
+            }
+
+            var isSplitPart = !string.Equals(baseId, sel.ParagraphId, StringComparison.OrdinalIgnoreCase);
+            if (isSplitPart && string.IsNullOrWhiteSpace(sel.CustomText))
+            {
+                return BadRequest(new { detail = $"Thiếu nội dung đoạn tách '{sel.ParagraphId}'." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(sel.CustomText))
+            {
+                chosenText = CollapseWhitespace(sel.CustomText);
+                if (!CollapseWhitespace(para.Text).Contains(chosenText, StringComparison.Ordinal))
                 {
-                    chosenText = sel.CustomText.Trim();
-                    if (!session.ArticleText.Contains(chosenText, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return BadRequest(new { detail = $"Nội dung đoạn '{sel.ParagraphId}' không khớp nguyên văn với bài báo gốc (quy định Điều 25 Luật SHTT)." });
-                    }
+                    return BadRequest(new { detail = $"Nội dung đoạn '{sel.ParagraphId}' không khớp nguyên văn với đoạn {baseId} của bài báo (không được sửa chữ, quy định Điều 25 Luật SHTT)." });
                 }
-                else
-                {
-                    chosenText = para.Text;
-                }
-                chosenMentions = sel.Mentions ?? para.Mentions ?? new List<MentionDto>();
             }
             else
             {
-                // Đoạn tách từ đoạn gốc (ví dụ P1_1, P1_2)
-                if (!string.IsNullOrWhiteSpace(sel.CustomText))
-                {
-                    chosenText = sel.CustomText.Trim();
-                    if (!session.ArticleText.Contains(chosenText, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return BadRequest(new { detail = $"Nội dung đoạn tách '{sel.ParagraphId}' không khớp nguyên văn với bài báo gốc." });
-                    }
-                    chosenMentions = sel.Mentions ?? new List<MentionDto>();
-                }
-                else
-                {
-                    return BadRequest(new { detail = $"Không tìm thấy đoạn '{sel.ParagraphId}' trong phiên nhập bài." });
-                }
+                chosenText = para.Text;
+            }
+            chosenMentions = sel.Mentions ?? (isSplitPart ? null : para.Mentions) ?? new List<MentionDto>();
+
+            // Dòng ngắn đầu bài (tiêu đề, ngày đăng) chỉ để AI đọc thông tin bài, không lưu thành tri thức
+            if (!isSplitPart && chosenText.Length < 40)
+            {
+                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' quá ngắn ({chosenText.Length} ký tự). Dòng tiêu đề, ngày đăng chỉ để AI đọc thông tin bài, không lưu thành đoạn tri thức." });
             }
 
             if (chosenText.Length < 30)
@@ -931,14 +1160,7 @@ public class KnowledgeController : ControllerBase
                     continue;
                 }
 
-                var contentType = unitType switch
-                {
-                    "SYMPTOMS" => "Triệu chứng",
-                    "CAUSE_CONDITIONS" => "Nguyên nhân & Điều kiện phát sinh",
-                    "PREVENTION" => "Biện pháp phòng ngừa",
-                    "TREATMENT" => "Biện pháp điều trị",
-                    _ => unitType
-                };
+                var contentType = ContentTypeForUnit(unitType);
 
                 var source = new KnowledgeSource
                 {
