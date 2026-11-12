@@ -619,11 +619,33 @@ public class KnowledgeController : ControllerBase
         var validParagraphs = new List<ParagraphDto>();
         int pIndex = 1;
 
+        // Tiêu đề mục ngắn ("Biện pháp hóa học:", "4. Biện pháp quản lý") được ghép vào đoạn ngay sau
+        // để không mất ngữ cảnh; dòng ngắn khác (menu, tiêu đề trang) vẫn bị bỏ như trước
+        string? pendingHeading = null;
         foreach (var raw in rawParagraphs)
         {
-            var cleaned = raw.Trim();
-            // Bỏ đoạn quá ngắn (< 40 ký tự)
-            if (cleaned.Length >= 40)
+            var cleaned = Regex.Replace(raw.Trim(), @"[ \t]+", " ");
+            if (cleaned.Length == 0 || IsContactOrAdNoise(cleaned)) continue;
+
+            if (cleaned.Length < 40)
+            {
+                if (IsSectionHeading(cleaned))
+                {
+                    pendingHeading = cleaned;
+                }
+                else if (validParagraphs.Count < 3 && cleaned.Length >= 10)
+                {
+                    // Phần đầu bài (tiêu đề, tác giả, ngày đăng): giữ để AI điền metadata, Admin không cần chọn
+                    validParagraphs.Add(new ParagraphDto { Id = $"P{pIndex++}", Text = cleaned, SuggestedUnitType = null });
+                }
+                continue;
+            }
+            if (pendingHeading != null)
+            {
+                cleaned = $"{pendingHeading} {cleaned}";
+                pendingHeading = null;
+            }
+
             {
                 validParagraphs.Add(new ParagraphDto
                 {
@@ -948,9 +970,21 @@ public class KnowledgeController : ControllerBase
 
                     // So khớp theo HOẠT CHẤT (không theo tên thương mại); biện pháp canh tác không có sản phẩm
                     Product? matchedProduct = null;
-                    if (mentionKind is "CHEMICAL" or "BIOLOGICAL")
+                    if (mentionKind is "CHEMICAL" or "BIOLOGICAL" or "SUPPLY")
+                    {
+                        // Ưu tiên trùng tên sản phẩm đã có trong kho (tên thương mại), sau đó mới khớp hoạt chất
+                        matchedProduct = allProducts.FirstOrDefault(p =>
+                            !MedicinesController.IsBannedIngredient(p.Name) &&
+                            !MedicinesController.IsBannedIngredient(p.ActiveIngredient) &&
+                            mentionText.Length >= 5 && p.Name.Trim().Length >= 5 &&
+                            (p.Name.Contains(mentionText, StringComparison.OrdinalIgnoreCase) ||
+                             mentionText.Contains(p.Name.Trim(), StringComparison.OrdinalIgnoreCase)));
+                    }
+                    if (matchedProduct == null && mentionKind is "CHEMICAL" or "BIOLOGICAL")
                     {
                         matchedProduct = allProducts.FirstOrDefault(p =>
+                            !MedicinesController.IsBannedIngredient(p.Name) &&
+                            !MedicinesController.IsBannedIngredient(p.ActiveIngredient) &&
                             !string.IsNullOrWhiteSpace(p.ActiveIngredient) &&
                             p.ActiveIngredient.Trim().Length >= 4 &&
                             mentionText.Length >= 4 &&
@@ -1275,6 +1309,19 @@ public class KnowledgeController : ControllerBase
     }
 
     private const string KnowledgeBucketName = "lavitree-images";
+
+    // Số điện thoại VN (0xxx xxx xxx, +84...) đi kèm từ khóa liên hệ/quảng cáo: hotline lọt khi dán bài
+    private static readonly Regex PhoneRegex = new(@"(\+84|\b0)\d{2,3}[\s.\-]?\d{3}[\s.\-]?\d{3,4}\b", RegexOptions.Compiled);
+    private static readonly Regex ContactKeywordRegex = new(
+        @"hotline|zalo|liên hệ|tư vấn miễn phí|đặt hàng|mua hàng|gọi ngay|inbox|fanpage|bạn đang đọc bài viết|đăng ký nhận bản tin|chia sẻ facebook",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SectionHeadingRegex = new(@"(:\s*$)|(^(\d+|[IVX]+|[a-zđ])[.)]\s+\S)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static bool IsContactOrAdNoise(string text) =>
+        text.Length <= 300 && ContactKeywordRegex.IsMatch(text) &&
+        (PhoneRegex.IsMatch(text) || text.Length <= 120);
+
+    private static bool IsSectionHeading(string text) => text.Length >= 3 && SectionHeadingRegex.IsMatch(text);
     private static readonly HashSet<string> ValidMentionKinds = new(StringComparer.Ordinal)
     {
         "CHEMICAL", "BIOLOGICAL", "SUPPLY", "PRACTICE"
@@ -1656,6 +1703,17 @@ public class KnowledgeController : ControllerBase
         if (product == null)
         {
             return NotFound(new { detail = "Không tìm thấy sản phẩm cần gắn kết." });
+        }
+
+        if (suggestion.Status != "PENDING")
+        {
+            return Conflict(new { detail = "Gợi ý này đã được xử lý trước đó." });
+        }
+
+        // Không bao giờ gắn thuốc cấm vào bệnh, kể cả khi trang kết quả khám đã lọc IsAllowed
+        if (MedicinesController.IsBannedIngredient(product.Name) || MedicinesController.IsBannedIngredient(product.ActiveIngredient))
+        {
+            return BadRequest(new { detail = $"Sản phẩm '{product.Name}' chứa hoạt chất cấm, không được gắn vào bệnh." });
         }
 
         suggestion.Status = "LINKED";

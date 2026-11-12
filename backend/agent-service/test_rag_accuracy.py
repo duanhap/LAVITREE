@@ -358,6 +358,28 @@ def test_08_label_paragraphs():
     assert res_meta.json()["metadata"]["source_title"] == "Bài báo thử nghiệm"
     _ok("Trích xuất và thẩm định metadata (38 lớp, năm xuất bản, cơ quan)")
 
+    # Chống bịa metadata: năm không có trong bài và chuỗi mẫu <...> chép từ prompt đều bị bỏ
+    assert res_meta.json()["metadata"]["published_date"] is None, res_meta.text
+    placeholder = json.dumps({"labels": [], "metadata": {
+        "model_class": "Tomato___Late_blight",
+        "source_title": "<Tiêu đề bài viết hoặc bản dịch tiếng Việt sát nghĩa>",
+        "organization": "null",
+    }})
+    meta_p = _label_with_gemini_text(client, placeholder).json()["metadata"]
+    assert meta_p["source_title"] is None and meta_p["organization"] is None, meta_p
+    _ok("Năm không có trong bài và chuỗi mẫu của prompt bị bỏ (không bịa metadata)")
+
+    busy = RuntimeError("503 UNAVAILABLE. This model is currently experiencing high demand.")
+    with patch("google.genai.Client") as client_cls, patch("app.rag.pipeline.time.sleep") as fake_sleep,             patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key"}):
+        client_cls.return_value.models.generate_content.side_effect = [
+            busy, MagicMock(text=json.dumps({"labels": [{"id": "P1", "unit_type": "SYMPTOMS"}]}))
+        ]
+        res_retry = client.post(LABEL_URL, headers=AUTH, json=LABEL_BODY)
+    assert res_retry.status_code == 200, res_retry.text
+    assert client_cls.return_value.models.generate_content.call_count == 2
+    assert fake_sleep.call_count == 1
+    _ok("Gemini quá tải (503) thì tự thử lại thay vì bắt Admin tự gắn nhãn")
+
     for bad in ("khong phai json", "12345", None):
         assert _label_with_gemini_text(client, bad).status_code == 503, bad
     with patch("google.genai.Client", side_effect=RuntimeError("down")), patch.dict(os.environ, {"GEMINI_API_KEY": "fake"}):
