@@ -33,9 +33,13 @@ Ký hiệu: `[x]` đã sửa trên nhánh, chưa push; `[ ]` còn lại; `[!]` c
 [x] 16. Tên thương mại (Ridomil Gold 68WG, Antracol 70WP) không khớp với sản phẩm đã có, Admin dễ bấm "Tạo SP" ra sản phẩm trùng. Core giờ khớp cả theo tên sản phẩm (không khớp với sản phẩm chứa hoạt chất cấm).
 [x] 17. Gắn được thuốc cấm vào bệnh và gắn lại gợi ý đã xử lý. Core trả 400 và 409; danh sách chọn ở web cũng ẩn thuốc cấm. (Nông dân chưa bị ảnh hưởng vì trang khám đã lọc `IsAllowed`.)
 [x] 18. Biện pháp canh tác (PRACTICE) vẫn có nút "Gắn SP"; modal "Tạo SP" ghi "đã điền sẵn từ bài báo" dù không còn điền giá/PHI. Đã ẩn nút và sửa câu.
-[ ] 19. Cột "Đoạn trích bằng chứng" quá hẹp, đọc không được; nên gom các gợi ý cùng một bài và cùng sản phẩm (Metalaxyl-M, Mancozeb, Ridomil cùng trỏ về một sản phẩm, Admin phải gắn 3 lần).
-[ ] 20. Bộ lọc còn chữ tiếng Anh (`Pending`, `Linked`, `CHEMICAL`, `SUPPLY`...).
-[ ] 21. Modal "Thêm thuốc" và "Sửa thông số" không thống nhất: Sửa chọn NOT_SOLD thì ẩn giá/tồn, Thêm thì vẫn bắt buộc; tên loại viết khác nhau; còn lộ enum `IN_STOCK`. Modal Sửa thiếu ô tên, hoạt chất, bệnh, hướng dẫn. Chọn "Vật tư canh tác" vẫn điền "Pha theo hướng dẫn trên bao bì".
+[x] 19. Cột "Đoạn trích bằng chứng" quá hẹp: đã mở rộng (`min-w-[280px] max-w-lg`, line-clamp-3) để Admin đọc trọn vẹn ngữ cảnh đoạn trích.
+[x] 20. Bộ lọc còn chữ tiếng Anh: đã Việt hóa toàn bộ bộ lọc trạng thái ("Chờ xử lý", "Đã gắn SP có sẵn", "Đã tạo SP mới", "Đã bỏ qua") và phân loại ("Thuốc BVTV hóa học", "Chế phẩm sinh học BVTV", "Vật tư canh tác", "Biện pháp canh tác").
+[x] 21. Modal "Thêm thuốc" và "Sửa thông số" không thống nhất: đã đồng bộ 100%:
+  - Chọn NOT_SOLD ẩn giá/tồn kho ở cả 2 modal (mặc định 0 kèm thông báo rõ ràng).
+  - Modal Sửa bổ sung đầy đủ các ô: Tên sản phẩm, Hoạt chất chính, Hướng dẫn sử dụng/Liều lượng, Link nguồn tra cứu, Checkbox lưu hành (Core Backend hỗ trợ cập nhật trong `PATCH /api/v1/medicines/{id}`).
+  - Thống nhất tên 3 loại sản phẩm giữa 2 modal; ẩn mã enum kỹ thuật `IN_STOCK`, `OUT_OF_STOCK`, `NOT_SOLD`.
+  - Chọn "Vật tư canh tác" tự đổi hướng dẫn liều dùng sang hướng dẫn canh tác thay vì "pha theo bao bì", và điều chỉnh nhãn checkbox lưu hành sang tư vấn canh tác.
 
 ### C. Duyệt tri thức (`/admin/knowledge`) và Ảnh (`/admin/images`)
 [x] 22. Modal "Thêm ảnh triệu chứng" ở trang Ảnh dính URL và cơ quan của bài đang nhập. Giờ chỉ nút "Thêm ảnh từ bài này" mới điền sẵn.

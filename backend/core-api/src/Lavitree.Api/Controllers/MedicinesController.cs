@@ -356,6 +356,15 @@ public class MedicinesController : ControllerBase
 
     public class UpdateMedicineDto
     {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("active_ingredient")]
+        public string? ActiveIngredient { get; set; }
+
+        [JsonPropertyName("dosage_instruction")]
+        public string? DosageInstruction { get; set; }
+
         [JsonPropertyName("is_allowed")]
         public bool? IsAllowed { get; set; }
 
@@ -517,6 +526,31 @@ public class MedicinesController : ControllerBase
             return NotFound(new { detail = "Không tìm thấy sản phẩm thuốc BVTV." });
         }
 
+        if (!string.IsNullOrWhiteSpace(dto.Name))
+        {
+            var name = dto.Name.Trim();
+            if (IsBannedIngredient(name))
+            {
+                return BadRequest(new { detail = $"Tên sản phẩm '{name}' chứa hoạt chất cấm theo Thông tư 75/2025." });
+            }
+            product.Name = name;
+        }
+
+        if (dto.ActiveIngredient != null)
+        {
+            var active = dto.ActiveIngredient.Trim();
+            if (active.Length > 0 && IsBannedIngredient(active))
+            {
+                return BadRequest(new { detail = $"Hoạt chất '{active}' nằm trong danh mục cấm theo Thông tư 75/2025." });
+            }
+            product.ActiveIngredient = active.Length > 0 ? active : null;
+        }
+
+        if (dto.DosageInstruction != null)
+        {
+            product.DosageInstruction = dto.DosageInstruction.Trim();
+        }
+
         if (dto.IsAllowed.HasValue)
         {
             if (dto.IsAllowed.Value && (IsBannedIngredient(product.ActiveIngredient) || IsBannedIngredient(product.Name)))
@@ -596,6 +630,8 @@ public class MedicinesController : ControllerBase
         {
             id = product.Id,
             name = product.Name,
+            active_ingredient = product.ActiveIngredient,
+            dosage_instruction = product.DosageInstruction,
             is_allowed = product.IsAllowed,
             phi_days = product.PhiDays,
             price = product.Price,

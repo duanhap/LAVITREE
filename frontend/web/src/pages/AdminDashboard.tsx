@@ -400,13 +400,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         !isNoise(text) && (text.length >= 30 || (text.length >= 3 && isHeading(el, text)));
 
       const mainEl = doc.querySelector('article') ||
-                     doc.querySelector('[role="main"]') ||
-                     doc.querySelector('.detail-content') ||
-                     doc.querySelector('.post-content') ||
-                     doc.querySelector('.article-content') ||
-                     doc.querySelector('.entry-content') ||
-                     doc.querySelector('.content') ||
-                     doc.body;
+        doc.querySelector('[role="main"]') ||
+        doc.querySelector('.detail-content') ||
+        doc.querySelector('.post-content') ||
+        doc.querySelector('.article-content') ||
+        doc.querySelector('.entry-content') ||
+        doc.querySelector('.content') ||
+        doc.body;
 
       if (!mainEl) return '';
 
@@ -1205,12 +1205,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const handleSaveMedicineEdit = async () => {
     if (!editingMed) return;
 
+    if (!editingMed.name.trim()) {
+      toast.error('Vui lòng nhập tên sản phẩm.');
+      return;
+    }
+
+    const isSupply = editingMed.medicine_type === 'Vật tư canh tác';
+    if (isIngredientBanned(editingMed.name) || (!isSupply && isIngredientBanned(editingMed.active_ingredient))) {
+      toast.error('Tên hoặc hoạt chất thuộc danh mục thuốc BVTV cấm sử dụng tại Việt Nam.');
+      return;
+    }
+
+    if (!isSupply && (editingMed.phi_days === null || editingMed.phi_days === undefined)) {
+      toast.error('Thuốc hóa học/sinh học bắt buộc có thời gian cách ly (PHI).');
+      return;
+    }
+
     try {
       setMedSaving(true);
       const res = await apiClient.patch(`/medicines/${editingMed.id}`, {
         phi_days: editingMed.phi_days,
         price: editingMed.price,
         stock_quantity: editingMed.stock_quantity,
+        name: editingMed.name.trim(),
+        active_ingredient: isSupply ? null : (editingMed.active_ingredient?.trim() || null),
+        dosage_instruction: editingMed.dosage_instruction?.trim() || (isSupply ? 'Sử dụng theo hướng dẫn kỹ thuật' : 'Pha theo hướng dẫn trên bao bì'),
+        phi_days: isSupply ? null : editingMed.phi_days,
+        price: editingMed.availability === 'NOT_SOLD' ? 0 : (Number(editingMed.price) || 0),
+        stock_quantity: editingMed.availability === 'NOT_SOLD' ? 0 : (Number(editingMed.stock_quantity) || 0),
         is_allowed: editingMed.is_allowed,
         availability: editingMed.availability,
         info_source_url: editingMed.info_source_url,
@@ -1223,6 +1245,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
       setEditingMed(null);
       toast.success(`Đã cập nhật thông tin thuốc/vật tư '${res.data.name}'.`);
+      toast.success(`Đã cập nhật thông tin sản phẩm '${res.data.name}'.`);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1290,8 +1313,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         sug.kind === 'BIOLOGICAL'
           ? 'Sinh học'
           : sug.kind === 'SUPPLY' || sug.kind === 'PRACTICE'
-          ? 'Vật tư canh tác'
-          : 'Hóa học';
+            ? 'Vật tư canh tác'
+            : 'Hóa học';
       setNewMedType(mappedType);
       setNewMedActiveIngredient(sug.kind === 'CHEMICAL' || sug.kind === 'BIOLOGICAL' ? sug.mention_text : '');
       // TASK-15 5.3: không điền sẵn PHI; Admin tự tra nhãn thuốc rồi nhập
@@ -1354,8 +1377,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         active_ingredient: isSupply ? null : newMedActiveIngredient.trim() || undefined,
         price: Number(newMedPrice) || 0,
         dosage_instruction: newMedDosage.trim() || 'Sử dụng theo hướng dẫn kỹ thuật',
+        price: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedPrice) || 0),
+        dosage_instruction: newMedDosage.trim() || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
         phi_days: isSupply ? null : (newMedPhi === '' ? null : Number(newMedPhi)),
         stock_quantity: Number(newMedStock) || 0,
+        stock_quantity: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedStock) || 0),
         availability: newMedAvailability,
         info_source_url: newMedSourceUrl.trim() || undefined,
         target_disease_code: newMedTargetDisease || undefined,
@@ -2055,11 +2081,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           return (
                             <div
                               key={para.id}
-                              className={`p-3.5 rounded-lg border transition-colors ${
-                                state.selected
+                              className={`p-3.5 rounded-lg border transition-colors ${state.selected
                                   ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
                                   : 'bg-card border-border hover:bg-muted/40'
-                              }`}
+                                }`}
                             >
                               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                                 <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
@@ -2100,11 +2125,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     size="sm"
                                     variant="outline"
                                     onClick={() => handleOpenSplitModal(para)}
-                                    className={`h-6 text-[10px] gap-1 px-2 border ${
-                                      isTooLong
+                                    className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
                                         ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
                                         : 'border-border text-muted-foreground hover:text-foreground'
-                                    }`}
+                                      }`}
                                     title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
                                   >
                                     <Scissors className="w-3 h-3" />
@@ -2144,15 +2168,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   {(para.mentions || []).map((m, mIdx) => (
                                     <span
                                       key={mIdx}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                                        m.kind === 'CHEMICAL'
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${m.kind === 'CHEMICAL'
                                           ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                           : m.kind === 'BIOLOGICAL'
-                                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                          : m.kind === 'SUPPLY'
-                                          ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                                          : 'bg-purple-100 text-purple-800 border border-purple-300'
-                                      }`}
+                                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                            : m.kind === 'SUPPLY'
+                                              ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                              : 'bg-purple-100 text-purple-800 border border-purple-300'
+                                        }`}
                                     >
                                       <span>{m.text}</span>
                                       <select
@@ -2267,11 +2290,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   return (
                                     <div
                                       key={para.id}
-                                      className={`p-3 rounded-lg border transition-colors opacity-80 hover:opacity-100 ${
-                                        state.selected
+                                      className={`p-3 rounded-lg border transition-colors opacity-80 hover:opacity-100 ${state.selected
                                           ? 'bg-emerald-50/70 border-emerald-300'
                                           : 'bg-card border-border'
-                                      }`}
+                                        }`}
                                     >
                                       <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                                         <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
@@ -2307,11 +2329,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                             size="sm"
                                             variant="outline"
                                             onClick={() => handleOpenSplitModal(para)}
-                                            className={`h-6 text-[10px] gap-1 px-2 border ${
-                                              isTooLong
+                                            className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
                                                 ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
                                                 : 'border-border text-muted-foreground hover:text-foreground'
-                                            }`}
+                                              }`}
                                             title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
                                           >
                                             <Scissors className="w-3 h-3" />
@@ -2567,11 +2588,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 variant={groupByArticle ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setGroupByArticle(!groupByArticle)}
-                className={`h-9 text-xs gap-1.5 ${
-                  groupByArticle
+                className={`h-9 text-xs gap-1.5 ${groupByArticle
                     ? 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
                     : 'bg-card border-border hover:bg-muted text-foreground'
-                }`}
+                  }`}
                 title={
                   groupByArticle
                     ? 'Đang gộp theo bài viết. Bấm để xem danh sách phẳng từng dòng'
@@ -2645,9 +2665,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             <React.Fragment key={group.key}>
                               {/* Dòng bài viết tổng hợp */}
                               <tr
-                                className={`hover:bg-muted/30 transition-colors ${
-                                  isExpanded ? 'bg-muted/20 font-medium' : ''
-                                }`}
+                                className={`hover:bg-muted/30 transition-colors ${isExpanded ? 'bg-muted/20 font-medium' : ''
+                                  }`}
                               >
                                 <td className="p-3">
                                   <input
@@ -2758,11 +2777,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     variant={isAllApproved ? 'outline' : 'default'}
                                     disabled={batchActionLoading}
                                     onClick={() => handleToggleApproveArticle(group)}
-                                    className={`h-7 px-2.5 text-xs ${
-                                      isAllApproved
+                                    className={`h-7 px-2.5 text-xs ${isAllApproved
                                         ? 'text-muted-foreground hover:text-destructive'
                                         : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
-                                    }`}
+                                      }`}
                                   >
                                     {isAllApproved ? 'Bỏ duyệt cả bài' : 'Duyệt cả bài'}
                                   </Button>
@@ -2807,11 +2825,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           return (
                                             <div
                                               key={p.id}
-                                              className={`p-2.5 sm:p-3 rounded-lg border text-xs transition-colors ${
-                                                isParagraphSelected
+                                              className={`p-2.5 sm:p-3 rounded-lg border text-xs transition-colors ${isParagraphSelected
                                                   ? 'border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20'
                                                   : 'border-border/70 bg-background hover:border-border'
-                                              }`}
+                                                }`}
                                             >
                                               <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                                                 <div className="flex items-center gap-2">
@@ -2871,11 +2888,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                                     onClick={() =>
                                                       handleToggleApprove(p.id, p.isManualApproved)
                                                     }
-                                                    className={`h-6 px-2 text-[11px] ${
-                                                      p.isManualApproved
+                                                    className={`h-6 px-2 text-[11px] ${p.isManualApproved
                                                         ? 'text-muted-foreground hover:text-destructive'
                                                         : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
-                                                    }`}
+                                                      }`}
                                                   >
                                                     {p.isManualApproved ? 'Bỏ duyệt' : 'Duyệt'}
                                                   </Button>
@@ -2958,9 +2974,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           return (
                             <tr
                               key={s.id}
-                              className={`hover:bg-muted/30 transition-colors ${
-                                isSelected ? 'bg-emerald-50/40' : ''
-                              }`}
+                              className={`hover:bg-muted/30 transition-colors ${isSelected ? 'bg-emerald-50/40' : ''
+                                }`}
                             >
                               <td className="p-3">
                                 <input
@@ -3030,11 +3045,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   size="sm"
                                   variant={s.isManualApproved ? 'outline' : 'default'}
                                   onClick={() => handleToggleApprove(s.id, s.isManualApproved)}
-                                  className={`h-7 px-2.5 text-xs ${
-                                    s.isManualApproved
+                                  className={`h-7 px-2.5 text-xs ${s.isManualApproved
                                       ? 'text-muted-foreground hover:text-destructive'
                                       : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
-                                  }`}
+                                    }`}
                                 >
                                   {s.isManualApproved ? 'Bỏ duyệt' : 'Duyệt bài'}
                                 </Button>
@@ -3223,20 +3237,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         {img.plant_part === 'LEAF'
                           ? 'Lá'
                           : img.plant_part === 'FRUIT'
-                          ? 'Quả/Hoa'
-                          : img.plant_part === 'STEM'
-                          ? 'Thân/Cành'
-                          : 'Toàn cây'}
+                            ? 'Quả/Hoa'
+                            : img.plant_part === 'STEM'
+                              ? 'Thân/Cành'
+                              : 'Toàn cây'}
                       </span>
                     </div>
                     <div className="absolute top-2 right-2">
                       <Badge
                         variant="secondary"
-                        className={`text-[10px] font-semibold border ${
-                          img.is_manual_approved
+                        className={`text-[10px] font-semibold border ${img.is_manual_approved
                             ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
                             : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
-                        }`}
+                          }`}
                       >
                         {img.is_manual_approved ? 'Đã duyệt' : 'Chờ duyệt'}
                       </Badge>
@@ -3283,11 +3296,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           variant="ghost"
                           size="sm"
                           onClick={() => handleToggleApproveImage(img)}
-                          className={`h-7 px-2 text-[11px] font-semibold ${
-                            img.is_manual_approved
+                          className={`h-7 px-2 text-[11px] font-semibold ${img.is_manual_approved
                               ? 'text-amber-700 hover:bg-amber-500/10 dark:text-amber-400'
                               : 'text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400'
-                          }`}
+                            }`}
                         >
                           {img.is_manual_approved ? 'Bỏ duyệt' : 'Duyệt ảnh'}
                         </Button>
@@ -3319,11 +3331,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             <button
               type="button"
               onClick={() => setInventorySubTab('medicines')}
-              className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
-                inventorySubTab === 'medicines'
+              className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${inventorySubTab === 'medicines'
                   ? 'border-emerald-700 text-emerald-800'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
+                }`}
             >
               <Package className="w-3.5 h-3.5" />
               <span>Kho thuốc &amp; Vật tư ({medicines.length})</span>
@@ -3335,11 +3346,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 setInventorySubTab('suggestions');
                 fetchSuggestions();
               }}
-              className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
-                inventorySubTab === 'suggestions'
+              className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${inventorySubTab === 'suggestions'
                   ? 'border-emerald-700 text-emerald-800'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
+                }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>Gợi ý vật tư từ bài báo</span>
@@ -3455,8 +3465,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   med.medicine_type === 'Sinh học'
                                     ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                                     : med.medicine_type === 'Vật tư canh tác'
-                                    ? 'bg-blue-50 text-blue-800 border-blue-300'
-                                    : 'bg-amber-50 text-amber-800 border-amber-300'
+                                      ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                      : 'bg-amber-50 text-amber-800 border-amber-300'
                                 }
                               >
                                 {med.medicine_type}
@@ -3509,11 +3519,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 size="sm"
                                 variant={med.is_allowed ? 'default' : 'outline'}
                                 onClick={() => handleToggleMedicineAllowed(med)}
-                                className={`h-7 px-2.5 text-xs font-semibold ${
-                                  med.is_allowed
+                                className={`h-7 px-2.5 text-xs font-semibold ${med.is_allowed
                                     ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
                                     : 'text-destructive border-destructive/30 hover:bg-destructive/10'
-                                }`}
+                                  }`}
                               >
                                 {med.is_allowed ? 'Đang lưu hành' : 'Bị cấm / Dừng bán'}
                               </Button>
@@ -3562,6 +3571,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     <option value="LINKED">Đã gắn SP có sẵn (Linked)</option>
                     <option value="ADDED">Đã tạo SP mới (Added)</option>
                     <option value="DISMISSED">Đã bỏ qua (Dismissed)</option>
+                    <option value="PENDING">Chờ xử lý</option>
+                    <option value="LINKED">Đã gắn SP có sẵn</option>
+                    <option value="ADDED">Đã tạo SP mới</option>
+                    <option value="DISMISSED">Đã bỏ qua</option>
                   </select>
 
                   <select
@@ -3574,6 +3587,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     <option value="BIOLOGICAL">Chế phẩm sinh học (BIOLOGICAL)</option>
                     <option value="SUPPLY">Vật tư canh tác (SUPPLY)</option>
                     <option value="PRACTICE">Biện pháp canh tác (PRACTICE)</option>
+                    <option value="CHEMICAL">Thuốc BVTV hóa học</option>
+                    <option value="BIOLOGICAL">Chế phẩm sinh học BVTV</option>
+                    <option value="SUPPLY">Vật tư canh tác</option>
+                    <option value="PRACTICE">Biện pháp canh tác</option>
                   </select>
                 </div>
 
@@ -3642,19 +3659,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     sug.kind === 'CHEMICAL'
                                       ? 'bg-amber-50 text-amber-800 border-amber-300'
                                       : sug.kind === 'BIOLOGICAL'
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : sug.kind === 'SUPPLY'
-                                      ? 'bg-blue-50 text-blue-800 border-blue-300'
-                                      : 'bg-purple-50 text-purple-800 border-purple-300'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                        : sug.kind === 'SUPPLY'
+                                          ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                          : 'bg-purple-50 text-purple-800 border-purple-300'
                                   }
                                 >
                                   {sug.kind === 'CHEMICAL'
                                     ? 'Hóa học'
                                     : sug.kind === 'BIOLOGICAL'
-                                    ? 'Sinh học'
-                                    : sug.kind === 'SUPPLY'
-                                    ? 'Vật tư canh tác'
-                                    : 'Biện pháp'}
+                                      ? 'Sinh học'
+                                      : sug.kind === 'SUPPLY'
+                                        ? 'Vật tư canh tác'
+                                        : 'Biện pháp'}
                                 </Badge>
                               </td>
 
@@ -3665,1261 +3682,1476 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
                               <td className="p-3 max-w-xs">
                                 <p className="text-[11px] text-muted-foreground italic line-clamp-2 leading-relaxed" title={sug.evidence_text}>
-                                  "{sug.evidence_text}"
-                                </p>
-                                {sug.source_url && (
-                                  <a
-                                    href={sug.source_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline mt-0.5"
-                                  >
-                                    <span>{sug.source_title || 'Xem bài viết gốc'}</span>
-                                    <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                )}
-                              </td>
-
-                              <td className="p-3 text-center whitespace-nowrap">
-                                {sug.status === 'PENDING' ? (
-                                  <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
-                                    Chờ xử lý
-                                  </Badge>
-                                ) : sug.status === 'LINKED' ? (
-                                  <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px]">
-                                    Đã gắn SP
-                                  </Badge>
-                                ) : sug.status === 'ADDED' ? (
-                                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
-                                    Đã tạo SP
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
-                                    Đã bỏ qua
-                                  </Badge>
-                                )}
-                              </td>
-
-                              <td className="p-3 text-center whitespace-nowrap">
-                                {sug.product_name && sug.status === 'PENDING' ? (
-                                  <span className="text-amber-700 dark:text-amber-400 text-[11px]" title="Cùng hoạt chất với sản phẩm trong kho. Bấm Gắn SP để xác nhận.">
-                                    Khớp hoạt chất: <b>{sug.product_name}</b>
-                                  </span>
-                                ) : sug.product_name ? (
-                                  <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>{sug.product_name}</span>
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground italic text-[11px]">—</span>
-                                )}
-                              </td>
-
-                              <td className="p-3 text-right whitespace-nowrap">
-                                {sug.status === 'PENDING' ? (
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    {sug.kind !== 'PRACTICE' && (
-                                    <Button
-                                      size="sm"
-                                      onClick={() => handleOpenCreateMedModal(sug)}
-                                      className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
-                                      title="Tạo sản phẩm mới prefilled từ gợi ý"
-                                    >
-                                      <Plus className="w-3 h-3" />
-                                      <span>Tạo SP</span>
-                                    </Button>
+                                  <td className="p-3 min-w-[280px] max-w-lg">
+                                    <p className="text-[11px] text-muted-foreground italic line-clamp-3 leading-relaxed" title={sug.evidence_text}>
+                                      "{sug.evidence_text}"
+                                    </p>
+                                    {sug.source_url && (
+                                      <a
+                                        href={sug.source_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline mt-0.5"
+                                      >
+                                        <span>{sug.source_title || 'Xem bài viết gốc'}</span>
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </a>
                                     )}
+                                  </td>
 
-                                    {sug.kind !== 'PRACTICE' && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => {
-                                        setLinkingSuggestion(sug);
-                                        setSelectedLinkMedId(sug.product_id ?? '');
-                                      }}
-                                      className="h-7 px-2 border-border text-[11px] font-medium"
-                                      title="Liên kết với sản phẩm đã có sẵn trong kho"
-                                    >
-                                      <LinkIcon className="w-3 h-3 mr-1" />
-                                      <span>Gắn SP</span>
-                                    </Button>
+                                  <td className="p-3 text-center whitespace-nowrap">
+                                    {sug.status === 'PENDING' ? (
+                                      <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
+                                        Chờ xử lý
+                                      </Badge>
+                                    ) : sug.status === 'LINKED' ? (
+                                      <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px]">
+                                        Đã gắn SP
+                                      </Badge>
+                                    ) : sug.status === 'ADDED' ? (
+                                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
+                                        Đã tạo SP
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
+                                        Đã bỏ qua
+                                      </Badge>
                                     )}
+                                  </td>
 
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => handleDismissSuggestion(sug.id)}
-                                      className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
-                                      title="Bỏ qua gợi ý này"
-                                    >
-                                      <X className="w-3.5 h-3.5" />
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
+                                  <td className="p-3 text-center whitespace-nowrap">
+                                    {sug.product_name && sug.status === 'PENDING' ? (
+                                      <span className="text-amber-700 dark:text-amber-400 text-[11px]" title="Cùng hoạt chất với sản phẩm trong kho. Bấm Gắn SP để xác nhận.">
+                                        Khớp hoạt chất: <b>{sug.product_name}</b>
+                                      </span>
+                                    ) : sug.product_name ? (
+                                      <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>{sug.product_name}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground italic text-[11px]">—</span>
+                                    )}
+                                  </td>
+
+                                  <td className="p-3 text-right whitespace-nowrap">
+                                    {sug.status === 'PENDING' ? (
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        {sug.kind !== 'PRACTICE' && (
+                                          <Button
+                                            size="sm"
+                                            onClick={() => handleOpenCreateMedModal(sug)}
+                                            className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
+                                            title="Tạo sản phẩm mới prefilled từ gợi ý"
+                                          >
+                                            <Plus className="w-3 h-3" />
+                                            <span>Tạo SP</span>
+                                          </Button>
+                                        )}
+
+                                        {sug.kind !== 'PRACTICE' && (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => {
+                                              setLinkingSuggestion(sug);
+                                              setSelectedLinkMedId(sug.product_id ?? '');
+                                            }}
+                                            className="h-7 px-2 border-border text-[11px] font-medium"
+                                            title="Liên kết với sản phẩm đã có sẵn trong kho"
+                                          >
+                                            <LinkIcon className="w-3 h-3 mr-1" />
+                                            <span>Gắn SP</span>
+                                          </Button>
+                                        )}
+
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleDismissSuggestion(sug.id)}
+                                          className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                          title="Bỏ qua gợi ý này"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
+                                    )}
+                                  </td>
+                                </tr>
+                                );
                         })
                       )}
-                    </tbody>
-                  </table>
+                              </tbody>
+                            </table>
                 </div>
-              </Card>
-            </div>
+                  </Card>
+                </div>
           )}
-        </TabsContent>
+              </TabsContent>
 
-        {/* ========================================================================================= */}
-        {/* TAB 4: THẨM ĐỊNH CA BỆNH KHÓ (EXPERT ESCALATIONS) */}
-        {/* ========================================================================================= */}
-        <TabsContent value="escalations" className="space-y-4">
-          <div className="flex items-center justify-between pb-2">
-            <div>
-              <h3 className="text-base font-bold text-foreground">
-                Ca bệnh có yêu cầu Bác sĩ Cây trồng thẩm định
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Các ca chẩn đoán có độ bất định cao (IsUncertain = true) hoặc nông dân bấm nút "Nhờ chuyên gia".
-              </p>
-            </div>
+              {/* ========================================================================================= */}
+              {/* TAB 4: THẨM ĐỊNH CA BỆNH KHÓ (EXPERT ESCALATIONS) */}
+              {/* ========================================================================================= */}
+              <TabsContent value="escalations" className="space-y-4">
+                <div className="flex items-center justify-between pb-2">
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">
+                      Ca bệnh có yêu cầu Bác sĩ Cây trồng thẩm định
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Các ca chẩn đoán có độ bất định cao (IsUncertain = true) hoặc nông dân bấm nút "Nhờ chuyên gia".
+                    </p>
+                  </div>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchEscalations}
-              disabled={loadingEscalations}
-              className="gap-2 bg-card border-border hover:bg-muted text-xs"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingEscalations ? 'animate-spin' : ''}`} />
-              <span>Làm mới</span>
-            </Button>
-          </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchEscalations}
+                    disabled={loadingEscalations}
+                    className="gap-2 bg-card border-border hover:bg-muted text-xs"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingEscalations ? 'animate-spin' : ''}`} />
+                    <span>Làm mới</span>
+                  </Button>
+                </div>
 
-          {loadingEscalations ? (
-            <div className="space-y-3">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-36 rounded-xl bg-card border border-border p-4 animate-pulse" />
-              ))}
-            </div>
-          ) : escalations.length === 0 ? (
-            <div className="p-12 text-center bg-card border border-border rounded-xl">
-              <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-600 mb-2" />
-              <h4 className="text-base font-bold text-foreground">Không có ca bệnh nào tồn đọng</h4>
-              <p className="text-xs text-muted-foreground mt-1">
-                Tất cả các ca khám lá của nông dân đều đã được AI nhận diện ổn định hoặc chuyên gia đã xử lý xong.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {escalations.map((item) => (
-                <Card key={item.id} className="border-border bg-card shadow-xs flex flex-col justify-between">
-                  <CardHeader className="p-4 pb-2 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-300 text-xs">
-                        {item.plantName} – {item.diseaseName}
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground">
-                        {new Date(item.createdAt).toLocaleDateString('vi-VN')}
-                      </span>
+                {loadingEscalations ? (
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="h-36 rounded-xl bg-card border border-border p-4 animate-pulse" />
+                    ))}
+                  </div>
+                ) : escalations.length === 0 ? (
+                  <div className="p-12 text-center bg-card border border-border rounded-xl">
+                    <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-600 mb-2" />
+                    <h4 className="text-base font-bold text-foreground">Không có ca bệnh nào tồn đọng</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Tất cả các ca khám lá của nông dân đều đã được AI nhận diện ổn định hoặc chuyên gia đã xử lý xong.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {escalations.map((item) => (
+                      <Card key={item.id} className="border-border bg-card shadow-xs flex flex-col justify-between">
+                        <CardHeader className="p-4 pb-2 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-300 text-xs">
+                              {item.plantName} – {item.diseaseName}
+                            </Badge>
+                            <span className="text-[11px] text-muted-foreground">
+                              {new Date(item.createdAt).toLocaleDateString('vi-VN')}
+                            </span>
+                          </div>
+
+                          <CardTitle className="text-sm font-bold text-foreground pt-1">
+                            Nông dân: {item.userName} {item.userPhone ? `(${item.userPhone})` : ''}
+                          </CardTitle>
+                        </CardHeader>
+
+                        <CardContent className="p-4 pt-1 space-y-3 text-xs">
+                          {item.notes && (
+                            <div className="bg-muted/30 p-2.5 rounded-lg border border-border/60">
+                              <span className="font-semibold text-foreground block mb-0.5">Mô tả từ nông dân:</span>
+                              <p className="text-muted-foreground italic">"{item.notes}"</p>
+                            </div>
+                          )}
+
+                          <div className="flex gap-2">
+                            {item.originalImageUrl && (
+                              <div className="w-20 h-20 rounded-md border border-border overflow-hidden shrink-0">
+                                <img
+                                  src={item.originalImageUrl}
+                                  alt="Ảnh lá"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+                            {item.gradCamImageUrl && (
+                              <div className="w-20 h-20 rounded-md border border-border overflow-hidden shrink-0">
+                                <img
+                                  src={item.gradCamImageUrl}
+                                  alt="Grad-CAM"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+                            <div className="flex-1 text-[11px] space-y-1">
+                              <div>Độ tin cậy AI: <strong>{(item.confidence * 100).toFixed(1)}%</strong></div>
+                              {item.expertNotes ? (
+                                <div className="text-emerald-800 font-medium bg-emerald-50 p-1.5 rounded border border-emerald-200 line-clamp-2">
+                                  BS: {item.expertNotes}
+                                </div>
+                              ) : (
+                                <div className="text-amber-800 bg-amber-50 p-1.5 rounded border border-amber-200">
+                                  Chờ bác sĩ phản hồi phác đồ...
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs mt-2"
+                            onClick={() => {
+                              setSelectedEscalation(item);
+                              setExpertNoteInput(item.expertNotes || '');
+                            }}
+                          >
+                            {item.expertNotes ? 'Cập nhật phác đồ điều trị' : 'Thẩm định & Viết phác đồ'}
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+
+      {/* ========================================================================================= */}
+          {/* DIALOG SỬA THÔNG SỐ THUỐC BVTV & VẬT TƯ */}
+          {/* ========================================================================================= */}
+          <Dialog open={!!editingMed} onOpenChange={() => setEditingMed(null)}>
+            <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+              <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="text-base font-bold">
+                    Chỉnh sửa thông số: {editingMed?.name}
+                    Chỉnh sửa sản phẩm: {editingMed?.name}
+                  </DialogTitle>
+                  <DialogDescription className="text-xs">
+                    Cập nhật giá bán, số ngày cách ly (PHI), tình trạng bán và nguồn thông tin sản phẩm.
+                    Cập nhật thông tin chi tiết, giá bán, số ngày cách ly (PHI), tình trạng bán và hướng dẫn sử dụng.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {editingMed && (
+                  <div className="space-y-3 py-2 text-xs">
+                    {isIngredientBanned(editingMed.active_ingredient) && (
+                      { isIngredientBanned(editingMed.active_ingredient || editingMed.name) && (
+                        <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                          <div>
+                            <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Sản phẩm chứa hoạt chất "{editingMed.active_ingredient}" bị cấm lưu hành tại Việt Nam. Không thể kích hoạt trạng thái bán công khai.
+                            <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên hoặc hoạt chất của sản phẩm nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể kích hoạt trạng thái lưu hành.
+                          </div>
+                        </div>
+                      )}
+
+                    <div>
+                      <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
+                      <select
+                        value={editingMed.medicine_type || 'Hóa học'}
+                        onChange={(e) =>
+                          setEditingMed({ ...editingMed, medicine_type: e.target.value })
+                        }
+                        className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                      >
+                        <option value="Hóa học">Thuốc bảo vệ thực vật hóa học</option>
+                        <option value="Sinh học">Chế phẩm sinh học BVTV</option>
+                        <option value="Vật tư canh tác">Vật tư canh tác (lưới, bẫy, bao trái...)</option>
+                      </select>
+                      <label className="font-semibold block mb-1">Tên thuốc / Tên sản phẩm *</label>
+                      <Input
+                        type="text"
+                        value={editingMed.name}
+                        onChange={(e) => setEditingMed({ ...editingMed, name: e.target.value })}
+                        className="text-xs"
+                        required
+                      />
                     </div>
 
-                    <CardTitle className="text-sm font-bold text-foreground pt-1">
-                      Nông dân: {item.userName} {item.userPhone ? `(${item.userPhone})` : ''}
-                    </CardTitle>
-                  </CardHeader>
+                    <div>
+                      <label className="font-semibold block mb-1">Tình trạng kinh doanh (Availability) *</label>
+                      <select
+                        value={editingMed.availability || 'IN_STOCK'}
+                        onChange={(e) =>
+                          setEditingMed({ ...editingMed, availability: e.target.value })
+                        }
+                        className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                      >
+                        <option value="IN_STOCK">Đang bán (IN_STOCK - Cho phép đặt mua)</option>
+                        <option value="OUT_OF_STOCK">Tạm hết hàng (OUT_OF_STOCK - Tạm ẩn nút mua)</option>
+                        <option value="NOT_SOLD">Cửa hàng không bán (NOT_SOLD - Chỉ tư vấn kỹ thuật/IPM)</option>
+                      </select>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
+                          <select
+                            value={editingMed.medicine_type || 'Hóa học'}
+                            onChange={(e) => {
+                              const t = e.target.value;
+                              setEditingMed({
+                                ...editingMed,
+                                medicine_type: t,
+                                phi_days: t === 'Vật tư canh tác' ? null : editingMed.phi_days,
+                                active_ingredient: t === 'Vật tư canh tác' ? '' : editingMed.active_ingredient,
+                                dosage_instruction:
+                                  t === 'Vật tư canh tác' && editingMed.dosage_instruction === 'Pha theo hướng dẫn trên bao bì'
+                                    ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
+                                    : editingMed.dosage_instruction,
+                              });
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                          >
+                            <option value="Hóa học">Thuốc BVTV hóa học</option>
+                            <option value="Sinh học">Chế phẩm sinh học BVTV</option>
+                            <option value="Vật tư canh tác">Vật tư canh tác (lưới, bẫy, bạt phủ...)</option>
+                          </select>
+                        </div>
 
-                  <CardContent className="p-4 pt-1 space-y-3 text-xs">
-                    {item.notes && (
-                      <div className="bg-muted/30 p-2.5 rounded-lg border border-border/60">
-                        <span className="font-semibold text-foreground block mb-0.5">Mô tả từ nông dân:</span>
-                        <p className="text-muted-foreground italic">"{item.notes}"</p>
+                        <div>
+                          <label className="font-semibold block mb-1">Tình trạng kinh doanh *</label>
+                          <select
+                            value={editingMed.availability || 'IN_STOCK'}
+                            onChange={(e) =>
+                              setEditingMed({ ...editingMed, availability: e.target.value })
+                            }
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                          >
+                            <option value="IN_STOCK">Đang bán (cho phép đặt mua)</option>
+                            <option value="OUT_OF_STOCK">Tạm hết hàng (tạm ẩn nút mua)</option>
+                            <option value="NOT_SOLD">Cửa hàng không bán (chỉ tư vấn kỹ thuật)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {editingMed.availability !== 'NOT_SOLD' && (
+                        {
+                          editingMed.medicine_type !== 'Vật tư canh tác' ? (
+                            <div>
+                              <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
+                              <Input
+                                type="text"
+                                value={editingMed.active_ingredient || ''}
+                                onChange={(e) =>
+                                  setEditingMed({ ...editingMed, active_ingredient: e.target.value })
+                                }
+                                placeholder="Ví dụ: Metalaxyl-M, Mancozeb..."
+                                className="text-xs"
+                              />
+                            </div>
+                          ) : (
+                            <div>
+                              <label className="font-semibold block mb-1 text-muted-foreground">Hoạt chất chính</label>
+                              <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground">
+                                Không áp dụng cho vật tư canh tác
+                              </div>
+                            </div>
+                          )
+                        }
+
+              {editingMed.availability !== 'NOT_SOLD' ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
+                            <Input
+                              type="number"
+                              value={editingMed.price}
+                              onChange={(e) =>
+                                setEditingMed({ ...editingMed, price: parseFloat(e.target.value) || 0 })
+                              }
+                              className="text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
+                            <Input
+                              type="number"
+                              value={editingMed.stock_quantity}
+                              onChange={(e) =>
+                                setEditingMed({ ...editingMed, stock_quantity: parseInt(e.target.value, 10) || 0 })
+                              }
+                              className="text-xs"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs">
+                          Sản phẩm ở chế độ "Cửa hàng không bán": Giá bán và Tồn kho được mặc định là 0. Sản phẩm chỉ hiển thị để tư vấn kỹ thuật nông vụ.
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="font-semibold block mb-1">
+                          Thời gian cách ly PHI (ngày)
+                          {editingMed.medicine_type === 'Vật tư canh tác' && (
+                            {
+                              editingMed.medicine_type === 'Vật tư canh tác' ? (
+                                <span className="font-normal text-muted-foreground ml-1">(Không áp dụng cho vật tư canh tác)</span>
+                              ) : (
+                                <span className="text-destructive ml-0.5">*</span>
+                              )
+                            }
+                </label>
+                        <Input
+                          type="number"
+                          disabled={editingMed.medicine_type === 'Vật tư canh tác'}
+                          placeholder={editingMed.medicine_type === 'Vật tư canh tác' ? 'Không áp dụng' : '7'}
+                          placeholder={editingMed.medicine_type === 'Vật tư canh tác' ? 'Không áp dụng' : 'Ví dụ: 7'}
+                          value={editingMed.phi_days ?? ''}
+                          onChange={(e) =>
+                            setEditingMed({
+                              ...editingMed,
+                              phi_days: e.target.value === '' ? null : parseInt(e.target.value, 10),
+                            })
+                          }
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="font-semibold block mb-1">URL nguồn tài liệu / bài báo khuyến nông (tùy chọn)</label>
+                        <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
+                        <Input
+                          type="text"
+                          value={editingMed.dosage_instruction || ''}
+                          onChange={(e) =>
+                            setEditingMed({ ...editingMed, dosage_instruction: e.target.value })
+                          }
+                          placeholder={
+                            editingMed.medicine_type === 'Vật tư canh tác'
+                              ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
+                              : 'Pha theo hướng dẫn trên bao bì'
+                          }
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="font-semibold block mb-1">
+                          URL nguồn tra cứu PHI/liều (nhãn, trang nhà sản xuất)
+                          {editingMed.medicine_type === 'Vật tư canh tác' ? ' (tùy chọn)' : ' *'}
+                        </label>
+                        <Input
+                          type="url"
+                          placeholder="https://khuyennongvn.gov.vn/..."
+                          value={editingMed.info_source_url || ''}
+                          onChange={(e) =>
+                            setEditingMed({ ...editingMed, info_source_url: e.target.value })
+                          }
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          disabled={isIngredientBanned(editingMed.active_ingredient) || isIngredientBanned(editingMed.name)}
+                          checked={editingMed.is_allowed && !isIngredientBanned(editingMed.active_ingredient) && !isIngredientBanned(editingMed.name)}
+                          onChange={(e) => setEditingMed({ ...editingMed, is_allowed: e.target.checked })}
+                          className="w-4 h-4 rounded text-emerald-700"
+                        />
+                        <span className="font-semibold text-xs">
+                          {editingMed.medicine_type === 'Vật tư canh tác'
+                            ? 'Cho phép sử dụng trong tư vấn canh tác (Lavi được gợi ý cho nông dân)'
+                            : 'Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)'}
+                        </span>
+                      </label>
+                    </div>
+          )}
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                      <Button variant="outline" size="sm" onClick={() => setEditingMed(null)}>
+                        Hủy
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={medSaving}
+                        onClick={handleSaveMedicineEdit}
+                        className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
+                      >
+                        {medSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+      </Dialog>
+
+              {/* ========================================================================================= */}
+              {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
+              {/* ========================================================================================= */}
+              <Dialog open={!!linkingSuggestion} onOpenChange={() => setLinkingSuggestion(null)}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="text-base font-bold flex items-center gap-2">
+                      <LinkIcon className="w-4 h-4 text-emerald-700" />
+                      <span>Gắn gợi ý vào sản phẩm trong kho</span>
+                    </DialogTitle>
+                    <DialogDescription className="text-xs">
+                      Liên kết cụm từ trích xuất "{linkingSuggestion?.mention_text}" với sản phẩm đang có trong danh mục để trợ lý Lavi tự động gợi ý sản phẩm này khi gặp triệu chứng tương ứng.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  {linkingSuggestion && (
+                    <div className="space-y-3 py-2 text-xs">
+                      <div className="p-2.5 bg-muted/40 rounded-lg border border-border space-y-1">
+                        <div>Cây – Bệnh: <strong>{linkingSuggestion.plant_name} – {linkingSuggestion.disease_name}</strong></div>
+                        <div>Từ khóa bài báo: <span className="font-bold text-primary">{linkingSuggestion.mention_text}</span></div>
+                        <div className="line-clamp-2 text-muted-foreground italic">"{linkingSuggestion.evidence_text}"</div>
+                      </div>
+
+                      <div>
+                        <label className="font-semibold block mb-1">Chọn sản phẩm trong kho để liên kết *</label>
+                        <select
+                          value={selectedLinkMedId}
+                          onChange={(e) => setSelectedLinkMedId(e.target.value ? Number(e.target.value) : '')}
+                          className="w-full px-2.5 py-2 bg-background border border-border rounded-lg text-xs"
+                        >
+                          <option value="">-- Chọn sản phẩm phù hợp --</option>
+                          {medicines
+                            .filter((m) => !isIngredientBanned(m.name) && !isIngredientBanned(m.active_ingredient || ''))
+                            .map((m) => (
+                              <option key={m.id} value={m.id}>
+                                #{m.id} - {m.name} ({m.medicine_type}{m.active_ingredient ? ` - ${m.active_ingredient}` : ''})
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  <DialogFooter className="gap-2 sm:gap-0">
+                    <Button variant="outline" size="sm" onClick={() => setLinkingSuggestion(null)} disabled={linkingLoading}>
+                      Hủy
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={linkingLoading || !selectedLinkMedId}
+                      onClick={handleLinkSuggestion}
+                      className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
+                    >
+                      {linkingLoading ? 'Đang liên kết...' : 'Xác nhận liên kết'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* ========================================================================================= */}
+              {/* DIALOG THÊM THUỐC / VẬT TƯ MỚI (TASK-15 PHASE 3) */}
+              {/* ========================================================================================= */}
+              <Dialog open={createMedModalOpen} onOpenChange={setCreateMedModalOpen}>
+                <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="text-base font-bold flex items-center gap-2">
+                      <Plus className="w-4 h-4 text-emerald-700" />
+                      <span>
+                        {fromSuggestion ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"` : 'Thêm thuốc / Vật tư mới'}
+                      </span>
+                    </DialogTitle>
+                    <DialogDescription className="text-xs">
+                      {fromSuggestion
+                        ? 'Chỉ tên và hoạt chất lấy từ bài báo. PHI, giá, tồn kho và link nguồn bạn tự tra trên nhãn thuốc rồi nhập. Sau khi lưu, gợi ý được đánh dấu đã thêm.'
+                        : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <form onSubmit={handleCreateMedicineSubmit} className="space-y-3 py-2 text-xs">
+                    {isIngredientBanned(newMedActiveIngredient) && (
+                      <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <div>
+                          <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Hoạt chất "{newMedActiveIngredient}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể bật lưu hành sản phẩm này.
+                        </div>
                       </div>
                     )}
 
-                    <div className="flex gap-2">
-                      {item.originalImageUrl && (
-                        <div className="w-20 h-20 rounded-md border border-border overflow-hidden shrink-0">
-                          <img
-                            src={item.originalImageUrl}
-                            alt="Ảnh lá"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      )}
-                      {item.gradCamImageUrl && (
-                        <div className="w-20 h-20 rounded-md border border-border overflow-hidden shrink-0">
-                          <img
-                            src={item.gradCamImageUrl}
-                            alt="Grad-CAM"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      )}
-                      <div className="flex-1 text-[11px] space-y-1">
-                        <div>Độ tin cậy AI: <strong>{(item.confidence * 100).toFixed(1)}%</strong></div>
-                        {item.expertNotes ? (
-                          <div className="text-emerald-800 font-medium bg-emerald-50 p-1.5 rounded border border-emerald-200 line-clamp-2">
-                            BS: {item.expertNotes}
-                          </div>
-                        ) : (
-                          <div className="text-amber-800 bg-amber-50 p-1.5 rounded border border-amber-200">
-                            Chờ bác sĩ phản hồi phác đồ...
-                          </div>
-                        )}
+                    <div>
+                      <label className="font-semibold block mb-1">Tên thuốc / Tên sản phẩm *</label>
+                      <Input
+                        type="text"
+                        placeholder="Ví dụ: Bẫy dính màu vàng Pheromone, Ridomil Gold 68WG..."
+                        value={newMedName}
+                        onChange={(e) => setNewMedName(e.target.value)}
+                        required
+                        className="text-xs"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
+                        <select
+                          value={newMedType}
+                          onChange={(e) => {
+                            const t = e.target.value;
+                            setNewMedType(t);
+                            if (t === 'Vật tư canh tác') {
+                              setNewMedPhi('');
+                              setNewMedActiveIngredient('');
+                              if (newMedDosage === 'Pha theo hướng dẫn trên bao bì') {
+                                setNewMedDosage('Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất');
+                              }
+                            } else if (newMedDosage === 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất') {
+                              setNewMedDosage('Pha theo hướng dẫn trên bao bì');
+                            }
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                        >
+                          <option value="Hóa học">Thuốc hóa học</option>
+                          <option value="Sinh học">Chế phẩm sinh học</option>
+                          <option value="Vật tư canh tác">Vật tư canh tác</option>
+                          <option value="Hóa học">Thuốc BVTV hóa học</option>
+                          <option value="Sinh học">Chế phẩm sinh học BVTV</option>
+                          <option value="Vật tư canh tác">Vật tư canh tác (lưới, bẫy, bạt phủ...)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="font-semibold block mb-1">Tình trạng kinh doanh *</label>
+                        <select
+                          value={newMedAvailability}
+                          onChange={(e) => setNewMedAvailability(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                        >
+                          <option value="IN_STOCK">Đang bán (cho phép đặt mua)</option>
+                          <option value="OUT_OF_STOCK">Tạm hết hàng (tạm ẩn nút mua)</option>
+                          <option value="NOT_SOLD">Cửa hàng không bán (chỉ tư vấn kỹ thuật)</option>
+                        </select>
                       </div>
                     </div>
 
-                    <Button
-                      size="sm"
-                      className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs mt-2"
-                      onClick={() => {
-                        setSelectedEscalation(item);
-                        setExpertNoteInput(item.expertNotes || '');
-                      }}
-                    >
-                      {item.expertNotes ? 'Cập nhật phác đồ điều trị' : 'Thẩm định & Viết phác đồ'}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-semibold block mb-1">Bệnh hại mục tiêu</label>
+                        <select
+                          value={newMedTargetDisease}
+                          onChange={(e) => setNewMedTargetDisease(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                        >
+                          <option value="">-- Không chỉ định --</option>
+                          {diseases.map((d) => (
+                            <option key={d.classCode} value={d.classCode}>
+                              {d.plantName} – {d.commonNameVi}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-      {/* ========================================================================================= */}
-      {/* DIALOG SỬA THÔNG SỐ THUỐC BVTV & VẬT TƯ */}
-      {/* ========================================================================================= */}
-      <Dialog open={!!editingMed} onOpenChange={() => setEditingMed(null)}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">
-              Chỉnh sửa thông số: {editingMed?.name}
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Cập nhật giá bán, số ngày cách ly (PHI), tình trạng bán và nguồn thông tin sản phẩm.
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingMed && (
-            <div className="space-y-3 py-2 text-xs">
-              {isIngredientBanned(editingMed.active_ingredient) && (
-                <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div>
-                    <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Sản phẩm chứa hoạt chất "{editingMed.active_ingredient}" bị cấm lưu hành tại Việt Nam. Không thể kích hoạt trạng thái bán công khai.
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
-                <select
-                  value={editingMed.medicine_type || 'Hóa học'}
-                  onChange={(e) =>
-                    setEditingMed({ ...editingMed, medicine_type: e.target.value })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                >
-                  <option value="Hóa học">Thuốc bảo vệ thực vật hóa học</option>
-                  <option value="Sinh học">Chế phẩm sinh học BVTV</option>
-                  <option value="Vật tư canh tác">Vật tư canh tác (lưới, bẫy, bao trái...)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Tình trạng kinh doanh (Availability) *</label>
-                <select
-                  value={editingMed.availability || 'IN_STOCK'}
-                  onChange={(e) =>
-                    setEditingMed({ ...editingMed, availability: e.target.value })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                >
-                  <option value="IN_STOCK">Đang bán (IN_STOCK - Cho phép đặt mua)</option>
-                  <option value="OUT_OF_STOCK">Tạm hết hàng (OUT_OF_STOCK - Tạm ẩn nút mua)</option>
-                  <option value="NOT_SOLD">Cửa hàng không bán (NOT_SOLD - Chỉ tư vấn kỹ thuật/IPM)</option>
-                </select>
-              </div>
-
-              {editingMed.availability !== 'NOT_SOLD' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
-                    <Input
-                      type="number"
-                      value={editingMed.price}
-                      onChange={(e) =>
-                        setEditingMed({ ...editingMed, price: parseFloat(e.target.value) || 0 })
-                      }
-                      className="text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
-                    <Input
-                      type="number"
-                      value={editingMed.stock_quantity}
-                      onChange={(e) =>
-                        setEditingMed({ ...editingMed, stock_quantity: parseInt(e.target.value, 10) || 0 })
-                      }
-                      className="text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="font-semibold block mb-1">
-                  Thời gian cách ly PHI (ngày)
-                  {editingMed.medicine_type === 'Vật tư canh tác' && (
-                    <span className="font-normal text-muted-foreground ml-1">(Không áp dụng cho vật tư canh tác)</span>
-                  )}
-                </label>
-                <Input
-                  type="number"
-                  disabled={editingMed.medicine_type === 'Vật tư canh tác'}
-                  placeholder={editingMed.medicine_type === 'Vật tư canh tác' ? 'Không áp dụng' : '7'}
-                  value={editingMed.phi_days ?? ''}
-                  onChange={(e) =>
-                    setEditingMed({
-                      ...editingMed,
-                      phi_days: e.target.value === '' ? null : parseInt(e.target.value, 10),
-                    })
-                  }
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">URL nguồn tài liệu / bài báo khuyến nông (tùy chọn)</label>
-                <Input
-                  type="url"
-                  placeholder="https://khuyennongvn.gov.vn/..."
-                  value={editingMed.info_source_url || ''}
-                  onChange={(e) =>
-                    setEditingMed({ ...editingMed, info_source_url: e.target.value })
-                  }
-                  className="text-xs"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" size="sm" onClick={() => setEditingMed(null)}>
-              Hủy
-            </Button>
-            <Button
-              size="sm"
-              disabled={medSaving}
-              onClick={handleSaveMedicineEdit}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
-            >
-              {medSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
-      {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
-      {/* ========================================================================================= */}
-      <Dialog open={!!linkingSuggestion} onOpenChange={() => setLinkingSuggestion(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <LinkIcon className="w-4 h-4 text-emerald-700" />
-              <span>Gắn gợi ý vào sản phẩm trong kho</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Liên kết cụm từ trích xuất "{linkingSuggestion?.mention_text}" với sản phẩm đang có trong danh mục để trợ lý Lavi tự động gợi ý sản phẩm này khi gặp triệu chứng tương ứng.
-            </DialogDescription>
-          </DialogHeader>
-
-          {linkingSuggestion && (
-            <div className="space-y-3 py-2 text-xs">
-              <div className="p-2.5 bg-muted/40 rounded-lg border border-border space-y-1">
-                <div>Cây – Bệnh: <strong>{linkingSuggestion.plant_name} – {linkingSuggestion.disease_name}</strong></div>
-                <div>Từ khóa bài báo: <span className="font-bold text-primary">{linkingSuggestion.mention_text}</span></div>
-                <div className="line-clamp-2 text-muted-foreground italic">"{linkingSuggestion.evidence_text}"</div>
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Chọn sản phẩm trong kho để liên kết *</label>
-                <select
-                  value={selectedLinkMedId}
-                  onChange={(e) => setSelectedLinkMedId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-2.5 py-2 bg-background border border-border rounded-lg text-xs"
-                >
-                  <option value="">-- Chọn sản phẩm phù hợp --</option>
-                  {medicines
-                    .filter((m) => !isIngredientBanned(m.name) && !isIngredientBanned(m.active_ingredient || ''))
-                    .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      #{m.id} - {m.name} ({m.medicine_type}{m.active_ingredient ? ` - ${m.active_ingredient}` : ''})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" size="sm" onClick={() => setLinkingSuggestion(null)} disabled={linkingLoading}>
-              Hủy
-            </Button>
-            <Button
-              size="sm"
-              disabled={linkingLoading || !selectedLinkMedId}
-              onClick={handleLinkSuggestion}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
-            >
-              {linkingLoading ? 'Đang liên kết...' : 'Xác nhận liên kết'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
-      {/* DIALOG THÊM THUỐC / VẬT TƯ MỚI (TASK-15 PHASE 3) */}
-      {/* ========================================================================================= */}
-      <Dialog open={createMedModalOpen} onOpenChange={setCreateMedModalOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Plus className="w-4 h-4 text-emerald-700" />
-              <span>
-                {fromSuggestion ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"` : 'Thêm thuốc / Vật tư mới'}
-              </span>
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              {fromSuggestion
-                ? 'Chỉ tên và hoạt chất lấy từ bài báo. PHI, giá, tồn kho và link nguồn bạn tự tra trên nhãn thuốc rồi nhập. Sau khi lưu, gợi ý được đánh dấu đã thêm.'
-                : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleCreateMedicineSubmit} className="space-y-3 py-2 text-xs">
-            {isIngredientBanned(newMedActiveIngredient) && (
-              <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <div>
-                  <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Hoạt chất "{newMedActiveIngredient}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể bật lưu hành sản phẩm này.
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="font-semibold block mb-1">Tên thuốc / Tên sản phẩm *</label>
-              <Input
-                type="text"
-                placeholder="Ví dụ: Bẫy dính màu vàng Pheromone, Ridomil Gold 68WG..."
-                value={newMedName}
-                onChange={(e) => setNewMedName(e.target.value)}
-                required
-                className="text-xs"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
-                <select
-                  value={newMedType}
-                  onChange={(e) => {
-                    const t = e.target.value;
-                    setNewMedType(t);
-                    if (t === 'Vật tư canh tác') {
-                      setNewMedPhi('');
-                      setNewMedActiveIngredient('');
-                    }
-                  }}
-                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                >
-                  <option value="Hóa học">Thuốc hóa học</option>
-                  <option value="Sinh học">Chế phẩm sinh học</option>
-                  <option value="Vật tư canh tác">Vật tư canh tác</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Bệnh hại mục tiêu</label>
-                <select
-                  value={newMedTargetDisease}
-                  onChange={(e) => setNewMedTargetDisease(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                >
-                  <option value="">-- Không chỉ định --</option>
-                  {diseases.map((d) => (
-                    <option key={d.classCode} value={d.classCode}>
-                      {d.plantName} – {d.commonNameVi}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {newMedType !== 'Vật tư canh tác' && (
-              <div>
-                <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
-                <Input
-                  type="text"
-                  placeholder="Ví dụ: Metalaxyl-M 40g/kg + Mancozeb 640g/kg..."
-                  value={newMedActiveIngredient}
-                  onChange={(e) => setNewMedActiveIngredient(e.target.value)}
-                  className="text-xs"
-                />
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
-                <Input
-                  type="number"
-                  value={newMedPrice}
-                  onChange={(e) => setNewMedPrice(parseFloat(e.target.value) || 0)}
-                  required
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
-                <Input
-                  type="number"
-                  value={newMedStock}
-                  onChange={(e) => setNewMedStock(parseInt(e.target.value, 10) || 0)}
-                  required
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">
-                  Cách ly PHI (ngày)
-                  {newMedType === 'Vật tư canh tác' && <span className="font-normal text-muted-foreground ml-1">(N/A)</span>}
-                </label>
-                <Input
-                  type="number"
-                  disabled={newMedType === 'Vật tư canh tác'}
-                  placeholder={newMedType === 'Vật tư canh tác' ? 'N/A' : 'Xem trên nhãn thuốc'}
-                  value={newMedPhi}
-                  onChange={(e) => setNewMedPhi(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                  className="text-xs"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="font-semibold block mb-1">Tình trạng kinh doanh (Availability) *</label>
-              <select
-                value={newMedAvailability}
-                onChange={(e) => setNewMedAvailability(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-              >
-                <option value="IN_STOCK">Đang bán (IN_STOCK - Cho phép khách đặt mua)</option>
-                <option value="OUT_OF_STOCK">Tạm hết hàng (OUT_OF_STOCK)</option>
-                <option value="NOT_SOLD">Cửa hàng không bán (NOT_SOLD - Chỉ tư vấn kỹ thuật)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
-              <Input
-                type="text"
-                value={newMedDosage}
-                onChange={(e) => setNewMedDosage(e.target.value)}
-                className="text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="font-semibold block mb-1">
-                Link nguồn tra PHI/liều (nhãn, trang nhà sản xuất)
-                {newMedType === 'Vật tư canh tác' ? ' (tùy chọn)' : ' *'}
-              </label>
-              <Input
-                type="url"
-                placeholder="https://khuyennongvn.gov.vn/..."
-                value={newMedSourceUrl}
-                onChange={(e) => setNewMedSourceUrl(e.target.value)}
-                className="text-xs"
-              />
-            </div>
-
-            <label className="flex items-center gap-2 cursor-pointer pt-1">
-              <input
-                type="checkbox"
-                disabled={isIngredientBanned(newMedActiveIngredient) || isIngredientBanned(newMedName)}
-                checked={newMedIsAllowed && !isIngredientBanned(newMedActiveIngredient) && !isIngredientBanned(newMedName)}
-                onChange={(e) => setNewMedIsAllowed(e.target.checked)}
-                className="w-4 h-4 rounded text-emerald-700"
-              />
-              <span className="font-semibold">
-                Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)
-              </span>
-            </label>
-
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
-                Hủy
-              </Button>
-              <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
-                {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
-      {/* DIALOG THẨM ĐỊNH CA BỆNH KHÓ */}
-      {/* ========================================================================================= */}
-      <Dialog open={!!selectedEscalation} onOpenChange={() => setSelectedEscalation(null)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold">
-              Thẩm định Chuyên môn &amp; Phác đồ điều trị
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Ca bệnh: {selectedEscalation?.plantName} – {selectedEscalation?.diseaseName}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedEscalation && (
-            <div className="space-y-3.5 py-2 text-xs">
-              <div className="bg-muted/40 p-3 rounded-lg border border-border space-y-1">
-                <div>Nông dân: <strong>{selectedEscalation.userName}</strong> ({selectedEscalation.userPhone || 'Không có SĐT'})</div>
-                {selectedEscalation.notes && <div>Ghi chú vườn: <em>"{selectedEscalation.notes}"</em></div>}
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">
-                  Kết luận chẩn đoán &amp; Hướng dẫn điều trị của Bác sĩ Cây trồng *
-                </label>
-                <Textarea
-                  rows={4}
-                  placeholder="Ghi rõ phác đồ xử lý: cách ly, tỉa cành tiêu hủy, loại thuốc sinh học/hóa học nên dùng kèm liều lượng và thời gian phun..."
-                  value={expertNoteInput}
-                  onChange={(e) => setExpertNoteInput(e.target.value)}
-                  className="text-xs"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" size="sm" onClick={() => setSelectedEscalation(null)}>
-              Đóng
-            </Button>
-            <Button
-              size="sm"
-              disabled={reviewSubmitting}
-              onClick={handleSaveExpertReview}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
-            >
-              {reviewSubmitting ? 'Đang gửi...' : 'Gửi phản hồi chuyên gia'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
-      {/* DIALOG KIỂM TRA TRẠNG THÁI REINDEX */}
-      {/* ========================================================================================= */}
-      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Xóa đoạn tri thức này?</DialogTitle>
-            <DialogDescription>
-              Lavi sẽ không còn dùng đoạn này để trả lời. Muốn tạm ẩn thì dùng "Bỏ duyệt" thay vì xóa.
-            </DialogDescription>
-          </DialogHeader>
-          {deleteTarget && (
-            <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-xs">
-              <p className="line-clamp-3 italic text-muted-foreground">"{deleteTarget.evidenceText}"</p>
-              <p className="truncate text-muted-foreground">{deleteTarget.sourceUrl}</p>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
-              Hủy
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteSource} disabled={deleting}>
-              {deleting ? 'Đang xóa...' : 'Xóa'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
-      {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (> 800 KÝ TỰ HOẶC THEO Ý ADMIN) */}
-      {/* ========================================================================================= */}
-      <Dialog open={splitModalOpen} onOpenChange={setSplitModalOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Scissors className="w-4 h-4 text-emerald-700" />
-              <span>Tách đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Quy định trích dẫn HITL yêu cầu mỗi đoạn tối đa 800 ký tự. Hệ thống đã tự động tìm dấu câu kết thúc gần điểm giữa nhất để tách thành 2 đoạn nguyên văn hợp lệ.
-            </DialogDescription>
-          </DialogHeader>
-
-          {splitTargetPara && (
-            <div className="space-y-4 py-2 text-xs">
-              <div className="flex items-center justify-between text-[11px] bg-muted/50 p-2.5 rounded-lg border border-border">
-                <span>Độ dài đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự</span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    const res = autoSplitText(splitTargetPara.text);
-                    setSplitPart1(res.part1);
-                    setSplitPart2(res.part2);
-                    toast.info('Đã tự động tính toán lại vị trí tách theo dấu câu.');
-                  }}
-                  className="h-6 text-[10px] gap-1 px-2"
-                >
-                  <RefreshCw className="w-2.5 h-2.5" />
-                  Tách tự động theo câu
-                </Button>
-              </div>
-
-              {/* Đoạn 1 */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                    <span>Đoạn 1 ({splitTargetPara.id}_1)</span>
-                  </label>
-                  <span className={`text-[11px] font-mono font-medium ${
-                    splitPart1.trim().length > 800 || splitPart1.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
-                  }`}>
-                    {splitPart1.trim().length} / 800 ký tự {splitPart1.trim().length > 800 ? '(Vượt quá 800)' : splitPart1.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
-                  </span>
-                </div>
-                <Textarea
-                  value={splitPart1}
-                  onChange={(e) => setSplitPart1(e.target.value)}
-                  rows={4}
-                  className="text-xs bg-background leading-relaxed"
-                  placeholder="Nội dung nửa đầu..."
-                />
-              </div>
-
-              {/* Đoạn 2 */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                    <span>Đoạn 2 ({splitTargetPara.id}_2)</span>
-                  </label>
-                  <span className={`text-[11px] font-mono font-medium ${
-                    splitPart2.trim().length > 800 || splitPart2.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
-                  }`}>
-                    {splitPart2.trim().length} / 800 ký tự {splitPart2.trim().length > 800 ? '(Vượt quá 800)' : splitPart2.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
-                  </span>
-                </div>
-                <Textarea
-                  value={splitPart2}
-                  onChange={(e) => setSplitPart2(e.target.value)}
-                  rows={4}
-                  className="text-xs bg-background leading-relaxed"
-                  placeholder="Nội dung nửa sau..."
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="outline" onClick={() => setSplitModalOpen(false)}>
-              Hủy
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleConfirmSplit}
-              disabled={
-                !splitPart1.trim() ||
-                !splitPart2.trim() ||
-                splitPart1.trim().length > 800 ||
-                splitPart2.trim().length > 800 ||
-                splitPart1.trim().length < 30 ||
-                splitPart2.trim().length < 30
-              }
-              className="bg-emerald-700 hover:bg-emerald-800 text-white"
-            >
-              Xác nhận tách thành 2 đoạn
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
-      {/* DIALOG TRẠNG THÁI REINDEX RAG (AGENT SERVICE) */}
-      {/* ========================================================================================= */}
-      <Dialog open={reindexStatusOpen} onOpenChange={setReindexStatusOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Database className="w-4 h-4 text-emerald-700" />
-              <span>Trạng thái Đồng bộ Tri thức (RAG Reindex)</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Đồng bộ dữ liệu vector sang Agent Service để Trợ lý Lavi truy xuất khi tư vấn nông vụ.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-2 text-xs space-y-3">
-            {loadingReindexStatus ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-700" />
-                Đang truy vấn trạng thái từ Agent Service...
-              </div>
-            ) : reindexStatusData ? (
-              <>
-                {/* Trạng thái hoạt động chính */}
-                {reindexStatusData.running ? (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2.5 text-blue-900">
-                    <RefreshCw className="w-4 h-4 animate-spin text-blue-700 shrink-0" />
-                    <div>
-                      <div className="font-semibold text-xs">Đang đồng bộ dữ liệu vector trong nền</div>
-                      <div className="text-[11px] text-blue-700">Agent Service đang tính toán embedding cho các bài viết mới.</div>
-                    </div>
-                  </div>
-                ) : reindexStatusData.last_error ? (
-                  <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg flex items-center gap-2.5 text-destructive">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <div>
-                      <div className="font-semibold text-xs">Lần đồng bộ gần nhất gặp sự cố</div>
-                      <div className="text-[11px] opacity-90">{reindexStatusData.last_error}</div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2.5 text-emerald-900">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <div>
-                      <div className="font-semibold text-xs">Hệ thống đồng bộ hoạt động bình thường</div>
-                      <div className="text-[11px] text-emerald-700">Kho tri thức đã được lập chỉ mục và sẵn sàng cho Trợ lý Lavi.</div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 3 Metric cards */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
-                    <div className="text-[10px] text-muted-foreground uppercase font-medium">Đoạn đã lập chỉ mục</div>
-                    <div className="text-base font-bold text-foreground mt-0.5 font-mono">
-                      {reindexStatusData.indexed_documents?.toLocaleString('vi-VN') ?? 0}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
-                    <div className="text-[10px] text-muted-foreground uppercase font-medium">Lần thành công gần nhất</div>
-                    <div className="text-[11px] font-semibold text-foreground mt-1">
-                      {reindexStatusData.last_success_at
-                        ? new Date(reindexStatusData.last_success_at).toLocaleString('vi-VN', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : 'Chưa có'}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
-                    <div className="text-[10px] text-muted-foreground uppercase font-medium">Hàng đợi nền</div>
-                    <div className="text-[11px] font-semibold mt-1">
-                      {reindexStatusData.pending ? (
-                        <span className="text-amber-700">Có yêu cầu chờ</span>
+                      {newMedType !== 'Vật tư canh tác' ? (
+                        <div>
+                          <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
+                          <Input
+                            type="text"
+                            placeholder="Ví dụ: Metalaxyl-M, Mancozeb..."
+                            value={newMedActiveIngredient}
+                            onChange={(e) => setNewMedActiveIngredient(e.target.value)}
+                            className="text-xs"
+                          />
+                        </div>
                       ) : (
-                        <span className="text-emerald-700">Đã đồng bộ hết</span>
+                        <div>
+                          <label className="font-semibold block mb-1 text-muted-foreground">Hoạt chất chính</label>
+                          <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground">
+                            Không áp dụng cho vật tư canh tác
+                          </div>
+                        </div>
                       )}
                     </div>
-                  </div>
-                </div>
 
-                {/* Collapsible raw JSON */}
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowRawReindexJson(!showRawReindexJson)}
-                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground font-medium"
-                  >
-                    {showRawReindexJson ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    <span>{showRawReindexJson ? 'Ẩn phản hồi JSON' : 'Xem phản hồi JSON kỹ thuật'}</span>
-                  </button>
-                  {showRawReindexJson && (
-                    <pre className="mt-2 p-3 bg-muted rounded-lg font-mono text-[10px] overflow-x-auto border border-border max-h-40">
-                      {JSON.stringify(reindexStatusData, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              </>
-            ) : (
-              <p className="text-muted-foreground py-4 text-center">Không có dữ liệu phản hồi.</p>
+                    {newMedType !== 'Vật tư canh tác' && (
+                      <div>
+                        <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
+                        <Input
+                          type="text"
+                          placeholder="Ví dụ: Metalaxyl-M 40g/kg + Mancozeb 640g/kg..."
+                          value={newMedActiveIngredient}
+                          onChange={(e) => setNewMedActiveIngredient(e.target.value)}
+                          className="text-xs"
+                        />
+                      </div>
+                    )}
+                    {newMedAvailability !== 'NOT_SOLD' ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
+                          <Input
+                            type="number"
+                            value={newMedPrice}
+                            onChange={(e) => setNewMedPrice(parseFloat(e.target.value) || 0)}
+                            required
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
+                            <Input
+                              type="number"
+                              value={newMedPrice}
+                              onChange={(e) => setNewMedPrice(parseFloat(e.target.value) || 0)}
+                              required
+                              className="text-xs"
+                            />
+                            <div>
+                              <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
+                              <Input
+                                type="number"
+                                value={newMedStock}
+                                onChange={(e) => setNewMedStock(parseInt(e.target.value, 10) || 0)}
+                                required
+                                className="text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
+                            <Input
+                              type="number"
+                              value={newMedStock}
+                              onChange={(e) => setNewMedStock(parseInt(e.target.value, 10) || 0)}
+                              required
+                              className="text-xs"
+                            />
+                            ) : (
+                            <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs">
+                              Sản phẩm ở chế độ "Cửa hàng không bán": Giá bán và Tồn kho được mặc định là 0. Sản phẩm chỉ hiển thị để tư vấn kỹ thuật nông vụ.
+                            </div>
             )}
-          </div>
 
-          <DialogFooter className="flex items-center justify-between sm:justify-between w-full">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={loadingReindexStatus}
-              onClick={checkReindexStatus}
-              className="gap-1.5 text-xs"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingReindexStatus ? 'animate-spin' : ''}`} />
-              Làm mới trạng thái
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setReindexStatusOpen(false)}>
-              Đóng
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+                            <div>
+                              <label className="font-semibold block mb-1">
+                                Cách ly PHI (ngày)
+                                {newMedType === 'Vật tư canh tác' && <span className="font-normal text-muted-foreground ml-1">(N/A)</span>}
+                              </label>
+                              <Input
+                                type="number"
+                                disabled={newMedType === 'Vật tư canh tác'}
+                                placeholder={newMedType === 'Vật tư canh tác' ? 'N/A' : 'Xem trên nhãn thuốc'}
+                                value={newMedPhi}
+                                onChange={(e) => setNewMedPhi(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                className="text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">Tình trạng kinh doanh (Availability) *</label>
+                            <select
+                              value={newMedAvailability}
+                              onChange={(e) => setNewMedAvailability(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                            >
+                              <option value="IN_STOCK">Đang bán (IN_STOCK - Cho phép khách đặt mua)</option>
+                              <option value="OUT_OF_STOCK">Tạm hết hàng (OUT_OF_STOCK)</option>
+                              <option value="NOT_SOLD">Cửa hàng không bán (NOT_SOLD - Chỉ tư vấn kỹ thuật)</option>
+                            </select>
+                            <label className="font-semibold block mb-1">
+                              Thời gian cách ly PHI (ngày)
+                              {newMedType === 'Vật tư canh tác' ? (
+                                <span className="font-normal text-muted-foreground ml-1">(Không áp dụng cho vật tư canh tác)</span>
+                              ) : (
+                                <span className="text-destructive ml-0.5">*</span>
+                              )}
+                            </label>
+                            <Input
+                              type="number"
+                              disabled={newMedType === 'Vật tư canh tác'}
+                              placeholder={newMedType === 'Vật tư canh tác' ? 'Không áp dụng' : 'Xem trên nhãn thuốc (ví dụ: 7)'}
+                              value={newMedPhi}
+                              onChange={(e) => setNewMedPhi(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                              className="text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
+                            <Input
+                              type="text"
+                              value={newMedDosage}
+                              onChange={(e) => setNewMedDosage(e.target.value)}
+                              placeholder={
+                                newMedType === 'Vật tư canh tác'
+                                  ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
+                                  : 'Pha theo hướng dẫn trên bao bì'
+                              }
+                              className="text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">
+                              Link nguồn tra PHI/liều (nhãn, trang nhà sản xuất)
+                              {newMedType === 'Vật tư canh tác' ? ' (tùy chọn)' : ' *'}
+                            </label>
+                            <Input
+                              type="url"
+                              placeholder="https://khuyennongvn.gov.vn/..."
+                              value={newMedSourceUrl}
+                              onChange={(e) => setNewMedSourceUrl(e.target.value)}
+                              className="text-xs"
+                            />
+                          </div>
+
+                          <label className="flex items-center gap-2 cursor-pointer pt-1">
+                            <input
+                              type="checkbox"
+                              disabled={isIngredientBanned(newMedActiveIngredient) || isIngredientBanned(newMedName)}
+                              checked={newMedIsAllowed && !isIngredientBanned(newMedActiveIngredient) && !isIngredientBanned(newMedName)}
+                              onChange={(e) => setNewMedIsAllowed(e.target.checked)}
+                              className="w-4 h-4 rounded text-emerald-700"
+                            />
+                            <span className="font-semibold">
+                              Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)
+                              <span className="font-semibold text-xs">
+                                {newMedType === 'Vật tư canh tác'
+                                  ? 'Cho phép sử dụng trong tư vấn canh tác (Lavi được gợi ý cho nông dân)'
+                                  : 'Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)'}
+                              </span>
+                          </label>
+
+                          <DialogFooter className="pt-2">
+                            <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
+                              Hủy
+                            </Button>
+                            <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
+                              {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
+                            </Button>
+                          </DialogFooter>
+                        </form>
+                      </DialogContent>
       </Dialog>
 
-      {/* ========================================================================================= */}
-      {/* DIALOG THÊM ẢNH TRIỆU CHỨNG MỚI (TASK-15 PHASE 2) */}
-      {/* ========================================================================================= */}
-      <Dialog open={addImageModalOpen} onOpenChange={setAddImageModalOpen}>
-        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <ImageIcon className="w-4 h-4 text-primary" />
-              <span>Thêm ảnh triệu chứng thực địa</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Ảnh triệu chứng theo bộ phận (lá, quả, thân, toàn cây) hiển thị trên Sổ tay bệnh học và đối chiếu chẩn đoán.
-            </DialogDescription>
-          </DialogHeader>
+                  {/* ========================================================================================= */}
+                  {/* DIALOG THẨM ĐỊNH CA BỆNH KHÓ */}
+                  {/* ========================================================================================= */}
+                  <Dialog open={!!selectedEscalation} onOpenChange={() => setSelectedEscalation(null)}>
+                    <DialogContent className="sm:max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle className="text-lg font-bold">
+                          Thẩm định Chuyên môn &amp; Phác đồ điều trị
+                        </DialogTitle>
+                        <DialogDescription className="text-xs">
+                          Ca bệnh: {selectedEscalation?.plantName} – {selectedEscalation?.diseaseName}
+                        </DialogDescription>
+                      </DialogHeader>
 
-          <form onSubmit={handleCreateKnowledgeImage} className="space-y-4 py-2 text-xs">
-            {/* Lớp bệnh mục tiêu (2 dropdown: Cây & Bệnh) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="font-semibold block mb-1">1. Loài cây trồng *</label>
-                <select
-                  aria-label="Chọn loài cây trồng"
-                  value={newImagePlant}
-                  onChange={(e) => {
-                    const p = e.target.value;
-                    setNewImagePlant(p);
-                    const match = diseases.find((d) => d.plantName === p);
-                    if (match) setNewImageClass(match.classCode);
-                  }}
-                  className="h-9 w-full px-2.5 rounded-md border border-input bg-background text-xs cursor-pointer"
-                >
-                  {uniquePlants.map((plant) => (
-                    <option key={plant} value={plant}>
-                      {plant}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                      {selectedEscalation && (
+                        <div className="space-y-3.5 py-2 text-xs">
+                          <div className="bg-muted/40 p-3 rounded-lg border border-border space-y-1">
+                            <div>Nông dân: <strong>{selectedEscalation.userName}</strong> ({selectedEscalation.userPhone || 'Không có SĐT'})</div>
+                            {selectedEscalation.notes && <div>Ghi chú vườn: <em>"{selectedEscalation.notes}"</em></div>}
+                          </div>
 
-              <div>
-                <label className="font-semibold block mb-1">2. Bệnh hại mục tiêu *</label>
-                <select
-                  aria-label="Chọn bệnh hại mục tiêu"
-                  value={newImageClass}
-                  onChange={(e) => setNewImageClass(e.target.value)}
-                  className="h-9 w-full px-2.5 rounded-md border border-input bg-background text-xs cursor-pointer truncate"
-                >
-                  {diseases
-                    .filter((d) => d.plantName === newImagePlant)
-                    .map((d) => (
-                      <option key={d.classCode} value={d.classCode}>
-                        {d.commonNameVi}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
+                          <div>
+                            <label className="font-semibold block mb-1">
+                              Kết luận chẩn đoán &amp; Hướng dẫn điều trị của Bác sĩ Cây trồng *
+                            </label>
+                            <Textarea
+                              rows={4}
+                              placeholder="Ghi rõ phác đồ xử lý: cách ly, tỉa cành tiêu hủy, loại thuốc sinh học/hóa học nên dùng kèm liều lượng và thời gian phun..."
+                              value={expertNoteInput}
+                              onChange={(e) => setExpertNoteInput(e.target.value)}
+                              className="text-xs"
+                            />
+                          </div>
+                        </div>
+                      )}
 
-            {/* Bộ phận cây */}
-            <div>
-              <label className="font-semibold block mb-1">3. Bộ phận cây nhiễm bệnh *</label>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { id: 'LEAF', label: 'Lá cây' },
-                  { id: 'FRUIT', label: 'Hoa / Quả' },
-                  { id: 'STEM', label: 'Thân / Cành' },
-                  { id: 'WHOLE_PLANT', label: 'Toàn cây' },
-                ].map((part) => (
-                  <button
-                    key={part.id}
-                    type="button"
-                    onClick={() => setNewImagePlantPart(part.id)}
-                    className={`rounded-lg py-1.5 px-2 text-xs font-semibold border transition-all ${
-                      newImagePlantPart === part.id
-                        ? 'bg-primary text-white border-primary shadow-2xs'
-                        : 'bg-secondary text-foreground border-border hover:bg-secondary/80'
-                    }`}
-                  >
-                    {part.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+                      <DialogFooter className="gap-2 sm:gap-0">
+                        <Button variant="outline" size="sm" onClick={() => setSelectedEscalation(null)}>
+                          Đóng
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={reviewSubmitting}
+                          onClick={handleSaveExpertReview}
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
+                        >
+                          {reviewSubmitting ? 'Đang gửi...' : 'Gửi phản hồi chuyên gia'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
 
-            {/* Chọn phương thức tải ảnh: HTTPS URL vs Upload File */}
-            <div className="space-y-2 rounded-xl border border-border p-3 bg-secondary/20">
-              <label className="font-semibold block">4. Nguồn cung cấp ảnh *</label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setNewImageMode('URL')}
-                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-colors ${
-                    newImageMode === 'URL'
-                      ? 'bg-primary text-white border-primary shadow-2xs'
-                      : 'bg-background text-foreground border-border hover:bg-muted'
-                  }`}
-                >
-                  <LinkIcon className="w-3.5 h-3.5" /> Dán HTTPS URL ảnh
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewImageMode('FILE')}
-                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-colors ${
-                    newImageMode === 'FILE'
-                      ? 'bg-primary text-white border-primary shadow-2xs'
-                      : 'bg-background text-foreground border-border hover:bg-muted'
-                  }`}
-                >
-                  <UploadCloud className="w-3.5 h-3.5" /> Tải ảnh lên MinIO
-                </button>
-              </div>
+                  {/* ========================================================================================= */}
+                  {/* DIALOG KIỂM TRA TRẠNG THÁI REINDEX */}
+                  {/* ========================================================================================= */}
+                  <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Xóa đoạn tri thức này?</DialogTitle>
+                        <DialogDescription>
+                          Lavi sẽ không còn dùng đoạn này để trả lời. Muốn tạm ẩn thì dùng "Bỏ duyệt" thay vì xóa.
+                        </DialogDescription>
+                      </DialogHeader>
+                      {deleteTarget && (
+                        <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-xs">
+                          <p className="line-clamp-3 italic text-muted-foreground">"{deleteTarget.evidenceText}"</p>
+                          <p className="truncate text-muted-foreground">{deleteTarget.sourceUrl}</p>
+                        </div>
+                      )}
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+                          Hủy
+                        </Button>
+                        <Button variant="destructive" onClick={handleDeleteSource} disabled={deleting}>
+                          {deleting ? 'Đang xóa...' : 'Xóa'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
 
-              {newImageMode === 'URL' ? (
-                <div className="space-y-1 pt-1">
-                  <Input
-                    type="url"
-                    placeholder="https://example.com/images/late-blight-symptom.jpg"
-                    value={newImageUrl}
-                    onChange={(e) => setNewImageUrl(e.target.value)}
-                    className="text-xs bg-background"
-                  />
-                  <p className="text-[10px] text-muted-foreground">
-                    URL ảnh trực tiếp phải là link https:// an toàn từ trang nông nghiệp uy tín.
-                  </p>
+                  {/* ========================================================================================= */}
+                  {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (> 800 KÝ TỰ HOẶC THEO Ý ADMIN) */}
+                  {/* ========================================================================================= */}
+                  <Dialog open={splitModalOpen} onOpenChange={setSplitModalOpen}>
+                    <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle className="text-base font-bold flex items-center gap-2">
+                          <Scissors className="w-4 h-4 text-emerald-700" />
+                          <span>Tách đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
+                        </DialogTitle>
+                        <DialogDescription className="text-xs">
+                          Quy định trích dẫn HITL yêu cầu mỗi đoạn tối đa 800 ký tự. Hệ thống đã tự động tìm dấu câu kết thúc gần điểm giữa nhất để tách thành 2 đoạn nguyên văn hợp lệ.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      {splitTargetPara && (
+                        <div className="space-y-4 py-2 text-xs">
+                          <div className="flex items-center justify-between text-[11px] bg-muted/50 p-2.5 rounded-lg border border-border">
+                            <span>Độ dài đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự</span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                const res = autoSplitText(splitTargetPara.text);
+                                setSplitPart1(res.part1);
+                                setSplitPart2(res.part2);
+                                toast.info('Đã tự động tính toán lại vị trí tách theo dấu câu.');
+                              }}
+                              className="h-6 text-[10px] gap-1 px-2"
+                            >
+                              <RefreshCw className="w-2.5 h-2.5" />
+                              Tách tự động theo câu
+                            </Button>
+                          </div>
+
+                          {/* Đoạn 1 */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                                <span>Đoạn 1 ({splitTargetPara.id}_1)</span>
+                              </label>
+                              <span className={`text-[11px] font-mono font-medium ${splitPart1.trim().length > 800 || splitPart1.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
+                                }`}>
+                                {splitPart1.trim().length} / 800 ký tự {splitPart1.trim().length > 800 ? '(Vượt quá 800)' : splitPart1.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                              </span>
+                            </div>
+                            <Textarea
+                              value={splitPart1}
+                              onChange={(e) => setSplitPart1(e.target.value)}
+                              rows={4}
+                              className="text-xs bg-background leading-relaxed"
+                              placeholder="Nội dung nửa đầu..."
+                            />
+                          </div>
+
+                          {/* Đoạn 2 */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                                <span>Đoạn 2 ({splitTargetPara.id}_2)</span>
+                              </label>
+                              <span className={`text-[11px] font-mono font-medium ${splitPart2.trim().length > 800 || splitPart2.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
+                                }`}>
+                                {splitPart2.trim().length} / 800 ký tự {splitPart2.trim().length > 800 ? '(Vượt quá 800)' : splitPart2.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                              </span>
+                            </div>
+                            <Textarea
+                              value={splitPart2}
+                              onChange={(e) => setSplitPart2(e.target.value)}
+                              rows={4}
+                              className="text-xs bg-background leading-relaxed"
+                              placeholder="Nội dung nửa sau..."
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <DialogFooter className="flex items-center justify-end gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setSplitModalOpen(false)}>
+                          Hủy
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleConfirmSplit}
+                          disabled={
+                            !splitPart1.trim() ||
+                            !splitPart2.trim() ||
+                            splitPart1.trim().length > 800 ||
+                            splitPart2.trim().length > 800 ||
+                            splitPart1.trim().length < 30 ||
+                            splitPart2.trim().length < 30
+                          }
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white"
+                        >
+                          Xác nhận tách thành 2 đoạn
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* ========================================================================================= */}
+                  {/* DIALOG TRẠNG THÁI REINDEX RAG (AGENT SERVICE) */}
+                  {/* ========================================================================================= */}
+                  <Dialog open={reindexStatusOpen} onOpenChange={setReindexStatusOpen}>
+                    <DialogContent className="sm:max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle className="text-base font-bold flex items-center gap-2">
+                          <Database className="w-4 h-4 text-emerald-700" />
+                          <span>Trạng thái Đồng bộ Tri thức (RAG Reindex)</span>
+                        </DialogTitle>
+                        <DialogDescription className="text-xs">
+                          Đồng bộ dữ liệu vector sang Agent Service để Trợ lý Lavi truy xuất khi tư vấn nông vụ.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <div className="py-2 text-xs space-y-3">
+                        {loadingReindexStatus ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-700" />
+                            Đang truy vấn trạng thái từ Agent Service...
+                          </div>
+                        ) : reindexStatusData ? (
+                          <>
+                            {/* Trạng thái hoạt động chính */}
+                            {reindexStatusData.running ? (
+                              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2.5 text-blue-900">
+                                <RefreshCw className="w-4 h-4 animate-spin text-blue-700 shrink-0" />
+                                <div>
+                                  <div className="font-semibold text-xs">Đang đồng bộ dữ liệu vector trong nền</div>
+                                  <div className="text-[11px] text-blue-700">Agent Service đang tính toán embedding cho các bài viết mới.</div>
+                                </div>
+                              </div>
+                            ) : reindexStatusData.last_error ? (
+                              <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg flex items-center gap-2.5 text-destructive">
+                                <AlertTriangle className="w-4 h-4 shrink-0" />
+                                <div>
+                                  <div className="font-semibold text-xs">Lần đồng bộ gần nhất gặp sự cố</div>
+                                  <div className="text-[11px] opacity-90">{reindexStatusData.last_error}</div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2.5 text-emerald-900">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                                <div>
+                                  <div className="font-semibold text-xs">Hệ thống đồng bộ hoạt động bình thường</div>
+                                  <div className="text-[11px] text-emerald-700">Kho tri thức đã được lập chỉ mục và sẵn sàng cho Trợ lý Lavi.</div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 3 Metric cards */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
+                                <div className="text-[10px] text-muted-foreground uppercase font-medium">Đoạn đã lập chỉ mục</div>
+                                <div className="text-base font-bold text-foreground mt-0.5 font-mono">
+                                  {reindexStatusData.indexed_documents?.toLocaleString('vi-VN') ?? 0}
+                                </div>
+                              </div>
+
+                              <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
+                                <div className="text-[10px] text-muted-foreground uppercase font-medium">Lần thành công gần nhất</div>
+                                <div className="text-[11px] font-semibold text-foreground mt-1">
+                                  {reindexStatusData.last_success_at
+                                    ? new Date(reindexStatusData.last_success_at).toLocaleString('vi-VN', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })
+                                    : 'Chưa có'}
+                                </div>
+                              </div>
+
+                              <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-center">
+                                <div className="text-[10px] text-muted-foreground uppercase font-medium">Hàng đợi nền</div>
+                                <div className="text-[11px] font-semibold mt-1">
+                                  {reindexStatusData.pending ? (
+                                    <span className="text-amber-700">Có yêu cầu chờ</span>
+                                  ) : (
+                                    <span className="text-emerald-700">Đã đồng bộ hết</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Collapsible raw JSON */}
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setShowRawReindexJson(!showRawReindexJson)}
+                                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground font-medium"
+                              >
+                                {showRawReindexJson ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                <span>{showRawReindexJson ? 'Ẩn phản hồi JSON' : 'Xem phản hồi JSON kỹ thuật'}</span>
+                              </button>
+                              {showRawReindexJson && (
+                                <pre className="mt-2 p-3 bg-muted rounded-lg font-mono text-[10px] overflow-x-auto border border-border max-h-40">
+                                  {JSON.stringify(reindexStatusData, null, 2)}
+                                </pre>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground py-4 text-center">Không có dữ liệu phản hồi.</p>
+                        )}
+                      </div>
+
+                      <DialogFooter className="flex items-center justify-between sm:justify-between w-full">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={loadingReindexStatus}
+                          onClick={checkReindexStatus}
+                          className="gap-1.5 text-xs"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${loadingReindexStatus ? 'animate-spin' : ''}`} />
+                          Làm mới trạng thái
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setReindexStatusOpen(false)}>
+                          Đóng
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* ========================================================================================= */}
+                  {/* DIALOG THÊM ẢNH TRIỆU CHỨNG MỚI (TASK-15 PHASE 2) */}
+                  {/* ========================================================================================= */}
+                  <Dialog open={addImageModalOpen} onOpenChange={setAddImageModalOpen}>
+                    <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle className="text-base font-bold flex items-center gap-2">
+                          <ImageIcon className="w-4 h-4 text-primary" />
+                          <span>Thêm ảnh triệu chứng thực địa</span>
+                        </DialogTitle>
+                        <DialogDescription className="text-xs">
+                          Ảnh triệu chứng theo bộ phận (lá, quả, thân, toàn cây) hiển thị trên Sổ tay bệnh học và đối chiếu chẩn đoán.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <form onSubmit={handleCreateKnowledgeImage} className="space-y-4 py-2 text-xs">
+                        {/* Lớp bệnh mục tiêu (2 dropdown: Cây & Bệnh) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="font-semibold block mb-1">1. Loài cây trồng *</label>
+                            <select
+                              aria-label="Chọn loài cây trồng"
+                              value={newImagePlant}
+                              onChange={(e) => {
+                                const p = e.target.value;
+                                setNewImagePlant(p);
+                                const match = diseases.find((d) => d.plantName === p);
+                                if (match) setNewImageClass(match.classCode);
+                              }}
+                              className="h-9 w-full px-2.5 rounded-md border border-input bg-background text-xs cursor-pointer"
+                            >
+                              {uniquePlants.map((plant) => (
+                                <option key={plant} value={plant}>
+                                  {plant}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">2. Bệnh hại mục tiêu *</label>
+                            <select
+                              aria-label="Chọn bệnh hại mục tiêu"
+                              value={newImageClass}
+                              onChange={(e) => setNewImageClass(e.target.value)}
+                              className="h-9 w-full px-2.5 rounded-md border border-input bg-background text-xs cursor-pointer truncate"
+                            >
+                              {diseases
+                                .filter((d) => d.plantName === newImagePlant)
+                                .map((d) => (
+                                  <option key={d.classCode} value={d.classCode}>
+                                    {d.commonNameVi}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Bộ phận cây */}
+                        <div>
+                          <label className="font-semibold block mb-1">3. Bộ phận cây nhiễm bệnh *</label>
+                          <div className="grid grid-cols-4 gap-2">
+                            {[
+                              { id: 'LEAF', label: 'Lá cây' },
+                              { id: 'FRUIT', label: 'Hoa / Quả' },
+                              { id: 'STEM', label: 'Thân / Cành' },
+                              { id: 'WHOLE_PLANT', label: 'Toàn cây' },
+                            ].map((part) => (
+                              <button
+                                key={part.id}
+                                type="button"
+                                onClick={() => setNewImagePlantPart(part.id)}
+                                className={`rounded-lg py-1.5 px-2 text-xs font-semibold border transition-all ${newImagePlantPart === part.id
+                                    ? 'bg-primary text-white border-primary shadow-2xs'
+                                    : 'bg-secondary text-foreground border-border hover:bg-secondary/80'
+                                  }`}
+                              >
+                                {part.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Chọn phương thức tải ảnh: HTTPS URL vs Upload File */}
+                        <div className="space-y-2 rounded-xl border border-border p-3 bg-secondary/20">
+                          <label className="font-semibold block">4. Nguồn cung cấp ảnh *</label>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setNewImageMode('URL')}
+                              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-colors ${newImageMode === 'URL'
+                                  ? 'bg-primary text-white border-primary shadow-2xs'
+                                  : 'bg-background text-foreground border-border hover:bg-muted'
+                                }`}
+                            >
+                              <LinkIcon className="w-3.5 h-3.5" /> Dán HTTPS URL ảnh
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewImageMode('FILE')}
+                              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-colors ${newImageMode === 'FILE'
+                                  ? 'bg-primary text-white border-primary shadow-2xs'
+                                  : 'bg-background text-foreground border-border hover:bg-muted'
+                                }`}
+                            >
+                              <UploadCloud className="w-3.5 h-3.5" /> Tải ảnh lên MinIO
+                            </button>
+                          </div>
+
+                          {newImageMode === 'URL' ? (
+                            <div className="space-y-1 pt-1">
+                              <Input
+                                type="url"
+                                placeholder="https://example.com/images/late-blight-symptom.jpg"
+                                value={newImageUrl}
+                                onChange={(e) => setNewImageUrl(e.target.value)}
+                                className="text-xs bg-background"
+                              />
+                              <p className="text-[10px] text-muted-foreground">
+                                URL ảnh trực tiếp phải là link https:// an toàn từ trang nông nghiệp uy tín.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2 pt-1">
+                              <Input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                onChange={handleImageFileChange}
+                                className="text-xs bg-background"
+                              />
+                              <p className="text-[10px] text-muted-foreground italic">
+                                * Hệ thống tự động xóa EXIF / GPS để bảo vệ quyền riêng tư và lưu trữ an toàn trên MinIO bucket lavitree-images.
+                              </p>
+                              {newImageFilePreview && (
+                                <div className="relative aspect-4/3 max-w-[200px] rounded-lg overflow-hidden border border-border">
+                                  <img src={newImageFilePreview} alt="Xem trước" className="h-full w-full object-cover" />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Mô tả / chú thích triệu chứng */}
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="font-semibold">5. Chú thích / Mô tả triệu chứng *</label>
+                            <span className="text-[10px] text-muted-foreground">{newImageCaption.length}/300 ký tự</span>
+                          </div>
+                          <Textarea
+                            placeholder="Ví dụ: Vết đốm sương mai màu nâu đen xuất hiện ở rìa lá, mặt dưới có lớp nấm trắng mịn trong điều kiện ẩm ướt."
+                            value={newImageCaption}
+                            onChange={(e) => setNewImageCaption(e.target.value)}
+                            maxLength={300}
+                            rows={2}
+                            required
+                            className="text-xs"
+                          />
+                        </div>
+
+                        {/* Nguồn / Bản quyền & Bài viết gốc */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="font-semibold block mb-1">6. Nguồn / Tác giả sở hữu ảnh *</label>
+                            <Input
+                              type="text"
+                              placeholder="Ví dụ: Cổng TTĐT Khuyến nông Quốc gia"
+                              value={newImageCredit}
+                              onChange={(e) => setNewImageCredit(e.target.value)}
+                              maxLength={200}
+                              required
+                              className="text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">7. URL bài viết gốc *</label>
+                            <Input
+                              type="url"
+                              placeholder="https://khuyennongvn.gov.vn/..."
+                              value={newImageSourceUrl}
+                              onChange={(e) => setNewImageSourceUrl(e.target.value)}
+                              required
+                              className="text-xs"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Ghi chú giấy phép */}
+                        <div>
+                          <label className="font-semibold block mb-1">8. Ghi chú giấy phép / bản quyền (tùy chọn)</label>
+                          <Input
+                            type="text"
+                            placeholder="Ví dụ: Trích dẫn phi thương mại phục vụ hướng dẫn nông nghiệp"
+                            value={newImageLicenseNote}
+                            onChange={(e) => setNewImageLicenseNote(e.target.value)}
+                            maxLength={200}
+                            className="text-xs"
+                          />
+                        </div>
+
+                        {/* Tự động duyệt ngay */}
+                        <label className="flex items-center gap-2 cursor-pointer pt-1">
+                          <input
+                            type="checkbox"
+                            checked={newImageAutoApprove}
+                            onChange={(e) => setNewImageAutoApprove(e.target.checked)}
+                            className="h-4 w-4 rounded border-input text-primary focus:ring-primary cursor-pointer"
+                          >
+                          </input>
+                          <span className="font-semibold text-foreground">
+                            Duyệt và cho phép hiển thị ngay trên Sổ tay bệnh học
+                          </span>
+                        </label>
+
+                        <DialogFooter className="pt-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAddImageModalOpen(false)}
+                            disabled={submittingImage}
+                          >
+                            Hủy
+                          </Button>
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={submittingImage}
+                            className="bg-primary hover:bg-primary-hover text-white font-semibold"
+                          >
+                            {submittingImage ? 'Đang lưu ảnh...' : 'Lưu ảnh triệu chứng'}
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* DIALOG XÓA ẢNH TRIỆU CHỨNG */}
+                  <Dialog open={deleteImageTarget !== null} onOpenChange={(open) => { if (!open && !deletingImage) setDeleteImageTarget(null); }}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Gỡ ảnh triệu chứng này?</DialogTitle>
+                        <DialogDescription className="text-xs">
+                          Ảnh sẽ được đánh dấu xóa và không còn hiển thị trên Sổ tay bệnh học. Nếu muốn tạm ẩn, bạn có thể chọn "Bỏ duyệt" thay vì xóa.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      {deleteImageTarget && (
+                        <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3 text-xs">
+                          <div className="relative aspect-4/3 w-full rounded-lg overflow-hidden bg-muted max-w-[200px] mx-auto">
+                            <img src={deleteImageTarget.image_url} alt={deleteImageTarget.caption} className="h-full w-full object-cover" />
+                          </div>
+                          <p className="font-semibold text-foreground text-center">{deleteImageTarget.plant_name} — {deleteImageTarget.disease_name}</p>
+                          <p className="italic text-muted-foreground text-center">"{deleteImageTarget.caption}"</p>
+                        </div>
+                      )}
+
+                      <DialogFooter>
+                        <Button variant="outline" size="sm" onClick={() => setDeleteImageTarget(null)} disabled={deletingImage}>
+                          Hủy
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={handleDeleteImage} disabled={deletingImage}>
+                          {deletingImage ? 'Đang gỡ...' : 'Xóa ảnh'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* DIALOG PHÓNG TO ẢNH TRONG ADMIN */}
+                  <Dialog open={previewingImage !== null} onOpenChange={(open) => !open && setPreviewingImage(null)}>
+                    <DialogContent className="sm:max-w-3xl">
+                      {previewingImage && (
+                        <div className="space-y-4">
+                          <DialogHeader className="space-y-1 text-left">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs font-semibold">
+                                {previewingImage.plant_part === 'LEAF'
+                                  ? 'Lá'
+                                  : previewingImage.plant_part === 'FRUIT'
+                                    ? 'Quả/Hoa'
+                                    : previewingImage.plant_part === 'STEM'
+                                      ? 'Thân/Cành'
+                                      : 'Toàn cây'}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">•</span>
+                              <span className="text-xs font-semibold text-primary">
+                                {previewingImage.plant_name} — {previewingImage.disease_name}
+                              </span>
+                            </div>
+                            <DialogTitle className="text-base font-bold text-foreground">
+                              {previewingImage.caption}
+                            </DialogTitle>
+                            <DialogDescription className="sr-only">
+                              Chi tiết ảnh triệu chứng
+                            </DialogDescription>
+                          </DialogHeader>
+
+                          <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl bg-black/5 border border-border">
+                            <img
+                              src={previewingImage.image_url}
+                              alt={previewingImage.caption}
+                              className="h-full w-full object-contain"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-2 border-t border-border">
+                            <div>
+                              Nguồn/Bản quyền: <strong className="text-foreground">{previewingImage.credit}</strong>
+                              {previewingImage.license_note && (
+                                <span className="italic block text-[11px] mt-0.5">{previewingImage.license_note}</span>
+                              )}
+                            </div>
+                            {previewingImage.source_url && (
+                              <a
+                                href={previewingImage.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-primary hover:underline font-semibold"
+                              >
+                                <span>Xem bài báo nguồn</span>
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
                 </div>
-              ) : (
-                <div className="space-y-2 pt-1">
-                  <Input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={handleImageFileChange}
-                    className="text-xs bg-background"
-                  />
-                  <p className="text-[10px] text-muted-foreground italic">
-                    * Hệ thống tự động xóa EXIF / GPS để bảo vệ quyền riêng tư và lưu trữ an toàn trên MinIO bucket lavitree-images.
-                  </p>
-                  {newImageFilePreview && (
-                    <div className="relative aspect-4/3 max-w-[200px] rounded-lg overflow-hidden border border-border">
-                      <img src={newImageFilePreview} alt="Xem trước" className="h-full w-full object-cover" />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Mô tả / chú thích triệu chứng */}
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="font-semibold">5. Chú thích / Mô tả triệu chứng *</label>
-                <span className="text-[10px] text-muted-foreground">{newImageCaption.length}/300 ký tự</span>
-              </div>
-              <Textarea
-                placeholder="Ví dụ: Vết đốm sương mai màu nâu đen xuất hiện ở rìa lá, mặt dưới có lớp nấm trắng mịn trong điều kiện ẩm ướt."
-                value={newImageCaption}
-                onChange={(e) => setNewImageCaption(e.target.value)}
-                maxLength={300}
-                rows={2}
-                required
-                className="text-xs"
-              />
-            </div>
-
-            {/* Nguồn / Bản quyền & Bài viết gốc */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="font-semibold block mb-1">6. Nguồn / Tác giả sở hữu ảnh *</label>
-                <Input
-                  type="text"
-                  placeholder="Ví dụ: Cổng TTĐT Khuyến nông Quốc gia"
-                  value={newImageCredit}
-                  onChange={(e) => setNewImageCredit(e.target.value)}
-                  maxLength={200}
-                  required
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">7. URL bài viết gốc *</label>
-                <Input
-                  type="url"
-                  placeholder="https://khuyennongvn.gov.vn/..."
-                  value={newImageSourceUrl}
-                  onChange={(e) => setNewImageSourceUrl(e.target.value)}
-                  required
-                  className="text-xs"
-                />
-              </div>
-            </div>
-
-            {/* Ghi chú giấy phép */}
-            <div>
-              <label className="font-semibold block mb-1">8. Ghi chú giấy phép / bản quyền (tùy chọn)</label>
-              <Input
-                type="text"
-                placeholder="Ví dụ: Trích dẫn phi thương mại phục vụ hướng dẫn nông nghiệp"
-                value={newImageLicenseNote}
-                onChange={(e) => setNewImageLicenseNote(e.target.value)}
-                maxLength={200}
-                className="text-xs"
-              />
-            </div>
-
-            {/* Tự động duyệt ngay */}
-            <label className="flex items-center gap-2 cursor-pointer pt-1">
-              <input
-                type="checkbox"
-                checked={newImageAutoApprove}
-                onChange={(e) => setNewImageAutoApprove(e.target.checked)}
-                className="h-4 w-4 rounded border-input text-primary focus:ring-primary cursor-pointer"
-              >
-              </input>
-              <span className="font-semibold text-foreground">
-                Duyệt và cho phép hiển thị ngay trên Sổ tay bệnh học
-              </span>
-            </label>
-
-            <DialogFooter className="pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setAddImageModalOpen(false)}
-                disabled={submittingImage}
-              >
-                Hủy
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={submittingImage}
-                className="bg-primary hover:bg-primary-hover text-white font-semibold"
-              >
-                {submittingImage ? 'Đang lưu ảnh...' : 'Lưu ảnh triệu chứng'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* DIALOG XÓA ẢNH TRIỆU CHỨNG */}
-      <Dialog open={deleteImageTarget !== null} onOpenChange={(open) => { if (!open && !deletingImage) setDeleteImageTarget(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Gỡ ảnh triệu chứng này?</DialogTitle>
-            <DialogDescription className="text-xs">
-              Ảnh sẽ được đánh dấu xóa và không còn hiển thị trên Sổ tay bệnh học. Nếu muốn tạm ẩn, bạn có thể chọn "Bỏ duyệt" thay vì xóa.
-            </DialogDescription>
-          </DialogHeader>
-
-          {deleteImageTarget && (
-            <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3 text-xs">
-              <div className="relative aspect-4/3 w-full rounded-lg overflow-hidden bg-muted max-w-[200px] mx-auto">
-                <img src={deleteImageTarget.image_url} alt={deleteImageTarget.caption} className="h-full w-full object-cover" />
-              </div>
-              <p className="font-semibold text-foreground text-center">{deleteImageTarget.plant_name} — {deleteImageTarget.disease_name}</p>
-              <p className="italic text-muted-foreground text-center">"{deleteImageTarget.caption}"</p>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDeleteImageTarget(null)} disabled={deletingImage}>
-              Hủy
-            </Button>
-            <Button variant="destructive" size="sm" onClick={handleDeleteImage} disabled={deletingImage}>
-              {deletingImage ? 'Đang gỡ...' : 'Xóa ảnh'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* DIALOG PHÓNG TO ẢNH TRONG ADMIN */}
-      <Dialog open={previewingImage !== null} onOpenChange={(open) => !open && setPreviewingImage(null)}>
-        <DialogContent className="sm:max-w-3xl">
-          {previewingImage && (
-            <div className="space-y-4">
-              <DialogHeader className="space-y-1 text-left">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs font-semibold">
-                    {previewingImage.plant_part === 'LEAF'
-                      ? 'Lá'
-                      : previewingImage.plant_part === 'FRUIT'
-                      ? 'Quả/Hoa'
-                      : previewingImage.plant_part === 'STEM'
-                      ? 'Thân/Cành'
-                      : 'Toàn cây'}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">•</span>
-                  <span className="text-xs font-semibold text-primary">
-                    {previewingImage.plant_name} — {previewingImage.disease_name}
-                  </span>
-                </div>
-                <DialogTitle className="text-base font-bold text-foreground">
-                  {previewingImage.caption}
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  Chi tiết ảnh triệu chứng
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl bg-black/5 border border-border">
-                <img
-                  src={previewingImage.image_url}
-                  alt={previewingImage.caption}
-                  className="h-full w-full object-contain"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-2 border-t border-border">
-                <div>
-                  Nguồn/Bản quyền: <strong className="text-foreground">{previewingImage.credit}</strong>
-                  {previewingImage.license_note && (
-                    <span className="italic block text-[11px] mt-0.5">{previewingImage.license_note}</span>
-                  )}
-                </div>
-                {previewingImage.source_url && (
-                  <a
-                    href={previewingImage.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline font-semibold"
-                  >
-                    <span>Xem bài báo nguồn</span>
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+                );
 };
 
-export default AdminDashboard;
+                export default AdminDashboard;
