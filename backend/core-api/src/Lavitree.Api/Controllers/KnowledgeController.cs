@@ -1340,6 +1340,42 @@ public class KnowledgeController : ControllerBase
         return Ok(new { message = "Đã xóa nguồn dữ liệu thành công." });
     }
 
+    // 5b. POST /api/v1/knowledge/sources/batch-delete
+    [HttpPost("sources/batch-delete")]
+    public async Task<IActionResult> BatchDeleteSources([FromBody] List<Guid> ids)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (ids == null || ids.Count == 0)
+        {
+            return BadRequest(new { detail = "Danh sách ID xóa không được để trống." });
+        }
+
+        var items = await _dbContext.KnowledgeSources
+            .Where(s => ids.Contains(s.Id) && !s.IsDeleted)
+            .ToListAsync();
+
+        if (items.Count == 0)
+        {
+            return Ok(new { message = "Không có đoạn nào cần xóa.", deleted_count = 0 });
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var item in items)
+        {
+            item.IsDeleted = true;
+            item.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync();
+        await TriggerReindexAsync(items.First().Id.ToString(), "batch_delete");
+
+        return Ok(new { message = $"Đã xóa thành công {items.Count} đoạn tri thức.", deleted_count = items.Count });
+    }
+
     // 6. GET /api/v1/knowledge/export
     [HttpGet("export")]
     public async Task<IActionResult> ExportCsv()

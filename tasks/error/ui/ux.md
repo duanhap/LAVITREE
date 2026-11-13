@@ -43,8 +43,17 @@ Ký hiệu: `[x]` đã sửa trên nhánh, chưa push; `[ ]` còn lại; `[!]` c
 
 ### C. Duyệt tri thức (`/admin/knowledge`) và Ảnh (`/admin/images`)
 [x] 22. Modal "Thêm ảnh triệu chứng" ở trang Ảnh dính URL và cơ quan của bài đang nhập. Giờ chỉ nút "Thêm ảnh từ bài này" mới điền sẵn.
-[ ] 23. Một bài bị tách thành nhiều dòng khi các đoạn gắn khác bệnh; không sửa được nội dung/tiêu đề/nhãn sau khi lưu; không có "Xóa cả bài"; không phân trang; nhãn lọc còn chữ dev (`IsManualApproved = true`).
-[ ] 24. Trang Ảnh: lọc bệnh không theo cây; nhãn bộ phận lộ enum `LEAF`, `FRUIT`; thiếu xem trước ảnh HTTPS và hướng dẫn dung lượng/định dạng.
+[x] 23. Một bài bị tách thành nhiều dòng khi các đoạn gắn khác bệnh; không sửa được nội dung/tiêu đề/nhãn sau khi lưu; không có "Xóa cả bài"; không phân trang; nhãn lọc còn chữ dev (`IsManualApproved = true`).
+  - Đã gộp bài viết strictly theo URL nguồn (1 bài = 1 dòng), hiển thị badge `+N bệnh khác` khi các đoạn thuộc nhiều lớp bệnh.
+  - Thêm nút "Xóa cả bài" và "Xóa hàng loạt" trên toolbar, kết nối API `POST /api/v1/knowledge/sources/batch-delete` soft-delete và kích hoạt reindex một lần.
+  - Thêm nút "Sửa bài" dẫn sang `/admin/ingest?edit=...` để chỉnh sửa và nạp lại.
+  - Bổ sung phân trang Curation (10, 20, 50 mục/trang) cho cả chế độ gộp bài và chế độ phẳng.
+  - Đổi nhãn lọc sang tiếng Việt thân thiện: "Tất cả trạng thái duyệt", "Đã duyệt (sẵn sàng cho Lavi)", "Chờ duyệt".
+[x] 24. Trang Ảnh: lọc bệnh không theo cây; nhãn bộ phận lộ enum `LEAF`, `FRUIT`; thiếu xem trước ảnh HTTPS và hướng dẫn dung lượng/định dạng.
+  - Lọc bệnh hại giới hạn chính xác theo loài cây trồng đã chọn (và tự reset về "Tất cả bệnh hại" khi đổi cây).
+  - Việt hóa hoàn toàn nhãn bộ phận cây trồng: "Lá cây", "Quả / Hoa", "Thân / Cành", "Toàn cây".
+  - Bổ sung khung xem trước trực tiếp ảnh từ link HTTPS với fallback xử lý link lỗi.
+  - Thêm hướng dẫn định dạng/dung lượng rõ ràng: "Định dạng hỗ trợ: JPG, PNG, WebP (tối đa 5MB). Ưu tiên ảnh chụp rõ triệu chứng thực địa trên đồng ruộng."
 
 ### D. Trang người dùng (production, xem với tư cách khách)
 [ ] 25. Lavi tự giả định "còn 0 ngày thu hoạch" khi người dùng không nói, rồi bật cảnh báo đỏ "VI PHẠM PHI" cho câu hỏi chỉ hỏi bệnh gì. Chặn thuốc khi chưa rõ ngày thu hoạch vẫn đúng, nhưng phải hỏi lại người dùng thay vì nói "0 ngày".
