@@ -3726,10 +3726,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     className="h-9 px-2.5 bg-background border border-border rounded-lg text-xs"
                   >
                     <option value="ALL">Tất cả trạng thái</option>
-                    <option value="PENDING">Chờ xử lý (Pending)</option>
-                    <option value="LINKED">Đã gắn SP có sẵn (Linked)</option>
-                    <option value="ADDED">Đã tạo SP mới (Added)</option>
-                    <option value="DISMISSED">Đã bỏ qua (Dismissed)</option>
                     <option value="PENDING">Chờ xử lý</option>
                     <option value="LINKED">Đã gắn SP có sẵn</option>
                     <option value="ADDED">Đã tạo SP mới</option>
@@ -3742,10 +3738,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     className="h-9 px-2.5 bg-background border border-border rounded-lg text-xs"
                   >
                     <option value="ALL">Tất cả loại vật tư</option>
-                    <option value="CHEMICAL">Thuốc hóa học (CHEMICAL)</option>
-                    <option value="BIOLOGICAL">Chế phẩm sinh học (BIOLOGICAL)</option>
-                    <option value="SUPPLY">Vật tư canh tác (SUPPLY)</option>
-                    <option value="PRACTICE">Biện pháp canh tác (PRACTICE)</option>
                     <option value="CHEMICAL">Thuốc BVTV hóa học</option>
                     <option value="BIOLOGICAL">Chế phẩm sinh học BVTV</option>
                     <option value="SUPPLY">Vật tư canh tác</option>
