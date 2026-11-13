@@ -102,6 +102,13 @@ public class CommitSelectionDto
     [RegularExpression(@"^(SYMPTOMS|CAUSE_CONDITIONS|PREVENTION|TREATMENT)$", ErrorMessage = "unit_type phải thuộc: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT.")]
     [JsonPropertyName("unit_type")]
     public string UnitType { get; set; } = string.Empty;
+
+    [MaxLength(800, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 800 ký tự.")]
+    [JsonPropertyName("custom_text")]
+    public string? CustomText { get; set; }
+
+    [JsonPropertyName("mentions")]
+    public List<MentionDto>? Mentions { get; set; }
 }
 
 public class CommitIngestionRequestDto
@@ -151,6 +158,41 @@ public class ApproveSourceRequestDto
     [MaxLength(1000, ErrorMessage = "Ghi chú không được vượt quá 1000 ký tự.")]
     [JsonPropertyName("reviewer_notes")]
     public string? ReviewerNotes { get; set; }
+}
+
+// Sửa thông tin chung của một bài đã lưu (áp cho mọi đoạn cùng URL). Sửa xong các đoạn về "chờ duyệt".
+public class UpdateArticleRequestDto
+{
+    [Required(ErrorMessage = "Thiếu URL bài viết.")]
+    [MaxLength(2000)]
+    [JsonPropertyName("source_url")]
+    public string SourceUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
+
+    [MaxLength(500, ErrorMessage = "Tiêu đề không được vượt quá 500 ký tự.")]
+    [JsonPropertyName("source_title")]
+    public string? SourceTitle { get; set; }
+
+    [MaxLength(300, ErrorMessage = "Cơ quan / tác giả không được vượt quá 300 ký tự.")]
+    [JsonPropertyName("organization")]
+    public string? Organization { get; set; }
+
+    [MaxLength(50, ErrorMessage = "Ngày / năm xuất bản không được vượt quá 50 ký tự.")]
+    [JsonPropertyName("published_date")]
+    public string? PublishedDate { get; set; }
+}
+
+// Sửa một đoạn đã lưu: đoạn nguyên văn chỉ đổi loại nội dung; đoạn tóm tắt được sửa chữ.
+public class UpdateSourceUnitRequestDto
+{
+    [JsonPropertyName("unit_type")]
+    public string? UnitType { get; set; }
+
+    [MaxLength(4000, ErrorMessage = "Đoạn tóm tắt không được vượt quá 4.000 ký tự.")]
+    [JsonPropertyName("evidence_text")]
+    public string? EvidenceText { get; set; }
 }
 
 public class ApproveBatchRequestDto

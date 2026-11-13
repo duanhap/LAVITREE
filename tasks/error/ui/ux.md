@@ -25,22 +25,35 @@ Ký hiệu: `[x]` đã sửa trên nhánh, chưa push; `[ ]` còn lại; `[!]` c
 [x] 10. Bộ lọc khi dán bài làm mất tiêu đề bài, ngày đăng, tiêu đề mục ("Biện pháp hóa học:") nhưng lại để lọt hotline và footer lặp. Đã giữ tiêu đề, ngày và tiêu đề mục, bỏ hotline có số điện thoại và dòng trùng. Core ghép tiêu đề mục ngắn vào đoạn ngay sau, giữ dòng ngắn ở đầu bài cho AI đọc metadata.
 [x] 11. Nút Lưu tắt im lặng khi vượt hạn mức. Giờ có dòng giải thích "vượt giới hạn trích dẫn … (30% bài, tối thiểu 1.200)" và nhắc chọn cây/bệnh. Mẫu số 1.200 là đúng luật (tối thiểu 1.200 ký tự), không phải lỗi.
 [x] 12. AI trích tên nấm gây bệnh (Phytophthora infestans) thành "Sinh học". Prompt đã cấm đưa tác nhân gây bệnh vào mentions.
-[ ] 13. Thẻ vật tư/biện pháp AI trích ra chỉ xem được: cần thêm, xóa, đổi loại trước khi lưu.
-[ ] 14. Đoạn dài hơn 800 ký tự bị khóa: cần nút tách đôi ngay tại chỗ thay vì sửa ô dán bên trái rồi gọi AI lại.
-[ ] 15. "Trạng thái Reindex" hiện JSON thô: đổi sang câu dễ đọc (đang chạy / xong lúc … / lỗi).
+[x] 13. Thẻ vật tư/biện pháp AI trích ra chỉ xem được: đã cho phép thêm mới (phải có trong đoạn trích), xóa thẻ và đổi loại (Hóa học / Sinh học / Vật tư / Canh tác) trực tiếp trước khi lưu.
+[x] 14. Đoạn dài hơn 800 ký tự bị khóa: đã thêm nút và dialog "Tách đoạn" tự động ngắt theo dấu câu gần điểm giữa (hoặc sửa thủ công), mỗi đoạn con <= 800 ký tự được tick chọn và gán nhãn độc lập.
+[x] 15. "Trạng thái Reindex" hiện JSON thô: đã thiết kế lại Dialog với thẻ trạng thái trực quan, 3 chỉ số (số đoạn đã vector hóa, lần thành công gần nhất, hàng đợi), và nút làm mới trạng thái.
 
 ### B. Gợi ý vật tư (`/admin/inventory`, tab Gợi ý)
 [x] 16. Tên thương mại (Ridomil Gold 68WG, Antracol 70WP) không khớp với sản phẩm đã có, Admin dễ bấm "Tạo SP" ra sản phẩm trùng. Core giờ khớp cả theo tên sản phẩm (không khớp với sản phẩm chứa hoạt chất cấm).
 [x] 17. Gắn được thuốc cấm vào bệnh và gắn lại gợi ý đã xử lý. Core trả 400 và 409; danh sách chọn ở web cũng ẩn thuốc cấm. (Nông dân chưa bị ảnh hưởng vì trang khám đã lọc `IsAllowed`.)
 [x] 18. Biện pháp canh tác (PRACTICE) vẫn có nút "Gắn SP"; modal "Tạo SP" ghi "đã điền sẵn từ bài báo" dù không còn điền giá/PHI. Đã ẩn nút và sửa câu.
-[ ] 19. Cột "Đoạn trích bằng chứng" quá hẹp, đọc không được; nên gom các gợi ý cùng một bài và cùng sản phẩm (Metalaxyl-M, Mancozeb, Ridomil cùng trỏ về một sản phẩm, Admin phải gắn 3 lần).
-[ ] 20. Bộ lọc còn chữ tiếng Anh (`Pending`, `Linked`, `CHEMICAL`, `SUPPLY`...).
-[ ] 21. Modal "Thêm thuốc" và "Sửa thông số" không thống nhất: Sửa chọn NOT_SOLD thì ẩn giá/tồn, Thêm thì vẫn bắt buộc; tên loại viết khác nhau; còn lộ enum `IN_STOCK`. Modal Sửa thiếu ô tên, hoạt chất, bệnh, hướng dẫn. Chọn "Vật tư canh tác" vẫn điền "Pha theo hướng dẫn trên bao bì".
+[x] 19. Cột "Đoạn trích bằng chứng" quá hẹp: đã mở rộng (`min-w-[280px] max-w-lg`, line-clamp-3) để Admin đọc trọn vẹn ngữ cảnh đoạn trích.
+[x] 20. Bộ lọc còn chữ tiếng Anh: đã Việt hóa toàn bộ bộ lọc trạng thái ("Chờ xử lý", "Đã gắn SP có sẵn", "Đã tạo SP mới", "Đã bỏ qua") và phân loại ("Thuốc BVTV hóa học", "Chế phẩm sinh học BVTV", "Vật tư canh tác", "Biện pháp canh tác").
+[x] 21. Modal "Thêm thuốc" và "Sửa thông số" không thống nhất: đã đồng bộ 100%:
+  - Chọn NOT_SOLD ẩn giá/tồn kho ở cả 2 modal (mặc định 0 kèm thông báo rõ ràng).
+  - Modal Sửa bổ sung đầy đủ các ô: Tên sản phẩm, Hoạt chất chính, Hướng dẫn sử dụng/Liều lượng, Link nguồn tra cứu, Checkbox lưu hành (Core Backend hỗ trợ cập nhật trong `PATCH /api/v1/medicines/{id}`).
+  - Thống nhất tên 3 loại sản phẩm giữa 2 modal; ẩn mã enum kỹ thuật `IN_STOCK`, `OUT_OF_STOCK`, `NOT_SOLD`.
+  - Chọn "Vật tư canh tác" tự đổi hướng dẫn liều dùng sang hướng dẫn canh tác thay vì "pha theo bao bì", và điều chỉnh nhãn checkbox lưu hành sang tư vấn canh tác.
 
 ### C. Duyệt tri thức (`/admin/knowledge`) và Ảnh (`/admin/images`)
 [x] 22. Modal "Thêm ảnh triệu chứng" ở trang Ảnh dính URL và cơ quan của bài đang nhập. Giờ chỉ nút "Thêm ảnh từ bài này" mới điền sẵn.
-[ ] 23. Một bài bị tách thành nhiều dòng khi các đoạn gắn khác bệnh; không sửa được nội dung/tiêu đề/nhãn sau khi lưu; không có "Xóa cả bài"; không phân trang; nhãn lọc còn chữ dev (`IsManualApproved = true`).
-[ ] 24. Trang Ảnh: lọc bệnh không theo cây; nhãn bộ phận lộ enum `LEAF`, `FRUIT`; thiếu xem trước ảnh HTTPS và hướng dẫn dung lượng/định dạng.
+[x] 23. Một bài bị tách thành nhiều dòng khi các đoạn gắn khác bệnh; không sửa được nội dung/tiêu đề/nhãn sau khi lưu; không có "Xóa cả bài"; không phân trang; nhãn lọc còn chữ dev (`IsManualApproved = true`).
+  - Đã gộp bài viết strictly theo URL nguồn (1 bài = 1 dòng), hiển thị badge `+N bệnh khác` khi các đoạn thuộc nhiều lớp bệnh.
+  - Thêm nút "Xóa cả bài" và "Xóa hàng loạt" trên toolbar, kết nối API `POST /api/v1/knowledge/sources/batch-delete` soft-delete và kích hoạt reindex một lần.
+  - Thêm nút "Sửa bài" dẫn sang `/admin/ingest?edit=...` để chỉnh sửa và nạp lại.
+  - Bổ sung phân trang Curation (10, 20, 50 mục/trang) cho cả chế độ gộp bài và chế độ phẳng.
+  - Đổi nhãn lọc sang tiếng Việt thân thiện: "Tất cả trạng thái duyệt", "Đã duyệt (sẵn sàng cho Lavi)", "Chờ duyệt".
+[x] 24. Trang Ảnh: lọc bệnh không theo cây; nhãn bộ phận lộ enum `LEAF`, `FRUIT`; thiếu xem trước ảnh HTTPS và hướng dẫn dung lượng/định dạng.
+  - Lọc bệnh hại giới hạn chính xác theo loài cây trồng đã chọn (và tự reset về "Tất cả bệnh hại" khi đổi cây).
+  - Việt hóa hoàn toàn nhãn bộ phận cây trồng: "Lá cây", "Quả / Hoa", "Thân / Cành", "Toàn cây".
+  - Bổ sung khung xem trước trực tiếp ảnh từ link HTTPS với fallback xử lý link lỗi.
+  - Thêm hướng dẫn định dạng/dung lượng rõ ràng: "Định dạng hỗ trợ: JPG, PNG, WebP (tối đa 5MB). Ưu tiên ảnh chụp rõ triệu chứng thực địa trên đồng ruộng."
 
 ### D. Trang người dùng (production, xem với tư cách khách)
 [ ] 25. Lavi tự giả định "còn 0 ngày thu hoạch" khi người dùng không nói, rồi bật cảnh báo đỏ "VI PHẠM PHI" cho câu hỏi chỉ hỏi bệnh gì. Chặn thuốc khi chưa rõ ngày thu hoạch vẫn đúng, nhưng phải hỏi lại người dùng thay vì nói "0 ngày".

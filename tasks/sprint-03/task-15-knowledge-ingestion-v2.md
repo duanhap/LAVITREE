@@ -415,3 +415,28 @@ Chạy cả hệ thống trên máy với Postgres local, làm đúng như Admin
 **Kiểm thử:** `test_rag_accuracy -k test_08` qua (thêm 3 test: năm bịa, chuỗi mẫu, thử lại khi 503); `test_react_guardrails` 26/26; Core build sạch; web `tsc` và `npm run build` đạt. Chạy tay bằng Chrome headless trên Postgres local: năm 2015 và 2022 lấy đúng từ bài; bài thứ 2 nhận đúng `Potato___Early_blight` và tiêu đề mới; "Ridomil Gold 68WG" khớp SP #1; tắt Agent vẫn chọn được cả 7 đoạn; gắn thuốc cấm bị `400`, gắn lại bị `409`; Lavi trích nguyên văn bài vừa nạp.
 
 **Còn mở:** xem `tasks/error/ui/ux.md` mục 13–24 (sửa thẻ vật tư, tách đoạn dài, Reindex hiện JSON, bảng gợi ý, modal kho, trang Duyệt tri thức và Ảnh) và mục 30–33 (dữ liệu Supabase, cần duyệt).
+
+---
+
+## 12. SỬA LẠI BÀI ĐÃ LƯU (13/11/2026, trưởng nhóm)
+
+Yêu cầu: bấm vào một bài ở Duyệt tri thức để sửa lại như lúc thêm bài mới. Hệ thống không lưu toàn văn bài (chỉ các đoạn đã chọn, theo quy định trích dẫn), nên muốn thêm đoạn thì Admin dán lại bài.
+
+**Đã chốt với trưởng nhóm:** giữ các đoạn tóm tắt để Admin đọc là biết URL có gì; sửa xong phải duyệt lại.
+
+| Phần | Cách làm |
+|---|---|
+| Mở bài | Nút "Sửa bài" ở mỗi bài trong Duyệt tri thức, mở `/admin/ingest?edit=<url>`. Ô URL bị khóa; "Thoát sửa" về nhập bài mới |
+| Thông tin bài | Điền sẵn cây/bệnh, tiêu đề, cơ quan, năm. "Lưu thông tin bài" áp cho mọi đoạn cùng URL (`PATCH /knowledge/sources/by-url`), gợi ý vật tư chưa xử lý đi theo bệnh mới |
+| Đoạn nguyên văn | Chỉ đổi loại hoặc xóa. Sửa chữ bị `400` vì không còn là lời bài báo (`PATCH /knowledge/sources/{id}`) |
+| Đoạn tóm tắt | Sửa được chữ (20–4.000 ký tự), không đổi loại |
+| Thêm đoạn | Dán lại bài, tách đoạn. Đoạn trùng đoạn đã lưu hiện "Đã lưu" và bị khóa; hạn mức 8 đoạn/30% cộng cả phần đã lưu; AI không ghi đè thông tin bài đang sửa |
+| Duyệt lại | Đoạn bị sửa chuyển về "Chờ duyệt" và gọi reindex nên Lavi thôi dùng bản cũ ngay. Đoạn mới tick ở bước lưu vẫn là "đã duyệt" như luồng nhập bài |
+
+**Sửa kèm:**
+- R24: commit với `custom_text` (R3) so với toàn văn bài, nên đoạn có tiêu đề mục ghép vào hoặc có nhiều khoảng trắng luôn bị báo "không khớp nguyên văn". Nay so với đoạn đã tách trong phiên (đoạn tách `P3_1` so với `P3`), gộp khoảng trắng, phân biệt hoa thường.
+- R25: dòng tiêu đề/ngày đăng (< 40 ký tự) giữ lại cho AI đọc thông tin bài nhưng tick và lưu được thành tri thức. Nay web khóa ô tick, Core trả `400`.
+
+**Kiểm thử:** Core build sạch; web `tsc` và `npm run build` đạt. Chrome headless trên Postgres local: mở bài từ Duyệt tri thức, thông tin điền đúng; lưu thông tin bài `200` (3 đoạn về chờ duyệt); đổi loại đoạn `200`; dán lại bài thấy 3 nhãn "Đã lưu", lưu thêm đoạn `201`; Thoát sửa xóa form. Qua API: đoạn có tiêu đề mục `201`, dòng tiêu đề `400`, đoạn tách bị sửa chữ `400`, sửa chữ đoạn nguyên văn `400`.
+
+**Chưa làm:** trang Duyệt tri thức chưa lọc riêng "bài chỉ có tóm tắt"; chưa thử trên Supabase (cần duyệt).
