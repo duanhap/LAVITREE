@@ -13,7 +13,7 @@ import {
   ExternalLink, Search, Filter, Layers, Database, Package,
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon,
-  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3
+  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3, Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -305,6 +305,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [ingestDate, setIngestDate] = useState<string>(''); // fallback tương thích
   const [ingestText, setIngestText] = useState<string>('');
   const [ingesting, setIngesting] = useState<boolean>(false);
+  const [crawlingUrl, setCrawlingUrl] = useState<boolean>(false);
   const [ingestionResult, setIngestionResult] = useState<IngestionResponse | null>(null);
 
   // Chọn đoạn để commit
@@ -570,76 +571,267 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      // Loại bỏ thẻ rác, menu, header, footer, quảng cáo
+      const BLOCK_TAGS = new Set([
+        'DIV', 'P', 'LI', 'TR', 'TD', 'TH', 'DT', 'DD',
+        'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'SECTION', 'ARTICLE'
+      ]);
+      const extractTextWithSpacing = (el: Element): string => {
+        const parts: string[] = [];
+        const walk = (node: Node) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            if (node.textContent) parts.push(node.textContent);
+            return;
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          const element = node as Element;
+          const isBlock = BLOCK_TAGS.has(element.tagName);
+          if (isBlock) parts.push(' ');
+          element.childNodes.forEach(walk);
+          if (isBlock) parts.push(' ');
+        };
+        walk(el);
+        return parts.join('').replace(/\s+/g, ' ').trim();
+      };
+
+      const isNoise = (text: string): boolean => {
+        const trimmed = text.trim();
+        if (!trimmed || trimmed.length < 3) return true;
+        const lower = trimmed.toLowerCase();
+        // Chỉ lọc tên nút mạng xã hội / điều hướng khi dòng ngắn (tránh xóa đoạn văn bắt đầu bằng "In ...")
+        if (
+          trimmed.length <= 35 &&
+          /^(facebook|zalo|twitter|x|youtube|linkedin|pinterest|instagram|in|share|tweet|print|email|search|log\s*in|sign\s*in|menu|publications|related publications|where next\??)$/i.test(lower)
+        ) {
+          return true;
+        }
+        if (/^(skip to|nhảy tới|chuyển tới)\s+/i.test(lower)) return true;
+        if (
+          trimmed.length <= 80 &&
+          /^(chia sẻ|bình luận|tin liên quan|xem thêm|bài viết liên quan|từ khóa|keywords?|tag|hotline|liên hệ|quảng cáo)\b/i.test(lower)
+        ) {
+          return true;
+        }
+        if (/^(điện thoại|sđt|hotline|email|fax):\s*[\d\s.\-]+$/i.test(lower)) return true;
+        // Hotline/quảng cáo: có số điện thoại đi kèm từ khóa liên hệ, hoặc dòng footer quen thuộc
+        const hasPhone = /(\+84|\b0)\d{2,3}[\s.-]?\d{3}[\s.-]?\d{3,4}\b/.test(trimmed);
+        if (trimmed.length <= 300 && hasPhone && /hotline|zalo|liên hệ|tư vấn|đặt hàng|mua hàng|gọi/i.test(lower)) return true;
+        if (/^bạn đang đọc bài viết|^đăng ký nhận bản tin/i.test(lower)) return true;
+        if (/^receive email notifications for new publications$/i.test(trimmed)) return true;
+        if (/^read our (commitment to nondiscrimination|privacy statement)\.?$/i.test(trimmed)) return true;
+        if (/^recommendations for the use of agricultural chemicals are included in this publication as a convenience/i.test(trimmed)) return true;
+        if (/^n\.c\.\s*cooperative extension prohibits discrimination and harassment/i.test(trimmed)) return true;
+        if (/^n\.c\.\s*cooperative extension is based at north carolina/i.test(trimmed)) return true;
+        if (/^find more information at the following .* websites:?$/i.test(trimmed)) return true;
+        if (/^(college of agriculture & life sciences|cals news|extension at nc a&t|jobs|give now|county centers|contact us|ncce logo|nc state extension)$/i.test(trimmed)) return true;
+        return false;
+      };
+
+      // Thay <br> bằng khoảng trắng để tránh dính chữ giữa các dòng (vd: 2014Reviewed)
+      doc.querySelectorAll('br').forEach((br) => {
+        br.replaceWith(doc.createTextNode(' '));
+      });
+
+      // Trích xuất metadata (tiêu đề, cơ quan, tác giả, ngày đăng) TRƯỚC khi xóa <header>
+      const h1El = doc.querySelector('article h1, main h1, [role="main"] h1, h1');
+      const titleText = (
+        (h1El ? extractTextWithSpacing(h1El) : '') ||
+        doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+        doc.title ||
+        ''
+      ).replace(/\s+/g, ' ').trim();
+
+      const siteOrg = (doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const authorMeta = (doc.querySelector('meta[name="author"]')?.getAttribute('content') || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const authorEls = Array.from(doc.querySelectorAll('.author, .authors, [rel="author"], .byline'));
+      const authorNames = authorEls
+        .map((el) => extractTextWithSpacing(el))
+        .filter((t) => t.length >= 3 && t.length <= 120 && !/^authors?:?$/i.test(t) && !isNoise(t));
+      if (authorMeta && !authorNames.includes(authorMeta)) {
+        authorNames.unshift(authorMeta);
+      }
+
+      const dateEl = doc.querySelector('time, .date, .post-date, .publish-date, .detail-time');
+      const metaDate = doc.querySelector('meta[property="article:published_time"], meta[name="publish-date"], meta[name="date"]')?.getAttribute('content') || '';
+      const dateText = (dateEl?.getAttribute('datetime') || (dateEl ? extractTextWithSpacing(dateEl) : '') || metaDate || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      // Loại bỏ thẻ rác, menu, header (trừ header chứa h1 bài), footer, quảng cáo
       const junkSelectors = [
-        'script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'iframe', 'noscript', 'svg',
+        'script', 'style', 'nav', 'footer', 'aside', 'form', 'iframe', 'noscript', 'svg',
         '.menu', '.navbar', '.sidebar', '.ad', '.ads', '.advertisement',
         '.social-share', '.share-buttons', '.share', '.comment', '.comments',
-        '.related', '.related-posts', '.breadcrumb', '.hotline', '.contact-info',
-        '[role="navigation"]', '[role="banner"]', '[role="complementary"]'
+        '.related', '.related-posts', '.related-publications', '.breadcrumb',
+        '.hotline', '.contact-info', '.skip-link', '.visually-hidden', '.sr-only',
+        '.newsletter', '.subscribe', '.cookie-banner', '.legal-disclaimer', '.disclaimer',
+        '[aria-hidden="true"]', '[role="navigation"]', '[role="banner"]', '[role="complementary"]'
       ];
       junkSelectors.forEach((sel) => {
         doc.querySelectorAll(sel).forEach((el) => el.remove());
       });
+      doc.querySelectorAll('header').forEach((el) => {
+        if (!el.querySelector('h1')) el.remove();
+      });
 
-      const isNoise = (text: string): boolean => {
-        if (!text || text.length < 5) return true;
-        const lower = text.toLowerCase();
-        if (/^(chia sẻ|bình luận|tin liên quan|xem thêm|bài viết liên quan|từ khóa|tag|hotline|liên hệ|quảng cáo)\b/i.test(text)) return true;
-        if (/^(điện thoại|sđt|hotline|email|fax):\s*[\d\s.\-]+$/i.test(text)) return true;
-        if (/^(facebook|zalo|twitter|youtube|in)\b/i.test(lower)) return true;
-        // Hotline/quảng cáo: có số điện thoại đi kèm từ khóa liên hệ, hoặc dòng footer quen thuộc
-        const hasPhone = /(\+84|\b0)\d{2,3}[\s.-]?\d{3}[\s.-]?\d{3,4}\b/.test(text);
-        if (text.length <= 300 && hasPhone && /hotline|zalo|liên hệ|tư vấn|đặt hàng|mua hàng|gọi/i.test(text)) return true;
-        if (/^bạn đang đọc bài viết|^đăng ký nhận bản tin/i.test(text)) return true;
-        return false;
-      };
-
-      // Dòng ngắn chỉ giữ khi là tiêu đề mục ("Biện pháp hóa học:", "4. Biện pháp quản lý");
-      // Core sẽ ghép tiêu đề mục vào đoạn ngay sau để không mất ngữ cảnh
       const isHeading = (el: Element | null, text: string): boolean =>
         (!!el && /^H[1-6]$/.test(el.tagName)) ||
         /:\s*$/.test(text) ||
         /^(\d+|[IVX]+|[a-zđ])[.)]\s+\S/i.test(text);
-      const keep = (el: Element | null, text: string): boolean =>
-        !isNoise(text) && (text.length >= 30 || (text.length >= 3 && isHeading(el, text)));
 
-      const mainEl = doc.querySelector('article') ||
-        doc.querySelector('[role="main"]') ||
-        doc.querySelector('.detail-content') ||
-        doc.querySelector('.post-content') ||
-        doc.querySelector('.article-content') ||
-        doc.querySelector('.entry-content') ||
-        doc.querySelector('.content') ||
+      const isMetadataLine = (text: string): boolean =>
+        /^(publication date|reviewed\/revised|published|updated|ngày đăng|cập nhật|tác giả|author|authors|cơ quan):\s*\S/i.test(text) &&
+        text.length >= 8 &&
+        text.length <= 200;
+
+      const keep = (el: Element | null, text: string): boolean =>
+        !isNoise(text) &&
+        (text.length >= 30 ||
+          (text.length >= 3 && isHeading(el, text)) ||
+          isMetadataLine(text));
+
+      const candidates = [
+        doc.querySelector('article'),
+        doc.querySelector('[role="main"], main'),
+        doc.querySelector('.detail-content'),
+        doc.querySelector('.post-content'),
+        doc.querySelector('.article-content'),
+        doc.querySelector('.entry-content'),
+        doc.querySelector('.content'),
+      ];
+      const mainEl =
+        candidates.find((el) => el && extractTextWithSpacing(el).length >= 150) ||
         doc.body;
 
       if (!mainEl) return '';
 
       const lines: string[] = [];
       const seen = new Set<string>();
-      const push = (t: string) => {
-        const norm = t.replace(/\s+/g, ' ').trim();
+      const push = (t: string, allowMultiline = false) => {
+        const norm = allowMultiline
+          ? t.split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim()).filter(Boolean).join('\n')
+          : t.replace(/\s+/g, ' ').trim();
         if (!norm || seen.has(norm)) return; // footer lặp 2 lần, li lồng p...
         seen.add(norm);
         lines.push(norm);
       };
 
-      // Tiêu đề bài và ngày đăng thường nằm ngoài <article>: giữ lại để AI điền metadata
-      const titleText = (doc.querySelector('h1')?.textContent || '').trim();
       if (titleText && !isNoise(titleText)) push(titleText);
-      const dateEl = doc.querySelector('time, .date, .post-date, .publish-date, .detail-time');
-      const dateText = (dateEl?.getAttribute('datetime') || dateEl?.textContent || '').trim();
-      if (dateText && dateText.length <= 80) push(`Ngày đăng: ${dateText}`);
+      if (siteOrg && siteOrg.length <= 120 && !isNoise(siteOrg)) push(`Cơ quan: ${siteOrg}`);
+      if (authorNames.length > 0) {
+        push(`Tác giả: ${Array.from(new Set(authorNames)).slice(0, 5).join(', ')}`);
+      }
+      if (dateText && dateText.length <= 100) push(`Ngày đăng: ${dateText}`);
 
-      const blocks = mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+      // Gom các gạch đầu dòng ngắn (12-119 ký tự) thành khối để Core API không loại bỏ khi < 40 ký tự
+      let pendingListLines: string[] = [];
+      const flushListBuffer = () => {
+        if (pendingListLines.length === 0) return;
+        push(pendingListLines.join('\n'), true);
+        pendingListLines = [];
+      };
+
+      const blocks = mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, table, dt, dd');
       if (blocks.length > 0) {
         blocks.forEach((b) => {
-          const t = (b.textContent || '').trim();
+          // Bỏ qua các thẻ lồng bên trong <table> để tránh lặp chữ
+          if (b.tagName !== 'TABLE' && b.closest('table')) return;
+
+          if (b.tagName === 'TABLE') {
+            flushListBuffer();
+            const rows = Array.from(b.querySelectorAll('tr'));
+            if (rows.length === 0) return;
+            const headers = Array.from(rows[0].querySelectorAll('th')).map((th) => extractTextWithSpacing(th));
+            const dataRows = headers.length > 0 ? rows.slice(1) : rows;
+            const formattedRows: string[] = [];
+
+            dataRows.forEach((tr) => {
+              const cells = Array.from(tr.querySelectorAll('th, td')).map((cell) => extractTextWithSpacing(cell));
+              if (cells.every((c) => !c)) return;
+              if (headers.length > 0 && cells.length === headers.length) {
+                const pairs = cells
+                  .map((val, idx) => (headers[idx] ? `${headers[idx]}: ${val || '-'}` : val))
+                  .filter(Boolean);
+                if (pairs.length > 0) formattedRows.push(pairs.join(' | '));
+              } else {
+                const nonEmpty = cells.filter(Boolean);
+                if (nonEmpty.length > 0) formattedRows.push(nonEmpty.join(' | '));
+              }
+            });
+
+            if (formattedRows.length > 0) {
+              let chunk = '';
+              formattedRows.forEach((rowStr) => {
+                const candidate = chunk ? `${chunk}\n${rowStr}` : rowStr;
+                if (candidate.length > 1200 && chunk) {
+                  push(chunk, true);
+                  chunk = rowStr;
+                } else {
+                  chunk = candidate;
+                }
+              });
+              if (chunk) push(chunk, true);
+            }
+            return;
+          }
+
+          const t = extractTextWithSpacing(b);
+          if (!t || isNoise(t)) return;
+
+          if (b.tagName === 'LI') {
+            if (b.closest('.related, .related-publications, .keywords, .tags, .toc, #toc')) return;
+            const onlyLink =
+              b.children.length === 1 &&
+              b.firstElementChild?.tagName === 'A' &&
+              t === extractTextWithSpacing(b.firstElementChild);
+            if (onlyLink && t.length < 60 && !/[.!?]/.test(t)) return;
+            if (t.length < 12) return;
+
+            if (t.length < 120) {
+              const bulletLine = `• ${t}`;
+              const projectedLen = pendingListLines.join('\n').length + bulletLine.length + 1;
+              if (projectedLen > 1000) flushListBuffer();
+              pendingListLines.push(bulletLine);
+            } else {
+              flushListBuffer();
+              push(t);
+            }
+            return;
+          }
+
+          flushListBuffer();
+
+          if (/^H[2-6]$/.test(b.tagName)) {
+            if (/^(authors?|keywords?|references?|tác giả|từ khóa|tài liệu tham khảo):?$/i.test(t)) {
+              return;
+            }
+            const formattedHeading = /[:.!?]$/.test(t) ? t : `${t}:`;
+            push(formattedHeading);
+            return;
+          }
+
+          if (b.tagName === 'DT') {
+            if (b.closest('p, li, blockquote')) return;
+            push(/[:.!?]$/.test(t) ? t : `${t}:`);
+            return;
+          }
+
+          if (b.tagName === 'DD') {
+            if (b.closest('p, li, blockquote')) return;
+            if (t.length >= 15) push(t);
+            return;
+          }
+
           if (keep(b, t)) push(t);
         });
+        flushListBuffer();
       } else {
         (mainEl.textContent || '').split(/\r?\n/).forEach((r) => {
-          const t = r.trim();
+          const t = r.replace(/\s+/g, ' ').trim();
           if (keep(null, t)) push(t);
         });
       }
@@ -681,6 +873,118 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         setIngestText(cleaned);
         toast.success('Đã tự động bóc tách thân bài báo và loại bỏ menu/quảng cáo rác!');
       }
+    }
+  };
+
+  const handleCrawlArticleFromUrl = async () => {
+    const targetUrl = (editUrl || ingestUrl).trim();
+    if (!targetUrl) {
+      toast.error('Vui lòng nhập đường dẫn URL bài viết ở mục 1 trước khi bấm Crawl!');
+      return;
+    }
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      toast.error('Đường dẫn bài viết phải bắt đầu bằng http:// hoặc https://');
+      return;
+    }
+
+    try {
+      setCrawlingUrl(true);
+      resetArticleState();
+
+      let html = '';
+      let lastError: unknown = null;
+
+      // Tầng 1: Gọi Core API /knowledge/fetch-url (có kiểm tra chống SSRF)
+      try {
+        const res = await apiClient.post<{ url: string; html: string }>(
+          '/knowledge/fetch-url',
+          { url: targetUrl },
+          { timeout: 15000 }
+        );
+        if (res.data?.html) {
+          html = res.data.html;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+
+      // Tầng 2: Fallback qua Vite Dev Middleware /__dev/fetch-url (khi Core API chưa khởi động lại)
+      if (!html) {
+        try {
+          const devRes = await fetch(`/__dev/fetch-url?url=${encodeURIComponent(targetUrl)}`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          const ct = devRes.headers.get('content-type') || '';
+          if (devRes.ok && ct.includes('application/json')) {
+            const devData = (await devRes.json()) as { html?: string };
+            if (devData?.html) {
+              html = devData.html;
+            }
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      // Tầng 3: Fallback qua CORS Proxy công khai (khi chạy build tĩnh qua Nginx)
+      if (!html) {
+        try {
+          const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          if (proxyRes.ok) {
+            const proxyData = (await proxyRes.json()) as { contents?: string };
+            if (proxyData?.contents && proxyData.contents.length > 100) {
+              html = proxyData.contents;
+            }
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!html) {
+        try {
+          const codetabsRes = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          if (codetabsRes.ok) {
+            const proxyText = await codetabsRes.text();
+            if (proxyText && proxyText.length > 100) {
+              html = proxyText;
+            }
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!html) {
+        toast.error(
+          lastError
+            ? `Không crawl được từ URL (${getErrorMessage(lastError)}). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.`
+            : 'Trang web không cho phép tải tự động. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.'
+        );
+        return;
+      }
+
+      let cleaned = cleanArticleTextFromHtml(html);
+      if (!cleaned || cleaned.length < 80) {
+        const fallbackDoc = new DOMParser().parseFromString(html, 'text/html');
+        cleaned = (fallbackDoc.body?.textContent || '').replace(/[ \t]+/g, ' ').trim();
+      }
+
+      if (!cleaned || cleaned.length < 40) {
+        toast.error('Không trích xuất được văn bản từ trang web này (trang có thể render bằng JS). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.');
+        return;
+      }
+
+      setIngestText(cleaned.slice(0, 50000));
+      toast.success('Đã crawl và làm sạch nội dung từ URL! Hãy kiểm tra và bấm nút Tách đoạn bên dưới.');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setCrawlingUrl(false);
     }
   };
 
@@ -2755,18 +3059,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             </div>
 
                             <div>
-                              <div className="flex justify-between items-center mb-1">
+                              <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1">
                                 <label className="font-semibold text-foreground">
                                   2. Dán toàn văn bài báo *
                                 </label>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={handleCrawlArticleFromUrl}
+                                    disabled={crawlingUrl || !(editUrl || ingestUrl).trim()}
+                                    className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    title="Tải nhanh nội dung từ URL ở mục 1 (nếu trang chặn bot thì copy tay)"
+                                  >
+                                    {crawlingUrl ? (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                        <span>Đang crawl...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Globe className="w-3 h-3" />
+                                        <span>Crawl nội dung từ URL</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                                  </span>
+                                </div>
                               </div>
                               <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
                                 <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
                                 <span>
-                                  <strong>Mẹo copy bài gốc:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang bài gốc rồi dán vào ô dưới. Hệ thống sẽ tự lọc bỏ menu, quảng cáo rác!
+                                  <strong>Mẹo copy bài gốc:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang bài gốc rồi dán vào ô dưới, hoặc bấm <strong>Crawl nội dung từ URL</strong>. Hệ thống sẽ tự lọc bỏ menu, quảng cáo rác!
                                 </span>
                               </div>
                               <Textarea
@@ -3718,18 +4043,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                       </div>
 
                       <div>
-                        <div className="flex justify-between items-center mb-1">
+                        <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1">
                           <label className="font-semibold text-foreground">
                             2. Dán toàn văn bài báo *
                           </label>
-                          <span className="text-[10px] text-muted-foreground">
-                            {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCrawlArticleFromUrl}
+                              disabled={crawlingUrl || !(editUrl || ingestUrl).trim()}
+                              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              title="Tải nhanh nội dung từ URL ở mục 1 (nếu trang chặn bot thì copy tay)"
+                            >
+                              {crawlingUrl ? (
+                                <>
+                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                  <span>Đang crawl...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Globe className="w-3 h-3" />
+                                  <span>Crawl nội dung từ URL</span>
+                                </>
+                              )}
+                            </button>
+                            <span className="text-[10px] text-muted-foreground">
+                              {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                            </span>
+                          </div>
                         </div>
                         <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
                           <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
                           <span>
-                            <strong>Mẹo dán cả trang:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang báo rồi dán vào ô dưới. Hệ thống sẽ tự lọc bỏ menu, quảng cáo và hotline rác!
+                            <strong>Mẹo dán cả trang:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang báo rồi dán vào ô dưới, hoặc bấm <strong>Crawl nội dung từ URL</strong>. Hệ thống sẽ tự lọc bỏ menu, quảng cáo và hotline rác!
                           </span>
                         </div>
                         <Textarea
@@ -4677,40 +5023,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   />
                                 </td>
                                 <td className="p-3 max-w-[280px]">
-                                  <div className="flex items-start gap-2">
+                                  <div className="min-w-0">
                                     <button
                                       type="button"
-                                      onClick={() => toggleExpandArticle(group.key)}
-                                      className="text-muted-foreground hover:text-emerald-700 mt-0.5 p-0.5 rounded hover:bg-muted transition-colors shrink-0 cursor-pointer"
-                                      title={isExpanded ? 'Thu gọn' : 'Bấm xem chi tiết các đoạn'}
+                                      onClick={() => navigate(`/admin/ingest?edit=${encodeURIComponent(group.sourceUrl)}`)}
+                                      className="font-bold text-foreground text-left line-clamp-1 hover:text-emerald-700 hover:underline block cursor-pointer"
+                                      title="Mở chi tiết bài viết"
                                     >
-                                      {isExpanded ? (
-                                        <ChevronDown className="w-4 h-4 text-emerald-700" />
-                                      ) : (
-                                        <ChevronRight className="w-4 h-4" />
-                                      )}
+                                      {group.sourceTitle}
                                     </button>
-                                    <div className="min-w-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleExpandArticle(group.key)}
-                                        className="font-bold text-foreground text-left line-clamp-1 hover:text-emerald-700 hover:underline block cursor-pointer"
-                                      >
-                                        {group.sourceTitle}
-                                      </button>
-                                      <div className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
-                                        {group.organization}
-                                      </div>
-                                      <a
-                                        href={group.sourceUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-[10px] text-emerald-700 hover:underline inline-flex items-center gap-0.5 mt-0.5"
-                                      >
-                                        <span>Xem bài gốc</span>
-                                        <ExternalLink className="w-2.5 h-2.5" />
-                                      </a>
+                                    <div className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
+                                      {group.organization}
                                     </div>
+                                    <a
+                                      href={group.sourceUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] text-emerald-700 hover:underline inline-flex items-center gap-0.5 mt-0.5"
+                                    >
+                                      <span>Xem bài gốc</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
                                   </div>
                                 </td>
                                 <td className="p-3 whitespace-nowrap">

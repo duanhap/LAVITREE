@@ -76,7 +76,7 @@ DISEASE_NAME_MAP = {
 
 VALID_UNIT_TYPES = {"SYMPTOMS", "CAUSE_CONDITIONS", "PREVENTION", "TREATMENT"}
 VALID_MENTION_KINDS = {"CHEMICAL", "BIOLOGICAL", "SUPPLY", "PRACTICE"}
-MAX_SUGGESTIONS = 8
+MAX_SUGGESTIONS = 20
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 GEMINI_TIMEOUT_MS = 30_000
 LABEL_MAX_ATTEMPTS = 3
@@ -94,7 +94,7 @@ def _is_transient_gemini_error(exc: Exception) -> bool:
 
 
 def _filter_suggestions(raw_labels: Any, paragraphs_map: Dict[str, str]) -> List[SuggestedParagraph]:
-    """Code guardrail: chỉ giữ id có trong request, nhãn hợp lệ, mỗi id một lần, tối đa 8 đoạn.
+    """Code guardrail: chỉ giữ id có trong request, nhãn hợp lệ, mỗi id một lần, tối đa MAX_SUGGESTIONS đoạn.
     Chống bịa (Anti-hallucination): chỉ giữ cụm từ (mentions) xuất hiện NGUYÊN VĂN trong văn bản của đoạn."""
     safe: List[SuggestedParagraph] = []
     seen = set()

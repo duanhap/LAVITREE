@@ -500,3 +500,18 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
   - Bổ sung khối Thẻ vật tư / Hoạt chất (`para.mentions`) tương tác đầy đủ dưới mỗi đoạn: dịch nghĩa tiếng Việt, hover highlight, đổi loại thẻ, xóa thẻ, thêm cụm từ mới.
   - Thêm badge `AI đã gợi ý nhãn` / `Tự gán nhãn` và badge `Ký tự: ... / ... (%)` vào CardHeader của danh sách đoạn mới ở Tab 2.
   - Tích hợp accordion `⌄ Đoạn AI không chọn: X đoạn (vẫn tick để lưu được)` cho phép xem và phục hồi đoạn trích ngoài gợi ý của AI.
+
+### 13.8. Sửa lỗi lọc nhầm nội dung tiếng Anh, bảo toàn Bảng/Danh sách & Bổ sung nút Crawl nội dung từ URL (14/11/2026)
+- [x] **Khắc phục lỗi mất đoạn văn tiếng Anh bắt đầu bằng `"In ..."`**: Sửa regex nhận diện nút mạng xã hội (`linkedin`/`in`) trong `frontend/web/src/pages/AdminDashboard.tsx` (`cleanArticleTextFromHtml`) bằng cách giới hạn khớp nguyên từ ngắn (`<= 35` ký tự), chấm dứt tình trạng xóa nhầm các đoạn chuyên môn như `Disease Cycle` hay `Management` khi dán bài báo tiếng Anh (ví dụ NC State Extension).
+- [x] **Bảo toàn cấu trúc Bảng, Danh sách, Tiêu đề mục & Metadata đầu bài**:
+  - Chuyển thẻ `<table>` thành các dòng văn bản dễ đọc (`Header: Value | ...`) gom nhóm hợp lý (`<= 1200` ký tự/khối); gom các mục `<li>` ngắn (`12–119` ký tự) thành khối gạch đầu dòng `•` để không bị bộ tách đoạn (`< 40` ký tự) của Core API loại bỏ.
+  - Tự động bổ sung dấu `:` sau thẻ `H2..H6` (trừ `Authors`/`Keywords`/`References`) và mở rộng `KnowledgeController.IsSectionHeading` (`CommonHeadingWordsRegex`) trong `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs` để gắn đúng tiêu đề mục vào đoạn trích tương ứng.
+  - Bóc tách sẵn metadata (`h1`, `og:site_name`, `.author`/`.authors`, `time`/ngày đăng/cập nhật) trước khi loại `<header>`/`<footer>`, bổ sung khoảng trắng quanh block tag để tránh dính chuỗi ngày tháng, và cho phép giữ tối đa 6 dòng metadata ngắn ở đầu bài trong `IngestArticle`.
+- [x] **Bổ sung nút `"Crawl nội dung từ URL"` an toàn (SSRF Guardrails + Cơ chế 3 tầng)**:
+  - UI đặt nút gọn ở góc trên phải khung nhập văn bản bài báo tại cả form **Nhập bài báo mới** (`/admin/ingest`) và **Tab 2 Nạp thêm dữ liệu bài báo**, sử dụng chung bộ chuẩn hóa `cleanArticleTextFromHtml` với luồng dán tay.
+  - **Tầng 1 (Core API)**: Thêm `POST /api/v1/knowledge/fetch-url` (`FetchUrlRequestDto` / `FetchUrlResponseDto` trong `backend/core-api/src/Lavitree.Application/DTOs/KnowledgeIngestionDtos.cs` và `KnowledgeController.FetchArticleUrl`), dùng `SocketsHttpHandler.ConnectCallback` chặn IP private/loopback/link-local/metadata (`169.254.169.254`), kiểm tra redirect thủ công (tối đa 3 hops), giới hạn 2MB và timeout 15 giây.
+  - **Tầng 2 (Vite Dev Middleware)**: Thêm middleware `GET /__dev/fetch-url` trong `frontend/web/vite.config.ts` có kiểm tra DNS/IP chống SSRF để môi trường dev hoạt động ngay cả khi container `core-api` chưa rebuild/restart.
+  - **Tầng 3 (Fallback CORS Proxy & Thông báo Copy tay)**: Tự động thử CORS proxy dự phòng nếu tầng 1/2 chưa khả dụng; trường hợp trang đích bật chống bot (Cloudflare/403), hiển thị thông báo rõ ràng để Admin dùng thao tác copy-paste tay (`Ctrl+A, Ctrl+C`).
+- [x] **Nâng ngưỡng phân tích đoạn dài & số lượng gợi ý AI**:
+  - Nâng giới hạn độ dài đoạn gửi sang Agent Service trong `KnowledgeController.RequestAgentLabelingAsync` từ `<= 800` lên `<= 2000` ký tự để các đoạn chi tiết như `Symptoms and Signs` không bị bỏ qua khi gán nhãn và bóc tách mention.
+  - Nâng `MAX_SUGGESTIONS` trong `backend/agent-service/app/rag/pipeline.py` từ `8` lên `20`.

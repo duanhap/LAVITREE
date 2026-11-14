@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -829,6 +831,183 @@ public class KnowledgeController : ControllerBase
         return Ok(new { source_id = source.Id, is_manual_approved = false, reindex_status = reindexStatus });
     }
 
+    // 4.2d. POST /api/v1/knowledge/fetch-url (Tải HTML bài báo từ URL an toàn chống SSRF cho Admin)
+    [HttpPost("fetch-url")]
+    public async Task<IActionResult> FetchArticleUrl([FromBody] FetchUrlRequestDto dto, CancellationToken cancellationToken)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var (currentUri, validationError) = await ValidateSafePublicUrlAsync(dto.Url, cancellationToken);
+        if (currentUri == null)
+        {
+            return BadRequest(new { detail = validationError ?? "URL không hợp lệ." });
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        using var handler = new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseProxy = false,
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+            AutomaticDecompression = DecompressionMethods.All,
+            ConnectCallback = async (context, token) =>
+            {
+                var hostIps = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token);
+                var safeIps = hostIps.Where(ip => !IsPrivateOrReservedIp(ip)).ToArray();
+                if (safeIps.Length == 0 || safeIps.Length != hostIps.Length)
+                {
+                    throw new HttpRequestException("Địa chỉ IP đích nằm trong dải mạng nội bộ bị chặn (SSRF protection).");
+                }
+
+                Exception? lastEx = null;
+                foreach (var ip in safeIps)
+                {
+                    var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+                    {
+                        NoDelay = true
+                    };
+                    try
+                    {
+                        await socket.ConnectAsync(ip, context.DnsEndPoint.Port, token);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        socket.Dispose();
+                        lastEx = ex;
+                    }
+                }
+                throw lastEx ?? new HttpRequestException("Không thể kết nối tới máy chủ bài báo.");
+            }
+        };
+
+        using var httpClient = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+
+        try
+        {
+            HttpResponseMessage? response = null;
+            const int maxRedirects = 3;
+
+            for (int hop = 0; hop <= maxRedirects; hop++)
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, currentUri);
+                req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
+                req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                req.Headers.TryAddWithoutValidation("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
+
+                response?.Dispose();
+                response = await httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+
+                var statusCode = (int)response.StatusCode;
+                if (statusCode is 301 or 302 or 303 or 307 or 308 && response.Headers.Location != null)
+                {
+                    if (hop == maxRedirects)
+                    {
+                        response.Dispose();
+                        return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                        {
+                            detail = "Trang web chuyển hướng quá nhiều lần. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                        });
+                    }
+
+                    var nextUri = response.Headers.Location.IsAbsoluteUri
+                        ? response.Headers.Location
+                        : new Uri(currentUri, response.Headers.Location);
+
+                    var (validatedNext, redirectErr) = await ValidateSafePublicUrlAsync(nextUri.ToString(), cts.Token);
+                    if (validatedNext == null)
+                    {
+                        response.Dispose();
+                        return BadRequest(new { detail = redirectErr ?? "Chuyển hướng sang URL không an toàn (SSRF protection)." });
+                    }
+
+                    currentUri = validatedNext;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (response == null)
+            {
+                return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                {
+                    detail = "Trang web không phản hồi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                });
+            }
+
+            using (response)
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                    {
+                        detail = $"Trang web không cho phép tải tự động hoặc phản hồi lỗi (HTTP {(int)response.StatusCode}). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                    });
+                }
+
+                var mediaType = response.Content.Headers.ContentType?.MediaType;
+                if (!string.IsNullOrWhiteSpace(mediaType) &&
+                    !mediaType.Contains("html", StringComparison.OrdinalIgnoreCase) &&
+                    !mediaType.Contains("xml", StringComparison.OrdinalIgnoreCase) &&
+                    !mediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                    {
+                        detail = $"URL trả về định dạng '{mediaType}' không phải trang web HTML. Vui lòng copy nội dung thủ công."
+                    });
+                }
+
+                var html = await ReadLimitedHtmlAsync(response.Content, maxBytes: 2 * 1024 * 1024, cts.Token);
+                if (string.IsNullOrWhiteSpace(html))
+                {
+                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                    {
+                        detail = "Trang web trả về nội dung trống (có thể trang dùng JavaScript render). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                    });
+                }
+
+                return Ok(new FetchUrlResponseDto
+                {
+                    Url = currentUri.ToString(),
+                    Html = html
+                });
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch article URL safely: {Url}", currentUri);
+            if (ex.Message.Contains("SSRF", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { detail = ex.Message });
+            }
+            return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+            {
+                detail = "Trang web không cho phép tải tự động hoặc phản hồi lỗi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+            {
+                detail = "Hết thời gian chờ tải trang web (15s). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+            });
+        }
+    }
+
     // 4.3. POST /api/v1/knowledge/ingestions (Nhập bài báo - Bước 1: Dán văn bản, AI gợi ý đoạn)
     [HttpPost("ingestions")]
     public async Task<IActionResult> IngestArticle([FromBody] IngestArticleRequestDto dto)
@@ -859,7 +1038,7 @@ public class KnowledgeController : ControllerBase
         var validParagraphs = new List<ParagraphDto>();
         int pIndex = 1;
 
-        // Tiêu đề mục ngắn ("Biện pháp hóa học:", "4. Biện pháp quản lý") được ghép vào đoạn ngay sau
+        // Tiêu đề mục ngắn ("Biện pháp hóa học:", "4. Biện pháp quản lý", "Disease Cycle") được ghép vào đoạn ngay sau
         // để không mất ngữ cảnh; dòng ngắn khác (menu, tiêu đề trang) vẫn bị bỏ như trước
         string? pendingHeading = null;
         foreach (var raw in rawParagraphs)
@@ -873,16 +1052,18 @@ public class KnowledgeController : ControllerBase
                 {
                     pendingHeading = cleaned;
                 }
-                else if (validParagraphs.Count < 3 && cleaned.Length >= 10)
+                else if (validParagraphs.Count < 6 && cleaned.Length >= 10)
                 {
-                    // Phần đầu bài (tiêu đề, tác giả, ngày đăng): giữ để AI điền metadata, Admin không cần chọn
+                    // Phần đầu bài (tiêu đề, cơ quan, tác giả, ngày đăng): giữ để AI điền metadata, Admin không cần chọn
                     validParagraphs.Add(new ParagraphDto { Id = $"P{pIndex++}", Text = cleaned, SuggestedUnitType = null });
                 }
                 continue;
             }
             if (pendingHeading != null)
             {
-                cleaned = $"{pendingHeading} {cleaned}";
+                cleaned = pendingHeading.EndsWith(':') || pendingHeading.EndsWith('.') || pendingHeading.EndsWith('!') || pendingHeading.EndsWith('?')
+                    ? $"{pendingHeading} {cleaned}"
+                    : $"{pendingHeading}: {cleaned}";
                 pendingHeading = null;
             }
 
@@ -1521,8 +1702,8 @@ public class KnowledgeController : ControllerBase
 
         try
         {
-            // CHỈ GỬI các đoạn có Text.Length <= 800 ký tự (các đoạn dài hơn không được chọn theo quy định và sẽ làm Agent 422)
-            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 800).ToList();
+            // Gửi các đoạn <= 2000 ký tự (khớp schema Agent) để các đoạn dài 801-1500 ký tự hoặc cần tách vẫn được AI gán nhãn và trích xuất mentions
+            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 2000).ToList();
             if (eligibleParagraphs.Count == 0)
             {
                 return (labelMap, metadata);
@@ -1644,12 +1825,147 @@ public class KnowledgeController : ControllerBase
         @"hotline|zalo|liên hệ|tư vấn miễn phí|đặt hàng|mua hàng|gọi ngay|inbox|fanpage|bạn đang đọc bài viết|đăng ký nhận bản tin|chia sẻ facebook",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex SectionHeadingRegex = new(@"(:\s*$)|(^(\d+|[IVX]+|[a-zđ])[.)]\s+\S)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex CommonHeadingWordsRegex = new(
+        @"^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|chu\s+trình\s+bệnh|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+quản\s+lý|phòng\s+ngừa|điều\s+trị|hoạt\s+chất\s+khuyến\s+cáo)$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static bool IsContactOrAdNoise(string text) =>
         text.Length <= 300 && ContactKeywordRegex.IsMatch(text) &&
         (PhoneRegex.IsMatch(text) || text.Length <= 120);
 
-    private static bool IsSectionHeading(string text) => text.Length >= 3 && SectionHeadingRegex.IsMatch(text);
+    private static bool IsSectionHeading(string text) =>
+        text.Length >= 3 && (SectionHeadingRegex.IsMatch(text) || CommonHeadingWordsRegex.IsMatch(text.Trim()));
+
+    private static bool IsPrivateOrReservedIp(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6)
+        {
+            ip = ip.MapToIPv4();
+        }
+
+        if (IPAddress.IsLoopback(ip))
+        {
+            return true;
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            if (b[0] == 0) return true;                                  // 0.0.0.0/8
+            if (b[0] == 10) return true;                                 // 10.0.0.0/8
+            if (b[0] == 127) return true;                                // 127.0.0.0/8
+            if (b[0] == 169 && b[1] == 254) return true;                 // 169.254.0.0/16 (Link-local & Cloud Metadata)
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;    // 172.16.0.0/12
+            if (b[0] == 192 && b[1] == 168) return true;                 // 192.168.0.0/16
+            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;   // 100.64.0.0/10 (CGNAT)
+            if (b[0] == 192 && b[1] == 0 && b[2] == 0) return true;      // 192.0.0.0/24
+            if (b[0] == 192 && b[1] == 0 && b[2] == 2) return true;      // 192.0.2.0/24
+            if (b[0] == 198 && (b[1] == 18 || b[1] == 19)) return true;  // 198.18.0.0/15
+            if (b[0] == 198 && b[1] == 51 && b[2] == 100) return true;   // 198.51.100.0/24
+            if (b[0] == 203 && b[1] == 0 && b[2] == 113) return true;    // 203.0.113.0/24
+            if (b[0] >= 224) return true;                                // 224.0.0.0/4 Multicast & 240.0.0.0/4 Reserved
+            return false;
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.Equals(IPAddress.IPv6Any) || ip.Equals(IPAddress.IPv6None)) return true;
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6Multicast || ip.IsIPv6SiteLocal || ip.IsIPv6Teredo) return true;
+            var b = ip.GetAddressBytes();
+            if ((b[0] & 0xFE) == 0xFC) return true;                      // fc00::/7 Unique Local
+            if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) return true;      // fe80::/10 Link Local
+            return false;
+        }
+
+        return true;
+    }
+
+    private static async Task<(Uri? Uri, string? Error)> ValidateSafePublicUrlAsync(string rawUrl, CancellationToken ct)
+    {
+        if (!Uri.TryCreate(rawUrl.Trim(), UriKind.Absolute, out var uri))
+        {
+            return (null, "Đường dẫn URL không hợp lệ.");
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, "Chỉ hỗ trợ giao thức http:// hoặc https://.");
+        }
+
+        var host = uri.DnsSafeHost.Trim().TrimEnd('.').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(host) ||
+            host == "localhost" ||
+            host == "127.0.0.1" ||
+            host == "0.0.0.0" ||
+            host == "::1" ||
+            host.EndsWith(".local", StringComparison.Ordinal) ||
+            host.EndsWith(".internal", StringComparison.Ordinal) ||
+            host.EndsWith(".localhost", StringComparison.Ordinal))
+        {
+            return (null, "URL không được phép trỏ tới địa chỉ nội bộ (SSRF protection).");
+        }
+
+        if (IPAddress.TryParse(host, out var literalIp))
+        {
+            if (IsPrivateOrReservedIp(literalIp))
+            {
+                return (null, "URL không được phép trỏ tới IP mạng nội bộ hoặc riêng tư (SSRF protection).");
+            }
+            return (uri, null);
+        }
+
+        IPAddress[] addresses;
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(host, ct);
+        }
+        catch (Exception)
+        {
+            return (null, "Không thể phân giải tên miền của URL này.");
+        }
+
+        if (addresses.Length == 0 || addresses.Any(IsPrivateOrReservedIp))
+        {
+            return (null, "Tên miền trỏ tới địa chỉ IP nội bộ hoặc không hợp lệ (SSRF protection).");
+        }
+
+        return (uri, null);
+    }
+
+    private static async Task<string> ReadLimitedHtmlAsync(HttpContent content, int maxBytes, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        using var ms = new MemoryStream();
+        var buffer = new byte[16384];
+        var totalRead = 0;
+
+        while (totalRead < maxBytes)
+        {
+            var toRead = Math.Min(buffer.Length, maxBytes - totalRead);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+            if (read == 0) break;
+            ms.Write(buffer, 0, read);
+            totalRead += read;
+        }
+
+        var bytes = ms.ToArray();
+        var encoding = Encoding.UTF8;
+        var charset = content.Headers.ContentType?.CharSet?.Trim('"', '\'', ' ');
+        if (!string.IsNullOrWhiteSpace(charset))
+        {
+            try
+            {
+                encoding = Encoding.GetEncoding(charset);
+            }
+            catch
+            {
+                encoding = Encoding.UTF8;
+            }
+        }
+
+        return encoding.GetString(bytes);
+    }
     private static readonly HashSet<string> ValidMentionKinds = new(StringComparer.Ordinal)
     {
         "CHEMICAL", "BIOLOGICAL", "SUPPLY", "PRACTICE"

@@ -393,3 +393,20 @@ public class AgentReindexRequest
     [JsonPropertyName("action")]
     public string Action { get; set; } = "approve"; // approve | unapprove | delete | manual
 }
+
+public class FetchUrlRequestDto
+{
+    [Required(ErrorMessage = "Vui lòng nhập đường dẫn URL bài viết.")]
+    [Url(ErrorMessage = "Đường dẫn bài viết phải là URL hợp lệ (http:// hoặc https://).")]
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+}
+
+public class FetchUrlResponseDto
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("html")]
+    public string Html { get; set; } = string.Empty;
+}
