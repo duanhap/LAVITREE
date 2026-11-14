@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🚀 Chạy Frontend Web (Test Local + Data Production)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend/web",
+        "env": {
+          "CORE_API_URL": "https://lavitree.io.vn"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Local:.*http://localhost:3000"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "clear": true,
+        "focus": false
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "🌐 Mở trang Admin Ingest (http://localhost:3000/admin/ingest)",
+      "type": "shell",
+      "command": "Start-Process 'http://localhost:3000/admin/ingest'",
+      "problemMatcher": []
+    },
+    {
+      "label": "💻 Chạy Backend Core API (Local port 5176)",
+      "type": "shell",
+      "command": "dotnet run",
+      "options": {
+        "cwd": "${workspaceFolder}/backend/core-api/src/Lavitree.Api"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "clear": true
+      }
+    }
+  ]
+}
