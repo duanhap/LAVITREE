@@ -339,6 +339,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [activeAiPopoverField, setActiveAiPopoverField] = useState<string | null>(null);
   const [isMetaCardCollapsed, setIsMetaCardCollapsed] = useState<boolean>(false);
   const [showMetaEditPanel, setShowMetaEditPanel] = useState<boolean>(false);
+  const [articleTopics, setArticleTopics] = useState<string[]>([]);
+  const [selectedTopicToAdd, setSelectedTopicToAdd] = useState<string>('');
 
   // Highlight cụm từ trích xuất (mention tag)
   const [highlightedMention, setHighlightedMention] = useState<{ paraId: string; text: string } | null>(null);
@@ -484,10 +486,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const handlePlantChange = (plant: string) => {
     setSelectedPlant(plant);
     setClassFromAi(false);
-    // Đổi cây thì bỏ bệnh không thuộc cây đó; không tự đoán bệnh đầu danh sách
+    const plantDiseases = diseases.filter((d) => d.plantName === plant);
+    setArticleTopics((prev) => {
+      const remaining = prev.filter((code) => plantDiseases.some((d) => d.classCode === code));
+      if (remaining.length > 0) return remaining;
+      return plantDiseases.length > 0 ? [plantDiseases[0].classCode] : [];
+    });
+    setSelectedTopicToAdd('');
     const current = diseases.find((d) => d.classCode === ingestClass);
     if (!current || current.plantName !== plant) {
-      setIngestClass('');
+      setIngestClass(plantDiseases.length > 0 ? plantDiseases[0].classCode : '');
     }
   };
 
@@ -723,6 +731,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           date: rawDate,
         });
 
+        const distinctClasses = Array.from(new Set(rows.map((r) => r.modelClass).filter(Boolean)));
+        setArticleTopics(distinctClasses.length > 0 ? distinctClasses : [first.modelClass]);
+
         if (!keepForm) {
           setIngestUrl(res.data.source_url || url);
           setIngestClass(first.modelClass);
@@ -791,8 +802,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
   const saveEditedArticleMeta = async (silent = false): Promise<boolean> => {
     if (!editUrl) return true;
-    if (!ingestClass) {
-      toast.error('Chọn Loài cây và Bệnh hại trước khi lưu.');
+    if (articleTopics.length === 0 && !ingestClass) {
+      toast.error('Chọn ít nhất một Chuyên mục / Bệnh hại cho bài viết trước khi lưu.');
       return false;
     }
     try {
@@ -801,7 +812,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const combinedDate = buildCombinedDate(ingestPublishedDate, ingestUpdatedDate);
       const res = await apiClient.patch('/knowledge/sources/by-url', {
         source_url: editUrl,
-        model_class: ingestClass,
+        // Nếu bài viết có nhiều chuyên đề, không truyền model_class để giữ nguyên mã lớp riêng biệt của từng đoạn
+        model_class: articleTopics.length === 1 ? articleTopics[0] : undefined,
         source_title: ingestTitle.trim(),
         organization: combinedOrg,
         published_date: combinedDate,
@@ -848,12 +860,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
-  const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string }) => {
+  const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string; model_class?: string }) => {
     try {
       setEditSaving(true);
       const res = await apiClient.patch(`/knowledge/sources/${row.id}`, body);
       if (res.data.reindex_status !== 'skipped') {
-        toast.success('Đã lưu đoạn. Đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.');
+        toast.success('Đã lưu thay đổi cho đoạn trích.');
       }
       if (editUrl) await loadArticleForEdit(editUrl, true);
       setShowMetaEditPanel(false);
@@ -898,10 +910,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setIsMetaCardCollapsed(false);
 
       // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập).
+      const meta = res.data.suggested_metadata;
+      const aiSuggestedClass = meta?.model_class;
+      if (aiSuggestedClass) {
+        setArticleTopics((prev) => (prev.includes(aiSuggestedClass) ? prev : [...prev, aiSuggestedClass]));
+      }
+
       // Đang sửa bài đã lưu thì giữ thông tin bài hiện có, hiển thị diff cho Admin duyệt.
       if (editUrl) {
         setDismissMetaDiff(false);
-      } else if (!res.data.suggested_metadata) {
+      } else if (!meta) {
         setIngestTitle('');
         setIngestOrg('');
         setIngestAuthor('');
@@ -909,7 +927,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         setIngestUpdatedDate('');
         setIngestDate('');
       } else {
-        const meta = res.data.suggested_metadata;
         setIngestTitle(meta.source_title || '');
         if (meta.organization) {
           const authorMatch = meta.organization.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
@@ -948,12 +965,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }
 
       // Khởi tạo state chọn đoạn: MẶC ĐỊNH KHÔNG TICK ĐOẠN NÀO ĐỂ ADMIN ĐỌC VÀ CHỦ ĐỘNG DUYỆT (Mục 10)
-      const initialMap: Record<string, { selected: boolean; unitType: string }> = {};
+      const defaultClassForNewParas = aiSuggestedClass || (articleTopics[0] || ingestClass);
+      const initialMap: Record<string, { selected: boolean; unitType: string; diseaseClass?: string }> = {};
 
       res.data.paragraphs.forEach((p) => {
         initialMap[p.id] = {
           selected: false,
           unitType: p.suggested_unit_type || 'SYMPTOMS',
+          diseaseClass: defaultClassForNewParas,
         };
       });
 
@@ -1367,6 +1386,91 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       </>
     );
   };
+
+  // Quản lý danh sách các chuyên mục / bệnh hại trong bài viết (thay thế dropdown đơn)
+  const renderArticleTopicsSelector = () => (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="font-semibold text-foreground text-xs">
+          Các chuyên mục / bệnh hại trong bài viết *
+        </label>
+        <span className="text-[11px] text-muted-foreground font-normal">
+          {articleTopics.length} chuyên đề
+        </span>
+      </div>
+
+      {/* Danh sách các tags/chips chuyên đề của bài */}
+      <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-muted/40 border border-border min-h-[36px]">
+        {articleTopics.length === 0 ? (
+          <span className="text-xs text-muted-foreground italic">Chưa có chuyên mục nào. Hãy chọn bên dưới để thêm vào bài.</span>
+        ) : (
+          articleTopics.map((topicCode) => {
+            const found = diseases.find((d) => d.classCode === topicCode);
+            const isHealthy = isHealthyTopic(found?.commonNameVi || '', topicCode);
+            const label = isHealthy ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)' : (found?.commonNameVi || topicCode);
+            return (
+              <span
+                key={topicCode}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border shadow-2xs ${
+                  isHealthy
+                    ? 'bg-sky-50 text-sky-900 border-sky-300'
+                    : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                }`}
+              >
+                <span>{label}</span>
+                {articleTopics.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setArticleTopics((prev) => prev.filter((t) => t !== topicCode))}
+                    className="opacity-60 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                    title="Bỏ chuyên đề này khỏi bài viết"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </span>
+            );
+          })
+        )}
+      </div>
+
+      {/* Thanh chọn nhanh bệnh có sẵn của loài cây để thêm vào bài */}
+      <div className="flex items-center gap-1.5">
+        <select
+          value={selectedTopicToAdd}
+          onChange={(e) => setSelectedTopicToAdd(e.target.value)}
+          className="flex-1 px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+        >
+          <option value="">-- Chọn chuyên mục / bệnh hại có sẵn để thêm --</option>
+          {filteredDiseasesByPlant
+            .filter((d) => !articleTopics.includes(d.classCode))
+            .map((d) => (
+              <option key={d.classCode} value={d.classCode}>
+                {isHealthyTopic(d.commonNameVi, d.classCode)
+                  ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
+                  : d.commonNameVi}
+              </option>
+            ))}
+        </select>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!selectedTopicToAdd}
+          onClick={() => {
+            if (selectedTopicToAdd && !articleTopics.includes(selectedTopicToAdd)) {
+              setArticleTopics((prev) => [...prev, selectedTopicToAdd]);
+              setSelectedTopicToAdd('');
+            }
+          }}
+          className="h-8 text-xs font-semibold gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Thêm vào bài</span>
+        </Button>
+      </div>
+    </div>
+  );
 
   // ==================== TAB 2 LOGIC ====================
   const fetchSources = async () => {
@@ -2326,24 +2430,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               ))}
                             </select>
                           </div>
-                          <div>
-                            <label className="font-semibold text-foreground block mb-1">
-                              Chuyên mục / Bệnh hại mục tiêu *
-                            </label>
-                            <select
-                              value={ingestClass}
-                              onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                              className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                            >
-                              <option value="">-- Chọn chuyên mục / bệnh hại --</option>
-                              {filteredDiseasesByPlant.map((d) => (
-                                <option key={d.classCode} value={d.classCode}>
-                                  {isHealthyTopic(d.commonNameVi, d.classCode)
-                                    ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
-                                    : d.commonNameVi}
-                                </option>
-                              ))}
-                            </select>
+                          <div className="sm:col-span-2">
+                            {renderArticleTopicsSelector()}
                           </div>
                         </div>
 
@@ -2534,17 +2622,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
                                   {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
                                 </Badge>
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
+                                <select
+                                  value={row.modelClass}
+                                  onChange={(e) => updateSavedUnit(row, { model_class: e.target.value })}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border bg-background cursor-pointer ${
                                     isHealthyTopic(row.diseaseName, row.modelClass)
-                                      ? 'bg-sky-50 text-sky-800 border-sky-300'
-                                      : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                      ? 'text-sky-900 border-sky-300 bg-sky-50/50'
+                                      : 'text-emerald-900 border-emerald-300 bg-emerald-50/50'
                                   }`}
+                                  title="Bấm để đổi chuyên đề / bệnh hại cho đoạn trích này"
                                 >
-                                  {isHealthyTopic(row.diseaseName, row.modelClass)
-                                    ? '🌱 Chăm sóc cây khỏe mạnh'
-                                    : row.diseaseName || row.plantName}
-                                </span>
+                                  {filteredDiseasesByPlant.map((d) => (
+                                    <option key={d.classCode} value={d.classCode}>
+                                      {isHealthyTopic(d.commonNameVi, d.classCode)
+                                        ? '🌱 Chăm sóc cây khỏe mạnh'
+                                        : d.commonNameVi}
+                                    </option>
+                                  ))}
+                                </select>
                                 <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border border-border">
                                   {row.unitType || 'SYMPTOMS'}
                                 </span>
@@ -2825,9 +2920,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                       </span>
                                       <span>•</span>
                                       <span>
-                                        <strong className="text-foreground">Bệnh:</strong>{' '}
+                                        <strong className="text-foreground">Chuyên đề:</strong>{' '}
                                         <span className="text-emerald-800 font-semibold">
-                                          {filteredDiseasesByPlant.find(d => d.classCode === ingestClass)?.commonNameVi || ingestClass || 'Chưa chọn'}
+                                          {articleTopics.map(code => {
+                                            const f = diseases.find(d => d.classCode === code);
+                                            return isHealthyTopic(f?.commonNameVi || '', code) ? 'Cây khỏe' : (f?.commonNameVi || code);
+                                          }).join(', ') || 'Chưa chọn'}
                                         </span>
                                       </span>
                                       <span>•</span>
@@ -2867,24 +2965,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           ))}
                                         </select>
                                       </div>
-                                      <div>
-                                        <label className="font-semibold text-foreground block mb-1">
-                                          Chuyên mục / Bệnh hại mục tiêu *
-                                        </label>
-                                        <select
-                                          value={ingestClass}
-                                          onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                                        >
-                                          <option value="">-- Chọn chuyên mục / bệnh hại --</option>
-                                          {filteredDiseasesByPlant.map((d) => (
-                                            <option key={d.classCode} value={d.classCode}>
-                                              {isHealthyTopic(d.commonNameVi, d.classCode)
-                                                ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
-                                                : d.commonNameVi}
-                                            </option>
-                                          ))}
-                                        </select>
+                                      <div className="sm:col-span-2">
+                                        {renderArticleTopicsSelector()}
                                       </div>
                                     </div>
 
@@ -3219,12 +3301,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     <div>
                                       <CardTitle className="text-xs font-bold flex items-center gap-2">
                                         <span>Đoạn trích mới ({newParagraphs.length} đoạn chưa lưu)</span>
+                                        {ingestionResult.ai_suggestion_available ? (
+                                          <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                                            AI đã gợi ý nhãn
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="text-amber-700 border-amber-300 text-[10px]">
+                                            Tự gán nhãn
+                                          </Badge>
+                                        )}
                                       </CardTitle>
                                       <CardDescription className="text-xs mt-0.5">
                                         Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 20 đoạn nguyên văn/bài).
                                       </CardDescription>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                       <Button
                                         type="button"
                                         size="sm"
@@ -3238,6 +3329,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                       </Button>
                                       <Badge variant="secondary" className="bg-muted text-foreground text-[11px]">
                                         Đoạn: {countWithSaved} / 20
+                                      </Badge>
+                                      <Badge
+                                        variant="secondary"
+                                        className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                                      >
+                                        <span title="Giới hạn = 60% độ dài bài, tối thiểu 2.500 ký tự">
+                                          Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({Math.min(100, Math.round((charsWithSaved / allowedCharsQuota) * 100))}%)
+                                        </span>
                                       </Badge>
                                     </div>
                                   </div>
@@ -3344,9 +3443,185 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
                                           "{renderParagraphWithHighlight(para.id, para.text)}"
                                         </p>
+
+                                        {/* Thẻ vật tư/hoạt chất/biện pháp: xem, highlight, dịch nghĩa tiếng Việt */}
+                                        <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                                              <span>Vật tư / Hoạt chất:</span>
+                                              <span className="text-[9px] text-muted-foreground/80 cursor-help" title="Cụm từ trích xuất để AI Lavi gợi ý thuốc trong kho vật tư và đối soát kiến thức">(?)</span>
+                                            </span>
+                                            {(para.mentions || []).map((m, mIdx) => {
+                                              const translation = getAgriTranslation(m.text);
+                                              const isHighlighted = highlightedMention?.paraId === para.id && highlightedMention.text.toLowerCase() === m.text.toLowerCase();
+                                              return (
+                                                <span
+                                                  key={mIdx}
+                                                  onMouseEnter={() => setHighlightedMention({ paraId: para.id, text: m.text })}
+                                                  onMouseLeave={() => setHighlightedMention(null)}
+                                                  onClick={() => setHighlightedMention((prev) => (prev?.paraId === para.id && prev?.text.toLowerCase() === m.text.toLowerCase() ? null : { paraId: para.id, text: m.text }))}
+                                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${
+                                                    isHighlighted ? 'ring-2 ring-amber-400 shadow-xs ' : ''
+                                                  }${
+                                                    m.kind === 'CHEMICAL'
+                                                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                                      : m.kind === 'BIOLOGICAL'
+                                                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                                        : m.kind === 'SUPPLY'
+                                                          ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                                          : 'bg-purple-100 text-purple-900 border border-purple-300'
+                                                  }`}
+                                                  title={translation ? `Thuật ngữ: "${m.text}"\nNghĩa tiếng Việt: ${translation}\n(Bấm để highlight từ này trong văn bản)` : `Bấm để highlight "${m.text}" trong đoạn văn`}
+                                                >
+                                                  <span>{m.text}</span>
+                                                  {translation && (
+                                                    <span className="text-[9px] opacity-80 font-normal italic">
+                                                      ({translation})
+                                                    </span>
+                                                  )}
+                                                  <select
+                                                    value={m.kind}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                                    className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0 ml-0.5"
+                                                    title="Đổi phân loại vật tư"
+                                                  >
+                                                    <option value="CHEMICAL">Hóa học</option>
+                                                    <option value="BIOLOGICAL">Sinh học</option>
+                                                    <option value="SUPPLY">Vật tư</option>
+                                                    <option value="PRACTICE">Canh tác</option>
+                                                  </select>
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleRemoveMention(para.id, mIdx);
+                                                    }}
+                                                    className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                                    title="Xóa thẻ này"
+                                                  >
+                                                    <X className="w-2.5 h-2.5" />
+                                                  </button>
+                                                </span>
+                                              );
+                                            })}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAddingMentionParaId(para.id);
+                                                setNewMentionText('');
+                                                setNewMentionKind('CHEMICAL');
+                                              }}
+                                              className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-semibold hover:underline"
+                                            >
+                                              <Plus className="w-3 h-3" />
+                                              <span>Thêm cụm từ</span>
+                                            </button>
+                                          </div>
+                                        </div>
                                       </div>
                                     );
                                   })}
+
+                                  {/* Khối các đoạn trích mà AI coi là nhiễu / không chọn */}
+                                  {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length > 0 && (
+                                    <div className="pt-2 border-t border-border">
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
+                                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
+                                      >
+                                        <span className="flex items-center gap-1.5">
+                                          {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                          <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
+                                        </span>
+                                        <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
+                                      </button>
+
+                                      {showNoiseParagraphs && (
+                                        <div className="mt-2 space-y-2 pl-2">
+                                          {ingestionResult.paragraphs
+                                            .filter((p) => p.suggested_unit_type === null)
+                                            .map((para) => {
+                                              const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                              const isTooLong = para.text.length > 1500;
+                                              const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                                              const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                                              return (
+                                                <div
+                                                  key={para.id}
+                                                  className="p-2.5 rounded-lg border border-dashed border-border/80 bg-muted/10 opacity-75 hover:opacity-100"
+                                                >
+                                                  <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                                                    <label className="flex items-center gap-2 cursor-pointer text-xs">
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={state.selected}
+                                                        disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: {
+                                                              ...state,
+                                                              selected: e.target.checked,
+                                                            },
+                                                          }));
+                                                        }}
+                                                        className="w-3.5 h-3.5 rounded text-emerald-700"
+                                                      />
+                                                      <span className="font-mono text-[11px] text-muted-foreground">{para.id}</span>
+                                                      <span className="text-[10px] text-muted-foreground">({para.text.length} ký tự)</span>
+                                                      {isSaved && <Badge variant="outline" className="text-[9px] bg-muted">Đã lưu</Badge>}
+                                                    </label>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <select
+                                                        value={state.unitType}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, unitType: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded"
+                                                      >
+                                                        <option value="SYMPTOMS">Triệu chứng</option>
+                                                        <option value="CAUSE_CONDITIONS">Nguyên nhân</option>
+                                                        <option value="PREVENTION">Phòng ngừa</option>
+                                                        <option value="TREATMENT">Điều trị</option>
+                                                      </select>
+                                                      <select
+                                                        value={state.diseaseClass || ingestClass}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, diseaseClass: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded max-w-[130px] truncate"
+                                                      >
+                                                        {filteredDiseasesByPlant.map((d) => (
+                                                          <option key={d.classCode} value={d.classCode}>
+                                                            {isHealthyTopic(d.commonNameVi, d.classCode)
+                                                              ? '🌱 Chăm sóc & Phòng ngừa'
+                                                              : d.commonNameVi}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                  </div>
+                                                  <p className="text-[11px] text-muted-foreground italic pl-5 line-clamp-2">
+                                                    "{para.text}"
+                                                  </p>
+                                                </div>
+                                              );
+                                            })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   <div className="pt-3 border-t border-border flex items-center justify-between">
                                     <span className="text-xs text-muted-foreground">
@@ -3528,24 +3803,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             ))}
                           </select>
                         </div>
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Chuyên mục / Bệnh hại mục tiêu *
-                          </label>
-                          <select
-                            value={ingestClass}
-                            onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                          >
-                            <option value="">-- Chọn chuyên mục / bệnh hại --</option>
-                            {filteredDiseasesByPlant.map((d) => (
-                              <option key={d.classCode} value={d.classCode}>
-                                {isHealthyTopic(d.commonNameVi, d.classCode)
-                                  ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
-                                  : d.commonNameVi}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="sm:col-span-2">
+                          {renderArticleTopicsSelector()}
                         </div>
                       </div>
 
@@ -3981,9 +4240,185 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
                                           "{renderParagraphWithHighlight(para.id, para.text)}"
                                         </p>
+
+                                        {/* Thẻ vật tư/hoạt chất/biện pháp: xem, highlight, dịch nghĩa tiếng Việt */}
+                                        <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                                              <span>Vật tư / Hoạt chất:</span>
+                                              <span className="text-[9px] text-muted-foreground/80 cursor-help" title="Cụm từ trích xuất để AI Lavi gợi ý thuốc trong kho vật tư và đối soát kiến thức">(?)</span>
+                                            </span>
+                                            {(para.mentions || []).map((m, mIdx) => {
+                                              const translation = getAgriTranslation(m.text);
+                                              const isHighlighted = highlightedMention?.paraId === para.id && highlightedMention.text.toLowerCase() === m.text.toLowerCase();
+                                              return (
+                                                <span
+                                                  key={mIdx}
+                                                  onMouseEnter={() => setHighlightedMention({ paraId: para.id, text: m.text })}
+                                                  onMouseLeave={() => setHighlightedMention(null)}
+                                                  onClick={() => setHighlightedMention((prev) => (prev?.paraId === para.id && prev?.text.toLowerCase() === m.text.toLowerCase() ? null : { paraId: para.id, text: m.text }))}
+                                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${
+                                                    isHighlighted ? 'ring-2 ring-amber-400 shadow-xs ' : ''
+                                                  }${
+                                                    m.kind === 'CHEMICAL'
+                                                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                                      : m.kind === 'BIOLOGICAL'
+                                                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                                        : m.kind === 'SUPPLY'
+                                                          ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                                          : 'bg-purple-100 text-purple-900 border border-purple-300'
+                                                  }`}
+                                                  title={translation ? `Thuật ngữ: "${m.text}"\nNghĩa tiếng Việt: ${translation}\n(Bấm để highlight từ này trong văn bản)` : `Bấm để highlight "${m.text}" trong đoạn văn`}
+                                                >
+                                                  <span>{m.text}</span>
+                                                  {translation && (
+                                                    <span className="text-[9px] opacity-80 font-normal italic">
+                                                      ({translation})
+                                                    </span>
+                                                  )}
+                                                  <select
+                                                    value={m.kind}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                                    className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0 ml-0.5"
+                                                    title="Đổi phân loại vật tư"
+                                                  >
+                                                    <option value="CHEMICAL">Hóa học</option>
+                                                    <option value="BIOLOGICAL">Sinh học</option>
+                                                    <option value="SUPPLY">Vật tư</option>
+                                                    <option value="PRACTICE">Canh tác</option>
+                                                  </select>
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleRemoveMention(para.id, mIdx);
+                                                    }}
+                                                    className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                                    title="Xóa thẻ này"
+                                                  >
+                                                    <X className="w-2.5 h-2.5" />
+                                                  </button>
+                                                </span>
+                                              );
+                                            })}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAddingMentionParaId(para.id);
+                                                setNewMentionText('');
+                                                setNewMentionKind('CHEMICAL');
+                                              }}
+                                              className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-semibold hover:underline"
+                                            >
+                                              <Plus className="w-3 h-3" />
+                                              <span>Thêm cụm từ</span>
+                                            </button>
+                                          </div>
+                                        </div>
                                       </div>
                                     );
                                   })}
+
+                                  {/* Khối các đoạn trích mà AI coi là nhiễu / không chọn */}
+                                  {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length > 0 && (
+                                    <div className="pt-2 border-t border-border">
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
+                                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
+                                      >
+                                        <span className="flex items-center gap-1.5">
+                                          {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                          <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
+                                        </span>
+                                        <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
+                                      </button>
+
+                                      {showNoiseParagraphs && (
+                                        <div className="mt-2 space-y-2 pl-2">
+                                          {ingestionResult.paragraphs
+                                            .filter((p) => p.suggested_unit_type === null)
+                                            .map((para) => {
+                                              const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                              const isTooLong = para.text.length > 1500;
+                                              const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                                              const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                                              return (
+                                                <div
+                                                  key={para.id}
+                                                  className="p-2.5 rounded-lg border border-dashed border-border/80 bg-muted/10 opacity-75 hover:opacity-100"
+                                                >
+                                                  <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                                                    <label className="flex items-center gap-2 cursor-pointer text-xs">
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={state.selected}
+                                                        disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: {
+                                                              ...state,
+                                                              selected: e.target.checked,
+                                                            },
+                                                          }));
+                                                        }}
+                                                        className="w-3.5 h-3.5 rounded text-emerald-700"
+                                                      />
+                                                      <span className="font-mono text-[11px] text-muted-foreground">{para.id}</span>
+                                                      <span className="text-[10px] text-muted-foreground">({para.text.length} ký tự)</span>
+                                                      {isSaved && <Badge variant="outline" className="text-[9px] bg-muted">Đã lưu</Badge>}
+                                                    </label>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <select
+                                                        value={state.unitType}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, unitType: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded"
+                                                      >
+                                                        <option value="SYMPTOMS">Triệu chứng</option>
+                                                        <option value="CAUSE_CONDITIONS">Nguyên nhân</option>
+                                                        <option value="PREVENTION">Phòng ngừa</option>
+                                                        <option value="TREATMENT">Điều trị</option>
+                                                      </select>
+                                                      <select
+                                                        value={state.diseaseClass || ingestClass}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, diseaseClass: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded max-w-[130px] truncate"
+                                                      >
+                                                        {filteredDiseasesByPlant.map((d) => (
+                                                          <option key={d.classCode} value={d.classCode}>
+                                                            {isHealthyTopic(d.commonNameVi, d.classCode)
+                                                              ? '🌱 Chăm sóc & Phòng ngừa'
+                                                              : d.commonNameVi}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                  </div>
+                                                  <p className="text-[11px] text-muted-foreground italic pl-5 line-clamp-2">
+                                                    "{para.text}"
+                                                  </p>
+                                                </div>
+                                              );
+                                            })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                               </div>
                             )}
                           </div>

@@ -187,11 +187,14 @@ public class UpdateArticleRequestDto
     public string? PublishedDate { get; set; }
 }
 
-// Sửa một đoạn đã lưu: đoạn nguyên văn chỉ đổi loại nội dung; đoạn tóm tắt được sửa chữ.
+// Sửa một đoạn đã lưu: đoạn nguyên văn chỉ đổi loại nội dung hoặc chuyên mục; đoạn tóm tắt được sửa chữ.
 public class UpdateSourceUnitRequestDto
 {
     [JsonPropertyName("unit_type")]
     public string? UnitType { get; set; }
+
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
 
     [MaxLength(4000, ErrorMessage = "Đoạn tóm tắt không được vượt quá 4.000 ký tự.")]
     [JsonPropertyName("evidence_text")]

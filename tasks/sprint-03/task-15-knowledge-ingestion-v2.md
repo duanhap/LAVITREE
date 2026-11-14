@@ -490,3 +490,13 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
   - *Ghi chú quan trọng*: Mở rộng tạm thời nhằm hỗ trợ nạp lượng lớn tri thức phục vụ chấm điểm và bảo vệ đồ án tốt nghiệp PTIT. Sẽ kích hoạt lại các hạn mức siết chặt bản quyền (`INGEST_MAX_CHUNKS=8`, `INGEST_MAX_CHUNK_CHARS=800`) khi triển khai hệ thống thương mại chính thức.
 - [x] **Chia đoạn tương tác đa mốc cắt (Multi-cut point Interactive Split Dialog)**: Thay thế nút chia đôi cố định bằng cơ chế click trực quan. Admin nhấp vào nút `[✂️ Cắt tại đây]` sau bất kỳ câu nào để đặt 1 hoặc nhiều mốc cắt (`Mốc #1`, `Mốc #2`...), xem trước kích thước/nội dung từng đoạn con, và chia đoạn thành N phần hợp lệ trong 1 click mà vẫn bảo toàn 100% nguyên văn bài gốc (Điều 25 Luật SHTT).
 - [x] **Nút chọn nhanh tất cả đoạn AI gợi ý**: Đồng bộ nút `[✨ Chọn tất cả đoạn AI gợi ý]` tại cả 2 nơi (Tab 2 Nạp thêm và Form Nhập bài mới) giúp Admin 1-click duyệt nhanh các đoạn trích có ý nghĩa tri thức mà AI đã chọn lọc.
+
+### 13.7. Danh sách Chuyên đề / Bệnh hại dạng Tags & Đồng bộ hoàn toàn Tab 2 với Nhập bài báo (14/11/2026)
+- [x] **Bỏ dropdown đơn cấp bài báo, thay bằng Danh sách Chuyên đề (Tags + Selector)**: Thay thế hoàn toàn ô select đơn lẻ bằng giao diện danh sách tags chuyên đề trong bài (`articleTopics`). Admin có thể xem trực quan các chủ đề bài viết bao quát, bấm `✕` để gỡ bỏ, hoặc chọn bệnh có sẵn của cây từ dropdown và bấm `[+ Thêm vào bài]`.
+- [x] **Đổi chuyên mục trực tiếp trên từng đoạn đã lưu (Tab 1)**: Bổ sung selector đổi chuyên đề/bệnh hại ngay trên từng đoạn đã lưu của Tab 1. Core API `PATCH /api/v1/knowledge/sources/{id}` hỗ trợ cập nhật `ModelClass` độc lập cho từng đoạn và tự động kích hoạt reindex.
+- [x] **Bảo toàn tính độc lập khi Lưu thông tin bài (`PATCH sources/by-url`)**: Không ghi đè cào bằng một mã bệnh duy nhất lên toàn bộ các đoạn khi bài viết chứa nhiều chuyên đề khác nhau.
+- [x] **Đồng bộ triệt để Tab 2 (Nạp thêm) y hệt màn hình Nhập bài báo**:
+  - Tự động áp dụng `meta.model_class` do AI đề xuất cho các đoạn mới bóc tách ở Tab 2, khắc phục lỗi nhận nhầm thành Cây khỏe mạnh.
+  - Bổ sung khối Thẻ vật tư / Hoạt chất (`para.mentions`) tương tác đầy đủ dưới mỗi đoạn: dịch nghĩa tiếng Việt, hover highlight, đổi loại thẻ, xóa thẻ, thêm cụm từ mới.
+  - Thêm badge `AI đã gợi ý nhãn` / `Tự gán nhãn` và badge `Ký tự: ... / ... (%)` vào CardHeader của danh sách đoạn mới ở Tab 2.
+  - Tích hợp accordion `⌄ Đoạn AI không chọn: X đoạn (vẫn tick để lưu được)` cho phép xem và phục hồi đoạn trích ngoài gợi ý của AI.

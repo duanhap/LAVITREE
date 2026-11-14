@@ -758,6 +758,23 @@ public class KnowledgeController : ControllerBase
         }
 
         var changed = false;
+        if (!string.IsNullOrWhiteSpace(dto.ModelClass))
+        {
+            var targetClass = dto.ModelClass.Trim();
+            var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == targetClass);
+            if (classMeta == null)
+            {
+                return BadRequest(new { detail = $"Mã lớp '{dto.ModelClass}' không thuộc 38 lớp được hỗ trợ." });
+            }
+            if (source.ModelClass != classMeta.ModelClass)
+            {
+                source.ModelClass = classMeta.ModelClass;
+                source.PlantName = classMeta.PlantName;
+                source.DiseaseName = classMeta.DiseaseName;
+                changed = true;
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(dto.UnitType))
         {
             var unit = dto.UnitType.Trim().ToUpperInvariant();
