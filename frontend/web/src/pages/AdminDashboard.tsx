@@ -335,6 +335,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [summaryDrafts, setSummaryDrafts] = useState<Record<string, string>>({});
   const [editSubTab, setEditSubTab] = useState<'approved' | 'reparse'>('approved');
   const [dismissMetaDiff, setDismissMetaDiff] = useState<boolean>(false);
+  const [dismissedAiFields, setDismissedAiFields] = useState<Record<string, boolean>>({});
+  const [activeAiPopoverField, setActiveAiPopoverField] = useState<string | null>(null);
+  const [isMetaCardCollapsed, setIsMetaCardCollapsed] = useState<boolean>(false);
   const [showMetaEditPanel, setShowMetaEditPanel] = useState<boolean>(false);
 
   // Highlight cụm từ trích xuất (mention tag)
@@ -641,6 +644,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const resetArticleState = () => {
     setIngestionResult(null);
     setSelectedParagraphs({});
+    setDismissedAiFields({});
+    setActiveAiPopoverField(null);
+    setIsMetaCardCollapsed(false);
     // Đang sửa bài đã lưu: giữ thông tin bài, chỉ bỏ kết quả tách đoạn
     if (editUrl) return;
     setIngestTitle('');
@@ -886,6 +892,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }, { timeout: 45000 });
 
       setIngestionResult(res.data);
+      setDismissedAiFields({});
+      setActiveAiPopoverField(null);
+      setIsMetaCardCollapsed(false);
 
       // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập).
       // Đang sửa bài đã lưu thì giữ thông tin bài hiện có, hiển thị diff cho Admin duyệt.
@@ -2653,230 +2662,477 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         </div>
                       ) : (
                         <>
-                          {/* Card 1: Thông tin bài viết & Phân loại đầy đủ tính năng chuẩn form Nhập bài báo */}
-                          <Card className="border-border bg-card shadow-xs">
-                            <CardHeader className="py-2.5 px-4 border-b border-border bg-muted/20">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <CardTitle className="text-xs font-bold flex items-center gap-2">
-                                  <FileText className="w-4 h-4 text-emerald-700" />
-                                  <span>Thông tin bài viết &amp; Phân loại</span>
-                                </CardTitle>
+                          {/* Card 1: Thông tin bài viết & Phân loại: Lấp lánh từng ô, nhấp mở popover Áp dụng/Bỏ qua, hỗ trợ thu gọn */}
+                          {(() => {
+                            const meta = ingestionResult.suggested_metadata;
+                            const hasTitleDiff = !!meta?.source_title && meta.source_title.trim() !== ingestTitle.trim() && !dismissedAiFields['title'];
+                            const hasOrgDiff = !!meta?.organization && meta.organization.trim() !== buildCombinedOrg(ingestOrg, ingestAuthor) && !dismissedAiFields['org'];
+                            const hasDateDiff = !!meta?.published_date && meta.published_date.trim() !== buildCombinedDate(ingestPublishedDate, ingestUpdatedDate) && !dismissedAiFields['date'];
+                            const pendingDiffCount = (hasTitleDiff ? 1 : 0) + (hasOrgDiff ? 1 : 0) + (hasDateDiff ? 1 : 0);
 
-                                {(() => {
-                                  const meta = ingestionResult.suggested_metadata;
-                                  if (!meta) return null;
-                                  const hasDiff =
-                                    (meta.source_title && meta.source_title.trim() !== ingestTitle.trim()) ||
-                                    (meta.organization && meta.organization.trim() !== buildCombinedOrg(ingestOrg, ingestAuthor)) ||
-                                    (meta.published_date && meta.published_date.trim() !== buildCombinedDate(ingestPublishedDate, ingestUpdatedDate));
-                                  if (!hasDiff) {
-                                    return (
-                                      <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]">
-                                        Đã khớp thông tin bài viết
-                                      </Badge>
-                                    );
-                                  }
-                                  return (
+                            return (
+                              <Card className="border-border bg-card shadow-xs transition-all">
+                                <CardHeader className="py-2.5 px-4 border-b border-border bg-muted/20">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <FileText className="w-4 h-4 text-emerald-700" />
+                                      <CardTitle className="text-xs font-bold text-foreground">
+                                        Thông tin bài viết &amp; Phân loại
+                                      </CardTitle>
+                                      {pendingDiffCount > 0 && (
+                                        <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] gap-1 animate-pulse">
+                                          <Sparkles className="w-3 h-3 text-amber-600" />
+                                          {pendingDiffCount} ô có AI đề xuất
+                                        </Badge>
+                                      )}
+                                    </div>
+
                                     <div className="flex items-center gap-1.5">
-                                      <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] gap-1">
-                                        <Sparkles className="w-3 h-3 text-amber-600" />
-                                        Có AI đề xuất mới
-                                      </Badge>
+                                      {pendingDiffCount > 0 && (
+                                        <>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => {
+                                              setDismissedAiFields(prev => ({ ...prev, title: true, org: true, date: true }));
+                                              setActiveAiPopoverField(null);
+                                              toast.info('Đã bỏ qua các đề xuất của AI.');
+                                            }}
+                                            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                            title="Bỏ qua tất cả các gợi ý của AI và giữ nguyên dữ liệu hiện tại"
+                                          >
+                                            Bỏ qua tất cả
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => {
+                                              if (meta?.source_title) setIngestTitle(meta.source_title);
+                                              if (meta?.organization) {
+                                                const authorMatch = meta.organization.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+                                                if (authorMatch) {
+                                                  setIngestOrg(authorMatch[1].trim());
+                                                  setIngestAuthor(authorMatch[2].trim());
+                                                } else {
+                                                  setIngestOrg(meta.organization);
+                                                }
+                                              }
+                                              if (meta?.published_date) setIngestPublishedDate(meta.published_date);
+                                              setDismissedAiFields(prev => ({ ...prev, title: true, org: true, date: true }));
+                                              setActiveAiPopoverField(null);
+                                              setIsMetaCardCollapsed(true);
+                                              toast.success('Đã áp dụng toàn bộ đề xuất của AI và thu gọn form!');
+                                            }}
+                                            className="h-6 px-2 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1"
+                                            title="Áp dụng toàn bộ gợi ý AI vào form và tự động thu gọn"
+                                          >
+                                            <Check className="w-3 h-3" />
+                                            Áp dụng tất cả
+                                          </Button>
+                                        </>
+                                      )}
+
                                       <Button
                                         type="button"
                                         size="sm"
-                                        onClick={() => {
-                                          if (meta.source_title) setIngestTitle(meta.source_title);
-                                          if (meta.organization) {
-                                            const authorMatch = meta.organization.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
-                                            if (authorMatch) {
-                                              setIngestOrg(authorMatch[1].trim());
-                                              setIngestAuthor(authorMatch[2].trim());
-                                            } else {
-                                              setIngestOrg(meta.organization);
-                                            }
-                                          }
-                                          if (meta.published_date) setIngestPublishedDate(meta.published_date);
-                                          toast.success('Đã áp dụng toàn bộ đề xuất của AI vào thông tin bài viết!');
-                                        }}
-                                        className="h-6 px-2 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1"
+                                        variant="outline"
+                                        onClick={() => setIsMetaCardCollapsed(!isMetaCardCollapsed)}
+                                        className="h-6 px-2 text-[10px] gap-1 border-border text-muted-foreground hover:text-foreground"
+                                        title={isMetaCardCollapsed ? 'Mở rộng form thông tin bài viết' : 'Thu gọn form để tập trung xem các đoạn trích'}
                                       >
-                                        <Check className="w-3 h-3" />
-                                        Áp dụng tất cả
+                                        {isMetaCardCollapsed ? (
+                                          <>
+                                            <ChevronDown className="w-3 h-3" />
+                                            <span>Mở rộng form</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <ChevronUp className="w-3 h-3" />
+                                            <span>Thu gọn</span>
+                                          </>
+                                        )}
                                       </Button>
                                     </div>
-                                  );
-                                })()}
-                              </div>
-                            </CardHeader>
+                                  </div>
+                                </CardHeader>
 
-                            <CardContent className="p-4 space-y-3 text-xs">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                <div>
-                                  <label className="font-semibold text-foreground block mb-1">
-                                    Loài cây trồng *
-                                  </label>
-                                  <select
-                                    value={selectedPlant}
-                                    onChange={(e) => handlePlantChange(e.target.value)}
-                                    className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                                  >
-                                    <option value="">-- Chọn loài cây --</option>
-                                    {uniquePlants.map((plant) => (
-                                      <option key={plant} value={plant}>
-                                        {plant}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="font-semibold text-foreground block mb-1">
-                                    Chuyên mục / Bệnh hại mục tiêu *
-                                  </label>
-                                  <select
-                                    value={ingestClass}
-                                    onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                                    className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                                  >
-                                    <option value="">-- Chọn bệnh hại mục tiêu --</option>
-                                    {filteredDiseasesByPlant.map((d) => (
-                                      <option key={d.classCode} value={d.classCode}>
-                                        {d.commonNameVi}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              </div>
+                                {isMetaCardCollapsed ? (
+                                  /* Chế độ thu gọn: Chỉ 1 hàng tóm tắt cực kỳ tinh gọn, không chiếm diện tích */
+                                  <div className="p-3 bg-muted/15 flex flex-wrap items-center justify-between gap-2 text-xs border-b border-border/40">
+                                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-muted-foreground text-[11px]">
+                                      <span>
+                                        <strong className="text-foreground">Cây:</strong>{' '}
+                                        <span className="text-emerald-800 font-semibold">{selectedPlant || 'Chưa chọn'}</span>
+                                      </span>
+                                      <span>•</span>
+                                      <span>
+                                        <strong className="text-foreground">Bệnh:</strong>{' '}
+                                        <span className="text-emerald-800 font-semibold">
+                                          {filteredDiseasesByPlant.find(d => d.classCode === ingestClass)?.commonNameVi || ingestClass || 'Chưa chọn'}
+                                        </span>
+                                      </span>
+                                      <span>•</span>
+                                      <span className="max-w-[260px] truncate" title={ingestTitle}>
+                                        <strong className="text-foreground">Tiêu đề:</strong>{' '}
+                                        <span className="text-foreground font-medium">{ingestTitle || '(Chưa có)'}</span>
+                                      </span>
+                                    </div>
 
-                              <div>
-                                <label className="font-semibold text-foreground block mb-1">
-                                  Tiêu đề bài viết trích dẫn *
-                                </label>
-                                <Input
-                                  type="text"
-                                  value={ingestTitle}
-                                  onChange={(e) => setIngestTitle(e.target.value)}
-                                  placeholder="Tiêu đề bài viết..."
-                                  className="text-xs bg-background"
-                                />
-                                {ingestionResult.suggested_metadata?.source_title &&
-                                 ingestionResult.suggested_metadata.source_title.trim() !== ingestTitle.trim() && (
-                                  <div className="flex items-center justify-between gap-1 mt-1 text-[11px] text-emerald-900 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                                    <span className="truncate">
-                                      💡 <strong>AI vừa đọc được:</strong> "{ingestionResult.suggested_metadata.source_title}"
-                                    </span>
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        setIngestTitle(ingestionResult.suggested_metadata!.source_title!);
-                                        toast.success('Đã áp dụng tiêu đề AI đề xuất!');
-                                      }}
-                                      className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline shrink-0 ml-2"
+                                      onClick={() => setIsMetaCardCollapsed(false)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
                                     >
-                                      Áp dụng
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>Mở ra chỉnh sửa</span>
                                     </button>
                                   </div>
+                                ) : (
+                                  /* Chế độ mở rộng: Các ô input sạch sẽ, ô có AI đề xuất sẽ có viền lấp lánh nhẹ và popover */
+                                  <CardContent className="p-4 space-y-3 text-xs">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      <div>
+                                        <label className="font-semibold text-foreground block mb-1">
+                                          Loài cây trồng *
+                                        </label>
+                                        <select
+                                          value={selectedPlant}
+                                          onChange={(e) => handlePlantChange(e.target.value)}
+                                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                                        >
+                                          <option value="">-- Chọn loài cây --</option>
+                                          {uniquePlants.map((plant) => (
+                                            <option key={plant} value={plant}>
+                                              {plant}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="font-semibold text-foreground block mb-1">
+                                          Chuyên mục / Bệnh hại mục tiêu *
+                                        </label>
+                                        <select
+                                          value={ingestClass}
+                                          onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
+                                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                                        >
+                                          <option value="">-- Chọn bệnh hại mục tiêu --</option>
+                                          {filteredDiseasesByPlant.map((d) => (
+                                            <option key={d.classCode} value={d.classCode}>
+                                              {d.commonNameVi}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    </div>
+
+                                    {/* Tiêu đề bài viết trích dẫn */}
+                                    <div className="relative">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <label className="font-semibold text-foreground">
+                                          Tiêu đề bài viết trích dẫn *
+                                        </label>
+                                        {hasTitleDiff && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'title' ? null : 'title')}
+                                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5 animate-pulse cursor-pointer shadow-2xs transition-colors"
+                                            title="Nhấp để xem gợi ý AI"
+                                          >
+                                            <Sparkles className="w-3 h-3 text-amber-600 animate-spin-slow" />
+                                            <span>AI có gợi ý</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                      <div className="relative">
+                                        <Input
+                                          type="text"
+                                          value={ingestTitle}
+                                          onChange={(e) => setIngestTitle(e.target.value)}
+                                          onClick={() => {
+                                            if (hasTitleDiff) setActiveAiPopoverField('title');
+                                          }}
+                                          placeholder="Tiêu đề bài viết..."
+                                          className={`text-xs bg-background transition-all ${
+                                            hasTitleDiff
+                                              ? 'ring-2 ring-amber-400/80 border-amber-400 bg-amber-50/20 pr-8 shadow-xs'
+                                              : ''
+                                          }`}
+                                        />
+                                        {hasTitleDiff && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'title' ? null : 'title')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-800 transition-transform active:scale-95"
+                                            title="Nhấp để xem gợi ý AI"
+                                          >
+                                            <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                          </button>
+                                        )}
+
+                                        {/* Popover nổi lên khi nhấp vào ô hoặc nút lấp lánh */}
+                                        {hasTitleDiff && activeAiPopoverField === 'title' && (
+                                          <div className="absolute z-30 top-full left-0 right-0 sm:right-auto sm:min-w-[340px] mt-1.5 p-3 bg-card border-2 border-amber-300 rounded-xl shadow-xl text-xs space-y-2 animate-in fade-in zoom-in-95">
+                                            <div className="flex items-start gap-2">
+                                              <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                              <div className="min-w-0 flex-1">
+                                                <span className="text-[11px] font-bold text-amber-950 block">AI đọc được từ bài báo:</span>
+                                                <p className="text-xs font-semibold text-foreground mt-0.5 bg-muted/40 p-1.5 rounded border border-border/60 break-words">
+                                                  "{meta?.source_title}"
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-border/60">
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                  setDismissedAiFields(prev => ({ ...prev, title: true }));
+                                                  setActiveAiPopoverField(null);
+                                                }}
+                                                className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                              >
+                                                Bỏ qua
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={() => {
+                                                  setIngestTitle(meta!.source_title!);
+                                                  setDismissedAiFields(prev => ({ ...prev, title: true }));
+                                                  setActiveAiPopoverField(null);
+                                                  toast.success('Đã áp dụng tiêu đề AI đề xuất!');
+                                                }}
+                                                className="h-6 px-2.5 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                              >
+                                                Áp dụng
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Cơ quan & Tác giả */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      <div className="relative">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <label className="font-semibold text-foreground">
+                                            Cơ quan / Viện nghiên cứu *
+                                          </label>
+                                          {hasOrgDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'org' ? null : 'org')}
+                                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5 animate-pulse cursor-pointer shadow-2xs transition-colors"
+                                              title="Nhấp để xem gợi ý AI"
+                                            >
+                                              <Sparkles className="w-3 h-3 text-amber-600 animate-spin-slow" />
+                                              <span>AI có gợi ý</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                        <div className="relative">
+                                          <Input
+                                            type="text"
+                                            value={ingestOrg}
+                                            onChange={(e) => setIngestOrg(e.target.value)}
+                                            onClick={() => {
+                                              if (hasOrgDiff) setActiveAiPopoverField('org');
+                                            }}
+                                            placeholder="Trung tâm Khuyến nông..."
+                                            className={`text-xs bg-background transition-all ${
+                                              hasOrgDiff
+                                                ? 'ring-2 ring-amber-400/80 border-amber-400 bg-amber-50/20 pr-8 shadow-xs'
+                                                : ''
+                                            }`}
+                                          />
+                                          {hasOrgDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'org' ? null : 'org')}
+                                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-800 transition-transform active:scale-95"
+                                              title="Nhấp để xem gợi ý AI"
+                                            >
+                                              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                            </button>
+                                          )}
+
+                                          {/* Popover nổi cho Cơ quan / Tác giả */}
+                                          {hasOrgDiff && activeAiPopoverField === 'org' && (
+                                            <div className="absolute z-30 top-full left-0 right-0 sm:right-auto sm:min-w-[340px] mt-1.5 p-3 bg-card border-2 border-amber-300 rounded-xl shadow-xl text-xs space-y-2 animate-in fade-in zoom-in-95">
+                                              <div className="flex items-start gap-2">
+                                                <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                                <div className="min-w-0 flex-1">
+                                                  <span className="text-[11px] font-bold text-amber-950 block">AI đọc được từ bài báo:</span>
+                                                  <p className="text-xs font-semibold text-foreground mt-0.5 bg-muted/40 p-1.5 rounded border border-border/60 break-words">
+                                                    "{meta?.organization}"
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-border/60">
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => {
+                                                    setDismissedAiFields(prev => ({ ...prev, org: true }));
+                                                    setActiveAiPopoverField(null);
+                                                  }}
+                                                  className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                                >
+                                                  Bỏ qua
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  onClick={() => {
+                                                    const orgStr = meta!.organization!;
+                                                    const authorMatch = orgStr.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+                                                    if (authorMatch) {
+                                                      setIngestOrg(authorMatch[1].trim());
+                                                      setIngestAuthor(authorMatch[2].trim());
+                                                    } else {
+                                                      setIngestOrg(orgStr);
+                                                    }
+                                                    setDismissedAiFields(prev => ({ ...prev, org: true }));
+                                                    setActiveAiPopoverField(null);
+                                                    toast.success('Đã áp dụng cơ quan/tác giả AI đề xuất!');
+                                                  }}
+                                                  className="h-6 px-2.5 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                                >
+                                                  Áp dụng
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div>
+                                        <label className="font-semibold text-foreground block mb-1">
+                                          Tác giả / Nhóm nghiên cứu
+                                        </label>
+                                        <Input
+                                          type="text"
+                                          value={ingestAuthor}
+                                          onChange={(e) => setIngestAuthor(e.target.value)}
+                                          placeholder="TS. Nguyễn Văn A..."
+                                          className="text-xs bg-background"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    {/* Ngày đăng & Ngày cập nhật */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      <div className="relative">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <label className="font-semibold text-foreground">
+                                            Ngày đăng / xuất bản
+                                          </label>
+                                          {hasDateDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'date' ? null : 'date')}
+                                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5 animate-pulse cursor-pointer shadow-2xs transition-colors"
+                                              title="Nhấp để xem gợi ý AI"
+                                            >
+                                              <Sparkles className="w-3 h-3 text-amber-600 animate-spin-slow" />
+                                              <span>AI có gợi ý</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                        <div className="relative">
+                                          <Input
+                                            type="text"
+                                            value={ingestPublishedDate}
+                                            onChange={(e) => setIngestPublishedDate(e.target.value)}
+                                            onClick={() => {
+                                              if (hasDateDiff) setActiveAiPopoverField('date');
+                                            }}
+                                            placeholder="03/01/2024"
+                                            className={`text-xs bg-background transition-all ${
+                                              hasDateDiff
+                                                ? 'ring-2 ring-amber-400/80 border-amber-400 bg-amber-50/20 pr-8 shadow-xs'
+                                                : ''
+                                            }`}
+                                          />
+                                          {hasDateDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'date' ? null : 'date')}
+                                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-800 transition-transform active:scale-95"
+                                              title="Nhấp để xem gợi ý AI"
+                                            >
+                                              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                            </button>
+                                          )}
+
+                                          {/* Popover nổi cho Ngày đăng */}
+                                          {hasDateDiff && activeAiPopoverField === 'date' && (
+                                            <div className="absolute z-30 top-full left-0 right-0 sm:right-auto sm:min-w-[340px] mt-1.5 p-3 bg-card border-2 border-amber-300 rounded-xl shadow-xl text-xs space-y-2 animate-in fade-in zoom-in-95">
+                                              <div className="flex items-start gap-2">
+                                                <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                                <div className="min-w-0 flex-1">
+                                                  <span className="text-[11px] font-bold text-amber-950 block">AI đọc được từ bài báo:</span>
+                                                  <p className="text-xs font-semibold text-foreground mt-0.5 bg-muted/40 p-1.5 rounded border border-border/60 break-words">
+                                                    "{meta?.published_date}"
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-border/60">
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => {
+                                                    setDismissedAiFields(prev => ({ ...prev, date: true }));
+                                                    setActiveAiPopoverField(null);
+                                                  }}
+                                                  className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                                >
+                                                  Bỏ qua
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  onClick={() => {
+                                                    setIngestPublishedDate(meta!.published_date!);
+                                                    setDismissedAiFields(prev => ({ ...prev, date: true }));
+                                                    setActiveAiPopoverField(null);
+                                                    toast.success('Đã áp dụng ngày xuất bản AI đề xuất!');
+                                                  }}
+                                                  className="h-6 px-2.5 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                                >
+                                                  Áp dụng
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div>
+                                        <label className="font-semibold text-foreground block mb-1">
+                                          Ngày cập nhật (nếu có)
+                                        </label>
+                                        <Input
+                                          type="text"
+                                          value={ingestUpdatedDate}
+                                          onChange={(e) => setIngestUpdatedDate(e.target.value)}
+                                          placeholder="12/03/2024"
+                                          className="text-xs bg-background"
+                                        />
+                                      </div>
+                                    </div>
+                                  </CardContent>
                                 )}
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                <div>
-                                  <label className="font-semibold text-foreground block mb-1">
-                                    Cơ quan / Viện nghiên cứu *
-                                  </label>
-                                  <Input
-                                    type="text"
-                                    value={ingestOrg}
-                                    onChange={(e) => setIngestOrg(e.target.value)}
-                                    placeholder="Trung tâm Khuyến nông..."
-                                    className="text-xs bg-background"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="font-semibold text-foreground block mb-1">
-                                    Tác giả / Nhóm nghiên cứu
-                                  </label>
-                                  <Input
-                                    type="text"
-                                    value={ingestAuthor}
-                                    onChange={(e) => setIngestAuthor(e.target.value)}
-                                    placeholder="TS. Nguyễn Văn A..."
-                                    className="text-xs bg-background"
-                                  />
-                                </div>
-                              </div>
-                              {ingestionResult.suggested_metadata?.organization &&
-                               ingestionResult.suggested_metadata.organization.trim() !== buildCombinedOrg(ingestOrg, ingestAuthor) && (
-                                <div className="flex items-center justify-between gap-1 mt-0.5 text-[11px] text-emerald-900 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                                  <span className="truncate">
-                                    💡 <strong>AI đọc được:</strong> "{ingestionResult.suggested_metadata.organization}"
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const orgStr = ingestionResult.suggested_metadata!.organization!;
-                                      const authorMatch = orgStr.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
-                                      if (authorMatch) {
-                                        setIngestOrg(authorMatch[1].trim());
-                                        setIngestAuthor(authorMatch[2].trim());
-                                      } else {
-                                        setIngestOrg(orgStr);
-                                      }
-                                      toast.success('Đã áp dụng cơ quan/tác giả AI đề xuất!');
-                                    }}
-                                    className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline shrink-0 ml-2"
-                                  >
-                                    Áp dụng
-                                  </button>
-                                </div>
-                              )}
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                <div>
-                                  <label className="font-semibold text-foreground block mb-1">
-                                    Ngày đăng / xuất bản
-                                  </label>
-                                  <Input
-                                    type="text"
-                                    value={ingestPublishedDate}
-                                    onChange={(e) => setIngestPublishedDate(e.target.value)}
-                                    placeholder="03/01/2024"
-                                    className="text-xs bg-background"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="font-semibold text-foreground block mb-1">
-                                    Ngày cập nhật (nếu có)
-                                  </label>
-                                  <Input
-                                    type="text"
-                                    value={ingestUpdatedDate}
-                                    onChange={(e) => setIngestUpdatedDate(e.target.value)}
-                                    placeholder="12/03/2024"
-                                    className="text-xs bg-background"
-                                  />
-                                </div>
-                              </div>
-                              {ingestionResult.suggested_metadata?.published_date &&
-                               ingestionResult.suggested_metadata.published_date.trim() !== buildCombinedDate(ingestPublishedDate, ingestUpdatedDate) && (
-                                <div className="flex items-center justify-between gap-1 mt-0.5 text-[11px] text-emerald-900 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                                  <span className="truncate">
-                                    💡 <strong>AI đọc được:</strong> "{ingestionResult.suggested_metadata.published_date}"
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setIngestPublishedDate(ingestionResult.suggested_metadata!.published_date!);
-                                      toast.success('Đã áp dụng ngày xuất bản AI đề xuất!');
-                                    }}
-                                    className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline shrink-0 ml-2"
-                                  >
-                                    Áp dụng
-                                  </button>
-                                </div>
-                              )}
-                            </CardContent>
-                          </Card>
+                              </Card>
+                            );
+                          })()}
 
                           {/* Card 2: Danh sách các đoạn trích mới (Đã tự động loại bỏ các đoạn đã lưu ở Tab 1) */}
                           {(() => {
