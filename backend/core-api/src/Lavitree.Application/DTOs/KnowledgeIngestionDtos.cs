@@ -103,12 +103,15 @@ public class CommitSelectionDto
     [JsonPropertyName("unit_type")]
     public string UnitType { get; set; } = string.Empty;
 
-    [MaxLength(800, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 800 ký tự.")]
+    [MaxLength(1500, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 1500 ký tự.")]
     [JsonPropertyName("custom_text")]
     public string? CustomText { get; set; }
 
     [JsonPropertyName("mentions")]
     public List<MentionDto>? Mentions { get; set; }
+
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
 }
 
 public class CommitIngestionRequestDto
@@ -129,7 +132,7 @@ public class CommitIngestionRequestDto
 
     [Required(ErrorMessage = "Danh sách đoạn trích không được để trống.")]
     [MinLength(1, ErrorMessage = "Cần chọn ít nhất 1 đoạn trích dẫn.")]
-    [MaxLength(8, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 8 đoạn nguyên văn.")]
+    [MaxLength(20, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 20 đoạn nguyên văn.")]
     [JsonPropertyName("selections")]
     public List<CommitSelectionDto> Selections { get; set; } = new();
 

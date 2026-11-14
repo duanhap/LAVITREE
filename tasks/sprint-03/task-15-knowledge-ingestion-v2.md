@@ -478,3 +478,15 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
 - [x] **Dọn sạch nút bấm thừa**: Loại bỏ nút `+ Nhập bài mới` gây xao nhãng; xóa nút sửa bài bị lặp 2 lần; đổi tiêu đề trang thành "Chi tiết bài viết tri thức" khi mở bài cũ.
 - [x] **Đưa 2 Tabs lên trên cùng phân định 2 tác vụ**: Đưa cụm 2 Tabs ("1. Xem & Sửa chi tiết" vs "2. Nạp thêm dữ liệu bài báo") lên ngay đầu trang cạnh nút "Quay lại danh sách", phân định rạch ròi 100% giữa việc xem/sửa duyệt bài và việc nạp thêm dữ liệu từ văn bản.
 - [x] **Hộp hướng dẫn & Nút mở bài gốc tại Tab 2**: Bổ sung hộp mẹo copy bài báo tại Tab 2 với nút `[🔗 Mở trang bài gốc ↗]` và hướng dẫn `Ctrl+A`, `Ctrl+C` giúp Admin lấy thêm toàn văn dễ dàng ngay tại chỗ.
+
+### 13.6. Tinh chỉnh Phân đoạn trích dẫn Đa mốc cắt, Đa chủ đề cấp đoạn & Mở rộng hạn mức Đồ án (14/11/2026)
+- [x] **Tách ngày xuất bản và ngày cập nhật**: Sửa lỗi hiển thị dính chuỗi `"2014 (Cập nhật 26/07/2024)"` trong ô ngày đăng. Regex tự động bóc tách thành Ngày đăng/xuất bản (`2014`) và Ngày cập nhật (`26/07/2024`) vào 2 ô riêng biệt.
+- [x] **Làm mờ Placeholder**: Đổi placeholder tác giả và ngày cập nhật thành văn bản mờ, in nghiêng (`(Để trống nếu không rõ tác giả)` / `(Để trống nếu không có)` với `placeholder:text-muted-foreground/35 placeholder:italic`), tránh gây hiểu nhầm là ô đã được điền sẵn giá trị.
+- [x] **Phân loại Chuyên mục / Bệnh hại theo từng đoạn trích**: Bài viết có thể chứa nhiều chủ đề khác nhau (ví dụ: đoạn chăm sóc cây khỏe mạnh + đoạn điều trị bệnh đốm lá). Mỗi đoạn trích được trang bị dropdown chọn Chuyên mục / Bệnh hại riêng biệt, mặc định thừa hưởng từ AI/bài viết và Admin có thể tùy chỉnh độc lập. Core API lưu trữ `ModelClass` riêng cho từng đoạn trích trong `KnowledgeSources`.
+- [x] **Mở rộng hạn mức trích dẫn phục vụ Demo / Bảo vệ Đồ án**:
+  - Tối đa **20 đoạn trích nguyên văn/bài** (trước là 8 đoạn).
+  - Tối đa **1.500 ký tự/đoạn** (trước là 800 ký tự).
+  - Hạn mức trích dẫn hợp lý nâng lên **60% độ dài bài viết, sàn tối thiểu 2.500 ký tự** (trước là 30% / 1.200 ký tự).
+  - *Ghi chú quan trọng*: Mở rộng tạm thời nhằm hỗ trợ nạp lượng lớn tri thức phục vụ chấm điểm và bảo vệ đồ án tốt nghiệp PTIT. Sẽ kích hoạt lại các hạn mức siết chặt bản quyền (`INGEST_MAX_CHUNKS=8`, `INGEST_MAX_CHUNK_CHARS=800`) khi triển khai hệ thống thương mại chính thức.
+- [x] **Chia đoạn tương tác đa mốc cắt (Multi-cut point Interactive Split Dialog)**: Thay thế nút chia đôi cố định bằng cơ chế click trực quan. Admin nhấp vào nút `[✂️ Cắt tại đây]` sau bất kỳ câu nào để đặt 1 hoặc nhiều mốc cắt (`Mốc #1`, `Mốc #2`...), xem trước kích thước/nội dung từng đoạn con, và chia đoạn thành N phần hợp lệ trong 1 click mà vẫn bảo toàn 100% nguyên văn bài gốc (Điều 25 Luật SHTT).
+- [x] **Nút chọn nhanh tất cả đoạn AI gợi ý**: Đồng bộ nút `[✨ Chọn tất cả đoạn AI gợi ý]` tại cả 2 nơi (Tab 2 Nạp thêm và Form Nhập bài mới) giúp Admin 1-click duyệt nhanh các đoạn trích có ý nghĩa tri thức mà AI đã chọn lọc.

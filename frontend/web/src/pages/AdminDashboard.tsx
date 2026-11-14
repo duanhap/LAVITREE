@@ -308,7 +308,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [ingestionResult, setIngestionResult] = useState<IngestionResponse | null>(null);
 
   // Chọn đoạn để commit
-  const [selectedParagraphs, setSelectedParagraphs] = useState<Record<string, { selected: boolean; unitType: string }>>({});
+  const [selectedParagraphs, setSelectedParagraphs] = useState<Record<string, { selected: boolean; unitType: string; diseaseClass?: string }>>({});
   const [commitNotes, setCommitNotes] = useState<string>('Đã đối chiếu với bài viết gốc');
   const [committing, setCommitting] = useState<boolean>(false);
   const [showNoiseParagraphs, setShowNoiseParagraphs] = useState<boolean>(false);
@@ -349,6 +349,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [splitPart1, setSplitPart1] = useState<string>('');
   const [splitPart2, setSplitPart2] = useState<string>('');
   const [selectedCutIndex, setSelectedCutIndex] = useState<number>(-1);
+  const [selectedCutIndices, setSelectedCutIndices] = useState<number[]>([]);
 
   // Thêm / sửa thẻ vật tư (mentions)
   const [addingMentionParaId, setAddingMentionParaId] = useState<string | null>(null);
@@ -704,7 +705,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         const rawDate = first.publishedDate && first.publishedDate !== 'Không ghi ngày' ? first.publishedDate : '';
         let parsedPubDate = rawDate;
         let parsedUpDate = '';
-        const dateMatch = rawDate.match(/^(.*?)\s*\((?:Cập nhật|Updated):\s*(.*?)\)$/i);
+        const dateMatch = rawDate.match(/^(.*?)\s*\((?:Cập nhật|Updated)?[:\s]*(.*?)\)$/i);
         if (dateMatch) {
           parsedPubDate = dateMatch[1].trim();
           parsedUpDate = dateMatch[2].trim();
@@ -1025,6 +1026,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     };
   };
 
+  const computeSplitParts = (text: string, cutIndices: number[]): string[] => {
+    const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
+    const matches = text.match(regex);
+    const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [text];
+    if (sents.length <= 1 || cutIndices.length === 0) {
+      return [text];
+    }
+    const sortedCuts = [...new Set(cutIndices)].filter((idx) => idx >= 0 && idx < sents.length - 1).sort((a, b) => a - b);
+    if (sortedCuts.length === 0) return [text];
+
+    const parts: string[] = [];
+    let currentPartSents: string[] = [];
+
+    for (let i = 0; i < sents.length; i++) {
+      currentPartSents.push(sents[i]);
+      if (sortedCuts.includes(i) || i === sents.length - 1) {
+        parts.push(currentPartSents.join(' ').trim());
+        currentPartSents = [];
+      }
+    }
+    return parts.filter(Boolean);
+  };
+
   const handleOpenSplitModal = (para: ParagraphItem) => {
     setSplitTargetPara(para);
     const { part1, part2 } = autoSplitText(para.text);
@@ -1044,48 +1068,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }
     }
     setSelectedCutIndex(bestIdx);
+    setSelectedCutIndices(sents.length > 1 ? [bestIdx] : []);
     setSplitModalOpen(true);
   };
 
   const handleConfirmSplit = () => {
     if (!splitTargetPara || !ingestionResult) return;
-    const p1 = splitPart1.trim();
-    const p2 = splitPart2.trim();
-    if (p1.length < 30 || p2.length < 30) {
-      toast.error('Mỗi đoạn sau khi tách phải có ít nhất 30 ký tự.');
+    const parts = computeSplitParts(splitTargetPara.text, selectedCutIndices);
+    if (parts.length < 2) {
+      toast.error('Vui lòng chọn ít nhất 1 mốc ngắt câu để chia đoạn.');
       return;
     }
-    if (p1.length > 800 || p2.length > 800) {
-      toast.error('Mỗi đoạn sau khi tách không được vượt quá 800 ký tự.');
+
+    const hasInvalid = parts.some((p) => p.length < 30 || p.length > 1500);
+    if (hasInvalid) {
+      toast.error('Mỗi đoạn con sau khi chia phải có từ 30 đến 1.500 ký tự.');
       return;
     }
 
     const baseId = splitTargetPara.id;
-    const id1 = `${baseId}_1`;
-    const id2 = `${baseId}_2`;
-
-    const mentions1 = (splitTargetPara.mentions || []).filter((m) =>
-      p1.toLowerCase().includes(m.text.toLowerCase())
-    );
-    const mentions2 = (splitTargetPara.mentions || []).filter((m) =>
-      p2.toLowerCase().includes(m.text.toLowerCase())
-    );
-
-    const newPara1: ParagraphItem = {
-      id: id1,
-      text: p1,
-      suggested_unit_type: splitTargetPara.suggested_unit_type,
-      mentions: mentions1,
-    };
-    const newPara2: ParagraphItem = {
-      id: id2,
-      text: p2,
-      suggested_unit_type: splitTargetPara.suggested_unit_type,
-      mentions: mentions2,
-    };
+    const newParas: ParagraphItem[] = parts.map((partText, idx) => {
+      const partMentions = (splitTargetPara.mentions || []).filter((m) =>
+        partText.toLowerCase().includes(m.text.toLowerCase())
+      );
+      return {
+        id: `${baseId}_${idx + 1}`,
+        text: partText,
+        suggested_unit_type: splitTargetPara.suggested_unit_type,
+        mentions: partMentions,
+      };
+    });
 
     const updatedParagraphs = ingestionResult.paragraphs.flatMap((p) =>
-      p.id === baseId ? [newPara1, newPara2] : [p]
+      p.id === baseId ? newParas : [p]
     );
 
     setIngestionResult({
@@ -1095,21 +1110,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
     setSelectedParagraphs((prev) => {
       const next = { ...prev };
+      const currentClass = prev[baseId]?.diseaseClass || ingestClass;
       delete next[baseId];
-      next[id1] = {
-        selected: false,
-        unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
-      };
-      next[id2] = {
-        selected: false,
-        unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
-      };
+      newParas.forEach((np) => {
+        next[np.id] = {
+          selected: false,
+          unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
+          diseaseClass: currentClass,
+        };
+      });
       return next;
     });
 
     setSplitModalOpen(false);
     setSplitTargetPara(null);
-    toast.success(`Đã tách đoạn ${baseId} thành 2 đoạn ${id1} và ${id2} hợp lệ (mỗi đoạn ≤ 800 ký tự).`);
+    setSelectedCutIndices([]);
+    toast.success(`Đã chia đoạn ${baseId} thành ${newParas.length} đoạn hợp lệ (mỗi đoạn ≤ 1.500 ký tự).`);
+  };
+
+  const handleSelectAllAiSuggested = () => {
+    if (!ingestionResult) return;
+
+    let availableSlots = 20 - existingVerbatimCount;
+    if (availableSlots <= 0) {
+      toast.error(`Bài viết đã có ${existingVerbatimCount} đoạn lưu trữ, đã đạt giới hạn tối đa 20 đoạn.`);
+      return;
+    }
+
+    let newlySelectedCount = 0;
+    setSelectedParagraphs((prev) => {
+      const next = { ...prev };
+      for (const para of ingestionResult.paragraphs) {
+        const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+        const isTooLong = para.text.length > 1500;
+        const isAiSuggested = !!para.suggested_unit_type;
+
+        if (isAiSuggested && !isSaved && !isTooLong) {
+          if (!next[para.id]?.selected) {
+            if (newlySelectedCount < availableSlots) {
+              next[para.id] = {
+                ...(next[para.id] || {}),
+                selected: true,
+                unitType: para.suggested_unit_type || 'SYMPTOMS',
+                diseaseClass: next[para.id]?.diseaseClass || ingestClass,
+              };
+              newlySelectedCount++;
+            }
+          }
+        }
+      }
+      return next;
+    });
+
+    if (newlySelectedCount > 0) {
+      toast.success(`Đã tự động tick chọn ${newlySelectedCount} đoạn theo gợi ý của AI.`);
+    } else {
+      toast.info('Không có thêm đoạn AI gợi ý hợp lệ nào để chọn.');
+    }
   };
 
   const handleRemoveMention = (paraId: string, mentionIndex: number) => {
@@ -1192,6 +1249,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           unit_type: val.unitType,
           custom_text: p?.text,
           mentions: p?.mentions || [],
+          model_class: val.diseaseClass || ingestClass,
         };
       });
 
@@ -1200,10 +1258,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return;
     }
 
-    if (selections.length + existingVerbatimCount > 8) {
+    if (selections.length + existingVerbatimCount > 20) {
       toast.error(existingVerbatimCount > 0
-        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 8 đoạn (TASK-15).`
-        : 'Mỗi bài viết chỉ được trích dẫn tối đa 8 đoạn nguyên văn (TASK-15).');
+        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 20 đoạn (mở rộng phục vụ đồ án).`
+        : 'Mỗi bài viết được trích dẫn tối đa 20 đoạn nguyên văn (mở rộng phục vụ đồ án).');
       return;
     }
 
@@ -1215,10 +1273,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }, 0);
 
     const articleLen = ingestionResult.article_length || ingestText.length || 1;
-    const allowedQuota = Math.max(1200, Math.floor(articleLen * 0.3));
+    const allowedQuota = Math.max(2500, Math.floor(articleLen * 0.60));
 
     if (currentSelectedChars + existingVerbatimChars > allowedQuota) {
-      toast.error(`Tổng số ký tự các đoạn đã chọn (${currentSelectedChars.toLocaleString('vi-VN')}) vượt quá giới hạn trích dẫn hợp lý (${allowedQuota.toLocaleString('vi-VN')} ký tự, tối đa 30% bài theo TASK-15).`);
+      toast.error(`Tổng số ký tự các đoạn đã chọn (${currentSelectedChars.toLocaleString('vi-VN')}) vượt quá giới hạn trích dẫn hợp lý (${allowedQuota.toLocaleString('vi-VN')} ký tự, tối đa 60% bài theo cấu hình mở rộng đồ án).`);
       return;
     }
 
@@ -1275,8 +1333,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return acc + (p?.text.length || 0);
     }, 0);
   const articleLength = ingestionResult?.article_length || ingestText.length || 1;
-  const allowedCharsQuota = Math.max(1200, Math.floor(articleLength * 0.3));
-  // Hạn mức 8 đoạn / 30% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
+  const allowedCharsQuota = Math.max(2500, Math.floor(articleLength * 0.60));
+  // Hạn mức 20 đoạn / 60% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
   const countWithSaved = countSelected + existingVerbatimCount;
   const charsWithSaved = totalSelectedChars + existingVerbatimChars;
 
@@ -2323,7 +2381,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               type="text"
                               value={ingestAuthor}
                               onChange={(e) => setIngestAuthor(e.target.value)}
-                              placeholder="TS. Nguyễn Văn A..."
+                              placeholder="(Để trống nếu không rõ tác giả)"
                               className="text-xs bg-background"
                             />
                           </div>
@@ -2350,7 +2408,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               type="text"
                               value={ingestUpdatedDate}
                               onChange={(e) => setIngestUpdatedDate(e.target.value)}
-                              placeholder="12/03/2024"
+                              placeholder="(Để trống nếu không có)"
                               className="text-xs bg-background"
                             />
                           </div>
@@ -2437,7 +2495,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           )}
 
                           <span className="text-[11px] text-muted-foreground">
-                            • Nguyên văn: {existingVerbatimCount}/8 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
+                            • Nguyên văn: {existingVerbatimCount}/20 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
                           </span>
                         </div>
 
@@ -2818,10 +2876,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
                                           className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
                                         >
-                                          <option value="">-- Chọn bệnh hại mục tiêu --</option>
+                                          <option value="">-- Chọn chuyên mục / bệnh hại --</option>
                                           {filteredDiseasesByPlant.map((d) => (
                                             <option key={d.classCode} value={d.classCode}>
-                                              {d.commonNameVi}
+                                              {isHealthyTopic(d.commonNameVi, d.classCode)
+                                                ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
+                                                : d.commonNameVi}
                                             </option>
                                           ))}
                                         </select>
@@ -3020,8 +3080,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           type="text"
                                           value={ingestAuthor}
                                           onChange={(e) => setIngestAuthor(e.target.value)}
-                                          placeholder="TS. Nguyễn Văn A..."
-                                          className="text-xs bg-background"
+                                          placeholder="(Để trống nếu không rõ tác giả)"
+                                          className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
                                         />
                                       </div>
                                     </div>
@@ -3123,8 +3183,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           type="text"
                                           value={ingestUpdatedDate}
                                           onChange={(e) => setIngestUpdatedDate(e.target.value)}
-                                          placeholder="12/03/2024"
-                                          className="text-xs bg-background"
+                                          placeholder="(Để trống nếu không có)"
+                                          className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
                                         />
                                       </div>
                                     </div>
@@ -3161,12 +3221,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         <span>Đoạn trích mới ({newParagraphs.length} đoạn chưa lưu)</span>
                                       </CardTitle>
                                       <CardDescription className="text-xs mt-0.5">
-                                        Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 8 đoạn nguyên văn/bài).
+                                        Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 20 đoạn nguyên văn/bài).
                                       </CardDescription>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleSelectAllAiSuggested}
+                                        className="h-6 text-[10px] gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
+                                        title="Tự động tick chọn tất cả các đoạn trích theo gợi ý của AI"
+                                      >
+                                        <Sparkles className="w-3 h-3 text-emerald-700" />
+                                        <span>Chọn tất cả đoạn AI gợi ý</span>
+                                      </Button>
                                       <Badge variant="secondary" className="bg-muted text-foreground text-[11px]">
-                                        Đoạn: {countWithSaved} / 8
+                                        Đoạn: {countWithSaved} / 20
                                       </Badge>
                                     </div>
                                   </div>
@@ -3174,7 +3245,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 <CardContent className="p-4 space-y-3 max-h-[480px] overflow-y-auto">
                                   {newParagraphs.map((para) => {
                                     const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-                                    const isTooLong = para.text.length > 800;
+                                    const isTooLong = para.text.length > 1500;
 
                                     return (
                                       <div
@@ -3189,7 +3260,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                             <input
                                               type="checkbox"
                                               checked={state.selected}
-                                              disabled={isTooLong || (!state.selected && countWithSaved >= 8)}
+                                              disabled={isTooLong || (!state.selected && countWithSaved >= 20)}
                                               onChange={(e) => {
                                                 setSelectedParagraphs((prev) => ({
                                                   ...prev,
@@ -3207,7 +3278,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                             </span>
                                             {isTooLong && (
                                               <Badge variant="destructive" className="text-[10px] h-5">
-                                                Vượt quá 800 ký tự
+                                                Vượt quá 1.500 ký tự
                                               </Badge>
                                             )}
                                           </label>
@@ -3243,6 +3314,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                               <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
                                               <option value="TREATMENT">Điều trị (TREATMENT)</option>
                                             </select>
+
+                                            <select
+                                              value={state.diseaseClass || ingestClass}
+                                              disabled={!state.selected}
+                                              onChange={(e) => {
+                                                setSelectedParagraphs((prev) => ({
+                                                  ...prev,
+                                                  [para.id]: {
+                                                    ...state,
+                                                    diseaseClass: e.target.value,
+                                                  },
+                                                }));
+                                              }}
+                                              className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50 max-w-[160px] truncate"
+                                              title="Chuyên đề / Bệnh hại cho đoạn trích này"
+                                            >
+                                              {filteredDiseasesByPlant.map((d) => (
+                                                <option key={d.classCode} value={d.classCode}>
+                                                  {isHealthyTopic(d.commonNameVi, d.classCode)
+                                                    ? '🌱 Chăm sóc & Phòng ngừa'
+                                                    : d.commonNameVi}
+                                                </option>
+                                              ))}
+                                            </select>
                                           </div>
                                         </div>
 
@@ -3260,7 +3355,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     <Button
                                       type="button"
                                       onClick={handleCommitParagraphs}
-                                      disabled={committing || countSelected === 0 || countWithSaved > 8}
+                                      disabled={committing || countSelected === 0 || countWithSaved > 20}
                                       className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-9 text-xs px-4"
                                     >
                                       {committing ? 'Đang lưu...' : `Lưu & Duyệt ${countSelected} đoạn mới`}
@@ -3442,10 +3537,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
                             className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
                           >
-                            <option value="">-- Chọn bệnh hại mục tiêu --</option>
+                            <option value="">-- Chọn chuyên mục / bệnh hại --</option>
                             {filteredDiseasesByPlant.map((d) => (
                               <option key={d.classCode} value={d.classCode}>
-                                {d.commonNameVi}
+                                {isHealthyTopic(d.commonNameVi, d.classCode)
+                                  ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
+                                  : d.commonNameVi}
                               </option>
                             ))}
                           </select>
@@ -3486,8 +3583,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             type="text"
                             value={ingestAuthor}
                             onChange={(e) => setIngestAuthor(e.target.value)}
-                            placeholder="TS. Nguyễn Văn A..."
-                            className="text-xs bg-background"
+                            placeholder="(Để trống nếu không rõ tác giả)"
+                            className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
                           />
                         </div>
                       </div>
@@ -3513,8 +3610,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             type="text"
                             value={ingestUpdatedDate}
                             onChange={(e) => setIngestUpdatedDate(e.target.value)}
-                            placeholder="12/03/2024"
-                            className="text-xs bg-background"
+                            placeholder="(Để trống nếu không có)"
+                            className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
                           />
                         </div>
                       </div>
@@ -3550,22 +3647,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               )}
                             </CardTitle>
                             <CardDescription className="text-xs mt-0.5">
-                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 8 đoạn nguyên văn</strong> (≤ 800 ký tự/đoạn, tổng ≤ 30% bài). Tick = Duyệt.
+                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 20 đoạn nguyên văn</strong> (≤ 1.500 ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
                             </CardDescription>
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={handleSelectAllAiSuggested}
+                              className="h-6 text-[10px] gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
+                              title="Tự động tick chọn tất cả các đoạn trích theo gợi ý của AI"
+                            >
+                              <Sparkles className="w-3 h-3 text-emerald-700" />
+                              <span>Chọn tất cả đoạn AI gợi ý</span>
+                            </Button>
                             <Badge
                               variant="secondary"
-                              className={countWithSaved > 8 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                              className={countWithSaved > 20 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
                             >
-                              Đoạn: {countWithSaved} / 8
+                              Đoạn: {countWithSaved} / 20
                             </Badge>
                             <Badge
                               variant="secondary"
                               className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
                             >
-                              <span title="Giới hạn = 30% độ dài bài, tối thiểu 1.200 ký tự">
+                              <span title="Giới hạn = 60% độ dài bài, tối thiểu 2.500 ký tự">
                                 Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((charsWithSaved / allowedCharsQuota) * 100).toFixed(0)}%)
                               </span>
                             </Badge>
@@ -3579,7 +3687,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           .filter((p) => !ingestionResult.ai_suggestion_available || p.suggested_unit_type !== null)
                           .map((para) => {
                             const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-                            const isTooLong = para.text.length > 800;
+                            const isTooLong = para.text.length > 1500;
                             const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
                             const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
 
@@ -3596,7 +3704,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     <input
                                       type="checkbox"
                                       checked={state.selected}
-                                      disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
+                                      disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
                                       onChange={(e) => {
                                         setSelectedParagraphs((prev) => ({
                                           ...prev,
@@ -3619,7 +3727,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     )}
                                     {isTooLong && (
                                       <Badge variant="destructive" className="text-[10px] h-5">
-                                        Vượt quá 800 ký tự
+                                        Vượt quá 1.500 ký tự
                                       </Badge>
                                     )}
                                   </label>
@@ -3634,7 +3742,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                           ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
                                           : 'border-border text-muted-foreground hover:text-foreground'
                                         }`}
-                                      title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
+                                      title={isTooLong ? 'Đoạn quá 1.500 ký tự - bấm để tách' : 'Tách đoạn này thành 2 đoạn nhỏ'}
                                     >
                                       <Scissors className="w-3 h-3" />
                                       <span>Tách đoạn</span>
@@ -3658,6 +3766,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                       <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
                                       <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
                                       <option value="TREATMENT">Điều trị (TREATMENT)</option>
+                                    </select>
+
+                                    <select
+                                      value={state.diseaseClass || ingestClass}
+                                      disabled={!state.selected}
+                                      onChange={(e) => {
+                                        setSelectedParagraphs((prev) => ({
+                                          ...prev,
+                                          [para.id]: {
+                                            ...state,
+                                            diseaseClass: e.target.value,
+                                          },
+                                        }));
+                                      }}
+                                      className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50 max-w-[160px] truncate"
+                                      title="Chuyên đề / Bệnh hại cho đoạn trích này"
+                                    >
+                                      {filteredDiseasesByPlant.map((d) => (
+                                        <option key={d.classCode} value={d.classCode}>
+                                          {isHealthyTopic(d.commonNameVi, d.classCode)
+                                            ? '🌱 Chăm sóc & Phòng ngừa'
+                                            : d.commonNameVi}
+                                        </option>
+                                      ))}
                                     </select>
                                   </div>
                                 </div>
@@ -3810,7 +3942,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   .filter((p) => p.suggested_unit_type === null)
                                   .map((para) => {
                                     const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-                                    const isTooLong = para.text.length > 800;
+                                    const isTooLong = para.text.length > 1500;
                                     const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
                                     const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
 
@@ -3827,7 +3959,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                             <input
                                               type="checkbox"
                                               checked={state.selected}
-                                              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
+                                              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
                                               onChange={(e) => {
                                                 setSelectedParagraphs((prev) => ({
                                                   ...prev,
@@ -3870,7 +4002,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         {charsWithSaved > allowedCharsQuota && (
                           <p className="text-xs text-destructive font-medium">
                             {existingVerbatimChars > 0 ? `Đã lưu ${existingVerbatimChars.toLocaleString('vi-VN')} + chọn thêm ` : 'Đã chọn '}{totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
-                            (30% bài, tối thiểu 1.200). Bỏ bớt đoạn để lưu được.
+                            (60% bài, tối thiểu 2.500). Bỏ bớt đoạn để lưu được.
                           </p>
                         )}
                         {!ingestClass && (
@@ -3878,7 +4010,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         )}
                         <Button
                           onClick={handleCommitParagraphs}
-                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 8 || charsWithSaved > allowedCharsQuota || !ingestClass}
+                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 20 || charsWithSaved > allowedCharsQuota || !ingestClass}
                           className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
                         >
                           {committing ? (
@@ -6049,14 +6181,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (AN TOÀN NGUYÊN VĂN THEO LUẬT SHTT) */}
                   {/* ========================================================================================= */}
                   <Dialog open={splitModalOpen} onOpenChange={setSplitModalOpen}>
-                    <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle className="text-base font-bold flex items-center gap-2">
                           <Scissors className="w-4 h-4 text-emerald-700" />
-                          <span>Tách đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
+                          <span>Chia đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
                         </DialogTitle>
                         <DialogDescription className="text-xs">
-                          Quy định trích dẫn HITL yêu cầu mỗi đoạn tối đa 800 ký tự. Vui lòng chọn điểm ngắt giữa các câu để tách đoạn mà vẫn đảm bảo 100% nguyên văn.
+                          Mỗi đoạn tối đa 1.500 ký tự. Bạn có thể nhấp chuột vào biểu tượng ✂️ sau bất kỳ câu nào để đặt một hoặc nhiều mốc cắt, chia thành nhiều đoạn nhỏ tùy ý.
                         </DialogDescription>
                       </DialogHeader>
 
@@ -6064,77 +6196,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
                         const matches = splitTargetPara.text.match(regex);
                         const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [splitTargetPara.text];
+                        const parts = computeSplitParts(splitTargetPara.text, selectedCutIndices);
+                        const hasInvalidPart = parts.some(p => p.length < 30 || p.length > 1500);
 
                         return (
                           <div className="space-y-4 py-2 text-xs">
                             <div className="p-2.5 bg-blue-50 border border-blue-200 rounded text-blue-900 text-[11px] flex items-start gap-1.5">
                               <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
                               <span>
-                                <strong>Bảo vệ bản quyền nguyên văn (Điều 25 Luật SHTT):</strong> Hệ thống khóa chỉnh sửa nội dung văn bản trực tiếp để chống sai lệch tác phẩm gốc. Hãy bấm nút <strong>[✂️ Tách tại đây]</strong> sau câu mong muốn để chia đoạn.
+                                <strong>Bảo vệ bản quyền nguyên văn:</strong> Nhấp vào nút <strong>[✂️ Đặt mốc cắt]</strong> sau câu mong muốn để chia đoạn. Nhấp lại để hủy mốc. Các đoạn con sẽ giữ 100% câu chữ nguyên gốc.
                               </span>
                             </div>
 
-                            <div className="flex items-center justify-between text-[11px] bg-muted/50 p-2.5 rounded-lg border border-border">
-                              <span>Độ dài đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự ({sents.length} câu)</span>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  const res = autoSplitText(splitTargetPara.text);
-                                  setSplitPart1(res.part1);
-                                  setSplitPart2(res.part2);
-                                  let bestIdx = 0;
-                                  let acc = '';
-                                  for (let i = 0; i < sents.length - 1; i++) {
-                                    acc = (acc ? acc + ' ' : '') + sents[i];
-                                    if (acc.trim().length <= res.part1.length) bestIdx = i;
-                                  }
-                                  setSelectedCutIndex(bestIdx);
-                                  toast.info('Đã tự động tính toán lại vị trí tách theo dấu câu.');
-                                }}
-                                className="h-6 text-[10px] gap-1 px-2"
-                              >
-                                <RefreshCw className="w-2.5 h-2.5" />
-                                Tự động chia giữa câu
-                              </Button>
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-muted/40 p-2.5 rounded-lg border border-border">
+                              <div>
+                                <span>Đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự ({sents.length} câu)</span>
+                                <span className="mx-2 text-muted-foreground/40">•</span>
+                                <span className="font-semibold text-emerald-800">
+                                  Đang chọn chia thành {parts.length} đoạn ({selectedCutIndices.length} mốc cắt)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setSelectedCutIndices([])}
+                                  disabled={selectedCutIndices.length === 0}
+                                  className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
+                                >
+                                  Xóa các mốc
+                                </Button>
+                              </div>
                             </div>
 
-                            {/* Chọn điểm cắt câu tương tác */}
+                            {/* Danh sách câu với các nút mốc cắt tương tác */}
                             {sents.length > 1 && (
-                              <div className="p-3 bg-muted/30 rounded-lg border border-border space-y-2">
+                              <div className="p-3 bg-muted/20 rounded-lg border border-border space-y-2">
                                 <div className="flex items-center justify-between text-xs font-semibold text-foreground">
-                                  <span>Chọn vị trí ngắt câu:</span>
-                                  <span className="text-[11px] text-muted-foreground font-normal">Bấm nút để chọn điểm chia</span>
+                                  <span>Văn bản và các điểm ngắt câu:</span>
+                                  <span className="text-[11px] text-muted-foreground font-normal">Nhấp vào mốc để bật/tắt điểm chia</span>
                                 </div>
-                                <div className="space-y-2 max-h-48 overflow-y-auto p-2 bg-background rounded border border-border/70 text-xs leading-relaxed">
+                                <div className="space-y-2 max-h-56 overflow-y-auto p-3 bg-background rounded border border-border/70 text-xs leading-relaxed font-sans">
                                   {sents.map((sent, idx) => {
-                                    const isCutAfterThis = selectedCutIndex === idx;
+                                    const isCutAfterThis = selectedCutIndices.includes(idx);
+                                    const cutOrder = selectedCutIndices.indexOf(idx) + 1;
                                     const isLast = idx === sents.length - 1;
+
                                     return (
                                       <React.Fragment key={idx}>
-                                        <span className={idx <= selectedCutIndex ? 'text-emerald-950 font-medium' : 'text-slate-700'}>
+                                        <span className={isCutAfterThis ? 'text-emerald-950 font-medium bg-emerald-50/60 px-1 py-0.5 rounded' : 'text-foreground'}>
                                           {sent}{' '}
                                         </span>
                                         {!isLast && (
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              setSelectedCutIndex(idx);
-                                              const p1 = sents.slice(0, idx + 1).join(' ').trim();
-                                              const p2 = sents.slice(idx + 1).join(' ').trim();
-                                              setSplitPart1(p1);
-                                              setSplitPart2(p2);
+                                              setSelectedCutIndices(prev => {
+                                                if (prev.includes(idx)) {
+                                                  return prev.filter(x => x !== idx).sort((a, b) => a - b);
+                                                } else {
+                                                  return [...prev, idx].sort((a, b) => a - b);
+                                                }
+                                              });
                                             }}
-                                            className={`inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                                            className={`inline-flex items-center gap-1 mx-1 my-0.5 px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
                                               isCutAfterThis
-                                                ? 'bg-emerald-700 text-white shadow-xs'
-                                                : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300'
+                                                ? 'bg-emerald-700 text-white shadow-xs scale-105'
+                                                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
                                             }`}
-                                            title="Tách đoạn sau câu này"
+                                            title={isCutAfterThis ? 'Bấm để hủy mốc cắt này' : 'Bấm để ngắt câu tại đây'}
                                           >
                                             <Scissors className="w-2.5 h-2.5" />
-                                            <span>{isCutAfterThis ? 'Điểm ngắt đã chọn' : 'Tách tại đây'}</span>
+                                            <span>{isCutAfterThis ? `Mốc #${cutOrder}` : 'Cắt tại đây'}</span>
                                           </button>
                                         )}
                                       </React.Fragment>
@@ -6144,42 +6278,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               </div>
                             )}
 
-                            {/* Đoạn 1 Preview (Read-only) */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                                  <span>Đoạn 1 ({splitTargetPara.id}_1)</span>
-                                </label>
-                                <span className={`text-[11px] font-mono font-medium ${splitPart1.trim().length > 800 || splitPart1.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'}`}>
-                                  {splitPart1.trim().length} / 800 ký tự {splitPart1.trim().length > 800 ? '(Vượt quá 800)' : splitPart1.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
-                                </span>
+                            {/* Danh sách các đoạn con sẽ được tạo ra (Preview) */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                                <span>Xem trước {parts.length} đoạn con sau khi chia:</span>
+                                {hasInvalidPart && (
+                                  <span className="text-destructive text-[11px] font-normal">
+                                    Có đoạn con vượt quá 1.500 ký tự hoặc quá ngắn (&lt; 30 ký tự)
+                                  </span>
+                                )}
                               </div>
-                              <Textarea
-                                value={splitPart1}
-                                readOnly
-                                rows={4}
-                                className="text-xs bg-muted/40 cursor-default leading-relaxed select-all"
-                                placeholder="Nội dung nửa đầu..."
-                              />
-                            </div>
+                              <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {parts.map((partText, pIdx) => {
+                                  const len = partText.length;
+                                  const isTooLong = len > 1500;
+                                  const isTooShort = len < 30;
 
-                            {/* Đoạn 2 Preview (Read-only) */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                                  <span>Đoạn 2 ({splitTargetPara.id}_2)</span>
-                                </label>
-                                <span className={`text-[11px] font-mono font-medium ${splitPart2.trim().length > 800 || splitPart2.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'}`}>
-                                  {splitPart2.trim().length} / 800 ký tự {splitPart2.trim().length > 800 ? '(Vượt quá 800)' : splitPart2.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
-                                </span>
+                                  return (
+                                    <div key={pIdx} className="p-2.5 bg-background rounded-lg border border-border space-y-1">
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-bold text-emerald-800 text-xs">
+                                          Đoạn #{pIdx + 1} ({splitTargetPara.id}_{pIdx + 1})
+                                        </span>
+                                        <span className={`text-[11px] font-mono font-medium ${
+                                          isTooLong || isTooShort ? 'text-destructive font-bold' : 'text-emerald-700'
+                                        }`}>
+                                          {len} / 1.500 ký tự {isTooLong ? '(Quá dài > 1500)' : isTooShort ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs text-foreground/80 italic leading-relaxed line-clamp-3 select-all bg-muted/30 p-2 rounded">
+                                        "{partText}"
+                                      </p>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                              <Textarea
-                                value={splitPart2}
-                                readOnly
-                                rows={4}
-                                className="text-xs bg-muted/40 cursor-default leading-relaxed select-all"
-                                placeholder="Nội dung nửa sau..."
-                              />
                             </div>
                           </div>
                         );
@@ -6193,16 +6326,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           size="sm"
                           onClick={handleConfirmSplit}
                           disabled={
-                            !splitPart1.trim() ||
-                            !splitPart2.trim() ||
-                            splitPart1.trim().length > 800 ||
-                            splitPart2.trim().length > 800 ||
-                            splitPart1.trim().length < 30 ||
-                            splitPart2.trim().length < 30
+                            !splitTargetPara ||
+                            selectedCutIndices.length === 0 ||
+                            computeSplitParts(splitTargetPara.text, selectedCutIndices).some(p => p.length < 30 || p.length > 1500)
                           }
-                          className="bg-emerald-700 hover:bg-emerald-800 text-white"
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
                         >
-                          Xác nhận tách thành 2 đoạn
+                          Xác nhận chia thành {selectedCutIndices.length + 1} đoạn
                         </Button>
                       </DialogFooter>
                     </DialogContent>

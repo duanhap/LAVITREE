@@ -988,9 +988,9 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = "Cần chọn ít nhất 1 đoạn trích dẫn để lưu." });
         }
 
-        if (dto.Selections.Count > 8)
+        if (dto.Selections.Count > 20)
         {
-            return BadRequest(new { detail = "Mỗi bài chỉ được trích dẫn tối đa 8 đoạn nguyên văn (TASK-15)." });
+            return BadRequest(new { detail = "Mỗi bài chỉ được trích dẫn tối đa 20 đoạn nguyên văn (TASK-15 mở rộng đồ án)." });
         }
 
         var allowedUnitTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1012,9 +1012,9 @@ public class KnowledgeController : ControllerBase
             }
         }
 
-        // Kiểm tra tồn tại trong session RAM & độ dài <= 800 ký tự (hỗ trợ đoạn tách và chỉnh sửa mentions)
+        // Kiểm tra tồn tại trong session RAM & độ dài <= 1500 ký tự (hỗ trợ đoạn tách và chỉnh sửa mentions)
         var sessionDict = session.Paragraphs.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
-        var chosenParagraphs = new List<(string Id, string Text, string UnitType, List<MentionDto> Mentions)>();
+        var chosenParagraphs = new List<(string Id, string Text, string UnitType, List<MentionDto> Mentions, string? ModelClass)>();
 
         foreach (var sel in dto.Selections)
         {
@@ -1067,21 +1067,21 @@ public class KnowledgeController : ControllerBase
                 return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' quá ngắn ({chosenText.Length} ký tự, tối thiểu 30 ký tự)." });
             }
 
-            if (chosenText.Length > 800)
+            if (chosenText.Length > 1500)
             {
-                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {chosenText.Length} ký tự, vượt quá giới hạn 800 ký tự cho phép." });
+                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {chosenText.Length} ký tự, vượt quá giới hạn 1500 ký tự cho phép (đồ án mở rộng)." });
             }
 
-            chosenParagraphs.Add((sel.ParagraphId, chosenText, sel.UnitType.ToUpperInvariant(), chosenMentions));
+            chosenParagraphs.Add((sel.ParagraphId, chosenText, sel.UnitType.ToUpperInvariant(), chosenMentions, sel.ModelClass));
         }
 
-        // Quy tắc trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT):
-        // Tổng số ký tự các đoạn trích dẫn của bài <= max(1200 ký tự, 30% độ dài bài viết)
+        // Quy tắc trích dẫn (TASK-15 demo đồ án):
+        // Tổng số ký tự các đoạn trích dẫn của bài <= max(2500 ký tự, 60% độ dài bài viết)
         var totalSelectedChars = chosenParagraphs.Sum(p => p.Text.Length);
-        var allowedCharsQuota = Math.Max(1200, (int)Math.Floor(session.ArticleLength * 0.30));
+        var allowedCharsQuota = Math.Max(2500, (int)Math.Floor(session.ArticleLength * 0.60));
         if (session.ArticleLength > 0 && totalSelectedChars > allowedCharsQuota)
         {
-            return BadRequest(new { detail = $"Tổng độ dài các đoạn đã chọn ({totalSelectedChars:N0} ký tự) vượt quá giới hạn trích dẫn hợp lý cho bài viết này ({allowedCharsQuota:N0} ký tự, tối đa 30% độ dài bài báo theo quy định TASK-15)." });
+            return BadRequest(new { detail = $"Tổng độ dài các đoạn đã chọn ({totalSelectedChars:N0} ký tự) vượt quá giới hạn trích dẫn ({allowedCharsQuota:N0} ký tự, tối đa 60% độ dài bài báo theo cấu hình demo TASK-15)." });
         }
 
         // Kiểm tra số lượng đoạn nguyên văn đã lưu trong CSDL của URL này (chuẩn hoá)
@@ -1100,19 +1100,18 @@ public class KnowledgeController : ControllerBase
                 .Where(s => NormalizeUrl(s.SourceUrl) == normalizedUrl)
                 .ToList();
 
-            if (existingVerbatim.Count + chosenParagraphs.Count > 8)
+            if (existingVerbatim.Count + chosenParagraphs.Count > 20)
             {
                 await transaction.RollbackAsync();
-                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 8 đoạn nguyên văn cho mỗi URL theo quy định trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT)." });
+                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 20 đoạn nguyên văn cho mỗi URL (TASK-15 mở rộng đồ án)." });
             }
 
-            // Hạn mức ký tự tính CỘNG DỒN với các đoạn đã lưu trước đó của cùng URL,
-            // nếu không Admin chia nhỏ nhiều lần commit là vượt được 30% bài
+            // Hạn mức ký tự tính CỘNG DỒN với các đoạn đã lưu trước đó của cùng URL
             var existingChars = existingVerbatim.Sum(s => (s.EvidenceText ?? string.Empty).Length);
             if (session.ArticleLength > 0 && existingChars + totalSelectedChars > allowedCharsQuota)
             {
                 await transaction.RollbackAsync();
-                return BadRequest(new { detail = $"Bài báo này đã lưu {existingChars:N0} ký tự nguyên văn. Thêm {totalSelectedChars:N0} ký tự sẽ vượt giới hạn trích dẫn hợp lý {allowedCharsQuota:N0} ký tự (30% bài, tối thiểu 1.200)." });
+                return BadRequest(new { detail = $"Bài báo này đã lưu {existingChars:N0} ký tự nguyên văn. Thêm {totalSelectedChars:N0} ký tự sẽ vượt giới hạn trích dẫn {allowedCharsQuota:N0} ký tự (60% bài, tối thiểu 2.500)." });
             }
 
             // Xác định metadata cuối cùng do Admin duyệt / sửa ở Bước 2
@@ -1150,7 +1149,7 @@ public class KnowledgeController : ControllerBase
             var createdSources = new List<KnowledgeSource>();
             var now = DateTime.UtcNow;
 
-            foreach (var (pId, text, unitType, mentions) in chosenParagraphs)
+            foreach (var (pId, text, unitType, mentions, selModelClass) in chosenParagraphs)
             {
                 var cleanText = text.Trim();
                 // Bỏ qua nếu đoạn trùng chữ 100% với một đoạn đã lưu của cùng URL
@@ -1160,14 +1159,29 @@ public class KnowledgeController : ControllerBase
                     continue;
                 }
 
+                // Hỗ trợ chuyên mục / bệnh hại riêng cho từng đoạn
+                var segModelClass = finalModelClass;
+                var segPlantName = plantName;
+                var segDiseaseName = diseaseName;
+                if (!string.IsNullOrWhiteSpace(selModelClass))
+                {
+                    var segMeta = All38Classes.FirstOrDefault(c => c.ModelClass == selModelClass.Trim());
+                    if (segMeta != null)
+                    {
+                        segModelClass = segMeta.ModelClass;
+                        segPlantName = segMeta.PlantName;
+                        segDiseaseName = segMeta.DiseaseName;
+                    }
+                }
+
                 var contentType = ContentTypeForUnit(unitType);
 
                 var source = new KnowledgeSource
                 {
                     Id = Guid.NewGuid(),
-                    ModelClass = finalModelClass,
-                    PlantName = plantName,
-                    DiseaseName = diseaseName,
+                    ModelClass = segModelClass,
+                    PlantName = segPlantName,
+                    DiseaseName = segDiseaseName,
                     SourceUrl = normalizedUrl, // Lưu URL đã chuẩn hóa
                     SourceTitle = finalSourceTitle,
                     Organization = finalOrg,
