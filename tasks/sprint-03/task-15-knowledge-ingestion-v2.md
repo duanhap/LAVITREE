@@ -440,3 +440,29 @@ Yêu cầu: bấm vào một bài ở Duyệt tri thức để sửa lại như 
 **Kiểm thử:** Core build sạch; web `tsc` và `npm run build` đạt. Chrome headless trên Postgres local: mở bài từ Duyệt tri thức, thông tin điền đúng; lưu thông tin bài `200` (3 đoạn về chờ duyệt); đổi loại đoạn `200`; dán lại bài thấy 3 nhãn "Đã lưu", lưu thêm đoạn `201`; Thoát sửa xóa form. Qua API: đoạn có tiêu đề mục `201`, dòng tiêu đề `400`, đoạn tách bị sửa chữ `400`, sửa chữ đoạn nguyên văn `400`.
 
 **Chưa làm:** trang Duyệt tri thức chưa lọc riêng "bài chỉ có tóm tắt"; chưa thử trên Supabase (cần duyệt).
+
+---
+
+## 13. ĐỢT CẢI TIẾN TOÀN DIỆN UX/UI & ĐỒNG BỘ TRI THỨC (14/11/2026, theo phản hồi Admin thực tế)
+
+Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng trình duyệt Google Chrome và nâng cấp giao diện, nghiệp vụ theo yêu cầu:
+
+### 13.1. Thuật ngữ nghiệp vụ & Khung nhìn Admin (AdminShell)
+- [ ] **Đổi tên "Reindex" thành "Đồng bộ tri thức"**: Thay thế toàn bộ thuật ngữ kỹ thuật "Reindex" / "Trạng thái Reindex" trên nút bấm, tiêu đề Dialog và thông báo bằng "Đồng bộ tri thức", kèm chú thích rõ ràng về việc cập nhật dữ liệu vector nạp não cho trợ lý AI Lavi.
+- [ ] **Menu thu nhỏ (Collapsible Sidebar)**: Nâng cấp `AdminShell` cho phép thu gọn sidebar từ `w-64` về icon bar `w-16` (hoặc mở lại), lưu tùy chọn vào `localStorage`. Tối ưu không gian ngang cho màn hình 2 cột khi nhập bài.
+- [ ] **Nút mở link bài viết gốc tab mới**: Thêm icon `ExternalLink` ngay cạnh ô URL bài viết gốc và cạnh tiêu đề bài, click mở tab mới `target="_blank" rel="noopener noreferrer"`.
+
+### 13.2. Chuẩn hóa Form & Tách bạch thông tin bài viết
+- [ ] **Xóa bỏ trùng lặp chọn Cây / Bệnh**: Bỏ hẳn mục chọn cây/bệnh ở cột trái, chỉ giữ duy nhất tại Card "Thông tin bài viết & Phân loại" ở cột phải.
+- [ ] **Tách bạch 4 trường thông tin bài báo**: Tách riêng Tác giả, Cơ quan / Viện nghiên cứu, Ngày đăng bài, Ngày cập nhật thay vì dồn chung vào một ô.
+
+### 13.3. Tương tác Thẻ vật tư (Mentions) & Tách đoạn nguyên văn chuẩn Điều 25 Luật SHTT
+- [ ] **Click tag highlight văn bản**: Khi click hoặc hover vào thẻ tag vật tư, đoạn văn bản tương ứng bên trên tự động sáng đèn / highlight màu vàng nhạt.
+- [ ] **Dịch nghĩa / Chú thích tiếng Việt cho tag**: Hiển thị tooltip hoặc bản dịch tiếng Việt cho các thuật ngữ/hoạt chất tiếng Anh (ví dụ: Thinning of whole plants -> Tỉa thưa cả cây, copper -> Gốc đồng).
+- [ ] **Khóa sửa chữ khi tách đoạn (Click-to-split)**: Tuyệt đối cấm gõ tự do (free-text) khi tách đoạn để tránh sửa đổi làm sai lệch bài báo gốc (vi phạm Điều 25 Luật SHTT). Chuyển sang cơ chế click chọn dấu câu (`.`, `!`, `?`, `;`) để chia đôi đoạn, bảo đảm 2 đoạn con ghép lại đúng 100% nguyên văn bài gốc.
+
+### 13.4. Tối giản Bảng Duyệt tri thức & Giao diện 2 Tab chi tiết bài viết
+- [ ] **Tối giản bảng Duyệt tri thức (`/admin/knowledge`)**: Bỏ các nút rườm rà (Xem chi tiết, Thu gọn, Bỏ duyệt cả bài trên từng dòng), mỗi dòng chỉ giữ nút chính "Mở bài viết" và nút xóa.
+- [ ] **Giao diện Chi tiết bài viết 2 Tab**:
+  - **Tab 1 ("Thông tin & Các đoạn đã duyệt")**: Xem toàn bộ thông tin bài báo, các đoạn trích đã lưu/duyệt. Tích hợp thuật toán cảnh báo màu vàng khi phát hiện các đoạn trích có nội dung trùng lặp nhau (> 85%).
+  - **Tab 2 ("Nạp thêm / Tái phân tích bài báo")**: Dán bài mới để phân tích thêm, tự động ẩn các đoạn đã lưu ở Tab 1 để tránh dài trang. Tích hợp bảng so sánh thông minh (Side-by-side Diff) nếu thông tin AI mới khác với thông tin đang lưu ở Tab 1, cho phép Admin 1-click chọn "Giữ cũ" hoặc "Áp dụng mới".

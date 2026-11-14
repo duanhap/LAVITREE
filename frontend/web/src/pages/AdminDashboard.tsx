@@ -13,7 +13,7 @@ import {
   ExternalLink, Search, Filter, Layers, Database, Package,
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon,
-  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors
+  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -171,20 +171,138 @@ const SECTION_COPY: Record<string, { title: string; description: string }> = {
   },
 };
 
+// Từ điển dịch thuật thuật ngữ nông nghiệp / hoạt chất sang tiếng Việt
+const AGRI_TRANSLATIONS: Record<string, string> = {
+  'fungicides': 'Thuốc trừ nấm bệnh',
+  'fungicide': 'Thuốc trừ nấm bệnh',
+  'copper': 'Gốc đồng (diệt nấm & vi khuẩn)',
+  'chlorothalonil': 'Hoạt chất trừ nấm Chlorothalonil',
+  'mancozeb': 'Hoạt chất trừ nấm Mancozeb',
+  'azoxystrobin': 'Hoạt chất Azoxystrobin',
+  'metalaxyl': 'Hoạt chất lưu dẫn Metalaxyl',
+  'thinning of whole plants': 'Tỉa bớt toàn bộ cây / tỉa thưa',
+  'thinning': 'Tỉa thưa mật độ',
+  'removal of selected branches from individual plants': 'Tỉa bỏ cành bệnh / cành rậm rạp',
+  'removal of selected branches': 'Cắt tỉa cành chọn lọc',
+  'crop rotation': 'Luân canh cây trồng',
+  'drip irrigation': 'Tưới nhỏ giọt (tránh ướt lá)',
+  'pruning': 'Cắt tỉa cành',
+  'mulching': 'Phủ gốc / phủ bạt giữ ẩm',
+  'resistant varieties': 'Giống kháng bệnh',
+  'sanitation': 'Vệ sinh đồng ruộng / tiêu hủy tàn dư',
+  'biological control': 'Biện pháp sinh học',
+  'neem oil': 'Dầu neem sinh học',
+  'bacillus subtilis': 'Vi khuẩn đối kháng Bacillus subtilis',
+  'trichoderma': 'Nấm đối kháng Trichoderma',
+  'potassium phosphite': 'Lân Phosphite kích kháng',
+  'bordeaux mixture': 'Booc-đô (Bordeaux) trị nấm',
+  'insecticide': 'Thuốc trừ sâu',
+  'insecticides': 'Thuốc trừ sâu',
+  'potassium': 'Phân Kali',
+  'calcium': 'Canxi chống nứt / thối'
+};
+
+const getAgriTranslation = (text: string): string | null => {
+  if (!text) return null;
+  const lower = text.trim().toLowerCase();
+  if (AGRI_TRANSLATIONS[lower]) return AGRI_TRANSLATIONS[lower];
+  for (const [key, val] of Object.entries(AGRI_TRANSLATIONS)) {
+    if (lower.includes(key)) return val;
+  }
+  return null;
+};
+
+const buildCombinedOrg = (org: string, author: string) => {
+  const o = org.trim();
+  const a = author.trim();
+  if (o && a) return `${o} (Tác giả: ${a})`;
+  if (a) return `Tác giả: ${a}`;
+  return o;
+};
+
+const buildCombinedDate = (pubDate: string, upDate: string) => {
+  const p = pubDate.trim();
+  const u = upDate.trim();
+  if (p && u) return `${p} (Cập nhật: ${u})`;
+  if (u) return `Cập nhật: ${u}`;
+  return p;
+};
+
+interface DuplicatePair {
+  idA: string;
+  idB: string;
+  indexA: number;
+  indexB: number;
+  textA: string;
+  textB: string;
+  similarity: number;
+}
+
+const findDuplicateChunks = (rows: KnowledgeSourceItem[]): DuplicatePair[] => {
+  const clean = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+  const pairs: DuplicatePair[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const textA = clean(rows[i].evidenceText);
+      const textB = clean(rows[j].evidenceText);
+      if (!textA || !textB) continue;
+
+      if (textA === textB) {
+        pairs.push({
+          idA: rows[i].id,
+          idB: rows[j].id,
+          indexA: i + 1,
+          indexB: j + 1,
+          textA: rows[i].evidenceText,
+          textB: rows[j].evidenceText,
+          similarity: 100,
+        });
+        continue;
+      }
+
+      const wordsA = new Set(textA.split(' '));
+      const wordsB = new Set(textB.split(' '));
+      let inter = 0;
+      for (const w of wordsA) {
+        if (wordsB.has(w)) inter++;
+      }
+      const union = new Set([...wordsA, ...wordsB]).size;
+      const sim = union > 0 ? (inter / union) * 100 : 0;
+      if (sim >= 75) {
+        pairs.push({
+          idA: rows[i].id,
+          idB: rows[j].id,
+          indexA: i + 1,
+          indexB: j + 1,
+          textA: rows[i].evidenceText,
+          textB: rows[j].evidenceText,
+          similarity: Math.round(sim),
+        });
+      }
+    }
+  }
+  return pairs;
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'ingestion' }) => {
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
   const [diseases, setDiseases] = useState<DiseaseOption[]>([]);
 
   // ==================== TAB 1: NHẬP BÀI BÁO (HITL INGESTION) ====================
-  // Mục 3 là "Tùy chọn - để AI tự đoán": không chọn sẵn cây/bệnh
+  // Phân loại cây/bệnh
   const [ingestClass, setIngestClass] = useState<string>('');
   // true khi cây/bệnh do AI đoán từ bài trước: bài mới phải đoán lại, không mang theo
   const [classFromAi, setClassFromAi] = useState<boolean>(false);
   const [selectedPlant, setSelectedPlant] = useState<string>('');
   const [ingestUrl, setIngestUrl] = useState<string>('');
   const [ingestTitle, setIngestTitle] = useState<string>('');
+  // Tách biệt rõ ràng 4 trường: Cơ quan, Tác giả, Ngày đăng, Ngày cập nhật
   const [ingestOrg, setIngestOrg] = useState<string>('');
-  const [ingestDate, setIngestDate] = useState<string>('');
+  const [ingestAuthor, setIngestAuthor] = useState<string>('');
+  const [ingestPublishedDate, setIngestPublishedDate] = useState<string>('');
+  const [ingestUpdatedDate, setIngestUpdatedDate] = useState<string>('');
+  const [ingestDate, setIngestDate] = useState<string>(''); // fallback tương thích
   const [ingestText, setIngestText] = useState<string>('');
   const [ingesting, setIngesting] = useState<boolean>(false);
   const [ingestionResult, setIngestionResult] = useState<IngestionResponse | null>(null);
@@ -203,14 +321,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [editRows, setEditRows] = useState<KnowledgeSourceItem[]>([]);
   const [editLoading, setEditLoading] = useState<boolean>(false);
   const [editSaving, setEditSaving] = useState<boolean>(false);
-  const [editOriginalMeta, setEditOriginalMeta] = useState({ modelClass: '', title: '', org: '', date: '' });
+  const [editOriginalMeta, setEditOriginalMeta] = useState({
+    modelClass: '',
+    title: '',
+    org: '',
+    author: '',
+    pubDate: '',
+    upDate: '',
+    date: '',
+  });
   const [summaryDrafts, setSummaryDrafts] = useState<Record<string, string>>({});
+  const [editSubTab, setEditSubTab] = useState<'approved' | 'reparse'>('approved');
+  const [dismissMetaDiff, setDismissMetaDiff] = useState<boolean>(false);
 
-  // Tách đoạn > 800 ký tự (hoặc theo ý Admin)
+  // Highlight cụm từ trích xuất (mention tag)
+  const [highlightedMention, setHighlightedMention] = useState<{ paraId: string; text: string } | null>(null);
+
+  // Tách đoạn an toàn theo dấu câu (Điều 25 Luật SHTT - Không sửa đổi nguyên văn)
   const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
   const [splitTargetPara, setSplitTargetPara] = useState<ParagraphItem | null>(null);
   const [splitPart1, setSplitPart1] = useState<string>('');
   const [splitPart2, setSplitPart2] = useState<string>('');
+  const [selectedCutIndex, setSelectedCutIndex] = useState<number>(-1);
 
   // Thêm / sửa thẻ vật tư (mentions)
   const [addingMentionParaId, setAddingMentionParaId] = useState<string | null>(null);
@@ -472,6 +604,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     if (editUrl) return;
     setIngestTitle('');
     setIngestOrg('');
+    setIngestAuthor('');
+    setIngestPublishedDate('');
+    setIngestUpdatedDate('');
     setIngestDate('');
     if (classFromAi) {
       setIngestClass('');
@@ -507,19 +642,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setEditUrl(url);
       const first = rows[0];
       if (first) {
-        const date = first.publishedDate && first.publishedDate !== 'Không ghi ngày' ? first.publishedDate : '';
-        setEditOriginalMeta({ modelClass: first.modelClass, title: first.sourceTitle, org: first.organization, date });
+        const rawOrg = first.organization || '';
+        let parsedOrg = rawOrg;
+        let parsedAuthor = '';
+        const authorMatch = rawOrg.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+        if (authorMatch) {
+          parsedOrg = authorMatch[1].trim();
+          parsedAuthor = authorMatch[2].trim();
+        } else if (rawOrg.startsWith('Tác giả:')) {
+          parsedOrg = '';
+          parsedAuthor = rawOrg.replace('Tác giả:', '').trim();
+        }
+
+        const rawDate = first.publishedDate && first.publishedDate !== 'Không ghi ngày' ? first.publishedDate : '';
+        let parsedPubDate = rawDate;
+        let parsedUpDate = '';
+        const dateMatch = rawDate.match(/^(.*?)\s*\((?:Cập nhật|Updated):\s*(.*?)\)$/i);
+        if (dateMatch) {
+          parsedPubDate = dateMatch[1].trim();
+          parsedUpDate = dateMatch[2].trim();
+        }
+
+        setEditOriginalMeta({
+          modelClass: first.modelClass,
+          title: first.sourceTitle,
+          org: parsedOrg,
+          author: parsedAuthor,
+          pubDate: parsedPubDate,
+          upDate: parsedUpDate,
+          date: rawDate,
+        });
+
         if (!keepForm) {
           setIngestUrl(res.data.source_url || url);
           setIngestClass(first.modelClass);
           setSelectedPlant(first.plantName);
           setClassFromAi(false);
           setIngestTitle(first.sourceTitle);
-          setIngestOrg(first.organization);
-          setIngestDate(date);
+          setIngestOrg(parsedOrg);
+          setIngestAuthor(parsedAuthor);
+          setIngestPublishedDate(parsedPubDate);
+          setIngestUpdatedDate(parsedUpDate);
+          setIngestDate(rawDate);
           setIngestText('');
           setIngestionResult(null);
           setSelectedParagraphs({});
+          setEditSubTab('approved');
         }
       }
     } catch (err) {
@@ -549,11 +717,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     setIngestText('');
     setIngestTitle('');
     setIngestOrg('');
+    setIngestAuthor('');
+    setIngestPublishedDate('');
+    setIngestUpdatedDate('');
     setIngestDate('');
     setIngestClass('');
     setSelectedPlant('');
     setIngestionResult(null);
     setSelectedParagraphs({});
+    setEditSubTab('approved');
     if (clearParam) navigate('/admin/ingest', { replace: true });
   };
 
@@ -561,7 +733,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     ingestClass !== editOriginalMeta.modelClass ||
     ingestTitle.trim() !== editOriginalMeta.title ||
     ingestOrg.trim() !== editOriginalMeta.org ||
-    ingestDate.trim() !== editOriginalMeta.date
+    ingestAuthor.trim() !== editOriginalMeta.author ||
+    ingestPublishedDate.trim() !== editOriginalMeta.pubDate ||
+    ingestUpdatedDate.trim() !== editOriginalMeta.upDate
   );
 
   const saveEditedArticleMeta = async (silent = false): Promise<boolean> => {
@@ -572,12 +746,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
     try {
       setEditSaving(true);
+      const combinedOrg = buildCombinedOrg(ingestOrg, ingestAuthor);
+      const combinedDate = buildCombinedDate(ingestPublishedDate, ingestUpdatedDate);
       const res = await apiClient.patch('/knowledge/sources/by-url', {
         source_url: editUrl,
         model_class: ingestClass,
         source_title: ingestTitle.trim(),
-        organization: ingestOrg.trim(),
-        published_date: ingestDate.trim(),
+        organization: combinedOrg,
+        published_date: combinedDate,
       });
       if (!silent) {
         toast.success(`Đã lưu thông tin bài cho ${res.data.updated_count} đoạn. Các đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.`);
@@ -589,6 +765,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return false;
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  // Duyệt hoặc bỏ duyệt trực tiếp từng đoạn trích
+  const handleToggleApproveSingleSource = async (sourceId: string, currentStatus: boolean) => {
+    try {
+      const nextStatus = !currentStatus;
+      await apiClient.patch(`/knowledge/sources/${sourceId}/approve`, {
+        is_approved: nextStatus,
+        reviewer_notes: nextStatus ? 'Admin phê duyệt qua màn hình chi tiết bài viết' : 'Admin bỏ duyệt',
+      });
+      toast.success(nextStatus ? 'Đã duyệt đoạn trích này.' : 'Đã bỏ duyệt đoạn trích này.');
+      setEditRows((prev) => prev.map((r) => (r.id === sourceId ? { ...r, isManualApproved: nextStatus } : r)));
+      setSources((prev) => prev.map((r) => (r.id === sourceId ? { ...r, isManualApproved: nextStatus } : r)));
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  // Xóa trực tiếp 1 đoạn trích trong bài đã lưu
+  const handleDeleteSingleSource = async (sourceId: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa đoạn trích này khỏi bài viết?')) return;
+    try {
+      await apiClient.delete(`/knowledge/sources/${sourceId}`);
+      toast.success('Đã xóa đoạn trích.');
+      setEditRows((prev) => prev.filter((r) => r.id !== sourceId));
+      setSources((prev) => prev.filter((r) => r.id !== sourceId));
+    } catch (err) {
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -638,18 +843,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setIngestionResult(res.data);
 
       // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập).
-      // Đang sửa bài đã lưu thì giữ thông tin bài hiện có, không để AI ghi đè.
+      // Đang sửa bài đã lưu thì giữ thông tin bài hiện có, hiển thị diff cho Admin duyệt.
       if (editUrl) {
-        // giữ nguyên
+        setDismissMetaDiff(false);
       } else if (!res.data.suggested_metadata) {
         setIngestTitle('');
         setIngestOrg('');
+        setIngestAuthor('');
+        setIngestPublishedDate('');
+        setIngestUpdatedDate('');
         setIngestDate('');
       } else {
         const meta = res.data.suggested_metadata;
         setIngestTitle(meta.source_title || '');
-        setIngestOrg(meta.organization || '');
-        setIngestDate(meta.published_date || '');
+        if (meta.organization) {
+          const authorMatch = meta.organization.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+          if (authorMatch) {
+            setIngestOrg(authorMatch[1].trim());
+            setIngestAuthor(authorMatch[2].trim());
+          } else {
+            setIngestOrg(meta.organization);
+            setIngestAuthor('');
+          }
+        } else {
+          setIngestOrg('');
+          setIngestAuthor('');
+        }
+        if (meta.published_date) {
+          const dateMatch = meta.published_date.match(/^(.*?)\s*\((?:Cập nhật|Updated):\s*(.*?)\)$/i);
+          if (dateMatch) {
+            setIngestPublishedDate(dateMatch[1].trim());
+            setIngestUpdatedDate(dateMatch[2].trim());
+          } else {
+            setIngestPublishedDate(meta.published_date);
+            setIngestUpdatedDate('');
+          }
+        } else {
+          setIngestPublishedDate('');
+          setIngestUpdatedDate('');
+        }
         if (meta.model_class) {
           if (meta.model_class !== ingestClass) setClassFromAi(true);
           setIngestClass(meta.model_class);
@@ -744,6 +976,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     const { part1, part2 } = autoSplitText(para.text);
     setSplitPart1(part1);
     setSplitPart2(part2);
+
+    const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
+    const matches = para.text.match(regex);
+    const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [para.text];
+
+    let bestIdx = 0;
+    let accumulated = '';
+    for (let i = 0; i < sents.length - 1; i++) {
+      accumulated = (accumulated ? accumulated + ' ' : '') + sents[i];
+      if (accumulated.trim().length <= part1.length) {
+        bestIdx = i;
+      }
+    }
+    setSelectedCutIndex(bestIdx);
     setSplitModalOpen(true);
   };
 
@@ -927,25 +1173,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
     try {
       setCommitting(true);
+      const combinedOrg = buildCombinedOrg(ingestOrg, ingestAuthor) || 'Trung tâm Khuyến nông';
+      const combinedDate = buildCombinedDate(ingestPublishedDate, ingestUpdatedDate) || 'Không ghi ngày';
+
       const res = await apiClient.post(`/knowledge/ingestions/${ingestionResult.ingestion_id}/commit`, {
         model_class: ingestClass,
         source_title: ingestTitle.trim() || 'Bài báo khuyến nông',
-        organization: ingestOrg.trim() || 'Trung tâm Khuyến nông',
-        published_date: ingestDate.trim() || 'Không ghi ngày',
+        organization: combinedOrg,
+        published_date: combinedDate,
         selections,
         reviewer_notes: commitNotes.trim(),
       });
 
-      const reindexText = res.data.reindex_status === 'accepted' ? 'Đang đồng bộ vector nền' : (res.data.reindex_status === 'failed' ? 'Lỗi kết nối đồng bộ' : res.data.reindex_status);
+      const syncStatusText = res.data.reindex_status === 'accepted'
+        ? 'Đang đồng bộ vào bộ nhớ AI Lavi'
+        : (res.data.reindex_status === 'failed' ? 'Lỗi kết nối đồng bộ' : res.data.reindex_status);
       toast.success(
-        `Đã lưu và duyệt ${res.data.created_source_ids?.length || selections.length} đoạn nguyên văn vào CSDL (${reindexText}).`
+        `Đã lưu và duyệt ${res.data.created_source_ids?.length || selections.length} đoạn nguyên văn vào CSDL (${syncStatusText}).`
       );
 
       if (editUrl) {
-        // Ở lại chế độ sửa, nạp lại danh sách đoạn đã lưu
+        // Ở lại chế độ sửa, nạp lại danh sách đoạn đã lưu và chuyển sang Tab 1
         setIngestionResult(null);
         setSelectedParagraphs({});
         setIngestText('');
+        setEditSubTab('approved');
         await loadArticleForEdit(editUrl, true);
         return;
       }
@@ -974,6 +1226,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const countWithSaved = countSelected + existingVerbatimCount;
   const charsWithSaved = totalSelectedChars + existingVerbatimChars;
 
+  // Hiển thị đoạn văn với highlight cụm từ khi click hoặc hover vào thẻ tag
+  const renderParagraphWithHighlight = (paraId: string, text: string) => {
+    if (!highlightedMention || highlightedMention.paraId !== paraId || !highlightedMention.text.trim()) {
+      return text;
+    }
+    const term = highlightedMention.text.trim();
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    if (parts.length === 1) return text;
+
+    return (
+      <>
+        {parts.map((part, i) =>
+          part.toLowerCase() === term.toLowerCase() ? (
+            <mark
+              key={i}
+              className="bg-amber-300 text-stone-900 font-bold px-1 py-0.5 rounded shadow-xs"
+              title={`Cụm từ trích xuất: "${term}"`}
+            >
+              {part}
+            </mark>
+          ) : (
+            part
+          )
+        )}
+      </>
+    );
+  };
+
   // ==================== TAB 2 LOGIC ====================
   const fetchSources = async () => {
     try {
@@ -999,10 +1281,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         prev.map((s) => (s.id === id ? { ...s, isManualApproved: !currentApproved } : s))
       );
 
+      const syncStatus = res.data.reindex_status === 'accepted' ? 'Đang đồng bộ vào bộ nhớ AI Lavi' : res.data.reindex_status;
       toast.success(
         !currentApproved
-          ? `Đã duyệt bài viết. Reindex: ${res.data.reindex_status}`
-          : `Đã bỏ duyệt bài viết. Reindex: ${res.data.reindex_status}`
+          ? `Đã duyệt đoạn tri thức. (${syncStatus})`
+          : `Đã bỏ duyệt đoạn tri thức. (${syncStatus})`
       );
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -1695,9 +1978,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           size="sm"
           onClick={checkReindexStatus}
           className="gap-2 shrink-0 bg-card border-border hover:bg-muted"
+          title="Kiểm tra trạng thái nạp dữ liệu tri thức vào bộ nhớ AI Lavi"
         >
           <Database className="w-4 h-4 text-emerald-700" />
-          <span>Trạng thái Reindex</span>
+          <span>Đồng bộ tri thức</span>
         </Button>
       </div>
 
@@ -1708,111 +1992,92 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         {/* TAB 1: NHẬP BÀI BÁO NGUYÊN VĂN (HITL INGESTION) */}
         {/* ========================================================================================= */}
         <TabsContent value="ingestion" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Cột trái: Form nhập bài */}
-            <div className="lg:col-span-5 space-y-6">
-              <Card className="border-border bg-card shadow-xs">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base font-bold flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-emerald-700" />
-                    <span>Dán văn bản bài báo khuyến nông</span>
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Server không tự tải URL để chống SSRF. Admin copy văn bản từ bài báo/PDF dán vào đây (hỗ trợ Ctrl+A cả trang).
-                  </CardDescription>
-                </CardHeader>
-
-                <CardContent>
-                  <form onSubmit={handleParseArticle} className="space-y-4 text-xs">
-                    <div>
-                      <label className="font-semibold text-foreground block mb-1">
-                        1. Đường dẫn URL bài viết gốc *
-                      </label>
-                      <Input
-                        type="url"
-                        placeholder="https://khuyennongvn.gov.vn/..."
-                        value={ingestUrl}
-                        onChange={(e) => {
-                          setIngestUrl(e.target.value);
-                          if (ingestionResult) resetArticleState();
-                        }}
-                        readOnly={!!editUrl}
-                        title={editUrl ? 'Đang sửa bài đã lưu: URL cố định. Bấm "Thoát sửa" để nhập bài mới.' : undefined}
-                        required
-                        className="text-xs"
-                      />
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-[11px] text-muted-foreground">
-                          {ingestUrl ? 'Đã liên kết nguồn' : 'Dán link trang báo khuyến nông'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewImagePlant(selectedPlant);
-                            setNewImageClass(ingestClass);
-                            setNewImageSourceUrl(ingestUrl);
-                            setNewImageCredit(ingestOrg || 'Trung tâm Khuyến nông');
-                            setAddImageModalOpen(true);
-                          }}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+          {editUrl ? (
+            /* ========================================================================= */
+            /* CHẾ ĐỘ XEM & SỬA BÀI VIẾT ĐÃ LƯU: GIAO DIỆN 2 TAB GỌN GÀNG, TẬP TRUNG */
+            /* ========================================================================= */
+            <div className="space-y-4">
+              {/* Header bài viết đang sửa */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 bg-card border border-border rounded-xl shadow-xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 text-xs py-1 px-2.5 shrink-0">
+                    Đang sửa bài đã lưu
+                  </Badge>
+                  <div className="min-w-0">
+                    <div className="font-bold text-foreground text-sm truncate flex items-center gap-1.5" title={ingestTitle || ingestUrl}>
+                      <span>{ingestTitle || 'Bài viết chưa có tiêu đề'}</span>
+                      {ingestUrl && (
+                        <a
+                          href={ingestUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:text-primary/80 inline-flex items-center p-1 rounded hover:bg-muted"
+                          title="Mở link bài gốc trên trang báo trong tab mới"
                         >
-                          <ImageIcon className="w-3.5 h-3.5" />
-                          <span>Thêm ảnh triệu chứng từ bài này</span>
-                        </button>
-                      </div>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
                     </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="font-semibold text-foreground">
-                          2. Dán toàn văn bài báo *
-                        </label>
-                        <span className="text-[10px] text-muted-foreground">
-                          {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
-                        </span>
-                      </div>
-                      <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
-                        <span>
-                          <strong>Mẹo dán cả trang:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang báo rồi dán vào ô dưới. Hệ thống sẽ tự lọc bỏ menu, quảng cáo và hotline rác!
-                        </span>
-                      </div>
-                      <Textarea
-                        rows={11}
-                        placeholder="Dán toàn bộ nội dung bài báo vào đây. Hệ thống sẽ tự lọc thẻ rác HTML, tách thành các đoạn P1, P2... và gọi AI trích xuất tiêu đề, phân loại bệnh."
-                        value={ingestText}
-                        onChange={(e) => {
-                          setIngestText(e.target.value);
-                          if (ingestionResult) resetArticleState();
-                        }}
-                        onPaste={handlePasteArticleText}
-                        required
-                        maxLength={50000}
-                        className="text-xs font-mono resize-y"
-                      />
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      {selectedPlant ? `${selectedPlant} • ` : ''}
+                      {ingestClass ? `${diseases.find(d => d.classCode === ingestClass)?.commonNameVi || ingestClass} • ` : ''}
+                      {ingestUrl}
                     </div>
+                  </div>
+                </div>
 
-                    {/* Cây trồng & Bệnh hại mục tiêu (Tùy chọn) */}
-                    <div className="p-3 bg-muted/30 rounded-lg border border-border space-y-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exitEditMode()}
+                  className="h-8 text-xs gap-1.5 shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Thoát sửa (Nhập bài mới)</span>
+                </Button>
+              </div>
+
+              {/* 2 Tabs phụ: Tab 1 (Thông tin & Đoạn đã duyệt) vs Tab 2 (Nạp thêm / Tái phân tích) */}
+              <Tabs value={editSubTab} onValueChange={(v) => setEditSubTab(v as 'approved' | 'reparse')} className="space-y-4">
+                <TabsList className="grid grid-cols-2 max-w-lg bg-muted/60 p-1">
+                  <TabsTrigger value="approved" className="gap-2 text-xs py-1.5 font-semibold">
+                    <Layers className="w-4 h-4 text-emerald-700" />
+                    <span>1. Thông tin &amp; Đoạn đã duyệt ({editRows.length})</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="reparse" className="gap-2 text-xs py-1.5 font-semibold">
+                    <Sparkles className="w-4 h-4 text-emerald-700" />
+                    <span>2. Nạp thêm / Tái phân tích bài báo</span>
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* TAB 1: THÔNG TIN & CÁC ĐOẠN ĐÃ DUYỆT */}
+                <TabsContent value="approved" className="space-y-4">
+                  {/* Card thông tin bài viết & phân loại */}
+                  <Card className="border-border bg-card shadow-xs">
+                    <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
                       <div className="flex items-center justify-between">
-                        <label className="font-semibold text-foreground block">
-                          3. Đối tượng Cây trồng &amp; Bệnh hại (Tùy chọn)
-                        </label>
-                        <span className="text-[10px] text-muted-foreground italic">
-                          Có thể để trống để AI tự đoán
+                        <CardTitle className="text-xs font-bold flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-emerald-700" />
+                          <span>Thông tin bài viết &amp; Phân loại</span>
+                        </CardTitle>
+                        <span className="text-[11px] text-muted-foreground">
+                          Áp dụng đồng bộ cho cả {editRows.length} đoạn của bài viết
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    </CardHeader>
+                    <CardContent className="p-4 space-y-3 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
-                          <label className="text-[11px] text-muted-foreground block mb-1">
-                            Loài cây:
+                          <label className="font-semibold text-foreground block mb-1">
+                            Loài cây trồng *
                           </label>
                           <select
                             value={selectedPlant}
                             onChange={(e) => handlePlantChange(e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs focus:ring-1 focus:ring-ring"
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
                           >
-                            <option value="">-- Để AI tự nhận diện --</option>
+                            <option value="">-- Chọn loài cây --</option>
                             {uniquePlants.map((plant) => (
                               <option key={plant} value={plant}>
                                 {plant}
@@ -1820,17 +2085,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             ))}
                           </select>
                         </div>
-
                         <div>
-                          <label className="text-[11px] text-muted-foreground block mb-1">
-                            Tên bệnh mục tiêu:
+                          <label className="font-semibold text-foreground block mb-1">
+                            Bệnh hại mục tiêu *
                           </label>
                           <select
                             value={ingestClass}
                             onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs focus:ring-1 focus:ring-ring"
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
                           >
-                            <option value="">-- Để AI tự nhận diện --</option>
+                            <option value="">-- Chọn bệnh hại mục tiêu --</option>
                             {filteredDiseasesByPlant.map((d) => (
                               <option key={d.classCode} value={d.classCode}>
                                 {d.commonNameVi}
@@ -1839,734 +2103,1127 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           </select>
                         </div>
                       </div>
-                    </div>
 
-                    <Button
-                      type="submit"
-                      disabled={ingesting}
-                      className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-10"
-                    >
-                      {ingesting ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Đang bóc tách &amp; Gọi AI phân tích...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          <span>Tách đoạn &amp; AI Tự Điền Thông Tin</span>
-                        </>
-                      )}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Cột phải: Danh sách đoạn trích và chọn commit */}
-            <div className="lg:col-span-7 space-y-4">
-              {/* BƯỚC 2A: THÔNG TIN BÀI BÁO (AI đề xuất, hoặc bài đã lưu khi đang sửa) */}
-              {(ingestionResult || editUrl) && (
-                <Card className="border-border bg-card shadow-xs">
-                  <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
-                    <div className="flex items-center justify-between gap-2">
-                      <CardTitle className="text-xs font-bold flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-emerald-700" />
-                        <span>Thông tin bài viết &amp; Phân loại</span>
-                      </CardTitle>
-                      {editUrl ? (
-                        <Badge variant="outline" className="text-blue-800 border-blue-300 bg-blue-50 text-[10px]">
-                          Đang sửa bài đã lưu
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]">
-                          AI đề xuất, vui lòng kiểm tra lại
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-3 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="font-semibold text-foreground block mb-1">
-                          Loài cây trồng *
-                        </label>
-                        <select
-                          value={selectedPlant}
-                          onChange={(e) => handlePlantChange(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                        >
-                          {uniquePlants.map((plant) => (
-                            <option key={plant} value={plant}>
-                              {plant}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="font-semibold text-foreground block mb-1">
-                          Bệnh hại mục tiêu *
-                        </label>
-                        <select
-                          value={ingestClass}
-                          onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                        >
-                          {filteredDiseasesByPlant.map((d) => (
-                            <option key={d.classCode} value={d.classCode}>
-                              {d.commonNameVi}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="font-semibold text-foreground block mb-1">
-                        Tiêu đề bài viết trích dẫn *
-                      </label>
-                      <Input
-                        type="text"
-                        value={ingestTitle}
-                        onChange={(e) => setIngestTitle(e.target.value)}
-                        placeholder="Tiêu đề bài viết..."
-                        className="text-xs bg-background"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      <div className="sm:col-span-2">
-                        <label className="font-semibold text-foreground block mb-1">
-                          Cơ quan / Tác giả *
+                          Tiêu đề bài viết trích dẫn *
                         </label>
                         <Input
                           type="text"
-                          value={ingestOrg}
-                          onChange={(e) => setIngestOrg(e.target.value)}
-                          placeholder="Trung tâm Khuyến nông..."
+                          value={ingestTitle}
+                          onChange={(e) => setIngestTitle(e.target.value)}
+                          placeholder="Tiêu đề bài viết..."
                           className="text-xs bg-background"
                         />
                       </div>
-                      <div>
-                        <label className="font-semibold text-foreground block mb-1">
-                          Năm xuất bản
-                        </label>
-                        <Input
-                          type="text"
-                          value={ingestDate}
-                          onChange={(e) => setIngestDate(e.target.value)}
-                          placeholder="2024"
-                          className="text-xs bg-background"
-                        />
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Cơ quan / Viện nghiên cứu / Tạp chí *
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestOrg}
+                            onChange={(e) => setIngestOrg(e.target.value)}
+                            placeholder="Trung tâm Khuyến nông Quốc gia, Viện BVTV..."
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Tác giả / Nhóm nghiên cứu
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestAuthor}
+                            onChange={(e) => setIngestAuthor(e.target.value)}
+                            placeholder="TS. Nguyễn Văn A..."
+                            className="text-xs bg-background"
+                          />
+                        </div>
                       </div>
-                    </div>
-                    {editUrl && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Ngày đăng / xuất bản
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestPublishedDate}
+                            onChange={(e) => setIngestPublishedDate(e.target.value)}
+                            placeholder="03/01/2024 hoặc 2024"
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Ngày cập nhật (nếu có)
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestUpdatedDate}
+                            onChange={(e) => setIngestUpdatedDate(e.target.value)}
+                            placeholder="12/03/2024"
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
                         <span className="text-[11px] text-muted-foreground">
-                          Áp cho cả {editRows.length} đoạn của bài. Lưu xong các đoạn chuyển về "Chờ duyệt".
+                          Lưu thông tin sẽ áp dụng đồng nhất cho cả {editRows.length} đoạn trích của bài báo.
                         </span>
                         <Button
                           type="button"
                           size="sm"
                           disabled={!editMetaDirty || editSaving || !ingestClass}
                           onClick={() => saveEditedArticleMeta()}
-                          className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white"
+                          className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
                         >
-                          {editSaving ? 'Đang lưu...' : 'Lưu thông tin bài'}
+                          {editSaving ? 'Đang lưu...' : 'Lưu thay đổi thông tin bài'}
                         </Button>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+                    </CardContent>
+                  </Card>
 
-              {editUrl && (
-                <Card className="border-border bg-card shadow-xs">
-                  <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <CardTitle className="text-xs font-bold flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-emerald-700" />
-                        <span>Các đoạn đã lưu của bài ({editRows.length})</span>
-                      </CardTitle>
-                      <div className="flex items-center gap-2">
+                  {/* Cảnh báo kiểm tra trùng lặp đoạn trích */}
+                  {(() => {
+                    const duplicates = findDuplicateChunks(editRows);
+                    if (duplicates.length === 0) return null;
+                    return (
+                      <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs space-y-1.5 shadow-xs">
+                        <div className="font-bold flex items-center gap-2 text-amber-950">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Cảnh báo: Phát hiện {duplicates.length} cặp đoạn trích có nội dung trùng lặp / tương đồng cao!</span>
+                        </div>
+                        <div className="space-y-1 pl-6 text-[11px] text-amber-800">
+                          {duplicates.map((d, dIdx) => (
+                            <div key={dIdx}>
+                              • <strong>Đoạn #{d.indexA}</strong> và <strong>Đoạn #{d.indexB}</strong> có độ tương đồng ~{d.similarity}%. Bạn có thể bấm nút <em>"Xóa đoạn"</em> ở đoạn trùng thừa để tối ưu bộ nhớ AI Lavi.
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Card danh sách các đoạn đã lưu */}
+                  <Card className="border-border bg-card shadow-xs">
+                    <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <CardTitle className="text-xs font-bold flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-emerald-700" />
+                          <span>Các đoạn trích đã lưu trong CSDL ({editRows.length})</span>
+                        </CardTitle>
                         <span className="text-[11px] text-muted-foreground">
                           Nguyên văn: {existingVerbatimCount}/8 đoạn, {existingVerbatimChars.toLocaleString('vi-VN')} ký tự
                         </span>
-                        <Button type="button" size="sm" variant="outline" onClick={() => exitEditMode()} className="h-7 text-xs">
-                          Thoát sửa
-                        </Button>
                       </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-2.5 text-xs max-h-[420px] overflow-y-auto">
-                    {editLoading && editRows.length === 0 ? (
-                      <p className="text-muted-foreground">Đang tải bài đã lưu...</p>
-                    ) : (
-                      editRows.map((row) => (
-                        <div key={row.id} className="p-3 rounded-lg border border-border bg-background space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
-                                {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
-                              </Badge>
-                              {row.isManualApproved ? (
-                                <Badge className="bg-emerald-700 text-white text-[10px]">Đã duyệt</Badge>
-                              ) : (
-                                <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]">Chờ duyệt</Badge>
-                              )}
-                              <span className="text-[11px] text-muted-foreground">{row.evidenceText.length} ký tự</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              {row.isVerbatim && (
-                                <select
-                                  value={(row.unitType || 'SYMPTOMS').toUpperCase()}
-                                  disabled={editSaving}
-                                  onChange={(e) => updateSavedUnit(row, { unit_type: e.target.value })}
-                                  className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium"
-                                  aria-label="Loại nội dung"
-                                >
-                                  <option value="SYMPTOMS">Triệu chứng</option>
-                                  <option value="CAUSE_CONDITIONS">Nguyên nhân</option>
-                                  <option value="PREVENTION">Phòng ngừa</option>
-                                  <option value="TREATMENT">Điều trị</option>
-                                </select>
-                              )}
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setDeleteTarget(row)}
-                                className="h-7 px-2 text-muted-foreground hover:text-destructive"
-                                title="Xoá đoạn này"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                          {row.isVerbatim ? (
-                            <p className="text-foreground/90 leading-relaxed whitespace-pre-line">{row.evidenceText}</p>
-                          ) : (
-                            <div className="space-y-1.5">
-                              <Textarea
-                                rows={4}
-                                value={summaryDrafts[row.id] ?? row.evidenceText}
-                                onChange={(e) => setSummaryDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                                maxLength={4000}
-                                className="text-xs"
-                              />
-                              <div className="flex justify-end">
+                    </CardHeader>
+                    <CardContent className="p-4 space-y-3 text-xs">
+                      {editLoading && editRows.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-6">Đang tải danh sách đoạn đã lưu...</p>
+                      ) : editRows.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-6">Bài viết chưa có đoạn trích nào. Hãy chuyển sang Tab 2 để nạp đoạn.</p>
+                      ) : (
+                        editRows.map((row, rIdx) => (
+                          <div key={row.id} className="p-3.5 rounded-xl border border-border bg-background space-y-2.5 shadow-2xs hover:border-emerald-200 transition-colors">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-emerald-800 font-mono text-xs">Đoạn #{rIdx + 1}</span>
+                                <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
+                                  {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
+                                </Badge>
+                                <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border border-border">
+                                  {row.unitType || 'SYMPTOMS'}
+                                </span>
+                                {row.isManualApproved ? (
+                                  <Badge className="bg-emerald-700 text-white text-[10px] gap-1">
+                                    <Check className="w-3 h-3" />
+                                    <span>Đã duyệt</span>
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    <span>Chờ duyệt</span>
+                                  </Badge>
+                                )}
+                                <span className="text-[11px] text-muted-foreground">{row.evidenceText.length} ký tự</span>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="outline"
-                                  disabled={editSaving || (summaryDrafts[row.id] ?? row.evidenceText).trim() === row.evidenceText.trim()}
-                                  onClick={() => updateSavedUnit(row, { evidence_text: summaryDrafts[row.id] })}
-                                  className="h-7 text-xs"
+                                  variant={row.isManualApproved ? 'outline' : 'default'}
+                                  onClick={() => handleToggleApproveSingleSource(row.id, row.isManualApproved)}
+                                  className={`h-7 px-2.5 text-xs font-semibold ${row.isManualApproved ? 'text-muted-foreground hover:text-destructive' : 'bg-emerald-700 hover:bg-emerald-800 text-white'}`}
                                 >
-                                  Lưu tóm tắt
+                                  {row.isManualApproved ? 'Bỏ duyệt' : 'Duyệt đoạn này'}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteSingleSource(row.id)}
+                                  className="h-7 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive gap-1"
+                                  title="Xóa đoạn này khỏi bài viết"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Xóa</span>
                                 </Button>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      ))
-                    )}
-                    <p className="text-[11px] text-muted-foreground pt-1">
-                      Đoạn nguyên văn không sửa chữ được (phải đúng lời bài báo), chỉ đổi loại hoặc xoá. Muốn thêm đoạn nguyên văn:
-                      dán lại bài vào ô 2 bên trái rồi bấm <strong>Tách đoạn</strong>; đoạn đã lưu sẽ hiện nhãn "Đã lưu".
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
 
-              {!ingestionResult ? (editUrl ? null : (
-                <div className="p-12 text-center bg-card border border-border rounded-xl h-full flex flex-col items-center justify-center space-y-3">
-                  <FileText className="w-12 h-12 text-muted-foreground/30" />
-                  <h3 className="text-base font-bold text-foreground">Chưa có dữ liệu bài báo</h3>
-                  <p className="text-xs text-muted-foreground max-w-sm">
-                    Dán URL và nội dung bài báo ở cột bên trái rồi bấm <strong>"Tách đoạn &amp; AI Tự Điền Thông Tin"</strong> để bắt đầu trích dẫn nguyên văn.
-                  </p>
-                </div>
-              )) : (
-                <div className="space-y-4">
-                  {/* BƯỚC 2B: DANH SÁCH ĐOẠN TRÍCH NGUYÊN VĂN */}
-                  <Card className="border-border bg-card shadow-xs flex flex-col">
-                    <CardHeader className="pb-3 border-b border-border">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <CardTitle className="text-base font-bold flex items-center gap-2">
-                            <span>Đoạn văn bản trích dẫn ({ingestionResult.paragraphs.length} đoạn)</span>
-                            {ingestionResult.ai_suggestion_available ? (
-                              <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
-                                AI đã gợi ý nhãn
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-amber-700 border-amber-300 text-[10px]">
-                                Tự gán nhãn
-                              </Badge>
-                            )}
-                          </CardTitle>
-                          <CardDescription className="text-xs mt-0.5">
-                            Quy tắc trích dẫn hợp lý: <strong>Tối đa 8 đoạn nguyên văn</strong> (≤ 800 ký tự/đoạn, tổng ≤ 30% bài). Tick = Duyệt.
-                          </CardDescription>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            variant="secondary"
-                            className={countWithSaved > 8 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
-                          >
-                            Đoạn: {countWithSaved} / 8
-                          </Badge>
-                          <Badge
-                            variant="secondary"
-                            className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
-                          >
-                            <span title="Giới hạn = 30% độ dài bài, tối thiểu 1.200 ký tự">
-                              Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((charsWithSaved / allowedCharsQuota) * 100).toFixed(0)}%)
-                            </span>
-                          </Badge>
-                        </div>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent className="p-4 flex-1 overflow-y-auto max-h-[500px] space-y-3">
-                      {/* Danh sách các đoạn liên quan */}
-                      {ingestionResult.paragraphs
-                        .filter((p) => !ingestionResult.ai_suggestion_available || p.suggested_unit_type !== null)
-                        .map((para) => {
-                          const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-                          const isTooLong = para.text.length > 800;
-                          const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
-                          // Dòng tiêu đề/ngày đăng (< 40 ký tự, không phải đoạn tách) chỉ để AI đọc thông tin bài
-                          const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
-
-                          return (
-                            <div
-                              key={para.id}
-                              className={`p-3.5 rounded-lg border transition-colors ${state.selected
-                                  ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
-                                  : 'bg-card border-border hover:bg-muted/40'
-                                }`}
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
-                                  <input
-                                    type="checkbox"
-                                    checked={state.selected}
-                                    disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
-                                    onChange={(e) => {
-                                      setSelectedParagraphs((prev) => ({
-                                        ...prev,
-                                        [para.id]: {
-                                          ...state,
-                                          selected: e.target.checked,
-                                        },
-                                      }));
-                                    }}
-                                    className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
-                                  />
-                                  <span className="text-emerald-800 font-mono">{para.id}</span>
-                                  <span className="text-muted-foreground font-normal text-[11px]">
-                                    ({para.text.length} ký tự)
-                                  </span>
-                                  {isSaved && (
-                                    <Badge variant="outline" className="text-[10px] h-5 border-emerald-300 text-emerald-800 bg-emerald-50">
-                                      Đã lưu
-                                    </Badge>
-                                  )}
-                                  {isTooLong && (
-                                    <Badge variant="destructive" className="text-[10px] h-5">
-                                      Vượt quá 800 ký tự
-                                    </Badge>
-                                  )}
-                                </label>
-
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleOpenSplitModal(para)}
-                                    className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
-                                        ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
-                                        : 'border-border text-muted-foreground hover:text-foreground'
-                                      }`}
-                                    title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
-                                  >
-                                    <Scissors className="w-3 h-3" />
-                                    <span>Tách đoạn</span>
-                                  </Button>
-
-                                  <select
-                                    value={state.unitType}
-                                    disabled={!state.selected}
-                                    onChange={(e) => {
-                                      setSelectedParagraphs((prev) => ({
-                                        ...prev,
-                                        [para.id]: {
-                                          ...state,
-                                          unitType: e.target.value,
-                                        },
-                                      }));
-                                    }}
-                                    className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
-                                  >
-                                    <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
-                                    <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
-                                    <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
-                                    <option value="TREATMENT">Điều trị (TREATMENT)</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
-                                "{para.text}"
-                              </p>
-
-                              {/* Thẻ vật tư/hoạt chất/biện pháp: xem, đổi loại, xóa, hoặc thêm mới */}
-                              <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất:</span>
-                                  {(para.mentions || []).map((m, mIdx) => (
-                                    <span
-                                      key={mIdx}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${m.kind === 'CHEMICAL'
-                                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                          : m.kind === 'BIOLOGICAL'
-                                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                            : m.kind === 'SUPPLY'
-                                              ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                                              : 'bg-purple-100 text-purple-800 border border-purple-300'
-                                        }`}
-                                    >
-                                      <span>{m.text}</span>
-                                      <select
-                                        value={m.kind}
-                                        onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
-                                        className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0"
-                                        title="Đổi phân loại vật tư"
-                                      >
-                                        <option value="CHEMICAL">Hóa học</option>
-                                        <option value="BIOLOGICAL">Sinh học</option>
-                                        <option value="SUPPLY">Vật tư</option>
-                                        <option value="PRACTICE">Canh tác</option>
-                                      </select>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoveMention(para.id, mIdx)}
-                                        className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
-                                        title="Xóa thẻ này"
-                                      >
-                                        <X className="w-2.5 h-2.5" />
-                                      </button>
-                                    </span>
-                                  ))}
-
-                                  {addingMentionParaId !== para.id && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setAddingMentionParaId(para.id);
-                                        setNewMentionText('');
-                                        setNewMentionKind('CHEMICAL');
-                                      }}
-                                      className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
-                                      title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
-                                    >
-                                      <Plus className="w-2.5 h-2.5" />
-                                      <span>Thêm cụm từ</span>
-                                    </button>
-                                  )}
-                                </div>
-
-                                {addingMentionParaId === para.id && (
-                                  <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
-                                    <Input
-                                      type="text"
-                                      value={newMentionText}
-                                      onChange={(e) => setNewMentionText(e.target.value)}
-                                      placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
-                                      className="h-7 text-[11px] bg-background w-56"
-                                      autoFocus
-                                    />
-                                    <select
-                                      value={newMentionKind}
-                                      onChange={(e) => setNewMentionKind(e.target.value)}
-                                      className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
-                                    >
-                                      <option value="CHEMICAL">Hóa học</option>
-                                      <option value="BIOLOGICAL">Sinh học</option>
-                                      <option value="SUPPLY">Vật tư canh tác</option>
-                                      <option value="PRACTICE">Biện pháp canh tác</option>
-                                    </select>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      onClick={() => handleAddMention(para.id)}
-                                      className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white"
-                                    >
-                                      Thêm
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => setAddingMentionParaId(null)}
-                                      className="h-7 text-[11px] px-2 text-muted-foreground"
-                                    >
-                                      Hủy
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-
-                      {/* Nhóm đoạn AI gắn nhãn null (Đoạn không liên quan/rác) - Mặc định thu gọn theo Section 3.1 */}
-                      {ingestionResult.ai_suggestion_available && ingestionResult.paragraphs.some((p) => p.suggested_unit_type === null) && (
-                        <div className="pt-2 border-t border-border">
-                          <button
-                            type="button"
-                            onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
-                            className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
-                          >
-                            <span className="flex items-center gap-1.5">
-                              {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                              <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
-                            </span>
-                            <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
-                          </button>
-
-                          {showNoiseParagraphs && (
-                            <div className="mt-2 space-y-2 pl-2">
-                              {ingestionResult.paragraphs
-                                .filter((p) => p.suggested_unit_type === null)
-                                .map((para) => {
-                                  const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-                                  const isTooLong = para.text.length > 800;
-                                  const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
-                                  // Dòng tiêu đề/ngày đăng (< 40 ký tự, không phải đoạn tách) chỉ để AI đọc thông tin bài
-                                  const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
-
-                                  return (
-                                    <div
-                                      key={para.id}
-                                      className={`p-3 rounded-lg border transition-colors opacity-80 hover:opacity-100 ${state.selected
-                                          ? 'bg-emerald-50/70 border-emerald-300'
-                                          : 'bg-card border-border'
-                                        }`}
-                                    >
-                                      <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                                        <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
-                                          <input
-                                            type="checkbox"
-                                            checked={state.selected}
-                                            disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
-                                            onChange={(e) => {
-                                              setSelectedParagraphs((prev) => ({
-                                                ...prev,
-                                                [para.id]: {
-                                                  ...state,
-                                                  selected: e.target.checked,
-                                                },
-                                              }));
-                                            }}
-                                            className="w-4 h-4 rounded text-emerald-700"
-                                          />
-                                          <span className="text-muted-foreground font-mono">{para.id}</span>
-                                          <span className="text-muted-foreground font-normal text-[10px]">
-                                            ({para.text.length} ký tự)
-                                          </span>
-                                          {isTooLong && (
-                                            <Badge variant="destructive" className="text-[10px] h-5">
-                                              Vượt quá 800 ký tự
-                                            </Badge>
-                                          )}
-                                        </label>
-
-                                        <div className="flex items-center gap-2">
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => handleOpenSplitModal(para)}
-                                            className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
-                                                ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
-                                                : 'border-border text-muted-foreground hover:text-foreground'
-                                              }`}
-                                            title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
-                                          >
-                                            <Scissors className="w-3 h-3" />
-                                            <span>Tách đoạn</span>
-                                          </Button>
-
-                                          <select
-                                            value={state.unitType}
-                                            disabled={!state.selected}
-                                            onChange={(e) => {
-                                              setSelectedParagraphs((prev) => ({
-                                                ...prev,
-                                                [para.id]: {
-                                                  ...state,
-                                                  unitType: e.target.value,
-                                                },
-                                              }));
-                                            }}
-                                            className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
-                                          >
-                                            <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
-                                            <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
-                                            <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
-                                            <option value="TREATMENT">Điều trị (TREATMENT)</option>
-                                          </select>
-                                        </div>
-                                      </div>
-
-                                      <p className="text-xs text-muted-foreground italic pl-6 leading-relaxed">
-                                        "{para.text}"
-                                      </p>
-
-                                      {/* Thẻ vật tư/hoạt chất/biện pháp */}
-                                      <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                          <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất:</span>
-                                          {(para.mentions || []).map((m, mIdx) => (
-                                            <span
-                                              key={mIdx}
-                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border"
-                                            >
-                                              <span>{m.text}</span>
-                                              <select
-                                                value={m.kind}
-                                                onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
-                                                className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0"
-                                                title="Đổi phân loại vật tư"
-                                              >
-                                                <option value="CHEMICAL">Hóa học</option>
-                                                <option value="BIOLOGICAL">Sinh học</option>
-                                                <option value="SUPPLY">Vật tư</option>
-                                                <option value="PRACTICE">Canh tác</option>
-                                              </select>
-                                              <button
-                                                type="button"
-                                                onClick={() => handleRemoveMention(para.id, mIdx)}
-                                                className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
-                                                title="Xóa thẻ này"
-                                              >
-                                                <X className="w-2.5 h-2.5" />
-                                              </button>
-                                            </span>
-                                          ))}
-
-                                          {addingMentionParaId !== para.id && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setAddingMentionParaId(para.id);
-                                                setNewMentionText('');
-                                                setNewMentionKind('CHEMICAL');
-                                              }}
-                                              className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
-                                              title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
-                                            >
-                                              <Plus className="w-2.5 h-2.5" />
-                                              <span>Thêm cụm từ</span>
-                                            </button>
-                                          )}
-                                        </div>
-
-                                        {addingMentionParaId === para.id && (
-                                          <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
-                                            <Input
-                                              type="text"
-                                              value={newMentionText}
-                                              onChange={(e) => setNewMentionText(e.target.value)}
-                                              placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
-                                              className="h-7 text-[11px] bg-background w-56"
-                                              autoFocus
-                                            />
-                                            <select
-                                              value={newMentionKind}
-                                              onChange={(e) => setNewMentionKind(e.target.value)}
-                                              className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
-                                            >
-                                              <option value="CHEMICAL">Hóa học</option>
-                                              <option value="BIOLOGICAL">Sinh học</option>
-                                              <option value="SUPPLY">Vật tư canh tác</option>
-                                              <option value="PRACTICE">Biện pháp canh tác</option>
-                                            </select>
-                                            <Button
-                                              type="button"
-                                              size="sm"
-                                              onClick={() => handleAddMention(para.id)}
-                                              className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white"
-                                            >
-                                              Thêm
-                                            </Button>
-                                            <Button
-                                              type="button"
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() => setAddingMentionParaId(null)}
-                                              className="h-7 text-[11px] px-2 text-muted-foreground"
-                                            >
-                                              Hủy
-                                            </Button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                            </div>
-                          )}
-                        </div>
+                            <p className="text-xs text-foreground/90 italic pl-3 border-l-2 border-emerald-500/60 leading-relaxed">
+                              "{renderParagraphWithHighlight(row.id, row.evidenceText)}"
+                            </p>
+                          </div>
+                        ))
                       )}
                     </CardContent>
+                  </Card>
+                </TabsContent>
 
-                    <div className="p-4 border-t border-border bg-muted/20 space-y-3">
-                      <Input
-                        type="text"
-                        placeholder="Ghi chú người duyệt (ví dụ: Đã đối chiếu thông tư Cục BVTV)"
-                        value={commitNotes}
-                        onChange={(e) => setCommitNotes(e.target.value)}
-                        className="text-xs bg-background"
-                      />
+                {/* TAB 2: NẠP THÊM / TÁI PHÂN TÍCH BÀI BÁO */}
+                <TabsContent value="reparse" className="space-y-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* Cột trái: Form dán nội dung */}
+                    <div className="lg:col-span-5 space-y-4">
+                      <Card className="border-border bg-card shadow-xs">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base font-bold flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-emerald-700" />
+                            <span>Dán lại văn bản để bóc tách thêm</span>
+                          </CardTitle>
+                          <CardDescription className="text-xs">
+                            Hệ thống sẽ bóc tách các đoạn mới và tự động lọc bỏ những đoạn đã lưu ở Tab 1 để tránh trùng lặp.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <form onSubmit={handleParseArticle} className="space-y-4 text-xs">
+                            <div>
+                              <div className="flex justify-between items-center mb-1">
+                                <label className="font-semibold text-foreground">
+                                  Dán nội dung bài báo *
+                                </label>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                                </span>
+                              </div>
+                              <Textarea
+                                rows={13}
+                                placeholder="Dán văn bản bài báo vào đây để bóc tách đoạn mới hoặc tái trích xuất..."
+                                value={ingestText}
+                                onChange={(e) => setIngestText(e.target.value)}
+                                onPaste={handlePasteArticleText}
+                                required
+                                maxLength={50000}
+                                className="text-xs font-mono resize-y"
+                              />
+                            </div>
 
-                      {charsWithSaved > allowedCharsQuota && (
-                        <p className="text-xs text-destructive font-medium">
-                          {existingVerbatimChars > 0 ? `Đã lưu ${existingVerbatimChars.toLocaleString('vi-VN')} + chọn thêm ` : 'Đã chọn '}{totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
-                          (30% bài, tối thiểu 1.200). Bỏ bớt đoạn để lưu được.
-                        </p>
-                      )}
-                      {!ingestClass && (
-                        <p className="text-xs text-destructive font-medium">Chọn Loài cây và Bệnh hại mục tiêu ở trên trước khi lưu.</p>
-                      )}
+                            <Button
+                              type="submit"
+                              disabled={ingesting}
+                              className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-10"
+                            >
+                              {ingesting ? (
+                                <>
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                  <span>Đang bóc tách &amp; Gọi AI phân tích...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-4 h-4" />
+                                  <span>Tách đoạn &amp; Trích xuất dữ liệu mới</span>
+                                </>
+                              )}
+                            </Button>
+                          </form>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Cột phải: So sánh Diff metadata + Các đoạn trích mới (ẩn đoạn đã lưu) */}
+                    <div className="lg:col-span-7 space-y-4">
+                      {/* Bảng so sánh Diff Metadata nếu AI đề xuất khác với thông tin bài đang có */}
+                      {ingestionResult?.suggested_metadata && !dismissMetaDiff && (() => {
+                        const meta = ingestionResult.suggested_metadata;
+                        const diffs: Array<{ label: string; current: string; suggested: string; apply: () => void }> = [];
+
+                        if (meta.source_title && meta.source_title.trim() !== ingestTitle.trim()) {
+                          diffs.push({
+                            label: 'Tiêu đề bài viết',
+                            current: ingestTitle || '(Chưa có)',
+                            suggested: meta.source_title,
+                            apply: () => setIngestTitle(meta.source_title || ''),
+                          });
+                        }
+                        if (meta.organization && meta.organization.trim() !== buildCombinedOrg(ingestOrg, ingestAuthor)) {
+                          diffs.push({
+                            label: 'Cơ quan / Tác giả',
+                            current: buildCombinedOrg(ingestOrg, ingestAuthor) || '(Chưa có)',
+                            suggested: meta.organization,
+                            apply: () => {
+                              const authorMatch = meta.organization?.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+                              if (authorMatch) {
+                                setIngestOrg(authorMatch[1].trim());
+                                setIngestAuthor(authorMatch[2].trim());
+                              } else {
+                                setIngestOrg(meta.organization || '');
+                              }
+                            },
+                          });
+                        }
+                        if (meta.published_date && meta.published_date.trim() !== buildCombinedDate(ingestPublishedDate, ingestUpdatedDate)) {
+                          diffs.push({
+                            label: 'Ngày xuất bản',
+                            current: buildCombinedDate(ingestPublishedDate, ingestUpdatedDate) || '(Chưa có)',
+                            suggested: meta.published_date,
+                            apply: () => setIngestPublishedDate(meta.published_date || ''),
+                          });
+                        }
+
+                        if (diffs.length === 0) return null;
+
+                        return (
+                          <div className="p-3.5 bg-amber-50/80 border border-amber-300 rounded-xl space-y-2.5 text-xs shadow-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-amber-950 flex items-center gap-1.5">
+                                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                                <span>Phát hiện thông tin AI trích xuất khác với thông tin hiện tại (Tab 1):</span>
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => {
+                                    diffs.forEach(d => d.apply());
+                                    toast.success('Đã áp dụng các giá trị AI đề xuất vào thông tin bài viết!');
+                                    setDismissMetaDiff(true);
+                                  }}
+                                  className="h-6 px-2 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                >
+                                  Áp dụng tất cả
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setDismissMetaDiff(true)}
+                                  className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                >
+                                  Giữ cũ
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5 pt-1">
+                              {diffs.map((d, dIdx) => (
+                                <div key={dIdx} className="grid grid-cols-2 gap-2 p-2 bg-white/80 rounded-lg border border-amber-200 text-[11px]">
+                                  <div>
+                                    <span className="text-muted-foreground block text-[10px] font-semibold">{d.label} hiện tại:</span>
+                                    <span className="text-foreground">{d.current}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <div>
+                                      <span className="text-emerald-800 block text-[10px] font-semibold">{d.label} AI đề xuất:</span>
+                                      <span className="font-bold text-emerald-950">{d.suggested}</span>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        d.apply();
+                                        toast.success(`Đã áp dụng ${d.label} mới.`);
+                                      }}
+                                      className="h-6 px-1.5 text-[10px] text-emerald-700 border-emerald-300 hover:bg-emerald-50 shrink-0"
+                                    >
+                                      Áp dụng
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Danh sách các đoạn trích mới (Loại bỏ các đoạn đã lưu ở Tab 1) */}
+                      {!ingestionResult ? (
+                        <div className="p-8 text-center bg-card border border-border rounded-xl flex flex-col items-center justify-center space-y-2">
+                          <FileText className="w-10 h-10 text-muted-foreground/30" />
+                          <h4 className="font-bold text-sm text-foreground">Chưa có văn bản bóc tách</h4>
+                          <p className="text-xs text-muted-foreground max-w-xs">
+                            Dán nội dung vào ô bên trái rồi bấm <strong>"Tách đoạn"</strong> để AI trích xuất các đoạn mới.
+                          </p>
+                        </div>
+                      ) : (() => {
+                        const newParagraphs = ingestionResult.paragraphs.filter(
+                          (p) => !savedVerbatimTexts.has(collapseWs(p.text))
+                        );
+
+                        if (newParagraphs.length === 0) {
+                          return (
+                            <div className="p-6 text-center bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs space-y-2">
+                              <CheckCircle2 className="w-8 h-8 text-emerald-700 mx-auto" />
+                              <div className="font-bold text-sm">Tất cả các đoạn trích đã được lưu trong CSDL!</div>
+                              <p className="text-[11px] text-emerald-700 max-w-sm mx-auto">
+                                Không tìm thấy đoạn trích mới nào so với các đoạn đã lưu ở Tab 1. Bạn có thể quay lại Tab 1 để xem và duyệt các đoạn này.
+                              </p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <Card className="border-border bg-card shadow-xs">
+                            <CardHeader className="pb-3 border-b border-border">
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                <div>
+                                  <CardTitle className="text-xs font-bold flex items-center gap-2">
+                                    <span>Đoạn trích mới ({newParagraphs.length} đoạn chưa lưu)</span>
+                                  </CardTitle>
+                                  <CardDescription className="text-xs mt-0.5">
+                                    Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 8 đoạn nguyên văn/bài).
+                                  </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="bg-muted text-foreground text-[11px]">
+                                    Đoạn: {countWithSaved} / 8
+                                  </Badge>
+                                </div>
+                              </div>
+                            </CardHeader>
+                            <CardContent className="p-4 space-y-3 max-h-[480px] overflow-y-auto">
+                              {newParagraphs.map((para) => {
+                                const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                const isTooLong = para.text.length > 800;
+
+                                return (
+                                  <div
+                                    key={para.id}
+                                    className={`p-3.5 rounded-lg border transition-colors ${state.selected
+                                        ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
+                                        : 'bg-card border-border hover:bg-muted/40'
+                                      }`}
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                      <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                                        <input
+                                          type="checkbox"
+                                          checked={state.selected}
+                                          disabled={isTooLong || (!state.selected && countWithSaved >= 8)}
+                                          onChange={(e) => {
+                                            setSelectedParagraphs((prev) => ({
+                                              ...prev,
+                                              [para.id]: {
+                                                ...state,
+                                                selected: e.target.checked,
+                                              },
+                                            }));
+                                          }}
+                                          className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
+                                        />
+                                        <span className="text-emerald-800 font-mono">{para.id}</span>
+                                        <span className="text-muted-foreground font-normal text-[11px]">
+                                          ({para.text.length} ký tự)
+                                        </span>
+                                        {isTooLong && (
+                                          <Badge variant="destructive" className="text-[10px] h-5">
+                                            Vượt quá 800 ký tự
+                                          </Badge>
+                                        )}
+                                      </label>
+
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => handleOpenSplitModal(para)}
+                                          className="h-6 text-[10px] gap-1 px-2 border-border text-muted-foreground hover:text-foreground"
+                                        >
+                                          <Scissors className="w-3 h-3" />
+                                          <span>Tách đoạn</span>
+                                        </Button>
+
+                                        <select
+                                          value={state.unitType}
+                                          disabled={!state.selected}
+                                          onChange={(e) => {
+                                            setSelectedParagraphs((prev) => ({
+                                              ...prev,
+                                              [para.id]: {
+                                                ...state,
+                                                unitType: e.target.value,
+                                              },
+                                            }));
+                                          }}
+                                          className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
+                                        >
+                                          <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
+                                          <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
+                                          <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
+                                          <option value="TREATMENT">Điều trị (TREATMENT)</option>
+                                        </select>
+                                      </div>
+                                    </div>
+
+                                    <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
+                                      "{renderParagraphWithHighlight(para.id, para.text)}"
+                                    </p>
+                                  </div>
+                                );
+                              })}
+
+                              <div className="pt-3 border-t border-border flex items-center justify-between">
+                                <span className="text-xs text-muted-foreground">
+                                  Đã chọn <strong>{countSelected}</strong> đoạn mới cần lưu.
+                                </span>
+                                <Button
+                                  type="button"
+                                  onClick={handleCommitParagraphs}
+                                  disabled={committing || countSelected === 0 || countWithSaved > 8}
+                                  className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-9 text-xs px-4"
+                                >
+                                  {committing ? 'Đang lưu...' : `Lưu & Duyệt ${countSelected} đoạn mới`}
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          ) : (
+            /* ========================================================================= */
+            /* CHẾ ĐỘ NHẬP BÀI BÁO MỚI (HITL INGESTION) */
+            /* ========================================================================= */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Cột trái: Form nhập bài */}
+              <div className="lg:col-span-5 space-y-6">
+                <Card className="border-border bg-card shadow-xs">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-bold flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-emerald-700" />
+                      <span>Dán văn bản bài báo khuyến nông</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Server không tự tải URL để chống SSRF. Admin copy văn bản từ bài báo/PDF dán vào đây (hỗ trợ Ctrl+A cả trang).
+                    </CardDescription>
+                  </CardHeader>
+
+                  <CardContent>
+                    <form onSubmit={handleParseArticle} className="space-y-4 text-xs">
+                      <div>
+                        <label className="font-semibold text-foreground block mb-1">
+                          1. Đường dẫn URL bài viết gốc *
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="url"
+                            placeholder="https://khuyennongvn.gov.vn/..."
+                            value={ingestUrl}
+                            onChange={(e) => {
+                              setIngestUrl(e.target.value);
+                              if (ingestionResult) resetArticleState();
+                            }}
+                            required
+                            className="text-xs flex-1"
+                          />
+                          {ingestUrl && (
+                            <a
+                              href={ingestUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center h-8 px-2.5 border border-border rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground text-xs shrink-0 transition-colors"
+                              title="Mở link bài viết trong tab mới"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {ingestUrl ? 'Đã liên kết nguồn' : 'Dán link trang báo khuyến nông'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewImagePlant(selectedPlant);
+                              setNewImageClass(ingestClass);
+                              setNewImageSourceUrl(ingestUrl);
+                              setNewImageCredit(ingestOrg || 'Trung tâm Khuyến nông');
+                              setAddImageModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                          >
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span>Thêm ảnh triệu chứng từ bài này</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="font-semibold text-foreground">
+                            2. Dán toàn văn bài báo *
+                          </label>
+                          <span className="text-[10px] text-muted-foreground">
+                            {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                          </span>
+                        </div>
+                        <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
+                          <span>
+                            <strong>Mẹo dán cả trang:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang báo rồi dán vào ô dưới. Hệ thống sẽ tự lọc bỏ menu, quảng cáo và hotline rác!
+                          </span>
+                        </div>
+                        <Textarea
+                          rows={11}
+                          placeholder="Dán toàn bộ nội dung bài báo vào đây. Hệ thống sẽ tự lọc thẻ rác HTML, tách thành các đoạn P1, P2... và gọi AI trích xuất tiêu đề, phân loại bệnh."
+                          value={ingestText}
+                          onChange={(e) => {
+                            setIngestText(e.target.value);
+                            if (ingestionResult) resetArticleState();
+                          }}
+                          onPaste={handlePasteArticleText}
+                          required
+                          maxLength={50000}
+                          className="text-xs font-mono resize-y"
+                        />
+                      </div>
+
                       <Button
-                        onClick={handleCommitParagraphs}
-                        disabled={committing || editSaving || countSelected === 0 || countWithSaved > 8 || charsWithSaved > allowedCharsQuota || !ingestClass}
-                        className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
+                        type="submit"
+                        disabled={ingesting}
+                        className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-10"
                       >
-                        {committing ? (
+                        {ingesting ? (
                           <>
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Đang ghi CSDL &amp; Kích hoạt Reindex...</span>
+                            <span>Đang bóc tách &amp; Gọi AI phân tích...</span>
                           </>
                         ) : (
                           <>
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>Duyệt &amp; Lưu {countSelected} Đoạn Nguyên Văn (Kích hoạt Reindex)</span>
+                            <Sparkles className="w-4 h-4" />
+                            <span>Tách đoạn &amp; AI Tự Điền Thông Tin</span>
                           </>
                         )}
                       </Button>
-                    </div>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Cột phải: Thông tin & Danh sách đoạn trích mới */}
+              <div className="lg:col-span-7 space-y-4">
+                {ingestionResult && (
+                  <Card className="border-border bg-card shadow-xs">
+                    <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-xs font-bold flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-emerald-700" />
+                          <span>Thông tin bài viết &amp; Phân loại</span>
+                        </CardTitle>
+                        <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]">
+                          AI đề xuất, vui lòng kiểm tra lại
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4 space-y-3 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Loài cây trồng *
+                          </label>
+                          <select
+                            value={selectedPlant}
+                            onChange={(e) => handlePlantChange(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                          >
+                            <option value="">-- Chọn loài cây --</option>
+                            {uniquePlants.map((plant) => (
+                              <option key={plant} value={plant}>
+                                {plant}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Bệnh hại mục tiêu *
+                          </label>
+                          <select
+                            value={ingestClass}
+                            onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                          >
+                            <option value="">-- Chọn bệnh hại mục tiêu --</option>
+                            {filteredDiseasesByPlant.map((d) => (
+                              <option key={d.classCode} value={d.classCode}>
+                                {d.commonNameVi}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="font-semibold text-foreground block mb-1">
+                          Tiêu đề bài viết trích dẫn *
+                        </label>
+                        <Input
+                          type="text"
+                          value={ingestTitle}
+                          onChange={(e) => setIngestTitle(e.target.value)}
+                          placeholder="Tiêu đề bài viết..."
+                          className="text-xs bg-background"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Cơ quan / Viện nghiên cứu *
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestOrg}
+                            onChange={(e) => setIngestOrg(e.target.value)}
+                            placeholder="Trung tâm Khuyến nông..."
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Tác giả / Nhóm nghiên cứu
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestAuthor}
+                            onChange={(e) => setIngestAuthor(e.target.value)}
+                            placeholder="TS. Nguyễn Văn A..."
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Ngày đăng / xuất bản
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestPublishedDate}
+                            onChange={(e) => setIngestPublishedDate(e.target.value)}
+                            placeholder="03/01/2024"
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Ngày cập nhật (nếu có)
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestUpdatedDate}
+                            onChange={(e) => setIngestUpdatedDate(e.target.value)}
+                            placeholder="12/03/2024"
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
                   </Card>
-                </div>
-              )}
+                )}
+
+                {!ingestionResult ? (
+                  <div className="p-12 text-center bg-card border border-border rounded-xl h-full flex flex-col items-center justify-center space-y-3">
+                    <FileText className="w-12 h-12 text-muted-foreground/30" />
+                    <h3 className="text-base font-bold text-foreground">Chưa có dữ liệu bài báo</h3>
+                    <p className="text-xs text-muted-foreground max-w-sm">
+                      Dán URL và nội dung bài báo ở cột bên trái rồi bấm <strong>"Tách đoạn &amp; AI Tự Điền Thông Tin"</strong> để bắt đầu trích dẫn nguyên văn.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* BƯỚC 2B: DANH SÁCH ĐOẠN TRÍCH NGUYÊN VĂN */}
+                    <Card className="border-border bg-card shadow-xs flex flex-col">
+                      <CardHeader className="pb-3 border-b border-border">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div>
+                            <CardTitle className="text-base font-bold flex items-center gap-2">
+                              <span>Đoạn văn bản trích dẫn ({ingestionResult.paragraphs.length} đoạn)</span>
+                              {ingestionResult.ai_suggestion_available ? (
+                                <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                                  AI đã gợi ý nhãn
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-amber-700 border-amber-300 text-[10px]">
+                                  Tự gán nhãn
+                                </Badge>
+                              )}
+                            </CardTitle>
+                            <CardDescription className="text-xs mt-0.5">
+                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 8 đoạn nguyên văn</strong> (≤ 800 ký tự/đoạn, tổng ≤ 30% bài). Tick = Duyệt.
+                            </CardDescription>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="secondary"
+                              className={countWithSaved > 8 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                            >
+                              Đoạn: {countWithSaved} / 8
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                            >
+                              <span title="Giới hạn = 30% độ dài bài, tối thiểu 1.200 ký tự">
+                                Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((charsWithSaved / allowedCharsQuota) * 100).toFixed(0)}%)
+                              </span>
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardHeader>
+
+                      <CardContent className="p-4 flex-1 overflow-y-auto max-h-[500px] space-y-3">
+                        {/* Danh sách các đoạn liên quan */}
+                        {ingestionResult.paragraphs
+                          .filter((p) => !ingestionResult.ai_suggestion_available || p.suggested_unit_type !== null)
+                          .map((para) => {
+                            const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                            const isTooLong = para.text.length > 800;
+                            const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                            const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                            return (
+                              <div
+                                key={para.id}
+                                className={`p-3.5 rounded-lg border transition-colors ${state.selected
+                                    ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
+                                    : 'bg-card border-border hover:bg-muted/40'
+                                  }`}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                  <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                                    <input
+                                      type="checkbox"
+                                      checked={state.selected}
+                                      disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
+                                      onChange={(e) => {
+                                        setSelectedParagraphs((prev) => ({
+                                          ...prev,
+                                          [para.id]: {
+                                            ...state,
+                                            selected: e.target.checked,
+                                          },
+                                        }));
+                                      }}
+                                      className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
+                                    />
+                                    <span className="text-emerald-800 font-mono">{para.id}</span>
+                                    <span className="text-muted-foreground font-normal text-[11px]">
+                                      ({para.text.length} ký tự)
+                                    </span>
+                                    {isSaved && (
+                                      <Badge variant="outline" className="text-[10px] h-5 border-emerald-300 text-emerald-800 bg-emerald-50">
+                                        Đã lưu
+                                      </Badge>
+                                    )}
+                                    {isTooLong && (
+                                      <Badge variant="destructive" className="text-[10px] h-5">
+                                        Vượt quá 800 ký tự
+                                      </Badge>
+                                    )}
+                                  </label>
+
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleOpenSplitModal(para)}
+                                      className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
+                                          ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
+                                          : 'border-border text-muted-foreground hover:text-foreground'
+                                        }`}
+                                      title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
+                                    >
+                                      <Scissors className="w-3 h-3" />
+                                      <span>Tách đoạn</span>
+                                    </Button>
+
+                                    <select
+                                      value={state.unitType}
+                                      disabled={!state.selected}
+                                      onChange={(e) => {
+                                        setSelectedParagraphs((prev) => ({
+                                          ...prev,
+                                          [para.id]: {
+                                            ...state,
+                                            unitType: e.target.value,
+                                          },
+                                        }));
+                                      }}
+                                      className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
+                                    >
+                                      <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
+                                      <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
+                                      <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
+                                      <option value="TREATMENT">Điều trị (TREATMENT)</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
+                                  "{renderParagraphWithHighlight(para.id, para.text)}"
+                                </p>
+
+                                {/* Thẻ vật tư/hoạt chất/biện pháp: xem, highlight, dịch nghĩa tiếng Việt */}
+                                <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                                      <span>Vật tư / Hoạt chất:</span>
+                                      <span className="text-[9px] text-muted-foreground/80 cursor-help" title="Cụm từ trích xuất để AI Lavi gợi ý thuốc trong kho vật tư và đối soát kiến thức">(?)</span>
+                                    </span>
+                                    {(para.mentions || []).map((m, mIdx) => {
+                                      const translation = getAgriTranslation(m.text);
+                                      const isHighlighted = highlightedMention?.paraId === para.id && highlightedMention.text.toLowerCase() === m.text.toLowerCase();
+                                      return (
+                                        <span
+                                          key={mIdx}
+                                          onMouseEnter={() => setHighlightedMention({ paraId: para.id, text: m.text })}
+                                          onMouseLeave={() => setHighlightedMention(null)}
+                                          onClick={() => setHighlightedMention((prev) => (prev?.paraId === para.id && prev?.text.toLowerCase() === m.text.toLowerCase() ? null : { paraId: para.id, text: m.text }))}
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${
+                                            isHighlighted ? 'ring-2 ring-amber-400 shadow-xs ' : ''
+                                          }${
+                                            m.kind === 'CHEMICAL'
+                                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                              : m.kind === 'BIOLOGICAL'
+                                                ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                                : m.kind === 'SUPPLY'
+                                                  ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                                  : 'bg-purple-100 text-purple-900 border border-purple-300'
+                                          }`}
+                                          title={translation ? `Thuật ngữ: "${m.text}"\nNghĩa tiếng Việt: ${translation}\n(Bấm để highlight từ này trong văn bản)` : `Bấm để highlight "${m.text}" trong đoạn văn`}
+                                        >
+                                          <span>{m.text}</span>
+                                          {translation && (
+                                            <span className="text-[9px] opacity-80 font-normal italic">
+                                              ({translation})
+                                            </span>
+                                          )}
+                                          <select
+                                            value={m.kind}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                            className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0 ml-0.5"
+                                            title="Đổi phân loại vật tư"
+                                          >
+                                            <option value="CHEMICAL">Hóa học</option>
+                                            <option value="BIOLOGICAL">Sinh học</option>
+                                            <option value="SUPPLY">Vật tư</option>
+                                            <option value="PRACTICE">Canh tác</option>
+                                          </select>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRemoveMention(para.id, mIdx);
+                                            }}
+                                            className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                            title="Xóa thẻ này"
+                                          >
+                                            <X className="w-2.5 h-2.5" />
+                                          </button>
+                                        </span>
+                                      );
+                                    })}
+
+                                    {addingMentionParaId !== para.id && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAddingMentionParaId(para.id);
+                                          setNewMentionText('');
+                                          setNewMentionKind('CHEMICAL');
+                                        }}
+                                        className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
+                                        title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
+                                      >
+                                        <Plus className="w-2.5 h-2.5" />
+                                        <span>Thêm cụm từ</span>
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {addingMentionParaId === para.id && (
+                                    <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
+                                      <Input
+                                        type="text"
+                                        value={newMentionText}
+                                        onChange={(e) => setNewMentionText(e.target.value)}
+                                        placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
+                                        className="h-7 text-[11px] bg-background w-56"
+                                        autoFocus
+                                      />
+                                      <select
+                                        value={newMentionKind}
+                                        onChange={(e) => setNewMentionKind(e.target.value)}
+                                        className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
+                                      >
+                                        <option value="CHEMICAL">Hóa học</option>
+                                        <option value="BIOLOGICAL">Sinh học</option>
+                                        <option value="SUPPLY">Vật tư canh tác</option>
+                                        <option value="PRACTICE">Biện pháp canh tác</option>
+                                      </select>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => handleAddMention(para.id)}
+                                        className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                      >
+                                        Thêm
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => setAddingMentionParaId(null)}
+                                        className="h-7 text-[11px] px-2 text-muted-foreground"
+                                      >
+                                        Hủy
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                        {/* Nhóm đoạn AI gắn nhãn null (Đoạn không liên quan/rác) */}
+                        {ingestionResult.ai_suggestion_available && ingestionResult.paragraphs.some((p) => p.suggested_unit_type === null) && (
+                          <div className="pt-2 border-t border-border">
+                            <button
+                              type="button"
+                              onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
+                              className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
+                              </span>
+                              <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
+                            </button>
+
+                            {showNoiseParagraphs && (
+                              <div className="mt-2 space-y-2 pl-2">
+                                {ingestionResult.paragraphs
+                                  .filter((p) => p.suggested_unit_type === null)
+                                  .map((para) => {
+                                    const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                    const isTooLong = para.text.length > 800;
+                                    const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                                    const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                                    return (
+                                      <div
+                                        key={para.id}
+                                        className={`p-3 rounded-lg border transition-colors opacity-80 hover:opacity-100 ${state.selected
+                                            ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
+                                            : 'bg-card border-border hover:bg-muted/40'
+                                          }`}
+                                      >
+                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                          <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                                            <input
+                                              type="checkbox"
+                                              checked={state.selected}
+                                              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
+                                              onChange={(e) => {
+                                                setSelectedParagraphs((prev) => ({
+                                                  ...prev,
+                                                  [para.id]: {
+                                                    ...state,
+                                                    selected: e.target.checked,
+                                                  },
+                                                }));
+                                              }}
+                                              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
+                                            />
+                                            <span className="text-emerald-800 font-mono">{para.id}</span>
+                                            <span className="text-muted-foreground font-normal text-[11px]">
+                                              ({para.text.length} ký tự)
+                                            </span>
+                                          </label>
+                                        </div>
+
+                                        <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
+                                          "{renderParagraphWithHighlight(para.id, para.text)}"
+                                        </p>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+
+                      <div className="p-4 border-t border-border bg-muted/20 space-y-3">
+                        <Input
+                          type="text"
+                          placeholder="Ghi chú người duyệt (ví dụ: Đã đối chiếu thông tư Cục BVTV)"
+                          value={commitNotes}
+                          onChange={(e) => setCommitNotes(e.target.value)}
+                          className="text-xs bg-background"
+                        />
+
+                        {charsWithSaved > allowedCharsQuota && (
+                          <p className="text-xs text-destructive font-medium">
+                            {existingVerbatimChars > 0 ? `Đã lưu ${existingVerbatimChars.toLocaleString('vi-VN')} + chọn thêm ` : 'Đã chọn '}{totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
+                            (30% bài, tối thiểu 1.200). Bỏ bớt đoạn để lưu được.
+                          </p>
+                        )}
+                        {!ingestClass && (
+                          <p className="text-xs text-destructive font-medium">Chọn Loài cây và Bệnh hại mục tiêu ở trên trước khi lưu.</p>
+                        )}
+                        <Button
+                          onClick={handleCommitParagraphs}
+                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 8 || charsWithSaved > allowedCharsQuota || !ingestClass}
+                          className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
+                        >
+                          {committing ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <span>Đang ghi CSDL &amp; Đồng bộ tri thức AI...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Duyệt &amp; Lưu {countSelected} Đoạn Nguyên Văn (Đồng bộ tri thức)</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </Card>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </TabsContent>
 
         {/* ========================================================================================= */}
@@ -2829,20 +3486,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   </div>
                                 </td>
                                 <td className="p-3 text-center whitespace-nowrap">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => toggleExpandArticle(group.key)}
-                                    className="h-7 px-2.5 text-xs gap-1.5 border-border bg-card hover:bg-muted text-foreground"
-                                  >
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground text-xs font-medium border border-border/60">
                                     <Layers className="w-3.5 h-3.5 text-emerald-700" />
-                                    <span>{group.totalCount} đoạn trích</span>
-                                    {isExpanded ? (
-                                      <ChevronUp className="w-3 h-3 text-muted-foreground" />
-                                    ) : (
-                                      <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                                    )}
-                                  </Button>
+                                    <span>{group.totalCount} đoạn</span>
+                                  </span>
                                 </td>
                                 <td className="p-3 text-center whitespace-nowrap">
                                   {isAllApproved ? (
@@ -2867,51 +3514,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     </Badge>
                                   )}
                                 </td>
-                                <td className="p-3 text-right whitespace-nowrap">
+                                <td className="p-3 text-right whitespace-nowrap space-x-1.5">
                                   <Button
                                     size="sm"
-                                    variant={isAllApproved ? 'outline' : 'default'}
-                                    disabled={batchActionLoading}
-                                    onClick={() => handleToggleApproveArticle(group)}
-                                    className={`h-7 px-2.5 text-xs ${isAllApproved
-                                        ? 'text-muted-foreground hover:text-destructive'
-                                        : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
-                                      }`}
-                                  >
-                                    {isAllApproved ? 'Bỏ duyệt cả bài' : 'Duyệt cả bài'}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => toggleExpandArticle(group.key)}
-                                    className="ml-1 h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                  >
-                                    {isExpanded ? 'Thu gọn' : 'Xem chi tiết'}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
+                                    variant="default"
                                     onClick={() => navigate(`/admin/ingest?edit=${encodeURIComponent(group.sourceUrl)}`)}
-                                    className="ml-1 h-7 px-2.5 text-xs"
-                                    title="Mở bài ở trang Nhập bài báo để sửa thông tin, đổi loại đoạn, thêm đoạn nguyên văn"
+                                    className="h-7 px-3 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1.5"
+                                    title="Mở bài viết để xem thông tin, duyệt từng đoạn, hoặc nạp thêm đoạn mới"
                                   >
-                                    Sửa bài
+                                    <ExternalLink className="w-3 h-3" />
+                                    <span>Mở bài viết</span>
                                   </Button>
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     onClick={() => setDeleteArticleTarget(group)}
-                                    className="ml-1 h-7 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
-                                    title="Xóa toàn bộ các đoạn của bài viết này"
+                                    className="h-7 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
+                                    title="Xóa toàn bộ các đoạn của bài viết này khỏi kho tri thức"
                                   >
                                     <Trash2 className="w-3 h-3" />
-                                    <span>Xóa cả bài</span>
+                                    <span>Xóa bài</span>
                                   </Button>
                                 </td>
                               </tr>
 
-                              {/* Dòng mở rộng chi tiết các đoạn */}
-                              {isExpanded && (
+                              {/* Dòng mở rộng đã được thay thế bằng màn hình chi tiết bài viết tập trung */}
+                              {false && (
                                 <tr className="bg-muted/20 border-b border-border/80">
                                   <td colSpan={6} className="p-3 sm:p-4 pl-6 sm:pl-12">
                                     <div className="space-y-2.5 rounded-xl border border-border/70 bg-card p-3 sm:p-3.5 shadow-2xs">
@@ -4742,7 +5370,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   </Dialog>
 
                   {/* ========================================================================================= */}
-                  {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (> 800 KÝ TỰ HOẶC THEO Ý ADMIN) */}
+                  {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (AN TOÀN NGUYÊN VĂN THEO LUẬT SHTT) */}
                   {/* ========================================================================================= */}
                   <Dialog open={splitModalOpen} onOpenChange={setSplitModalOpen}>
                     <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -4752,72 +5380,134 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           <span>Tách đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
                         </DialogTitle>
                         <DialogDescription className="text-xs">
-                          Quy định trích dẫn HITL yêu cầu mỗi đoạn tối đa 800 ký tự. Hệ thống đã tự động tìm dấu câu kết thúc gần điểm giữa nhất để tách thành 2 đoạn nguyên văn hợp lệ.
+                          Quy định trích dẫn HITL yêu cầu mỗi đoạn tối đa 800 ký tự. Vui lòng chọn điểm ngắt giữa các câu để tách đoạn mà vẫn đảm bảo 100% nguyên văn.
                         </DialogDescription>
                       </DialogHeader>
 
-                      {splitTargetPara && (
-                        <div className="space-y-4 py-2 text-xs">
-                          <div className="flex items-center justify-between text-[11px] bg-muted/50 p-2.5 rounded-lg border border-border">
-                            <span>Độ dài đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự</span>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                const res = autoSplitText(splitTargetPara.text);
-                                setSplitPart1(res.part1);
-                                setSplitPart2(res.part2);
-                                toast.info('Đã tự động tính toán lại vị trí tách theo dấu câu.');
-                              }}
-                              className="h-6 text-[10px] gap-1 px-2"
-                            >
-                              <RefreshCw className="w-2.5 h-2.5" />
-                              Tách tự động theo câu
-                            </Button>
-                          </div>
+                      {splitTargetPara && (() => {
+                        const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
+                        const matches = splitTargetPara.text.match(regex);
+                        const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [splitTargetPara.text];
 
-                          {/* Đoạn 1 */}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                                <span>Đoạn 1 ({splitTargetPara.id}_1)</span>
-                              </label>
-                              <span className={`text-[11px] font-mono font-medium ${splitPart1.trim().length > 800 || splitPart1.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
-                                }`}>
-                                {splitPart1.trim().length} / 800 ký tự {splitPart1.trim().length > 800 ? '(Vượt quá 800)' : splitPart1.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                        return (
+                          <div className="space-y-4 py-2 text-xs">
+                            <div className="p-2.5 bg-blue-50 border border-blue-200 rounded text-blue-900 text-[11px] flex items-start gap-1.5">
+                              <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                              <span>
+                                <strong>Bảo vệ bản quyền nguyên văn (Điều 25 Luật SHTT):</strong> Hệ thống khóa chỉnh sửa nội dung văn bản trực tiếp để chống sai lệch tác phẩm gốc. Hãy bấm nút <strong>[✂️ Tách tại đây]</strong> sau câu mong muốn để chia đoạn.
                               </span>
                             </div>
-                            <Textarea
-                              value={splitPart1}
-                              onChange={(e) => setSplitPart1(e.target.value)}
-                              rows={4}
-                              className="text-xs bg-background leading-relaxed"
-                              placeholder="Nội dung nửa đầu..."
-                            />
-                          </div>
 
-                          {/* Đoạn 2 */}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                                <span>Đoạn 2 ({splitTargetPara.id}_2)</span>
-                              </label>
-                              <span className={`text-[11px] font-mono font-medium ${splitPart2.trim().length > 800 || splitPart2.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
-                                }`}>
-                                {splitPart2.trim().length} / 800 ký tự {splitPart2.trim().length > 800 ? '(Vượt quá 800)' : splitPart2.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
-                              </span>
+                            <div className="flex items-center justify-between text-[11px] bg-muted/50 p-2.5 rounded-lg border border-border">
+                              <span>Độ dài đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự ({sents.length} câu)</span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  const res = autoSplitText(splitTargetPara.text);
+                                  setSplitPart1(res.part1);
+                                  setSplitPart2(res.part2);
+                                  let bestIdx = 0;
+                                  let acc = '';
+                                  for (let i = 0; i < sents.length - 1; i++) {
+                                    acc = (acc ? acc + ' ' : '') + sents[i];
+                                    if (acc.trim().length <= res.part1.length) bestIdx = i;
+                                  }
+                                  setSelectedCutIndex(bestIdx);
+                                  toast.info('Đã tự động tính toán lại vị trí tách theo dấu câu.');
+                                }}
+                                className="h-6 text-[10px] gap-1 px-2"
+                              >
+                                <RefreshCw className="w-2.5 h-2.5" />
+                                Tự động chia giữa câu
+                              </Button>
                             </div>
-                            <Textarea
-                              value={splitPart2}
-                              onChange={(e) => setSplitPart2(e.target.value)}
-                              rows={4}
-                              className="text-xs bg-background leading-relaxed"
-                              placeholder="Nội dung nửa sau..."
-                            />
+
+                            {/* Chọn điểm cắt câu tương tác */}
+                            {sents.length > 1 && (
+                              <div className="p-3 bg-muted/30 rounded-lg border border-border space-y-2">
+                                <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                                  <span>Chọn vị trí ngắt câu:</span>
+                                  <span className="text-[11px] text-muted-foreground font-normal">Bấm nút để chọn điểm chia</span>
+                                </div>
+                                <div className="space-y-2 max-h-48 overflow-y-auto p-2 bg-background rounded border border-border/70 text-xs leading-relaxed">
+                                  {sents.map((sent, idx) => {
+                                    const isCutAfterThis = selectedCutIndex === idx;
+                                    const isLast = idx === sents.length - 1;
+                                    return (
+                                      <React.Fragment key={idx}>
+                                        <span className={idx <= selectedCutIndex ? 'text-emerald-950 font-medium' : 'text-slate-700'}>
+                                          {sent}{' '}
+                                        </span>
+                                        {!isLast && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedCutIndex(idx);
+                                              const p1 = sents.slice(0, idx + 1).join(' ').trim();
+                                              const p2 = sents.slice(idx + 1).join(' ').trim();
+                                              setSplitPart1(p1);
+                                              setSplitPart2(p2);
+                                            }}
+                                            className={`inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                                              isCutAfterThis
+                                                ? 'bg-emerald-700 text-white shadow-xs'
+                                                : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300'
+                                            }`}
+                                            title="Tách đoạn sau câu này"
+                                          >
+                                            <Scissors className="w-2.5 h-2.5" />
+                                            <span>{isCutAfterThis ? 'Điểm ngắt đã chọn' : 'Tách tại đây'}</span>
+                                          </button>
+                                        )}
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Đoạn 1 Preview (Read-only) */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                                  <span>Đoạn 1 ({splitTargetPara.id}_1)</span>
+                                </label>
+                                <span className={`text-[11px] font-mono font-medium ${splitPart1.trim().length > 800 || splitPart1.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'}`}>
+                                  {splitPart1.trim().length} / 800 ký tự {splitPart1.trim().length > 800 ? '(Vượt quá 800)' : splitPart1.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                                </span>
+                              </div>
+                              <Textarea
+                                value={splitPart1}
+                                readOnly
+                                rows={4}
+                                className="text-xs bg-muted/40 cursor-default leading-relaxed select-all"
+                                placeholder="Nội dung nửa đầu..."
+                              />
+                            </div>
+
+                            {/* Đoạn 2 Preview (Read-only) */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                                  <span>Đoạn 2 ({splitTargetPara.id}_2)</span>
+                                </label>
+                                <span className={`text-[11px] font-mono font-medium ${splitPart2.trim().length > 800 || splitPart2.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'}`}>
+                                  {splitPart2.trim().length} / 800 ký tự {splitPart2.trim().length > 800 ? '(Vượt quá 800)' : splitPart2.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                                </span>
+                              </div>
+                              <Textarea
+                                value={splitPart2}
+                                readOnly
+                                rows={4}
+                                className="text-xs bg-muted/40 cursor-default leading-relaxed select-all"
+                                placeholder="Nội dung nửa sau..."
+                              />
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       <DialogFooter className="flex items-center justify-end gap-2">
                         <Button size="sm" variant="outline" onClick={() => setSplitModalOpen(false)}>
@@ -4843,17 +5533,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   </Dialog>
 
                   {/* ========================================================================================= */}
-                  {/* DIALOG TRẠNG THÁI REINDEX RAG (AGENT SERVICE) */}
+                  {/* DIALOG TRẠNG THÁI ĐỒNG BỘ TRI THỨC VÀO TRỢ LÝ AI LAVI */}
                   {/* ========================================================================================= */}
                   <Dialog open={reindexStatusOpen} onOpenChange={setReindexStatusOpen}>
                     <DialogContent className="sm:max-w-lg">
                       <DialogHeader>
                         <DialogTitle className="text-base font-bold flex items-center gap-2">
                           <Database className="w-4 h-4 text-emerald-700" />
-                          <span>Trạng thái Đồng bộ Tri thức (RAG Reindex)</span>
+                          <span>Đồng bộ tri thức vào Trợ lý AI Lavi</span>
                         </DialogTitle>
                         <DialogDescription className="text-xs">
-                          Đồng bộ dữ liệu vector sang Agent Service để Trợ lý Lavi truy xuất khi tư vấn nông vụ.
+                          Bộ nhớ của trợ lý AI Lavi được lập chỉ mục vector (Semantic Search) và từ khóa (BM25) từ các đoạn bài báo khuyến nông đã duyệt. Bấm "Làm mới trạng thái" để kiểm tra xem dữ liệu mới nhất đã được nạp đầy đủ vào bộ nhớ AI hay chưa.
                         </DialogDescription>
                       </DialogHeader>
 
