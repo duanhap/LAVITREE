@@ -13,7 +13,7 @@ import {
   ExternalLink, Search, Filter, Layers, Database, Package,
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon,
-  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight
+  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -322,6 +322,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [editLoading, setEditLoading] = useState<boolean>(false);
   const [editSaving, setEditSaving] = useState<boolean>(false);
   const [editOriginalMeta, setEditOriginalMeta] = useState({
+    plantName: '',
+    diseaseName: '',
     modelClass: '',
     title: '',
     org: '',
@@ -511,7 +513,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   }, [imageFilterClass, imageFilterPart, imageFilterApproval]);
 
-  // ==================== TAB 1 LOGIC (TASK-15 V2) ====================
+  // Danh sách các bệnh riêng biệt có trong bài viết đang xem
+  const articleDistinctDiseases = React.useMemo(() => {
+    const list: Array<{ plantName: string; diseaseName: string; modelClass: string }> = [];
+    editRows.forEach((r) => {
+      if (!list.some((d) => d.modelClass === r.modelClass)) {
+        list.push({ plantName: r.plantName, diseaseName: r.diseaseName, modelClass: r.modelClass });
+      }
+    });
+    return list;
+  }, [editRows]);
+
+    // ==================== TAB 1 LOGIC (TASK-15 V2) ====================
   const cleanArticleTextFromHtml = (html: string): string => {
     try {
       const parser = new DOMParser();
@@ -664,6 +677,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         }
 
         setEditOriginalMeta({
+          plantName: first.plantName || '',
+          diseaseName: first.diseaseName || '',
           modelClass: first.modelClass,
           title: first.sourceTitle,
           org: parsedOrg,
@@ -1992,50 +2007,164 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         {/* TAB 1: NHẬP BÀI BÁO NGUYÊN VĂN (HITL INGESTION) */}
         {/* ========================================================================================= */}
         <TabsContent value="ingestion" className="space-y-6">
-          {editUrl ? (
+          {(editParam || editUrl) ? (
+            (editLoading && editRows.length === 0) ? (
+              /* Loading Skeleton sạch sẽ khi click xem chi tiết bài viết, loại bỏ hoàn toàn hiện tượng giật trang */
+              <div className="space-y-4 animate-pulse">
+                <div className="p-4 bg-card border border-border rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-6 w-36 bg-muted rounded-full" />
+                      <div className="h-6 w-24 bg-muted rounded-full" />
+                    </div>
+                    <div className="h-8 w-28 bg-muted rounded-md" />
+                  </div>
+                  <div className="h-6 w-3/4 bg-muted rounded" />
+                  <div className="h-4 w-1/2 bg-muted rounded" />
+                </div>
+                <div className="p-10 bg-card border border-border rounded-xl flex flex-col items-center justify-center text-center space-y-3">
+                  <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin" />
+                  <div className="text-sm font-semibold text-foreground">
+                    Đang tải chi tiết bài viết từ kho tri thức...
+                  </div>
+                  <div className="text-xs text-muted-foreground max-w-md truncate">
+                    {editParam || editUrl}
+                  </div>
+                </div>
+              </div>
+            ) : (
             /* ========================================================================= */
             /* CHẾ ĐỘ XEM & SỬA BÀI VIẾT ĐÃ LƯU: GIAO DIỆN 2 TAB GỌN GÀNG, TẬP TRUNG */
             /* ========================================================================= */
             <div className="space-y-4">
-              {/* Header bài viết đang sửa */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 bg-card border border-border rounded-xl shadow-xs">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 text-xs py-1 px-2.5 shrink-0">
-                    Đang sửa bài đã lưu
-                  </Badge>
-                  <div className="min-w-0">
-                    <div className="font-bold text-foreground text-sm truncate flex items-center gap-1.5" title={ingestTitle || ingestUrl}>
-                      <span>{ingestTitle || 'Bài viết chưa có tiêu đề'}</span>
-                      {ingestUrl && (
-                        <a
-                          href={ingestUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:text-primary/80 inline-flex items-center p-1 rounded hover:bg-muted"
-                          title="Mở link bài gốc trên trang báo trong tab mới"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      {selectedPlant ? `${selectedPlant} • ` : ''}
-                      {ingestClass ? `${diseases.find(d => d.classCode === ingestClass)?.commonNameVi || ingestClass} • ` : ''}
-                      {ingestUrl}
-                    </div>
+              {/* Header bài viết đã lưu: Rõ ràng, cố định thông tin, không bị nhảy loạn khi sửa form */}
+              <div className="p-4 bg-card border border-border rounded-xl shadow-xs space-y-3">
+                {/* Dòng 1: Danh hiệu, Trạng thái duyệt, Nút điều hướng */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-border/70">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                      <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Chi tiết bài viết tri thức</span>
+                    </span>
+
+                    {editRows.length > 0 && (
+                      editRows.every((r) => r.isManualApproved) ? (
+                        <Badge className="bg-emerald-700 text-white text-[11px] gap-1 font-semibold">
+                          <Check className="w-3 h-3" />
+                          Đã duyệt toàn bộ ({editRows.length}/{editRows.length})
+                        </Badge>
+                      ) : editRows.filter((r) => r.isManualApproved).length === 0 ? (
+                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[11px] gap-1 font-semibold">
+                          <Clock className="w-3 h-3" />
+                          Chờ duyệt (0/{editRows.length})
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-blue-50 text-blue-800 border-blue-300 text-[11px] gap-1 font-semibold">
+                          Duyệt một phần ({editRows.filter((r) => r.isManualApproved).length}/{editRows.length})
+                        </Badge>
+                      )
+                    )}
+
+                    <Badge variant="outline" className="text-[11px] text-muted-foreground gap-1">
+                      <Layers className="w-3 h-3 text-emerald-700" />
+                      <span>{editRows.length} đoạn trích</span>
+                    </Badge>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        exitEditMode(true);
+                        navigate('/admin/knowledge');
+                      }}
+                      className="h-8 text-xs gap-1.5 font-medium"
+                      title="Quay lại bảng Kiểm duyệt tri thức"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Quay lại danh sách</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => exitEditMode(true)}
+                      className="h-8 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                      title="Mở form dán bài báo khuyến nông mới"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Nhập bài mới</span>
+                    </Button>
                   </div>
                 </div>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exitEditMode()}
-                  className="h-8 text-xs gap-1.5 shrink-0"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span>Thoát sửa (Nhập bài mới)</span>
-                </Button>
+                {/* Dòng 2: Tiêu đề bài viết và Nút mở link bài gốc nổi bật */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <h2 className="text-base sm:text-lg font-bold text-foreground leading-snug line-clamp-2" title={editOriginalMeta.title || ingestTitle || editUrl || ''}>
+                    {editOriginalMeta.title || ingestTitle || 'Bài viết chưa có tiêu đề'}
+                  </h2>
+
+                  {(editUrl || ingestUrl) && (
+                    <a
+                      href={editUrl || ingestUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors shrink-0 shadow-2xs"
+                      title="Mở trực tiếp trang web bài báo gốc trong tab mới"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Mở link bài gốc</span>
+                    </a>
+                  )}
+                </div>
+
+                {/* Dòng 3: Chip thông tin bài viết gốc (cố định, phân biệt rõ với form cập nhật bên dưới) */}
+                <div className="flex flex-wrap items-center gap-2 text-xs pt-1">
+                  {/* Cây trồng & Bệnh */}
+                  {articleDistinctDiseases.length > 0 ? (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
+                      <span className="text-muted-foreground font-normal">Cây – Bệnh:</span>
+                      <span className="font-semibold text-emerald-800">
+                        {articleDistinctDiseases.map((d) => `${d.plantName} (${d.diseaseName})`).join(' • ')}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {/* Cơ quan */}
+                  {editOriginalMeta.org ? (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
+                      <span className="text-muted-foreground font-normal">Cơ quan:</span>
+                      <span className="font-medium">{editOriginalMeta.org}</span>
+                    </div>
+                  ) : null}
+
+                  {/* Tác giả */}
+                  {editOriginalMeta.author ? (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
+                      <span className="text-muted-foreground font-normal">Tác giả:</span>
+                      <span className="font-medium">{editOriginalMeta.author}</span>
+                    </div>
+                  ) : null}
+
+                  {/* Ngày xuất bản */}
+                  {editOriginalMeta.pubDate ? (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
+                      <span className="text-muted-foreground font-normal">Ngày đăng:</span>
+                      <span className="font-medium">{editOriginalMeta.pubDate}</span>
+                    </div>
+                  ) : null}
+
+                  {/* URL */}
+                  {(editUrl || ingestUrl) && (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 text-muted-foreground border border-border/60 max-w-sm truncate" title={editUrl || ingestUrl}>
+                      <span className="font-normal text-muted-foreground">URL:</span>
+                      <span className="font-mono text-[11px] truncate">{editUrl || ingestUrl}</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 2 Tabs phụ: Tab 1 (Thông tin & Đoạn đã duyệt) vs Tab 2 (Nạp thêm / Tái phân tích) */}
@@ -2602,6 +2731,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 </TabsContent>
               </Tabs>
             </div>
+            )
           ) : (
             /* ========================================================================= */
             /* CHẾ ĐỘ NHẬP BÀI BÁO MỚI (HITL INGESTION) */
