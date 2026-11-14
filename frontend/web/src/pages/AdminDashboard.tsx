@@ -2223,22 +2223,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 </div>
               </div>
 
-              {/* 2 Tabs phụ: Tab 1 (Thông tin & Đoạn đã duyệt) vs Tab 2 (Nạp thêm / Tái phân tích) */}
-              <Tabs value={editSubTab} onValueChange={(v) => setEditSubTab(v as 'approved' | 'reparse')} className="space-y-4">
-                <TabsList className="grid grid-cols-2 max-w-lg bg-muted/60 p-1">
-                  <TabsTrigger value="approved" className="gap-2 text-xs py-1.5 font-semibold">
-                    <Layers className="w-4 h-4 text-emerald-700" />
-                    <span>1. Thông tin &amp; Đoạn đã duyệt ({editRows.length})</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="reparse" className="gap-2 text-xs py-1.5 font-semibold">
-                    <Sparkles className="w-4 h-4 text-emerald-700" />
-                    <span>2. Nạp thêm / Tái phân tích bài báo</span>
-                  </TabsTrigger>
-                </TabsList>
-
-                {/* TAB 1: THÔNG TIN & CÁC ĐOẠN ĐÃ DUYỆT */}
-                <TabsContent value="approved" className="space-y-4">
-                  {/* Bảng chỉnh sửa thông tin: Chỉ hiển thị khi Admin nhấn "Sửa thông tin" */}
+              {/* Bảng chỉnh sửa thông tin: Chỉ hiển thị khi Admin nhấn "Sửa thông tin" */}
                   {showMetaEditPanel && (
                     <Card className="border-emerald-300 bg-card shadow-sm animate-in fade-in duration-200">
                       <CardHeader className="py-2.5 px-4 border-b border-border bg-emerald-50/60">
@@ -2395,6 +2380,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     </Card>
                   )}
 
+              {/* 2 Tabs phụ: Tab 1 (Thông tin & Đoạn đã duyệt) vs Tab 2 (Nạp thêm / Tái phân tích) */}
+              <Tabs value={editSubTab} onValueChange={(v) => setEditSubTab(v as 'approved' | 'reparse')} className="space-y-4">
+                <TabsList className="grid grid-cols-2 max-w-lg bg-muted/60 p-1">
+                  <TabsTrigger value="approved" className="gap-2 text-xs py-1.5 font-semibold">
+                    <Layers className="w-4 h-4 text-emerald-700" />
+                    <span>1. Thông tin &amp; Đoạn đã duyệt ({editRows.length})</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="reparse" className="gap-2 text-xs py-1.5 font-semibold">
+                    <Sparkles className="w-4 h-4 text-emerald-700" />
+                    <span>2. Nạp thêm / Tái phân tích bài báo</span>
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* TAB 1: THÔNG TIN & CÁC ĐOẠN ĐÃ DUYỆT */}
+                <TabsContent value="approved" className="space-y-4">
                   {/* Cảnh báo kiểm tra trùng lặp đoạn trích */}
                   {(() => {
                     const duplicates = findDuplicateChunks(editRows);
@@ -2545,14 +2545,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         <CardContent>
                           <form onSubmit={handleParseArticle} className="space-y-4 text-xs">
                             <div>
-                              <div className="flex justify-between items-center mb-1">
-                                <label className="font-semibold text-foreground">
-                                  Dán nội dung bài báo *
-                                </label>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                            {/* Hộp gợi ý & Link mở bài gốc để copy nhanh */}
+                            <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg text-xs space-y-1.5 mb-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-emerald-950 flex items-center gap-1.5">
+                                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                                  <span>Mẹo copy bài báo:</span>
                                 </span>
+                                {(editUrl || ingestUrl) && (
+                                  <a
+                                    href={editUrl || ingestUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-300 rounded shadow-2xs transition-colors"
+                                    title="Mở link bài gốc trong tab mới để copy"
+                                  >
+                                    <ExternalLink className="w-3 h-3 text-emerald-700" />
+                                    <span>Mở trang bài gốc ↗</span>
+                                  </a>
+                                )}
                               </div>
+                              <p className="text-[11px] text-emerald-900/85 leading-relaxed">
+                                Nhấn <strong>Ctrl + A</strong> rồi <strong>Ctrl + C</strong> trên trang báo gốc rồi dán vào ô dưới. Hệ thống sẽ tự động bóc tách và lọc bỏ menu, quảng cáo rác!
+                              </p>
+                            </div>
+
+                            <div className="flex justify-between items-center mb-1">
+                              <label className="font-semibold text-foreground">
+                                Dán nội dung bài báo *
+                              </label>
+                              <span className="text-[10px] text-muted-foreground">
+                                {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                              </span>
+                            </div>
                               <Textarea
                                 rows={13}
                                 placeholder="Dán văn bản bài báo vào đây để bóc tách đoạn mới hoặc tái trích xuất..."
