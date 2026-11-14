@@ -515,3 +515,20 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
 - [x] **Nâng ngưỡng phân tích đoạn dài & số lượng gợi ý AI**:
   - Nâng giới hạn độ dài đoạn gửi sang Agent Service trong `KnowledgeController.RequestAgentLabelingAsync` từ `<= 800` lên `<= 2000` ký tự để các đoạn chi tiết như `Symptoms and Signs` không bị bỏ qua khi gán nhãn và bóc tách mention.
   - Nâng `MAX_SUGGESTIONS` trong `backend/agent-service/app/rag/pipeline.py` từ `8` lên `20`.
+
+### 13.9. Vá rà soát bảo mật & toàn vẹn dữ liệu trước khi merge main (`TASK-15-R14`, 15/11/2026)
+- [x] **Loại bỏ proxy bên thứ ba khi crawl URL (Khắc phục rủi ro toàn vẹn dữ liệu mức Cao)**:
+  - Xóa bỏ hoàn toàn fallback sang proxy công khai bên thứ ba (`api.allorigins.win`, `api.codetabs.com`) trong `frontend/web/src/pages/AdminDashboard.tsx` (`handleCrawlArticleFromUrl`).
+  - Giới hạn middleware `GET /__dev/fetch-url` chỉ chạy ở chế độ `import.meta.env.DEV` và **không** fallback khi Core API chủ động từ chối (`400/401/403/422`). Môi trường production chỉ gọi duy nhất `POST /api/v1/knowledge/fetch-url` của Core API.
+- [x] **Chặn URL scheme không hợp lệ (`?edit=` XSS hardening & `NormalizeUrl`)**:
+  - Thêm helper `isSafeHttpUrl` trong `frontend/web/src/pages/AdminDashboard.tsx`; kiểm tra `url` ngay đầu `loadArticleForEdit`, gán `editUrl`/`ingestUrl` theo `res.data.source_url` chuẩn từ CSDL và chỉ render `<a href>` khi URL thuộc `http://` hoặc `https://`.
+  - Cập nhật `KnowledgeController.NormalizeUrl` trong `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs` trả về chuỗi rỗng nếu scheme không phải `http`/`https`; các endpoint `GET/PATCH sources/by-url` và `CommitIngestion` từ chối `400 BadRequest` với scheme không hợp lệ.
+- [x] **Đưa hạn mức trích dẫn ra cấu hình môi trường/appsettings**:
+  - Thêm helper `GetIngestConfigInt` đọc `INGEST_MAX_CHUNKS` (`KnowledgeIngestion:MaxChunks`, mặc định `20`), `INGEST_MAX_CHUNK_CHARS` (`KnowledgeIngestion:MaxChunkChars`, mặc định `1500`), `INGEST_MAX_RATIO_PERCENT` (`KnowledgeIngestion:MaxRatioPercent`, mặc định `60`) và `INGEST_MIN_QUOTA_FLOOR` (`KnowledgeIngestion:MinQuotaFloor`, mặc định `2500`) để dễ dàng siết chặt lại khi lên bản thương mại.
+- [x] **Đồng bộ mã bệnh cho `ProductSuggestions` theo từng đoạn trích**:
+  - Trong `CommitIngestion`, mỗi `ProductSuggestion` mới lưu theo `createdSource.ModelClass` riêng của đoạn trích (và truy vấn `DISMISSED` theo cặp `(ModelClass, MentionText)`) thay vì dùng mã bệnh chung `finalModelClass`.
+  - Trong `UpdateSourceUnit` (`PATCH /api/v1/knowledge/sources/{id}`), khi đổi bệnh của một đoạn trích, tự động cập nhật `ModelClass` cho các gợi ý `PENDING` gắn với đoạn đó.
+- [x] **Bổ sung dải IPv6 SSRF, giới hạn stream 2MB cho Vite Dev Proxy & tách task VS Code mặc định về Local**:
+  - Chặn thêm `64:ff9b::/96` / `64:ff9b:1::/48` (NAT64), `2002::/16` (6to4) và `::/96` trong `IsPrivateOrReservedIp` của `KnowledgeController.cs`.
+  - Nâng cấp `/__dev/fetch-url` trong `frontend/web/vite.config.ts` đọc stream từng chunk và hủy ngay khi chạm mốc `2MB` (`reader.cancel()`).
+  - Đổi task test mặc định trong `.vscode/tasks.json` trỏ về `CORE_API_URL=http://localhost:5176`, tách task trỏ `https://lavitree.io.vn` thành tùy chọn riêng để tránh ghi nhầm dữ liệu test lên production.

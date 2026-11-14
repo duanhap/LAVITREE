@@ -2,7 +2,39 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "🚀 Chạy Frontend Web (Test Local + Data Production)",
+      "label": "🚀 Chạy Frontend Web (Local API port 5176)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend/web",
+        "env": {
+          "CORE_API_URL": "http://localhost:5176"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Local:.*http://localhost:3000"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "clear": true,
+        "focus": false
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "⚠️ Chạy Frontend Web (Trỏ API Production lavitree.io.vn)",
       "type": "shell",
       "command": "npm run dev",
       "options": {
@@ -28,10 +60,7 @@
         "clear": true,
         "focus": false
       },
-      "group": {
-        "kind": "test",
-        "isDefault": true
-      }
+      "group": "test"
     },
     {
       "label": "🌐 Mở trang Admin Ingest (http://localhost:3000/admin/ingest)",

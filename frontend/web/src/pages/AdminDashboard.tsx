@@ -228,6 +228,18 @@ const buildCombinedDate = (pubDate: string, upDate: string) => {
   return p;
 };
 
+const isSafeHttpUrl = (url?: string | null): boolean => {
+  if (!url) return false;
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 interface DuplicatePair {
   idA: string;
   idB: string;
@@ -882,8 +894,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.error('Vui lòng nhập đường dẫn URL bài viết ở mục 1 trước khi bấm Crawl!');
       return;
     }
-    if (!/^https?:\/\//i.test(targetUrl)) {
-      toast.error('Đường dẫn bài viết phải bắt đầu bằng http:// hoặc https://');
+    if (!isSafeHttpUrl(targetUrl)) {
+      toast.error('Đường dẫn bài viết phải là URL hợp lệ (http:// hoặc https://)');
       return;
     }
 
@@ -893,6 +905,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
       let html = '';
       let lastError: unknown = null;
+      let coreRejected = false;
 
       // Tầng 1: Gọi Core API /knowledge/fetch-url (có kiểm tra chống SSRF)
       try {
@@ -906,10 +919,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         }
       } catch (err) {
         lastError = err;
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        // Nếu Core API chủ động từ chối (400/401/403/422), không bỏ qua kiểm tra của Core
+        if (status && [400, 401, 403, 422].includes(status)) {
+          coreRejected = true;
+        }
       }
 
-      // Tầng 2: Fallback qua Vite Dev Middleware /__dev/fetch-url (khi Core API chưa khởi động lại)
-      if (!html) {
+      // Tầng 2: Chỉ fallback sang Vite Dev Middleware khi đang chạy dev và Core chưa sẵn sàng (404/lỗi mạng)
+      if (!html && import.meta.env.DEV && !coreRejected) {
         try {
           const devRes = await fetch(`/__dev/fetch-url?url=${encodeURIComponent(targetUrl)}`, {
             signal: AbortSignal.timeout(15000),
@@ -920,38 +938,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             if (devData?.html) {
               html = devData.html;
             }
-          }
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
-      // Tầng 3: Fallback qua CORS Proxy công khai (khi chạy build tĩnh qua Nginx)
-      if (!html) {
-        try {
-          const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, {
-            signal: AbortSignal.timeout(15000),
-          });
-          if (proxyRes.ok) {
-            const proxyData = (await proxyRes.json()) as { contents?: string };
-            if (proxyData?.contents && proxyData.contents.length > 100) {
-              html = proxyData.contents;
-            }
-          }
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
-      if (!html) {
-        try {
-          const codetabsRes = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`, {
-            signal: AbortSignal.timeout(15000),
-          });
-          if (codetabsRes.ok) {
-            const proxyText = await codetabsRes.text();
-            if (proxyText && proxyText.length > 100) {
-              html = proxyText;
+          } else if (!devRes.ok && ct.includes('application/json')) {
+            const errBody = (await devRes.json()) as { detail?: string };
+            if (errBody?.detail) {
+              lastError = new Error(errBody.detail);
             }
           }
         } catch (err) {
@@ -990,6 +980,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
   // ==================== SỬA BÀI ĐÃ LƯU ====================
   const loadArticleForEdit = async (url: string, keepForm = false) => {
+    if (!isSafeHttpUrl(url)) {
+      toast.error('Đường dẫn bài viết không hợp lệ (chỉ hỗ trợ http:// hoặc https://).');
+      setEditUrl(null);
+      setEditRows([]);
+      return;
+    }
+
     try {
       setEditLoading(true);
       const res = await apiClient.get<{ source_url: string; sources: KnowledgeSourceItem[] }>(
@@ -999,7 +996,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const rows = res.data.sources || [];
       setEditRows(rows);
       setSummaryDrafts(Object.fromEntries(rows.filter((r) => !r.isVerbatim).map((r) => [r.id, r.evidenceText])));
-      setEditUrl(url);
+      const canonicalUrl = isSafeHttpUrl(res.data.source_url) ? res.data.source_url.trim() : url.trim();
+      setEditUrl(canonicalUrl);
       const first = rows[0];
       if (first) {
         const rawOrg = first.organization || '';
@@ -1039,7 +1037,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         setArticleTopics(distinctClasses.length > 0 ? distinctClasses : [first.modelClass]);
 
         if (!keepForm) {
-          setIngestUrl(res.data.source_url || url);
+          setIngestUrl(canonicalUrl);
           setIngestClass(first.modelClass);
           setSelectedPlant(first.plantName);
           setClassFromAi(false);
@@ -2604,9 +2602,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                       <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin'}</span>
                     </Button>
 
-                    {(editUrl || ingestUrl) && (
+                    {isSafeHttpUrl(editUrl || ingestUrl) && (
                       <a
-                        href={editUrl || ingestUrl}
+                        href={(editUrl || ingestUrl)!.trim()}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors shadow-2xs"
@@ -2677,17 +2675,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     ) : null}
                   </div>
 
-                  {(editUrl || ingestUrl) && (
+                  {isSafeHttpUrl(editUrl || ingestUrl) && (
                     <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 pt-0.5">
                       <span className="font-medium text-foreground">URL:</span>
                       <a
-                        href={editUrl || ingestUrl}
+                        href={(editUrl || ingestUrl)!.trim()}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="font-mono text-muted-foreground hover:text-emerald-700 hover:underline truncate max-w-xl"
-                        title={editUrl || ingestUrl}
+                        title={(editUrl || ingestUrl)!.trim()}
                       >
-                        {editUrl || ingestUrl}
+                        {(editUrl || ingestUrl)!.trim()}
                       </a>
                     </div>
                   )}
@@ -3025,9 +3023,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   readOnly
                                   className="text-xs flex-1 bg-muted/40 cursor-default"
                                 />
-                                {(editUrl || ingestUrl) && (
+                                {isSafeHttpUrl(editUrl || ingestUrl) && (
                                   <a
-                                    href={editUrl || ingestUrl}
+                                    href={(editUrl || ingestUrl)!.trim()}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center justify-center h-8 px-2.5 border border-border rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground text-xs shrink-0 transition-colors"
@@ -4009,9 +4007,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             required
                             className="text-xs flex-1"
                           />
-                          {ingestUrl && (
+                          {isSafeHttpUrl(ingestUrl) && (
                             <a
-                              href={ingestUrl}
+                              href={ingestUrl.trim()}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center justify-center h-8 px-2.5 border border-border rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground text-xs shrink-0 transition-colors"

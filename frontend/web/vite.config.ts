@@ -118,7 +118,32 @@ function devFetchUrlPlugin(): Plugin {
             return
           }
 
-          const html = (await upstreamRes.text()).slice(0, 2 * 1024 * 1024)
+          const maxBytes = 2 * 1024 * 1024
+          const chunks: Uint8Array[] = []
+          let totalBytes = 0
+          const reader = upstreamRes.body?.getReader()
+          if (reader) {
+            while (totalBytes < maxBytes) {
+              const { done, value } = await reader.read()
+              if (done || !value) break
+              const remaining = maxBytes - totalBytes
+              if (value.byteLength > remaining) {
+                chunks.push(value.subarray(0, remaining))
+                totalBytes += remaining
+                await reader.cancel()
+                break
+              }
+              chunks.push(value)
+              totalBytes += value.byteLength
+            }
+          }
+          const combined = new Uint8Array(totalBytes)
+          let offset = 0
+          for (const c of chunks) {
+            combined.set(c, offset)
+            offset += c.byteLength
+          }
+          const html = new TextDecoder('utf-8').decode(combined)
           res.statusCode = 200
           res.end(JSON.stringify({ url: currentUri.toString(), html }))
         } catch (err) {
