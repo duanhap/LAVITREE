@@ -13,7 +13,7 @@ import {
   ExternalLink, Search, Filter, Layers, Database, Package,
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon,
-  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft
+  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -335,6 +335,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [summaryDrafts, setSummaryDrafts] = useState<Record<string, string>>({});
   const [editSubTab, setEditSubTab] = useState<'approved' | 'reparse'>('approved');
   const [dismissMetaDiff, setDismissMetaDiff] = useState<boolean>(false);
+  const [showMetaEditPanel, setShowMetaEditPanel] = useState<boolean>(false);
 
   // Highlight cụm từ trích xuất (mention tag)
   const [highlightedMention, setHighlightedMention] = useState<{ paraId: string; text: string } | null>(null);
@@ -513,16 +514,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   }, [imageFilterClass, imageFilterPart, imageFilterApproval]);
 
-  // Danh sách các bệnh riêng biệt có trong bài viết đang xem
-  const articleDistinctDiseases = React.useMemo(() => {
-    const list: Array<{ plantName: string; diseaseName: string; modelClass: string }> = [];
+  // Nhận diện đoạn/chủ đề thuộc nhóm Chăm sóc cây khỏe mạnh (không phải bệnh hại)
+  const isHealthyTopic = (diseaseName?: string, modelClass?: string): boolean => {
+    const name = (diseaseName || '').toLowerCase();
+    const cls = (modelClass || '').toLowerCase();
+    return name.includes('khỏe mạnh') || cls.endsWith('healthy');
+  };
+
+  // Danh sách các chủ đề / bệnh riêng biệt có trong bài viết đang xem
+  const articleDistinctTopics = React.useMemo(() => {
+    const list: Array<{ plantName: string; label: string; isHealthy: boolean; modelClass: string }> = [];
     editRows.forEach((r) => {
+      const isH = isHealthyTopic(r.diseaseName, r.modelClass);
+      const label = isH ? 'Chăm sóc cây khỏe mạnh' : (r.diseaseName || 'Bệnh hại');
       if (!list.some((d) => d.modelClass === r.modelClass)) {
-        list.push({ plantName: r.plantName, diseaseName: r.diseaseName, modelClass: r.modelClass });
+        list.push({ plantName: r.plantName, label, isHealthy: isH, modelClass: r.modelClass });
       }
     });
     return list;
   }, [editRows]);
+
+  const handleApproveAllInEdit = async () => {
+    if (editRows.length === 0) return;
+    const allApproved = editRows.every((r) => r.isManualApproved);
+    const targetStatus = !allApproved;
+    const ids = editRows.map((r) => r.id);
+    try {
+      await apiClient.patch('/knowledge/sources/approve-batch', {
+        source_ids: ids,
+        is_approved: targetStatus,
+        reviewer_notes: targetStatus ? 'Duyệt toàn bộ từ trang chi tiết bài viết' : 'Bỏ duyệt toàn bộ',
+      });
+      setEditRows((prev) => prev.map((r) => ({ ...r, isManualApproved: targetStatus })));
+      toast.success(targetStatus ? `Đã duyệt toàn bộ ${ids.length} đoạn của bài viết.` : `Đã bỏ duyệt ${ids.length} đoạn.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
 
     // ==================== TAB 1 LOGIC (TASK-15 V2) ====================
   const cleanArticleTextFromHtml = (html: string): string => {
@@ -741,6 +769,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     setIngestionResult(null);
     setSelectedParagraphs({});
     setEditSubTab('approved');
+    setShowMetaEditPanel(false);
     if (clearParam) navigate('/admin/ingest', { replace: true });
   };
 
@@ -820,6 +849,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         toast.success('Đã lưu đoạn. Đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.');
       }
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1318,6 +1348,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.success('Đã xóa đoạn tri thức. Lavi sẽ không dùng đoạn này nữa.');
       setDeleteTarget(null);
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1496,6 +1527,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       );
       setDeleteArticleTarget(null);
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1514,6 +1546,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setSelectedSourceIds([]);
       setDeleteBatchModalOpen(false);
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -2074,6 +2107,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
+                      variant={showMetaEditPanel ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setShowMetaEditPanel(!showMetaEditPanel)}
+                      className={`h-8 text-xs gap-1.5 font-medium ${showMetaEditPanel ? 'bg-emerald-700 text-white' : 'hover:bg-muted'}`}
+                      title="Mở bảng chỉnh sửa tiêu đề, cơ quan, tác giả hoặc ngày xuất bản của bài báo"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin bài'}</span>
+                    </Button>
+
+                    <Button
+                      type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => {
@@ -2121,14 +2166,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   )}
                 </div>
 
-                {/* Dòng 3: Chip thông tin bài viết gốc (cố định, phân biệt rõ với form cập nhật bên dưới) */}
+                {/* Dòng 3: Chip thông tin bài viết gốc (cố định, phân biệt rõ ràng, không lặp lại form) */}
                 <div className="flex flex-wrap items-center gap-2 text-xs pt-1">
-                  {/* Cây trồng & Bệnh */}
-                  {articleDistinctDiseases.length > 0 ? (
+                  {/* Cây trồng */}
+                  {(editOriginalMeta.plantName || selectedPlant) ? (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-200">
+                      <span className="text-emerald-700/80 font-normal">Loài cây:</span>
+                      <span className="font-bold">{editOriginalMeta.plantName || selectedPlant}</span>
+                    </div>
+                  ) : null}
+
+                  {/* Danh sách chủ đề / bệnh trong bài */}
+                  {articleDistinctTopics.length > 0 ? (
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
-                      <span className="text-muted-foreground font-normal">Cây – Bệnh:</span>
-                      <span className="font-semibold text-emerald-800">
-                        {articleDistinctDiseases.map((d) => `${d.plantName} (${d.diseaseName})`).join(' • ')}
+                      <span className="text-muted-foreground font-normal">Chủ đề trong bài:</span>
+                      <span className="font-semibold flex flex-wrap items-center gap-1.5">
+                        {articleDistinctTopics.map((t, idx) => (
+                          <span
+                            key={idx}
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-medium border ${
+                              t.isHealthy
+                                ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            }`}
+                          >
+                            {t.label}
+                          </span>
+                        ))}
                       </span>
                     </div>
                   ) : null}
@@ -2137,7 +2201,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   {editOriginalMeta.org ? (
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
                       <span className="text-muted-foreground font-normal">Cơ quan:</span>
-                      <span className="font-medium">{editOriginalMeta.org}</span>
+                      <span className="font-medium max-w-xs truncate" title={editOriginalMeta.org}>{editOriginalMeta.org}</span>
                     </div>
                   ) : null}
 
@@ -2153,7 +2217,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   {editOriginalMeta.pubDate ? (
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
                       <span className="text-muted-foreground font-normal">Ngày đăng:</span>
-                      <span className="font-medium">{editOriginalMeta.pubDate}</span>
+                      <span className="font-medium max-w-xs truncate" title={editOriginalMeta.pubDate}>{editOriginalMeta.pubDate}</span>
                     </div>
                   ) : null}
 
@@ -2182,140 +2246,211 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
                 {/* TAB 1: THÔNG TIN & CÁC ĐOẠN ĐÃ DUYỆT */}
                 <TabsContent value="approved" className="space-y-4">
-                  {/* Card thông tin bài viết & phân loại */}
-                  <Card className="border-border bg-card shadow-xs">
-                    <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-xs font-bold flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-emerald-700" />
-                          <span>Thông tin bài viết &amp; Phân loại</span>
-                        </CardTitle>
-                        <span className="text-[11px] text-muted-foreground">
-                          Áp dụng đồng bộ cho cả {editRows.length} đoạn của bài viết
-                        </span>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-4 space-y-3 text-xs">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Loài cây trồng *
-                          </label>
-                          <select
-                            value={selectedPlant}
-                            onChange={(e) => handlePlantChange(e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                  {/* Bảng chỉnh sửa thông tin: Chỉ hiển thị khi Admin nhấn "Sửa thông tin bài" */}
+                  {showMetaEditPanel && (
+                    <Card className="border-emerald-300 bg-card shadow-sm animate-in fade-in duration-200">
+                      <CardHeader className="py-2.5 px-4 border-b border-border bg-emerald-50/60">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-xs font-bold flex items-center gap-2 text-emerald-950">
+                            <Edit3 className="w-4 h-4 text-emerald-700" />
+                            <span>Chỉnh sửa thông tin bài viết &amp; Nguồn gốc</span>
+                          </CardTitle>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowMetaEditPanel(false)}
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                            title="Đóng form chỉnh sửa"
                           >
-                            <option value="">-- Chọn loài cây --</option>
-                            {uniquePlants.map((plant) => (
-                              <option key={plant} value={plant}>
-                                {plant}
-                              </option>
-                            ))}
-                          </select>
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
+                      </CardHeader>
+                      <CardContent className="p-4 space-y-3 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Loài cây trồng *
+                            </label>
+                            <select
+                              value={selectedPlant}
+                              onChange={(e) => handlePlantChange(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                            >
+                              <option value="">-- Chọn loài cây --</option>
+                              {uniquePlants.map((plant) => (
+                                <option key={plant} value={plant}>
+                                  {plant}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Chuyên mục / Bệnh hại mục tiêu *
+                            </label>
+                            <select
+                              value={ingestClass}
+                              onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
+                              className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                            >
+                              <option value="">-- Chọn chuyên mục / bệnh hại --</option>
+                              {filteredDiseasesByPlant.map((d) => (
+                                <option key={d.classCode} value={d.classCode}>
+                                  {isHealthyTopic(d.commonNameVi, d.classCode)
+                                    ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
+                                    : d.commonNameVi}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
                         <div>
                           <label className="font-semibold text-foreground block mb-1">
-                            Bệnh hại mục tiêu *
-                          </label>
-                          <select
-                            value={ingestClass}
-                            onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                          >
-                            <option value="">-- Chọn bệnh hại mục tiêu --</option>
-                            {filteredDiseasesByPlant.map((d) => (
-                              <option key={d.classCode} value={d.classCode}>
-                                {d.commonNameVi}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="font-semibold text-foreground block mb-1">
-                          Tiêu đề bài viết trích dẫn *
-                        </label>
-                        <Input
-                          type="text"
-                          value={ingestTitle}
-                          onChange={(e) => setIngestTitle(e.target.value)}
-                          placeholder="Tiêu đề bài viết..."
-                          className="text-xs bg-background"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Cơ quan / Viện nghiên cứu / Tạp chí *
+                            Tiêu đề bài viết trích dẫn *
                           </label>
                           <Input
                             type="text"
-                            value={ingestOrg}
-                            onChange={(e) => setIngestOrg(e.target.value)}
-                            placeholder="Trung tâm Khuyến nông Quốc gia, Viện BVTV..."
+                            value={ingestTitle}
+                            onChange={(e) => setIngestTitle(e.target.value)}
+                            placeholder="Tiêu đề bài viết..."
                             className="text-xs bg-background"
                           />
                         </div>
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Tác giả / Nhóm nghiên cứu
-                          </label>
-                          <Input
-                            type="text"
-                            value={ingestAuthor}
-                            onChange={(e) => setIngestAuthor(e.target.value)}
-                            placeholder="TS. Nguyễn Văn A..."
-                            className="text-xs bg-background"
-                          />
-                        </div>
-                      </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Ngày đăng / xuất bản
-                          </label>
-                          <Input
-                            type="text"
-                            value={ingestPublishedDate}
-                            onChange={(e) => setIngestPublishedDate(e.target.value)}
-                            placeholder="03/01/2024 hoặc 2024"
-                            className="text-xs bg-background"
-                          />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Cơ quan / Viện nghiên cứu / Tạp chí *
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestOrg}
+                              onChange={(e) => setIngestOrg(e.target.value)}
+                              placeholder="Trung tâm Khuyến nông Quốc gia, Viện BVTV..."
+                              className="text-xs bg-background"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Tác giả / Nhóm nghiên cứu
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestAuthor}
+                              onChange={(e) => setIngestAuthor(e.target.value)}
+                              placeholder="TS. Nguyễn Văn A..."
+                              className="text-xs bg-background"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="font-semibold text-foreground block mb-1">
-                            Ngày cập nhật (nếu có)
-                          </label>
-                          <Input
-                            type="text"
-                            value={ingestUpdatedDate}
-                            onChange={(e) => setIngestUpdatedDate(e.target.value)}
-                            placeholder="12/03/2024"
-                            className="text-xs bg-background"
-                          />
-                        </div>
-                      </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
-                        <span className="text-[11px] text-muted-foreground">
-                          Lưu thông tin sẽ áp dụng đồng nhất cho cả {editRows.length} đoạn trích của bài báo.
-                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Ngày đăng / xuất bản
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestPublishedDate}
+                              onChange={(e) => setIngestPublishedDate(e.target.value)}
+                              placeholder="03/01/2024 hoặc 2024"
+                              className="text-xs bg-background"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Ngày cập nhật (nếu có)
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestUpdatedDate}
+                              onChange={(e) => setIngestUpdatedDate(e.target.value)}
+                              placeholder="12/03/2024"
+                              className="text-xs bg-background"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+                          <span className="text-[11px] text-muted-foreground">
+                            Lưu thông tin sẽ cập nhật đồng bộ tiêu đề, tác giả, ngày xuất bản cho {editRows.length} đoạn trích.
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowMetaEditPanel(false)}
+                              className="h-8 text-xs"
+                            >
+                              Đóng
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={!editMetaDirty || editSaving || !ingestClass}
+                              onClick={() => saveEditedArticleMeta()}
+                              className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                            >
+                              {editSaving ? 'Đang lưu...' : 'Lưu thay đổi thông tin bài'}
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Thanh công cụ quản lý đoạn trích trực quan, gọn gàng */}
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-card border border-border rounded-xl shadow-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Layers className="w-4 h-4 text-emerald-700" />
+                      <span className="font-bold text-foreground text-xs">
+                        Các đoạn trích đã lưu ({editRows.length})
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        • Nguyên văn: {existingVerbatimCount}/8 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {!showMetaEditPanel && (
                         <Button
                           type="button"
+                          variant="outline"
                           size="sm"
-                          disabled={!editMetaDirty || editSaving || !ingestClass}
-                          onClick={() => saveEditedArticleMeta()}
-                          className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                          onClick={() => setShowMetaEditPanel(true)}
+                          className="h-7 px-2.5 text-xs text-foreground hover:bg-muted gap-1 font-medium"
+                          title="Chỉnh sửa tiêu đề, cơ quan hoặc ngày xuất bản của bài báo"
                         >
-                          {editSaving ? 'Đang lưu...' : 'Lưu thay đổi thông tin bài'}
+                          <Edit3 className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Sửa thông tin bài</span>
                         </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      )}
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
+                        onClick={handleApproveAllInEdit}
+                        className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
+                          editRows.every((r) => r.isManualApproved)
+                            ? 'text-muted-foreground hover:text-destructive'
+                            : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                        }`}
+                        title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>
+                          {editRows.every((r) => r.isManualApproved)
+                            ? 'Bỏ duyệt toàn bộ bài'
+                            : `Duyệt toàn bộ (${editRows.length})`}
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
 
                   {/* Cảnh báo kiểm tra trùng lặp đoạn trích */}
                   {(() => {
@@ -2365,6 +2500,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
                                   {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
                                 </Badge>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
+                                    isHealthyTopic(row.diseaseName, row.modelClass)
+                                      ? 'bg-sky-50 text-sky-800 border-sky-300'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  }`}
+                                >
+                                  {isHealthyTopic(row.diseaseName, row.modelClass)
+                                    ? '🌱 Chăm sóc cây khỏe mạnh'
+                                    : row.diseaseName || row.plantName}
+                                </span>
                                 <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border border-border">
                                   {row.unitType || 'SYMPTOMS'}
                                 </span>
@@ -2889,7 +3035,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         </div>
                         <div>
                           <label className="font-semibold text-foreground block mb-1">
-                            Bệnh hại mục tiêu *
+                            Chuyên mục / Bệnh hại mục tiêu *
                           </label>
                           <select
                             value={ingestClass}

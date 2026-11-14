@@ -448,21 +448,28 @@ Yêu cầu: bấm vào một bài ở Duyệt tri thức để sửa lại như 
 Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng trình duyệt Google Chrome và nâng cấp giao diện, nghiệp vụ theo yêu cầu:
 
 ### 13.1. Thuật ngữ nghiệp vụ & Khung nhìn Admin (AdminShell)
-- [ ] **Đổi tên "Reindex" thành "Đồng bộ tri thức"**: Thay thế toàn bộ thuật ngữ kỹ thuật "Reindex" / "Trạng thái Reindex" trên nút bấm, tiêu đề Dialog và thông báo bằng "Đồng bộ tri thức", kèm chú thích rõ ràng về việc cập nhật dữ liệu vector nạp não cho trợ lý AI Lavi.
-- [ ] **Menu thu nhỏ (Collapsible Sidebar)**: Nâng cấp `AdminShell` cho phép thu gọn sidebar từ `w-64` về icon bar `w-16` (hoặc mở lại), lưu tùy chọn vào `localStorage`. Tối ưu không gian ngang cho màn hình 2 cột khi nhập bài.
-- [ ] **Nút mở link bài viết gốc tab mới**: Thêm icon `ExternalLink` ngay cạnh ô URL bài viết gốc và cạnh tiêu đề bài, click mở tab mới `target="_blank" rel="noopener noreferrer"`.
+- [x] **Đổi tên "Reindex" thành "Đồng bộ tri thức"**: Thay thế toàn bộ thuật ngữ kỹ thuật "Reindex" / "Trạng thái Reindex" trên nút bấm, tiêu đề Dialog và thông báo bằng "Đồng bộ tri thức", kèm chú thích rõ ràng về việc cập nhật dữ liệu vector nạp não cho trợ lý AI Lavi.
+- [x] **Menu thu nhỏ (Collapsible Sidebar)**: Nâng cấp `AdminShell` cho phép thu gọn sidebar từ `w-64` về icon bar `w-16` (hoặc mở lại), lưu tùy chọn vào `localStorage`. Tối ưu không gian ngang cho màn hình 2 cột khi nhập bài.
+- [x] **Nút mở link bài viết gốc tab mới**: Thêm icon `ExternalLink` ngay cạnh ô URL bài viết gốc và cạnh tiêu đề bài, click mở tab mới `target="_blank" rel="noopener noreferrer"`.
 
 ### 13.2. Chuẩn hóa Form & Tách bạch thông tin bài viết
-- [ ] **Xóa bỏ trùng lặp chọn Cây / Bệnh**: Bỏ hẳn mục chọn cây/bệnh ở cột trái, chỉ giữ duy nhất tại Card "Thông tin bài viết & Phân loại" ở cột phải.
-- [ ] **Tách bạch 4 trường thông tin bài báo**: Tách riêng Tác giả, Cơ quan / Viện nghiên cứu, Ngày đăng bài, Ngày cập nhật thay vì dồn chung vào một ô.
+- [x] **Xóa bỏ trùng lặp chọn Cây / Bệnh**: Bỏ hẳn mục chọn cây/bệnh ở cột trái, chỉ giữ duy nhất tại Card "Thông tin bài viết & Phân loại" ở cột phải.
+- [x] **Tách bạch 4 trường thông tin bài báo**: Tách riêng Tác giả, Cơ quan / Viện nghiên cứu, Ngày đăng bài, Ngày cập nhật thay vì dồn chung vào một ô.
 
 ### 13.3. Tương tác Thẻ vật tư (Mentions) & Tách đoạn nguyên văn chuẩn Điều 25 Luật SHTT
-- [ ] **Click tag highlight văn bản**: Khi click hoặc hover vào thẻ tag vật tư, đoạn văn bản tương ứng bên trên tự động sáng đèn / highlight màu vàng nhạt.
-- [ ] **Dịch nghĩa / Chú thích tiếng Việt cho tag**: Hiển thị tooltip hoặc bản dịch tiếng Việt cho các thuật ngữ/hoạt chất tiếng Anh (ví dụ: Thinning of whole plants -> Tỉa thưa cả cây, copper -> Gốc đồng).
-- [ ] **Khóa sửa chữ khi tách đoạn (Click-to-split)**: Tuyệt đối cấm gõ tự do (free-text) khi tách đoạn để tránh sửa đổi làm sai lệch bài báo gốc (vi phạm Điều 25 Luật SHTT). Chuyển sang cơ chế click chọn dấu câu (`.`, `!`, `?`, `;`) để chia đôi đoạn, bảo đảm 2 đoạn con ghép lại đúng 100% nguyên văn bài gốc.
+- [x] **Click tag highlight văn bản**: Khi click hoặc hover vào thẻ tag vật tư, đoạn văn bản tương ứng bên trên tự động sáng đèn / highlight màu vàng nhạt.
+- [x] **Dịch nghĩa / Chú thích tiếng Việt cho tag**: Hiển thị tooltip hoặc bản dịch tiếng Việt cho các thuật ngữ/hoạt chất tiếng Anh (ví dụ: Thinning of whole plants -> Tỉa thưa cả cây, copper -> Gốc đồng).
+- [x] **Khóa sửa chữ khi tách đoạn (Click-to-split)**: Tuyệt đối cấm gõ tự do (free-text) khi tách đoạn để tránh sửa đổi làm sai lệch bài báo gốc (vi phạm Điều 25 Luật SHTT). Chuyển sang cơ chế click chọn dấu câu (`.`, `!`, `?`, `;`) để chia đôi đoạn, bảo đảm 2 đoạn con ghép lại đúng 100% nguyên văn bài gốc.
 
 ### 13.4. Tối giản Bảng Duyệt tri thức & Giao diện 2 Tab chi tiết bài viết
-- [ ] **Tối giản bảng Duyệt tri thức (`/admin/knowledge`)**: Bỏ các nút rườm rà (Xem chi tiết, Thu gọn, Bỏ duyệt cả bài trên từng dòng), mỗi dòng chỉ giữ nút chính "Mở bài viết" và nút xóa.
-- [ ] **Giao diện Chi tiết bài viết 2 Tab**:
+- [x] **Tối giản bảng Duyệt tri thức (`/admin/knowledge`)**: Bỏ các nút rườm rà (Xem chi tiết, Thu gọn, Bỏ duyệt cả bài trên từng dòng), mỗi dòng chỉ giữ nút chính "Mở bài viết" và nút xóa.
+- [x] **Giao diện Chi tiết bài viết 2 Tab**:
   - **Tab 1 ("Thông tin & Các đoạn đã duyệt")**: Xem toàn bộ thông tin bài báo, các đoạn trích đã lưu/duyệt. Tích hợp thuật toán cảnh báo màu vàng khi phát hiện các đoạn trích có nội dung trùng lặp nhau (> 85%).
   - **Tab 2 ("Nạp thêm / Tái phân tích bài báo")**: Dán bài mới để phân tích thêm, tự động ẩn các đoạn đã lưu ở Tab 1 để tránh dài trang. Tích hợp bảng so sánh thông minh (Side-by-side Diff) nếu thông tin AI mới khác với thông tin đang lưu ở Tab 1, cho phép Admin 1-click chọn "Giữ cũ" hoặc "Áp dụng mới".
+
+### 13.5. Tinh chỉnh UX Chi tiết bài viết & Khử trùng lặp trường dữ liệu (14/11/2026, theo phản ánh Admin)
+- [x] **Xóa bỏ giật màn hình (Flash/Jump UI)**: Nhận diện `editParam` trên query URL để hiển thị Loading Skeleton mượt mà thay vì lộ form "Dán văn bản bài báo khuyến nông" trắng tinh trong lúc tải API.
+- [x] **Khử trùng lặp 2 tầng (Banner vs Form Card)**: Hợp nhất thông tin bài viết vào Header chính. Ẩn khối form 6 ô input trùng lặp choán màn hình; chỉ mở ra dạng Card khi Admin chủ động bấm `[✏️ Sửa thông tin bài]`. Mặc định màn hình tập trung 100% vào danh sách đoạn trích và thao tác duyệt.
+- [x] **Chuẩn hóa nhãn "Cây khỏe mạnh"**: Loại bỏ hoàn toàn sự phi lý khi gọi cây khỏe mạnh là "Bệnh hại mục tiêu". Đổi thành `🌱 Chăm sóc cây khỏe mạnh` / `Kỹ thuật canh tác & Phòng ngừa` trên toàn bộ Header, dropdown và badge từng đoạn trích.
+- [x] **Phân loại đa chủ đề cấp Đoạn trích (Multi-topic Paragraph Level)**: Tách riêng Loài cây (`editOriginalMeta.plantName`) và danh sách các chủ đề trong bài (`articleDistinctTopics`). Hiển thị badge chủ đề riêng cho từng đoạn trích, không ép đồng bộ một bệnh duy nhất cho cả bài báo.
+- [x] **Thao tác nhanh Duyệt toàn bộ / Bỏ duyệt toàn bộ**: Thêm nút thao tác 1-click duyệt toàn bộ các đoạn trong bài viết ngay tại thanh công cụ Tab 1.
