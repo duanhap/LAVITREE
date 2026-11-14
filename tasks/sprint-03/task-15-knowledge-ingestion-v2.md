@@ -532,3 +532,15 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
   - Chặn thêm `64:ff9b::/96` / `64:ff9b:1::/48` (NAT64), `2002::/16` (6to4) và `::/96` trong `IsPrivateOrReservedIp` của `KnowledgeController.cs`.
   - Nâng cấp `/__dev/fetch-url` trong `frontend/web/vite.config.ts` đọc stream từng chunk và hủy ngay khi chạm mốc `2MB` (`reader.cancel()`).
   - Đổi task test mặc định trong `.vscode/tasks.json` trỏ về `CORE_API_URL=http://localhost:5176`, tách task trỏ `https://lavitree.io.vn` thành tùy chọn riêng để tránh ghi nhầm dữ liệu test lên production.
+
+### 13.10. Bóc tách siêu dữ liệu Key-Value tất định & bảo toàn ngày cập nhật (`TASK-15-R15`, 15/11/2026)
+- [x] **Bóc tách Key-Value phía Frontend (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - Thêm bộ nhận diện siêu dữ liệu tất định gồm `extractKeyMetadataFromText`, `normalizeDateDisplay`, `MONTH_MAP`, `KNOWN_ORG_BY_HOST`, `parseCombinedOrg` và `parseCombinedDate`.
+  - Hỗ trợ chuẩn hóa đa dạng định dạng ngày (tiếng Anh như `July 24, 2014`, tiếng Việt và ISO) về `DD/MM/YYYY` (ví dụ `Publication date: July 24, 2014` -> `24/07/2014`, `Reviewed/Revised: July 26, 2024` -> `26/07/2024`); trích xuất tác giả từ khối `Authors` hoặc các cặp `<Tên>:\n<Chức danh>` (như `Garrett Ridge: Research Specialist Plant Pathology`), và xác định cơ quan xuất bản từ phần đầu bài hoặc bảng `KNOWN_ORG_BY_HOST` theo domain nguồn.
+  - Tích hợp vào `handleParseArticle`: gộp kết quả Key-Value với `suggested_metadata` từ AI (ưu tiên giá trị tường minh từ Key-Value cho cơ quan, tác giả, ngày đăng và ngày cập nhật), đồng thời tự điền các trường còn trống (`ingestAuthor`, `ingestUpdatedDate`) ở Tab 2 (`editUrl` / Nạp thêm dữ liệu bài báo).
+  - Cập nhật các nút `[Áp dụng tất cả]` ở Tab 2, popover Cơ quan `[Áp dụng]` và popover Ngày `[Áp dụng]` để điền tách biệt đầy đủ cả `ingestOrg` & `ingestAuthor` lẫn `ingestPublishedDate` & `ingestUpdatedDate`.
+- [x] **Giữ nguyên dòng metadata cuối bài phía Core API (`backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`)**:
+  - Bổ sung `MetadataKeyLineRegex` (ngay sau `CommonHeadingWordsRegex`) và cập nhật `IngestArticle` để không loại bỏ các dòng ngắn (`10 <= cleaned.Length < 40`) khớp mẫu khóa metadata (ví dụ `Publication date:`, `Reviewed/Revised:`, `Authors:`) nằm rải rác hoặc ở cuối bài báo trước khi gửi sang Agent Service.
+- [x] **Bảo toàn ngày đầy đủ & ngày cập nhật phía Agent Service (`backend/agent-service/app/rag/pipeline.py`)**:
+  - Sửa `_filter_metadata`: giữ nguyên chuỗi `published_date` đầy đủ (tối đa 100 ký tự, bao gồm cả định dạng `DD/MM/YYYY (Cập nhật: DD/MM/YYYY)`) thay vì cắt chỉ còn 1 năm 4 chữ số, miễn là mọi năm 4 chữ số trong chuỗi đều hợp lệ (`1900 <= int(y) <= current_year`) và xuất hiện trong `article_text`.
+  - Cập nhật prompt trong `label_paragraphs` yêu cầu `organization` bỏ qua phần `References` cuối bài và `published_date` giữ định dạng `DD/MM/YYYY` kèm `(Cập nhật: ...)` khi có.

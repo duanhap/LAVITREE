@@ -220,12 +220,222 @@ const buildCombinedOrg = (org: string, author: string) => {
   return o;
 };
 
+const parseCombinedOrg = (raw?: string | null): { org: string; author: string } => {
+  const text = (raw || '').trim();
+  if (!text) return { org: '', author: '' };
+  const authorMatch = text.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+  if (authorMatch) {
+    return { org: authorMatch[1].trim(), author: authorMatch[2].trim() };
+  }
+  if (/^(?:Tác giả|Author):/i.test(text)) {
+    return { org: '', author: text.replace(/^(?:Tác giả|Author):\s*/i, '').trim() };
+  }
+  return { org: text, author: '' };
+};
+
 const buildCombinedDate = (pubDate: string, upDate: string) => {
   const p = pubDate.trim();
   const u = upDate.trim();
   if (p && u) return `${p} (Cập nhật: ${u})`;
   if (u) return `Cập nhật: ${u}`;
   return p;
+};
+
+const parseCombinedDate = (raw?: string | null): { pubDate: string; upDate: string } => {
+  const text = (raw || '').trim();
+  if (!text || text === 'Không ghi ngày') return { pubDate: '', upDate: '' };
+  const dateMatch = text.match(/^(.*?)\s*\((?:Cập nhật|Updated)?[:\s]*(.*?)\)$/i);
+  if (dateMatch) {
+    return { pubDate: dateMatch[1].trim(), upDate: dateMatch[2].trim() };
+  }
+  if (/^(?:Cập nhật|Updated):/i.test(text)) {
+    return { pubDate: '', upDate: text.replace(/^(?:Cập nhật|Updated):\s*/i, '').trim() };
+  }
+  return { pubDate: text, upDate: '' };
+};
+
+const MONTH_MAP: Record<string, string> = {
+  january: '01', jan: '01',
+  february: '02', feb: '02',
+  march: '03', mar: '03',
+  april: '04', apr: '04',
+  may: '05',
+  june: '06', jun: '06',
+  july: '07', jul: '07',
+  august: '08', aug: '08',
+  september: '09', sept: '09', sep: '09',
+  october: '10', oct: '10',
+  november: '11', nov: '11',
+  december: '12', dec: '12',
+};
+
+const normalizeDateDisplay = (raw: string): string => {
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+
+  const engMDY = cleaned.match(/\b([a-zA-Z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/);
+  if (engMDY) {
+    const mm = MONTH_MAP[engMDY[1].toLowerCase()];
+    if (mm) return `${engMDY[2].padStart(2, '0')}/${mm}/${engMDY[3]}`;
+  }
+
+  const engDMY = cleaned.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-zA-Z]+)\.?,?\s+(\d{4})\b/);
+  if (engDMY) {
+    const mm = MONTH_MAP[engDMY[2].toLowerCase()];
+    if (mm) return `${engDMY[1].padStart(2, '0')}/${mm}/${engDMY[3]}`;
+  }
+
+  const viDate = cleaned.match(/(?:ngày\s*)?(\d{1,2})\s*tháng\s*(\d{1,2})[,\s]*(?:năm\s*)?(\d{4})/i);
+  if (viDate) {
+    return `${viDate[1].padStart(2, '0')}/${viDate[2].padStart(2, '0')}/${viDate[3]}`;
+  }
+
+  const iso = cleaned.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (iso) {
+    return `${iso[3].padStart(2, '0')}/${iso[2].padStart(2, '0')}/${iso[1]}`;
+  }
+
+  const dmy = cleaned.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
+  if (dmy) {
+    const p1 = parseInt(dmy[1], 10);
+    const p2 = parseInt(dmy[2], 10);
+    if (p1 <= 12 && p2 > 12) {
+      return `${dmy[2].padStart(2, '0')}/${dmy[1].padStart(2, '0')}/${dmy[3]}`;
+    }
+    return `${dmy[1].padStart(2, '0')}/${dmy[2].padStart(2, '0')}/${dmy[3]}`;
+  }
+
+  const yearOnly = cleaned.match(/\b(19\d{2}|20\d{2})\b/);
+  if (yearOnly && cleaned.length <= 20) return yearOnly[1];
+
+  return cleaned.slice(0, 60);
+};
+
+const KNOWN_ORG_BY_HOST: Array<{ match: RegExp; name: string }> = [
+  { match: /(?:^|\.)ces\.ncsu\.edu$/i, name: 'NC State Extension Publications' },
+  { match: /(?:^|\.)extension\.cornell\.edu$/i, name: 'Cornell University Cooperative Extension' },
+  { match: /(?:^|\.)extension\.umn\.edu$/i, name: 'University of Minnesota Extension' },
+  { match: /(?:^|\.)ipm\.ucanr\.edu$/i, name: 'UC IPM (University of California)' },
+  { match: /(?:^|\.)khuyennongvn\.gov\.vn$/i, name: 'Trung tâm Khuyến nông Quốc gia' },
+  { match: /(?:^|\.)vaas\.vn$/i, name: 'Viện Khoa học Nông nghiệp Việt Nam (VAAS)' },
+  { match: /(?:^|\.)ppd\.gov\.vn$|(?:^|\.)bvtv\.gov\.vn$/i, name: 'Cục Bảo vệ thực vật' },
+  { match: /(?:^|\.)iasvn\.org$/i, name: 'Viện Khoa học Kỹ thuật Nông nghiệp miền Nam (IAS)' },
+];
+
+const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
+  const result = {
+    organization: '',
+    author: '',
+    publishedDate: '',
+    updatedDate: '',
+  };
+
+  if (!text) return result;
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  const pubKeyRe = /^(?:publication\s*date|date\s*published|published\s*(?:date|on)?|posted\s*on|release\s*date|first\s*published|ngày\s*(?:đăng|xuất\s*bản|phát\s*hành)|đăng\s*ngày)\s*[:\-]\s*(.+)$/i;
+  const updKeyRe = /^(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|updated(?:\s*on)?|revised|reviewed|modified|ngày\s*cập\s*nhật|cập\s*nhật(?:\s*lần\s*cuối)?|hiệu\s*đính)\s*[:\-]\s*(.+)$/i;
+  const orgKeyRe = /^(?:cơ\s*quan|tổ\s*chức|đơn\s*vị(?:\s*phát\s*hành)?|organization|publisher|institution)\s*[:\-]\s*(.+)$/i;
+  const authorKeyRe = /^(?:tác\s*giả|author|authors)\s*[:\-]\s*(.+)$/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (!result.publishedDate) {
+      const m = line.match(pubKeyRe);
+      if (m) {
+        const rawVal = m[1].split(/\b(?:reviewed\s*\/\s*revised|updated|cập\s*nhật)\b/i)[0].trim();
+        const combined = parseCombinedDate(rawVal);
+        if (combined.pubDate) result.publishedDate = normalizeDateDisplay(combined.pubDate);
+        if (!result.updatedDate && combined.upDate) result.updatedDate = normalizeDateDisplay(combined.upDate);
+      }
+    }
+
+    if (!result.updatedDate) {
+      const m = line.match(updKeyRe);
+      if (m) {
+        const parsed = normalizeDateDisplay(m[1]);
+        if (parsed) result.updatedDate = parsed;
+      }
+    }
+
+    if (!result.organization && i < 15) {
+      const m = line.match(orgKeyRe);
+      if (m && m[1].trim().length >= 3 && m[1].trim().length <= 120) {
+        result.organization = m[1].trim();
+      }
+    }
+
+    if (!result.author) {
+      const m = line.match(authorKeyRe);
+      if (m && m[1].trim().length >= 3 && m[1].trim().length <= 150) {
+        result.author = m[1].trim();
+      }
+    }
+  }
+
+  if (!result.author) {
+    const roleRe = /\b(professor|specialist|director|researcher|extension|scientist|entomology|plant\s+pathology|horticulture|agronomy|lecturer|ph\.?\s*d\.?|giáo\s*sư|phó\s*giáo\s*sư|tiến\s*sĩ|thạc\s*sĩ|kỹ\s*sư|chuyên\s*gia|nghiên\s*cứu\s*viên|giảng\s*viên)\b/i;
+    const stopSectionRe = /^(keywords?|references?|find\s+more\s+information|publication\s*date|reviewed\s*\/\s*revised|từ\s*khóa|tài\s*liệu\s*tham\s*khảo)\b/i;
+    const personNameRe = /^\p{Lu}[\p{L}.'-]+(?:\s+\p{Lu}\.?)?(?:\s+\p{Lu}[\p{L}.'-]+){1,4}$/u;
+    const nonAuthorHeadings = /^(introduction|symptoms\s+and\s+signs|disease\s+cycle|management|pathogen|diagnostic\s+procedures|references|authors|keywords|leaf\s+scorch|strawberry)$/i;
+
+    const extractedAuthors: string[] = [];
+    const authorsHeadingIdx = lines.findIndex((l) => /^authors?:?$/i.test(l));
+
+    if (authorsHeadingIdx !== -1) {
+      for (let i = authorsHeadingIdx + 1; i < Math.min(lines.length, authorsHeadingIdx + 20); i++) {
+        const cur = lines[i].replace(/:\s*$/, '').trim();
+        if (stopSectionRe.test(cur)) break;
+        if (roleRe.test(cur)) continue;
+        if (personNameRe.test(cur) && !nonAuthorHeadings.test(cur) && !extractedAuthors.includes(cur)) {
+          extractedAuthors.push(cur);
+        }
+      }
+    } else {
+      for (let i = 0; i < lines.length - 1; i++) {
+        const cur = lines[i];
+        if (!cur.endsWith(':')) continue;
+        const candidate = cur.slice(0, -1).trim();
+        const nextLine = lines[i + 1];
+        if (
+          personNameRe.test(candidate) &&
+          !nonAuthorHeadings.test(candidate) &&
+          roleRe.test(nextLine) &&
+          !extractedAuthors.includes(candidate)
+        ) {
+          extractedAuthors.push(candidate);
+        }
+      }
+    }
+
+    if (extractedAuthors.length > 0) {
+      result.author = extractedAuthors.slice(0, 6).join(', ');
+    }
+  }
+
+  if (!result.organization) {
+    const topOrgLine = lines.slice(0, 8).find(
+      (l) =>
+        l.length >= 6 &&
+        l.length <= 100 &&
+        !l.endsWith(':') &&
+        /\b(extension|university|institute|center|centre|trung\s*tâm|viện|cục|bộ\s*nông\s*nghiệp|sở\s*nông\s*nghiệp|khuyến\s*nông)\b/i.test(l)
+    );
+    if (topOrgLine) {
+      result.organization = topOrgLine;
+    } else if (sourceUrl) {
+      try {
+        const host = new URL(sourceUrl.trim()).hostname.toLowerCase();
+        const matchedHost = KNOWN_ORG_BY_HOST.find((item) => item.match.test(host));
+        if (matchedHost) result.organization = matchedHost.name;
+      } catch {
+        // ignore invalid URL
+      }
+    }
+  }
+
+  return result;
 };
 
 const isSafeHttpUrl = (url?: string | null): boolean => {
@@ -1206,22 +1416,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         article_text: ingestText.trim(),
       }, { timeout: 45000 });
 
-      setIngestionResult(res.data);
+      // Kết hợp bóc tách theo Key từ văn bản (Publication date, Reviewed/Revised, Authors, Cơ quan...) với gợi ý từ AI
+      const keyMeta = extractKeyMetadataFromText(ingestText, editUrl || ingestUrl);
+      const rawMeta = res.data.suggested_metadata;
+      const aiOrg = parseCombinedOrg(rawMeta?.organization);
+      const aiDate = parseCombinedDate(rawMeta?.published_date);
+
+      const resolvedTitle = rawMeta?.source_title?.trim() || '';
+      const resolvedOrg = keyMeta.organization || aiOrg.org;
+      const resolvedAuthor = keyMeta.author || aiOrg.author;
+      const resolvedPubDate = keyMeta.publishedDate || aiDate.pubDate;
+      const resolvedUpDate = keyMeta.updatedDate || aiDate.upDate;
+
+      const combinedSuggestedOrg = buildCombinedOrg(resolvedOrg, resolvedAuthor);
+      const combinedSuggestedDate = buildCombinedDate(resolvedPubDate, resolvedUpDate);
+      const aiSuggestedClass = rawMeta?.model_class || null;
+
+      const mergedMeta: SuggestedMetadata | null =
+        rawMeta || resolvedOrg || resolvedAuthor || resolvedPubDate || resolvedUpDate
+          ? {
+              model_class: aiSuggestedClass,
+              source_title: resolvedTitle || null,
+              organization: combinedSuggestedOrg || null,
+              published_date: combinedSuggestedDate || null,
+            }
+          : null;
+
+      setIngestionResult({
+        ...res.data,
+        suggested_metadata: mergedMeta,
+      });
       setDismissedAiFields({});
       setActiveAiPopoverField(null);
       setIsMetaCardCollapsed(false);
 
-      // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập).
-      const meta = res.data.suggested_metadata;
-      const aiSuggestedClass = meta?.model_class;
       if (aiSuggestedClass) {
         setArticleTopics((prev) => (prev.includes(aiSuggestedClass) ? prev : [...prev, aiSuggestedClass]));
       }
 
-      // Đang sửa bài đã lưu thì giữ thông tin bài hiện có, hiển thị diff cho Admin duyệt.
+      // Đang sửa bài đã lưu thì giữ thông tin đã lưu (hiển thị diff cho Admin duyệt),
+      // đồng thời tự điền nếu ô Tác giả hoặc Ngày cập nhật hiện đang để trống.
       if (editUrl) {
         setDismissMetaDiff(false);
-      } else if (!meta) {
+        if (!ingestAuthor.trim() && resolvedAuthor) {
+          setIngestAuthor(resolvedAuthor);
+        }
+        if (!ingestUpdatedDate.trim() && resolvedUpDate) {
+          setIngestUpdatedDate(resolvedUpDate);
+        }
+      } else if (!mergedMeta) {
         setIngestTitle('');
         setIngestOrg('');
         setIngestAuthor('');
@@ -1229,37 +1472,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         setIngestUpdatedDate('');
         setIngestDate('');
       } else {
-        setIngestTitle(meta.source_title || '');
-        if (meta.organization) {
-          const authorMatch = meta.organization.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
-          if (authorMatch) {
-            setIngestOrg(authorMatch[1].trim());
-            setIngestAuthor(authorMatch[2].trim());
-          } else {
-            setIngestOrg(meta.organization);
-            setIngestAuthor('');
-          }
-        } else {
-          setIngestOrg('');
-          setIngestAuthor('');
-        }
-        if (meta.published_date) {
-          const dateMatch = meta.published_date.match(/^(.*?)\s*\((?:Cập nhật|Updated):\s*(.*?)\)$/i);
-          if (dateMatch) {
-            setIngestPublishedDate(dateMatch[1].trim());
-            setIngestUpdatedDate(dateMatch[2].trim());
-          } else {
-            setIngestPublishedDate(meta.published_date);
-            setIngestUpdatedDate('');
-          }
-        } else {
-          setIngestPublishedDate('');
-          setIngestUpdatedDate('');
-        }
-        if (meta.model_class) {
-          if (meta.model_class !== ingestClass) setClassFromAi(true);
-          setIngestClass(meta.model_class);
-          const found = diseases.find((d) => d.classCode === meta.model_class);
+        setIngestTitle(resolvedTitle);
+        setIngestOrg(resolvedOrg);
+        setIngestAuthor(resolvedAuthor);
+        setIngestPublishedDate(resolvedPubDate);
+        setIngestUpdatedDate(resolvedUpDate);
+        if (aiSuggestedClass) {
+          if (aiSuggestedClass !== ingestClass) setClassFromAi(true);
+          setIngestClass(aiSuggestedClass);
+          const found = diseases.find((d) => d.classCode === aiSuggestedClass);
           if (found) {
             setSelectedPlant(found.plantName);
           }
@@ -3186,15 +3407,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                             onClick={() => {
                                               if (meta?.source_title) setIngestTitle(meta.source_title);
                                               if (meta?.organization) {
-                                                const authorMatch = meta.organization.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
-                                                if (authorMatch) {
-                                                  setIngestOrg(authorMatch[1].trim());
-                                                  setIngestAuthor(authorMatch[2].trim());
-                                                } else {
-                                                  setIngestOrg(meta.organization);
-                                                }
+                                                const parsedOrg = parseCombinedOrg(meta.organization);
+                                                setIngestOrg(parsedOrg.org);
+                                                if (parsedOrg.author) setIngestAuthor(parsedOrg.author);
                                               }
-                                              if (meta?.published_date) setIngestPublishedDate(meta.published_date);
+                                              if (meta?.published_date) {
+                                                const parsedDate = parseCombinedDate(meta.published_date);
+                                                if (parsedDate.pubDate) setIngestPublishedDate(parsedDate.pubDate);
+                                                if (parsedDate.upDate) setIngestUpdatedDate(parsedDate.upDate);
+                                              }
                                               setDismissedAiFields(prev => ({ ...prev, title: true, org: true, date: true }));
                                               setActiveAiPopoverField(null);
                                               setIsMetaCardCollapsed(true);
@@ -3455,14 +3676,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                                   type="button"
                                                   size="sm"
                                                   onClick={() => {
-                                                    const orgStr = meta!.organization!;
-                                                    const authorMatch = orgStr.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
-                                                    if (authorMatch) {
-                                                      setIngestOrg(authorMatch[1].trim());
-                                                      setIngestAuthor(authorMatch[2].trim());
-                                                    } else {
-                                                      setIngestOrg(orgStr);
-                                                    }
+                                                    const parsedOrg = parseCombinedOrg(meta?.organization);
+                                                    setIngestOrg(parsedOrg.org);
+                                                    if (parsedOrg.author) setIngestAuthor(parsedOrg.author);
                                                     setDismissedAiFields(prev => ({ ...prev, org: true }));
                                                     setActiveAiPopoverField(null);
                                                     toast.success('Đã áp dụng cơ quan/tác giả AI đề xuất!');
@@ -3565,10 +3781,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                                   type="button"
                                                   size="sm"
                                                   onClick={() => {
-                                                    setIngestPublishedDate(meta!.published_date!);
+                                                    const parsedDate = parseCombinedDate(meta?.published_date);
+                                                    if (parsedDate.pubDate) setIngestPublishedDate(parsedDate.pubDate);
+                                                    if (parsedDate.upDate) setIngestUpdatedDate(parsedDate.upDate);
                                                     setDismissedAiFields(prev => ({ ...prev, date: true }));
                                                     setActiveAiPopoverField(null);
-                                                    toast.success('Đã áp dụng ngày xuất bản AI đề xuất!');
+                                                    toast.success('Đã áp dụng ngày xuất bản & cập nhật AI đề xuất!');
                                                   }}
                                                   className="h-6 px-2.5 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
                                                 >

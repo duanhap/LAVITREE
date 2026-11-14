@@ -161,21 +161,19 @@ def _filter_metadata(
     s_title = _clean_meta_text(raw_meta.get("source_title"))
     org = _clean_meta_text(raw_meta.get("organization"))
 
-    p_date = raw_meta.get("published_date")
+    p_date = _clean_meta_text(raw_meta.get("published_date"))
     if p_date is not None:
-        p_date_str = str(p_date).strip()
-        match = re.search(r'\b(\d{4})\b', p_date_str)
-        if match:
-            year = int(match.group(1))
-            current_year = datetime.now().year
-            p_date = str(year) if 1900 <= year <= current_year else None
-            # Chống bịa: năm phải xuất hiện trong bài (prompt cũ có ví dụ "2024" nên AI hay chép lại)
-            if p_date and article_text is not None and p_date not in article_text:
+        p_date_str = p_date[:100].strip()
+        years = re.findall(r'\b(\d{4})\b', p_date_str)
+        current_year = datetime.now().year
+        if years and all(1900 <= int(y) <= current_year for y in years):
+            # Chống bịa: mọi năm xuất hiện trong metadata ngày đều phải có mặt trong văn bản bài báo
+            if article_text is not None and not all(y in article_text for y in years):
                 p_date = None
+            else:
+                p_date = p_date_str
         else:
             p_date = None
-    else:
-        p_date = None
 
     return SuggestedMetadata(
         model_class=m_class,
@@ -310,8 +308,8 @@ Nhiệm vụ:
 2. Trích xuất thông tin tổng quan của bài viết:
    - model_class: Mã lớp bệnh trong 38 mã chuẩn (ví dụ: Tomato___Late_blight, Potato___Early_blight, Corn_(maize)___Common_rust_...).
    - source_title: Tiêu đề bài viết nếu có trong các đoạn, nếu không có thì null.
-   - organization: Cơ quan hoặc tác giả phát hành nếu có ghi trong bài, nếu không có thì null.
-   - published_date: Năm xuất bản 4 chữ số CÓ GHI TRONG BÀI. Không thấy năm trong bài thì null, TUYỆT ĐỐI không đoán.
+   - organization: Tên cơ quan/tổ chức phát hành (ưu tiên dòng đầu bài; KHÔNG lấy tên tổ chức được trích dẫn trong mục References/Tài liệu tham khảo). Nếu có tác giả, gộp theo mẫu "<Cơ quan> (Tác giả: <Tên tác giả>)". Nếu không có thì null.
+   - published_date: Ngày/năm xuất bản CÓ GHI TRONG BÀI theo định dạng DD/MM/YYYY (hoặc YYYY nếu chỉ có năm). Nếu bài có ngày cập nhật/hiệu đính (Reviewed/Revised/Updated), gộp theo mẫu "<Ngày đăng> (Cập nhật: <Ngày cập nhật>)". Không thấy năm trong bài thì null, TUYỆT ĐỐI không đoán.
 3. Trong mỗi đoạn được gán nhãn, trích xuất danh sách các cụm từ (mentions) được nhắc tới:
    - text: Cụm từ NGUYÊN VĂN xuất hiện trong đoạn (tên hoạt chất, thuốc, chế phẩm sinh học, vật tư hoặc biện pháp).
    - kind: Loại cụm từ, thuộc 1 trong 4 loại:

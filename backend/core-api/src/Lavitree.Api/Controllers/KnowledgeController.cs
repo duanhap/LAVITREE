@@ -1065,9 +1065,9 @@ public class KnowledgeController : ControllerBase
                 {
                     pendingHeading = cleaned;
                 }
-                else if (validParagraphs.Count < 6 && cleaned.Length >= 10)
+                else if ((validParagraphs.Count < 6 || MetadataKeyLineRegex.IsMatch(cleaned)) && cleaned.Length >= 10)
                 {
-                    // Phần đầu bài (tiêu đề, cơ quan, tác giả, ngày đăng): giữ để AI điền metadata, Admin không cần chọn
+                    // Phần đầu bài hoặc dòng metadata tường minh (Publication date, Reviewed/Revised...): giữ để AI điền metadata
                     validParagraphs.Add(new ParagraphDto { Id = $"P{pIndex++}", Text = cleaned, SuggestedUnitType = null });
                 }
                 continue;
@@ -1866,6 +1866,9 @@ public class KnowledgeController : ControllerBase
     private static readonly Regex SectionHeadingRegex = new(@"(:\s*$)|(^(\d+|[IVX]+|[a-zđ])[.)]\s+\S)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex CommonHeadingWordsRegex = new(
         @"^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|chu\s+trình\s+bệnh|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+quản\s+lý|phòng\s+ngừa|điều\s+trị|hoạt\s+chất\s+khuyến\s+cáo)$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex MetadataKeyLineRegex = new(
+        @"^(publication\s*date|reviewed\s*/\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on))?|updated(?:\s*on)?|revised|reviewed|authors?|cơ\s*quan|tác\s*giả|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật)\s*[:\-]",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static bool IsContactOrAdNoise(string text) =>
