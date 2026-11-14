@@ -2014,10 +2014,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-border">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            {SECTION_COPY[activeTab]?.title ?? 'Quản trị'}
+            {(editParam || editUrl) && activeTab === 'ingestion'
+              ? 'Chi tiết bài viết tri thức'
+              : (SECTION_COPY[activeTab]?.title ?? 'Quản trị')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {SECTION_COPY[activeTab]?.description}
+            {(editParam || editUrl) && activeTab === 'ingestion'
+              ? 'Kiểm tra thông tin bài báo, các đoạn trích dẫn và duyệt nội dung đưa vào trợ lý AI Lavi.'
+              : SECTION_COPY[activeTab]?.description}
           </p>
         </div>
 
@@ -2070,38 +2074,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             /* CHẾ ĐỘ XEM & SỬA BÀI VIẾT ĐÃ LƯU: GIAO DIỆN 2 TAB GỌN GÀNG, TẬP TRUNG */
             /* ========================================================================= */
             <div className="space-y-4">
-              {/* Header bài viết đã lưu: Rõ ràng, cố định thông tin, không bị nhảy loạn khi sửa form */}
+              {/* Header bài viết: Gọn gàng, tối giản như báo cáo, không gây phân tâm */}
               <div className="p-4 bg-card border border-border rounded-xl shadow-xs space-y-3">
-                {/* Dòng 1: Danh hiệu, Trạng thái duyệt, Nút điều hướng */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-border/70">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                      <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
-                      <span>Chi tiết bài viết tri thức</span>
-                    </span>
-
+                {/* Dòng 1: Trạng thái duyệt duy nhất và Nút điều hướng */}
+                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/70">
+                  <div className="flex items-center gap-2">
                     {editRows.length > 0 && (
                       editRows.every((r) => r.isManualApproved) ? (
-                        <Badge className="bg-emerald-700 text-white text-[11px] gap-1 font-semibold">
-                          <Check className="w-3 h-3" />
+                        <Badge className="bg-emerald-700 text-white text-xs gap-1 font-semibold py-0.5 px-2.5">
+                          <Check className="w-3.5 h-3.5" />
                           Đã duyệt toàn bộ ({editRows.length}/{editRows.length})
                         </Badge>
                       ) : editRows.filter((r) => r.isManualApproved).length === 0 ? (
-                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[11px] gap-1 font-semibold">
-                          <Clock className="w-3 h-3" />
+                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-xs gap-1 font-semibold py-0.5 px-2.5">
+                          <Clock className="w-3.5 h-3.5" />
                           Chờ duyệt (0/{editRows.length})
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="bg-blue-50 text-blue-800 border-blue-300 text-[11px] gap-1 font-semibold">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-800 border-blue-300 text-xs gap-1 font-semibold py-0.5 px-2.5">
                           Duyệt một phần ({editRows.filter((r) => r.isManualApproved).length}/{editRows.length})
                         </Badge>
                       )
                     )}
-
-                    <Badge variant="outline" className="text-[11px] text-muted-foreground gap-1">
-                      <Layers className="w-3 h-3 text-emerald-700" />
-                      <span>{editRows.length} đoạn trích</span>
-                    </Badge>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -2110,11 +2104,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                       variant={showMetaEditPanel ? 'default' : 'outline'}
                       size="sm"
                       onClick={() => setShowMetaEditPanel(!showMetaEditPanel)}
-                      className={`h-8 text-xs gap-1.5 font-medium ${showMetaEditPanel ? 'bg-emerald-700 text-white' : 'hover:bg-muted'}`}
-                      title="Mở bảng chỉnh sửa tiêu đề, cơ quan, tác giả hoặc ngày xuất bản của bài báo"
+                      className={`h-7 px-2.5 text-xs gap-1 font-medium ${showMetaEditPanel ? 'bg-emerald-700 text-white' : ''}`}
+                      title="Chỉnh sửa tiêu đề, cơ quan hoặc ngày xuất bản của bài báo"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin bài'}</span>
+                      <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin'}</span>
                     </Button>
 
                     <Button
@@ -2125,28 +2119,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         exitEditMode(true);
                         navigate('/admin/knowledge');
                       }}
-                      className="h-8 text-xs gap-1.5 font-medium"
+                      className="h-7 px-2.5 text-xs gap-1 font-medium"
                       title="Quay lại bảng Kiểm duyệt tri thức"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
                       <span>Quay lại danh sách</span>
                     </Button>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => exitEditMode(true)}
-                      className="h-8 text-xs gap-1 text-muted-foreground hover:text-foreground"
-                      title="Mở form dán bài báo khuyến nông mới"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Nhập bài mới</span>
-                    </Button>
                   </div>
                 </div>
 
-                {/* Dòng 2: Tiêu đề bài viết và Nút mở link bài gốc nổi bật */}
+                {/* Dòng 2: Tiêu đề bài viết và Nút mở link bài gốc */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                   <h2 className="text-base sm:text-lg font-bold text-foreground leading-snug line-clamp-2" title={editOriginalMeta.title || ingestTitle || editUrl || ''}>
                     {editOriginalMeta.title || ingestTitle || 'Bài viết chưa có tiêu đề'}
@@ -2166,66 +2148,76 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   )}
                 </div>
 
-                {/* Dòng 3: Chip thông tin bài viết gốc (cố định, phân biệt rõ ràng, không lặp lại form) */}
-                <div className="flex flex-wrap items-center gap-2 text-xs pt-1">
-                  {/* Cây trồng */}
-                  {(editOriginalMeta.plantName || selectedPlant) ? (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-200">
-                      <span className="text-emerald-700/80 font-normal">Loài cây:</span>
-                      <span className="font-bold">{editOriginalMeta.plantName || selectedPlant}</span>
-                    </div>
-                  ) : null}
-
-                  {/* Danh sách chủ đề / bệnh trong bài */}
-                  {articleDistinctTopics.length > 0 ? (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
-                      <span className="text-muted-foreground font-normal">Chủ đề trong bài:</span>
-                      <span className="font-semibold flex flex-wrap items-center gap-1.5">
-                        {articleDistinctTopics.map((t, idx) => (
-                          <span
-                            key={idx}
-                            className={`px-1.5 py-0.5 rounded text-[11px] font-medium border ${
-                              t.isHealthy
-                                ? 'bg-sky-50 text-sky-800 border-sky-200'
-                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                            }`}
-                          >
-                            {t.label}
-                          </span>
-                        ))}
+                {/* Dòng 3: Thông tin định dạng text sạch sẽ như báo cáo, tránh rườm rà khung hộp */}
+                <div className="text-xs text-muted-foreground space-y-1.5 pt-0.5">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span>
+                      <strong className="text-foreground">Loài cây:</strong>{' '}
+                      <span className="font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {editOriginalMeta.plantName || selectedPlant || 'Chưa chọn'}
                       </span>
-                    </div>
-                  ) : null}
+                    </span>
 
-                  {/* Cơ quan */}
-                  {editOriginalMeta.org ? (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
-                      <span className="text-muted-foreground font-normal">Cơ quan:</span>
-                      <span className="font-medium max-w-xs truncate" title={editOriginalMeta.org}>{editOriginalMeta.org}</span>
-                    </div>
-                  ) : null}
+                    {articleDistinctTopics.length > 0 && (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          <strong className="text-foreground">Chủ đề trong bài:</strong>
+                          {articleDistinctTopics.map((t, idx) => (
+                            <span
+                              key={idx}
+                              className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
+                                t.isHealthy
+                                  ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}
+                            >
+                              {t.label}
+                            </span>
+                          ))}
+                        </span>
+                      </>
+                    )}
+                  </div>
 
-                  {/* Tác giả */}
-                  {editOriginalMeta.author ? (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
-                      <span className="text-muted-foreground font-normal">Tác giả:</span>
-                      <span className="font-medium">{editOriginalMeta.author}</span>
-                    </div>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                    {editOriginalMeta.org ? (
+                      <span>
+                        <strong className="text-foreground">Cơ quan:</strong> {editOriginalMeta.org}
+                      </span>
+                    ) : null}
 
-                  {/* Ngày xuất bản */}
-                  {editOriginalMeta.pubDate ? (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground border border-border">
-                      <span className="text-muted-foreground font-normal">Ngày đăng:</span>
-                      <span className="font-medium max-w-xs truncate" title={editOriginalMeta.pubDate}>{editOriginalMeta.pubDate}</span>
-                    </div>
-                  ) : null}
+                    {editOriginalMeta.author ? (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span>
+                          <strong className="text-foreground">Tác giả:</strong> {editOriginalMeta.author}
+                        </span>
+                      </>
+                    ) : null}
 
-                  {/* URL */}
+                    {editOriginalMeta.pubDate ? (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span>
+                          <strong className="text-foreground">Ngày đăng:</strong> {editOriginalMeta.pubDate}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+
                   {(editUrl || ingestUrl) && (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 text-muted-foreground border border-border/60 max-w-sm truncate" title={editUrl || ingestUrl}>
-                      <span className="font-normal text-muted-foreground">URL:</span>
-                      <span className="font-mono text-[11px] truncate">{editUrl || ingestUrl}</span>
+                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 pt-0.5">
+                      <span className="font-medium text-foreground">URL:</span>
+                      <a
+                        href={editUrl || ingestUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-muted-foreground hover:text-emerald-700 hover:underline truncate max-w-xl"
+                        title={editUrl || ingestUrl}
+                      >
+                        {editUrl || ingestUrl}
+                      </a>
                     </div>
                   )}
                 </div>
@@ -2246,7 +2238,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
                 {/* TAB 1: THÔNG TIN & CÁC ĐOẠN ĐÃ DUYỆT */}
                 <TabsContent value="approved" className="space-y-4">
-                  {/* Bảng chỉnh sửa thông tin: Chỉ hiển thị khi Admin nhấn "Sửa thông tin bài" */}
+                  {/* Bảng chỉnh sửa thông tin: Chỉ hiển thị khi Admin nhấn "Sửa thông tin" */}
                   {showMetaEditPanel && (
                     <Card className="border-emerald-300 bg-card shadow-sm animate-in fade-in duration-200">
                       <CardHeader className="py-2.5 px-4 border-b border-border bg-emerald-50/60">
@@ -2403,55 +2395,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     </Card>
                   )}
 
-                  {/* Thanh công cụ quản lý đoạn trích trực quan, gọn gàng */}
-                  <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-card border border-border rounded-xl shadow-xs">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Layers className="w-4 h-4 text-emerald-700" />
-                      <span className="font-bold text-foreground text-xs">
-                        Các đoạn trích đã lưu ({editRows.length})
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        • Nguyên văn: {existingVerbatimCount}/8 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {!showMetaEditPanel && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowMetaEditPanel(true)}
-                          className="h-7 px-2.5 text-xs text-foreground hover:bg-muted gap-1 font-medium"
-                          title="Chỉnh sửa tiêu đề, cơ quan hoặc ngày xuất bản của bài báo"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-emerald-700" />
-                          <span>Sửa thông tin bài</span>
-                        </Button>
-                      )}
-
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
-                        onClick={handleApproveAllInEdit}
-                        className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
-                          editRows.every((r) => r.isManualApproved)
-                            ? 'text-muted-foreground hover:text-destructive'
-                            : 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                        }`}
-                        title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>
-                          {editRows.every((r) => r.isManualApproved)
-                            ? 'Bỏ duyệt toàn bộ bài'
-                            : `Duyệt toàn bộ (${editRows.length})`}
-                        </span>
-                      </Button>
-                    </div>
-                  </div>
-
                   {/* Cảnh báo kiểm tra trùng lặp đoạn trích */}
                   {(() => {
                     const duplicates = findDuplicateChunks(editRows);
@@ -2473,17 +2416,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     );
                   })()}
 
-                  {/* Card danh sách các đoạn đã lưu */}
+                  {/* Card duy nhất chứa danh sách các đoạn trích & thao tác duyệt (Không lặp lại header) */}
                   <Card className="border-border bg-card shadow-xs">
-                    <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
+                    <CardHeader className="py-2.5 px-4 border-b border-border bg-muted/20">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <CardTitle className="text-xs font-bold flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                           <Layers className="w-4 h-4 text-emerald-700" />
-                          <span>Các đoạn trích đã lưu trong CSDL ({editRows.length})</span>
-                        </CardTitle>
-                        <span className="text-[11px] text-muted-foreground">
-                          Nguyên văn: {existingVerbatimCount}/8 đoạn, {existingVerbatimChars.toLocaleString('vi-VN')} ký tự
-                        </span>
+                          <span className="text-xs font-bold text-foreground">
+                            Các đoạn trích đã lưu ({editRows.length})
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            • Nguyên văn: {existingVerbatimCount}/8 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
+                          </span>
+                        </div>
+
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
+                          onClick={handleApproveAllInEdit}
+                          className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
+                            editRows.every((r) => r.isManualApproved)
+                              ? 'text-muted-foreground hover:text-destructive'
+                              : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                          }`}
+                          title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>
+                            {editRows.every((r) => r.isManualApproved)
+                              ? 'Bỏ duyệt toàn bộ bài'
+                              : `Duyệt toàn bộ (${editRows.length})`}
+                          </span>
+                        </Button>
                       </div>
                     </CardHeader>
                     <CardContent className="p-4 space-y-3 text-xs">
