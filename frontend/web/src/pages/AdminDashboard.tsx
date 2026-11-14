@@ -2071,9 +2071,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
               </div>
             ) : (
             /* ========================================================================= */
-            /* CHẾ ĐỘ XEM & SỬA BÀI VIẾT ĐÃ LƯU: GIAO DIỆN 2 TAB GỌN GÀNG, TẬP TRUNG */
+            /* CHẾ ĐỘ XEM & SỬA BÀI VIẾT ĐÃ LƯU: GIAO DIỆN 2 TAB ĐẶT NGAY TRÊN CÙNG */
             /* ========================================================================= */
             <div className="space-y-4">
+              <Tabs value={editSubTab} onValueChange={(v) => setEditSubTab(v as 'approved' | 'reparse')} className="space-y-4">
+                {/* 2 Tabs nằm ở trên cùng để tách biệt hoàn toàn 2 công việc: Xem/Sửa chi tiết vs Nạp thêm dữ liệu */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-1 border-b border-border/70">
+                  <TabsList className="grid grid-cols-2 max-w-md bg-muted/60 p-1">
+                    <TabsTrigger value="approved" className="gap-2 text-xs py-1.5 font-semibold">
+                      <BookOpen className="w-4 h-4 text-emerald-700" />
+                      <span>1. Xem &amp; Sửa chi tiết ({editRows.length} đoạn)</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="reparse" className="gap-2 text-xs py-1.5 font-semibold">
+                      <Sparkles className="w-4 h-4 text-emerald-700" />
+                      <span>2. Nạp thêm dữ liệu bài báo</span>
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      exitEditMode(true);
+                      navigate('/admin/knowledge');
+                    }}
+                    className="h-8 text-xs gap-1.5 font-medium shrink-0 self-start sm:self-auto hover:bg-muted"
+                    title="Quay lại bảng Kiểm duyệt tri thức"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Quay lại danh sách</span>
+                  </Button>
+                </div>
+
+                {/* ========================================================================= */}
+                {/* TAB 1: XEM & SỬA CHI TIẾT BÀI VIẾT + CÁC ĐOẠN ĐÃ DUYỆT */}
+                {/* ========================================================================= */}
+                <TabsContent value="approved" className="space-y-4">
               {/* Header bài viết: Gọn gàng, tối giản như báo cáo, không gây phân tâm */}
               <div className="p-4 bg-card border border-border rounded-xl shadow-xs space-y-3">
                 {/* Dòng 1: Trạng thái duyệt duy nhất và Nút điều hướng */}
@@ -2098,34 +2132,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant={showMetaEditPanel ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setShowMetaEditPanel(!showMetaEditPanel)}
-                      className={`h-7 px-2.5 text-xs gap-1 font-medium ${showMetaEditPanel ? 'bg-emerald-700 text-white' : ''}`}
-                      title="Chỉnh sửa tiêu đề, cơ quan hoặc ngày xuất bản của bài báo"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin'}</span>
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        exitEditMode(true);
-                        navigate('/admin/knowledge');
-                      }}
-                      className="h-7 px-2.5 text-xs gap-1 font-medium"
-                      title="Quay lại bảng Kiểm duyệt tri thức"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Quay lại danh sách</span>
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    variant={showMetaEditPanel ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowMetaEditPanel(!showMetaEditPanel)}
+                    className={`h-7 px-2.5 text-xs gap-1 font-medium ${showMetaEditPanel ? 'bg-emerald-700 text-white' : ''}`}
+                    title="Chỉnh sửa tiêu đề, cơ quan hoặc ngày xuất bản của bài báo"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin bài'}</span>
+                  </Button>
                 </div>
 
                 {/* Dòng 2: Tiêu đề bài viết và Nút mở link bài gốc */}
@@ -2380,21 +2397,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     </Card>
                   )}
 
-              {/* 2 Tabs phụ: Tab 1 (Thông tin & Đoạn đã duyệt) vs Tab 2 (Nạp thêm / Tái phân tích) */}
-              <Tabs value={editSubTab} onValueChange={(v) => setEditSubTab(v as 'approved' | 'reparse')} className="space-y-4">
-                <TabsList className="grid grid-cols-2 max-w-lg bg-muted/60 p-1">
-                  <TabsTrigger value="approved" className="gap-2 text-xs py-1.5 font-semibold">
-                    <Layers className="w-4 h-4 text-emerald-700" />
-                    <span>1. Thông tin &amp; Đoạn đã duyệt ({editRows.length})</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="reparse" className="gap-2 text-xs py-1.5 font-semibold">
-                    <Sparkles className="w-4 h-4 text-emerald-700" />
-                    <span>2. Nạp thêm / Tái phân tích bài báo</span>
-                  </TabsTrigger>
-                </TabsList>
 
-                {/* TAB 1: THÔNG TIN & CÁC ĐOẠN ĐÃ DUYỆT */}
-                <TabsContent value="approved" className="space-y-4">
                   {/* Cảnh báo kiểm tra trùng lặp đoạn trích */}
                   {(() => {
                     const duplicates = findDuplicateChunks(editRows);
