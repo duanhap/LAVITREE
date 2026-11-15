@@ -45,3 +45,4 @@ export function useDiseaseOptions() {
 
   return { diseases, uniquePlants, loading };
 }
+

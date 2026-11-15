@@ -19,6 +19,7 @@ import { RegisterPage } from '@/pages/RegisterPage';
 const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
 const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
 const AdminImagesPage = React.lazy(() => import('@/pages/admin/AdminImagesPage'));
+const AdminEscalationsPage = React.lazy(() => import('@/pages/admin/AdminEscalationsPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
 const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollectorPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
@@ -189,7 +190,7 @@ export const AppRouter: React.FC = () => {
           path="/admin/escalations"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
-              <AdminDashboard defaultTab="escalations" />
+              <AdminEscalationsPage />
             </Suspense>
           }
         />

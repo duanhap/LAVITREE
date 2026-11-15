@@ -10,3 +10,4 @@ export const formatTopicLabel = (diseaseName?: string, modelClass?: string): str
   isHealthyTopic(diseaseName, modelClass)
     ? '🌱 Kỹ thuật canh tác & Phòng ngừa'
     : (diseaseName || modelClass || 'Bệnh hại');
+
