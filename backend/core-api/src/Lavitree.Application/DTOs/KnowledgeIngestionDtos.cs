@@ -136,7 +136,7 @@ public class CommitIngestionRequestDto
 
     [Required(ErrorMessage = "Danh sách đoạn trích không được để trống.")]
     [MinLength(1, ErrorMessage = "Cần chọn ít nhất 1 đoạn trích dẫn.")]
-    [MaxLength(20, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 20 đoạn nguyên văn.")]
+    [MaxLength(30, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 30 đoạn nguyên văn.")]
     [JsonPropertyName("selections")]
     public List<CommitSelectionDto> Selections { get; set; } = new();
 

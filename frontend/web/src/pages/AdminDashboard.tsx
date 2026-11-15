@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import {
   FileText, ShieldCheck, CheckCircle2, AlertCircle, RefreshCw,
   ExternalLink, Search, Filter, Layers, Database, Package,
-  UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
+  UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Code2, Trash2,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon,
   Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3, Globe
 } from 'lucide-react';
@@ -443,7 +443,10 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
   };
 
   if (!text) return result;
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim().replace(/^(?:[#>*\-•+]+\s*)+/, '').replace(/\*\*/g, '').trim())
+    .filter(Boolean);
 
   // Regex không neo ^ để bắt được cả trường hợp <br> hoặc dấu chấm gộp "Publication date: ... Reviewed/Revised: ..." trên cùng 1 dòng
   const pubContextRe = /\b(?:original\s+publication\s+date|publication\s*date|date\s*published|originally\s+published(?:\s+in|\s+on)?|first\s+published(?:\s+in|\s+on)?|published(?:\s+date|\s+on|\s+in)?|posted\s*on|release\s*date|ngày\s*(?:đăng|xuất\s*bản|phát\s*hành)|đăng\s*ngày|xuất\s*bản(?:\s*ngày|\s*tháng|\s*năm)?)\s*(?:[:\-]|\s)\s*([^\n;|]+)/i;
@@ -698,6 +701,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [ingestDate, setIngestDate] = useState<string>(''); // fallback tương thích
   const [ingestSourceScope, setIngestSourceScope] = useState<'Việt Nam' | 'Quốc tế'>('Việt Nam');
   const [ingestText, setIngestText] = useState<string>('');
+  const [articleEditorMode, setArticleEditorMode] = useState<'preview' | 'code'>('preview');
   const [ingesting, setIngesting] = useState<boolean>(false);
   const [crawlingUrl, setCrawlingUrl] = useState<boolean>(false);
   const [ingestionResult, setIngestionResult] = useState<IngestionResponse | null>(null);
@@ -716,6 +720,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [editRows, setEditRows] = useState<KnowledgeSourceItem[]>([]);
   const [editLoading, setEditLoading] = useState<boolean>(false);
   const [editSaving, setEditSaving] = useState<boolean>(false);
+  const [deletingAllEditRows, setDeletingAllEditRows] = useState<boolean>(false);
   const [editOriginalMeta, setEditOriginalMeta] = useState({
     plantName: '',
     diseaseName: '',
@@ -852,13 +857,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [expertNoteInput, setExpertNoteInput] = useState<string>('');
   const [reviewSubmitting, setReviewSubmitting] = useState<boolean>(false);
 
-  // Load danh mục 38/40 lớp bệnh
+  // Load danh mục 38/40 lớp bệnh (sắp xếp theo thứ tự chữ cái tiếng Việt)
   useEffect(() => {
     const fetchDiseases = async () => {
       try {
         const res = await apiClient.get('/diseases');
         const list: DiseaseOption[] = res.data || [];
-        setDiseases(list);
+        const sortedList = [...list].sort((a, b) => {
+          const plantCmp = a.plantName.localeCompare(b.plantName, 'vi');
+          if (plantCmp !== 0) return plantCmp;
+          return formatTopicLabel(a.commonNameVi, a.classCode).localeCompare(
+            formatTopicLabel(b.commonNameVi, b.classCode),
+            'vi'
+          );
+        });
+        setDiseases(sortedList);
         // Không tự chọn bệnh đầu danh sách (trước đây luôn ra "Táo") để AI tự nhận diện
       } catch {
         // fallback
@@ -873,7 +886,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     diseases.forEach((d) => {
       if (d.plantName) set.add(d.plantName);
     });
-    return Array.from(set);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [diseases]);
 
   const filteredDiseasesByPlant = React.useMemo(() => {
@@ -968,6 +981,207 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  // Nhận diện dòng siêu dữ liệu đơn lẻ (Cơ quan, Tác giả, Ngày đăng, Ngày cập nhật...) để không gom/lưu thành đoạn kiến thức
+  const isStandaloneMetadataLine = (text: string): boolean => {
+    const trimmed = text
+      .trim()
+      .replace(/^(?:[#>*\-•+]+\s*)+/, '')
+      .replace(/\*\*/g, '')
+      .trim();
+    if (!trimmed || trimmed.includes('\n') || trimmed.length > 240) return false;
+    return (
+      /^(?:original\s+publication\s+date|originally\s+published|first\s+published|publication\s*date|reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on|in))?|updated(?:\s*(?:on|in))?|revised(?:\s*(?:on|in))?|reviewed(?:\s*(?:on|in))?|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật|tác\s*giả|authors?|written\s+by|prepared\s+by|cơ\s*quan|organization|publisher)\s*:/i.test(
+        trimmed
+      ) ||
+      /^(?:last\s*(?:updated|reviewed|modified)|reviewed\s*\/\s*revised|publication\s*date|originally\s+published)(?=\s|$).*\d{4}/i.test(
+        trimmed
+      )
+    );
+  };
+
+  // Gom tiêu đề mục, câu dẫn kết thúc bằng dấu ':' hoặc '?' và các ý con ngắn cùng mục thành đoạn hoàn chỉnh chuẩn Markdown (tối đa ~1.300 ký tự)
+  const coalesceArticleParagraphs = (rawText: string): string => {
+    if (!rawText) return '';
+    const MAX_GROUP_CHARS = 1300;
+    const stripMd = (s: string): string =>
+      s.replace(/^(?:#{1,6}|[•\-*+])\s+/, '').replace(/\*\*/g, '').trim();
+
+    const isRoleLine = (b: string): boolean => {
+      const plain = stripMd(b);
+      return (
+        !plain.includes('\n') &&
+        plain.length <= 120 &&
+        !/[.!?;]$/.test(plain) &&
+        /\b(professor|specialist|director|researcher|research\s+(?:specialist|assistant|associate|technician)|extension\s+(?:specialist|agent|educator)|scientist|technician|entomology|plant\s+pathology|pathology|horticulture|agronomy|lecturer)\b/i.test(
+          plain
+        )
+      );
+    };
+
+    const isTitleHeaderBlock = (b: string, idx: number): boolean => {
+      const trimmed = b.trim();
+      if (!trimmed || trimmed.includes('\n') || isStandaloneMetadataLine(trimmed)) return false;
+      if (/^#\s+\S/.test(trimmed)) return true;
+      return idx === 0 && !/^#{2,6}\s+/.test(trimmed) && trimmed.length < 140 && !/[.!?;]$/.test(trimmed);
+    };
+
+    const isSectionHeadingBlock = (b: string): boolean => {
+      const trimmed = b.trim();
+      if (!trimmed || trimmed.includes('\n') || isStandaloneMetadataLine(trimmed) || /^#\s+\S/.test(trimmed)) {
+        return false;
+      }
+      if (/^#{2,6}\s+\S/.test(trimmed)) {
+        return trimmed.length <= 120;
+      }
+      const plain = stripMd(trimmed);
+      if (plain.length < 3 || plain.length > 90) return false;
+      if (
+        /^(đây là|đó là|biện pháp này|cách này|khi |nếu |dù |mặc dù |ngoài ra|tuy nhiên|do đó|vì vậy|trong bài|dưới đây là)(?=\s|$)/i.test(
+          plain
+        )
+      ) {
+        return false;
+      }
+      const endsWithColon = /:\s*$/.test(plain) && plain.replace(/:\s*$/, '').indexOf(':') === -1 && !/\.\s+\S/.test(plain);
+      const numberedHeading = /^(\d+(\.\d+)*|[IVX]+|[a-zđ])[.)]\s+\S/i.test(plain) && !/\.\s*$/.test(plain);
+      const commonHeading =
+        /^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|điều\s+kiện\s+phát\s+sinh|vòng\s+đời|tác\s+hại|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+phòng\s+ngừa|biện\s+pháp\s+quản\s+lý|cách\s+trị|phòng\s+ngừa|điều\s+trị)$/i.test(
+          plain
+        );
+      return endsWithColon || numberedHeading || commonHeading;
+    };
+
+    const isSubItemBlock = (b: string): boolean => {
+      const trimmed = b.trim();
+      if (!trimmed || /^#{1,6}\s+/.test(trimmed)) return false;
+      if (/^[•\-*+]\s+\S/.test(trimmed)) return true;
+      if (
+        trimmed.length <= 265 &&
+        /^(?:[•\-*+]\s*)?(?:\*\*)?(?:\d+[.)]\s*)?[^:.\n!?*]{2,60}(?:\*\*)?:\s*(?:\*\*)?\s*\S/.test(trimmed)
+      ) {
+        return true;
+      }
+      return (
+        trimmed.length <= 340 &&
+        /^(?:[•\-*+]\s*)?(?:\*\*)?[^\n?*]{6,120}\?(?:\*\*)?\s*\n?\s*\S/.test(trimmed)
+      );
+    };
+
+    const formatSubItemMarkdown = (b: string): string => {
+      const trimmed = b.trim();
+      if (trimmed.includes('\n') || /^#{1,6}\s+/.test(trimmed)) return trimmed;
+      if (/^•\s+/.test(trimmed)) return trimmed.replace(/^•\s+/, '- ');
+      if (/^[-*+]\s+/.test(trimmed) || /^\d+[.)]\s+/.test(trimmed)) return trimmed;
+      if (trimmed.length <= 265 && !trimmed.includes('**')) {
+        const colonMatch = trimmed.match(/^([^:.\n!?*]{2,60}):\s+(\S[\s\S]*)$/);
+        if (colonMatch) {
+          return `- **${colonMatch[1].trim()}:** ${colonMatch[2].trim()}`;
+        }
+      }
+      return trimmed;
+    };
+
+    const isIncompleteLeadIn = (text: string): boolean => {
+      const plain = text.replace(/\*\*/g, '').trim();
+      return (
+        (/:\s*$/.test(plain) && plain.length <= 380) ||
+        (!plain.includes('\n') && /\?\s*$/.test(plain) && plain.length <= 120)
+      );
+    };
+
+    const isStrayCaptionOrPromo = (b: string, idx: number): boolean => {
+      const plain = stripMd(b);
+      return (
+        /^[•\-*]?\s*(website|trang\s*chủ|fanpage|youtube|shopee|lazada|tiktok|hệ\s*thống\s*cửa\s*hàng)\s*:/i.test(
+          plain
+        ) ||
+        (idx > 0 &&
+          !b.includes('\n') &&
+          plain.length < 90 &&
+          !isStandaloneMetadataLine(b) &&
+          !isSectionHeadingBlock(b) &&
+          !isSubItemBlock(b) &&
+          !isRoleLine(b) &&
+          !/[.!?:;]/.test(plain))
+      );
+    };
+
+    const rawBlocks = rawText
+      .split(/\r?\n\s*\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const out: string[] = [];
+    let pendingHeading = '';
+    let currentGroup = '';
+    let currentHasSubItems = false;
+
+    const flush = () => {
+      if (currentGroup) {
+        out.push(currentGroup);
+        currentGroup = '';
+        currentHasSubItems = false;
+      }
+    };
+
+    rawBlocks.forEach((rawBlock, idx) => {
+      if (isStrayCaptionOrPromo(rawBlock, idx)) return;
+
+      if (isStandaloneMetadataLine(rawBlock) || isTitleHeaderBlock(rawBlock, idx)) {
+        pendingHeading = '';
+        flush();
+        out.push(rawBlock);
+        return;
+      }
+
+      if (isSectionHeadingBlock(rawBlock)) {
+        flush();
+        const prefixMatch = rawBlock.trim().match(/^(#{2,6})\s+/);
+        const prefix = prefixMatch ? prefixMatch[1] : '##';
+        const headingBody = rawBlock.trim().replace(/^#{2,6}\s+/, '').replace(/\*\*/g, '').trim();
+        if (pendingHeading) {
+          const prevClean = pendingHeading.replace(/^#{2,6}\s+/, '').replace(/:\s*$/, '').trim();
+          const curClean = headingBody.replace(/:\s*$/, '').trim();
+          pendingHeading = `## ${prevClean} - ${curClean}:`;
+        } else {
+          pendingHeading = `${prefix} ${headingBody}`;
+        }
+        return;
+      }
+
+      const b = formatSubItemMarkdown(rawBlock);
+
+      if (pendingHeading) {
+        currentGroup = `${pendingHeading}\n${b}`;
+        currentHasSubItems = isSubItemBlock(b);
+        pendingHeading = '';
+        return;
+      }
+
+      if (currentGroup) {
+        const startsWithHeading = /^#{1,6}\s+/.test(b);
+        const leadIn = isIncompleteLeadIn(currentGroup);
+        const sub = isSubItemBlock(b);
+        const shouldMerge =
+          !startsWithHeading &&
+          (leadIn ||
+            (sub && (currentGroup.length <= 500 || currentHasSubItems)) ||
+            (currentGroup.length < 200 && b.length < 200));
+        if (shouldMerge && currentGroup.length + 1 + b.length <= MAX_GROUP_CHARS) {
+          currentGroup = `${currentGroup}\n${b}`;
+          if (sub) currentHasSubItems = true;
+          return;
+        }
+        flush();
+      }
+
+      currentGroup = b;
+      currentHasSubItems = isSubItemBlock(b);
+    });
+    flush();
+
+    return out.join('\n\n');
+  };
+
     // ==================== TAB 1 LOGIC (TASK-15 V2) ====================
   const cleanArticleTextFromHtml = (html: string): string => {
     try {
@@ -987,6 +1201,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           }
           if (node.nodeType !== Node.ELEMENT_NODE) return;
           const element = node as Element;
+          if (['SCRIPT', 'STYLE', 'SVG', 'NOSCRIPT'].includes(element.tagName)) return;
           if (element.tagName === 'BR') {
             parts.push('\n');
             return;
@@ -1003,6 +1218,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           .replace(/ *\r?\n */g, '\n')
           .replace(/\n{2,}/g, '\n')
           .trim();
+      };
+
+      const extractInlineMarkdown = (el: Element): string => {
+        const parts: string[] = [];
+        const walk = (node: Node, insideStrong = false) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            if (node.textContent) parts.push(node.textContent);
+            return;
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          const element = node as Element;
+          const tag = element.tagName;
+          if (['SCRIPT', 'STYLE', 'SVG', 'NOSCRIPT', 'IMG'].includes(tag)) return;
+          if (tag === 'BR') {
+            parts.push('\n');
+            return;
+          }
+          if (!insideStrong && (tag === 'STRONG' || tag === 'B')) {
+            const strongRaw = extractTextWithSpacing(element);
+            const core = strongRaw.trim();
+            if (!core) return;
+            if (/^[,.;:!?•\-–—]+$/.test(core)) {
+              parts.push(` ${core} `);
+              return;
+            }
+            const cleanCore = core.replace(/\*\*/g, '');
+            const bulletPrefixMatch = cleanCore.match(/^([•\-*+])\s+(.+)$/);
+            if (bulletPrefixMatch) {
+              parts.push(` ${bulletPrefixMatch[1]} **${bulletPrefixMatch[2].trim()}** `);
+            } else {
+              parts.push(` **${cleanCore}** `);
+            }
+            return;
+          }
+          const isBlock = BLOCK_TAGS.has(tag);
+          if (isBlock) parts.push(' ');
+          element.childNodes.forEach((child) => walk(child, insideStrong));
+          if (isBlock) parts.push(' ');
+        };
+        walk(el);
+
+        let md = parts
+          .join('')
+          .replace(/[ \t\f\v]+/g, ' ')
+          .replace(/ *\r?\n */g, '\n')
+          .replace(/\n{2,}/g, '\n')
+          .replace(/\*\*\s+\*\*/g, ' ')
+          .replace(/\*\*([^*\n]+)\*\*\s*:/g, '**$1:**')
+          .replace(/\s+([,.;:!?])/g, '$1')
+          .trim();
+
+        // Nếu cả đoạn dài (>140 ký tự) bị bọc trong một cặp **...** duy nhất, bỏ bớt ** bao ngoài để giữ Markdown sạch
+        if (md.startsWith('**') && md.endsWith('**') && md.slice(2, -2).indexOf('**') === -1 && md.length > 140) {
+          md = md.slice(2, -2).trim();
+        }
+        return md;
       };
 
       const isNoise = (text: string): boolean => {
@@ -1024,6 +1295,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           return true;
         }
         if (/^(điện thoại|sđt|hotline|email|fax):\s*[\d\s.\-]+$/i.test(lower)) return true;
+        if (/^[•\-*]?\s*(website|trang\s*chủ|fanpage|youtube|shopee|lazada|tiktok|hệ\s*thống\s*cửa\s*hàng)\s*:/i.test(trimmed)) return true;
         // Hotline/quảng cáo: có số điện thoại đi kèm từ khóa liên hệ, hoặc dòng footer quen thuộc
         const hasPhone = /(\+84|\b0)\d{2,3}[\s.-]?\d{3}[\s.-]?\d{3,4}\b/.test(trimmed);
         if (trimmed.length <= 300 && hasPhone && /hotline|zalo|liên hệ|tư vấn|đặt hàng|mua hàng|gọi/i.test(lower)) return true;
@@ -1093,6 +1365,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         '.related', '.related-posts', '.related-publications', '.breadcrumb',
         '.hotline', '.contact-info', '.skip-link', '.visually-hidden', '.sr-only',
         '.newsletter', '.subscribe', '.cookie-banner', '.legal-disclaimer', '.disclaimer',
+        'figcaption', '.wp-caption-text', '.image-caption', '.caption',
         '[aria-hidden="true"]', '[role="navigation"]', '[role="banner"]', '[role="complementary"]'
       ];
       junkSelectors.forEach((sel) => {
@@ -1139,12 +1412,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         const norm = allowMultiline
           ? t.split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim()).filter(Boolean).join('\n')
           : t.replace(/\s+/g, ' ').trim();
-        if (!norm || seen.has(norm)) return; // footer lặp 2 lần, li lồng p...
-        seen.add(norm);
+        const dedupeKey = norm
+          .replace(/^(?:#{1,6}|[•\-*+])\s+/gm, '')
+          .replace(/\*\*/g, '')
+          .replace(/:\s*$/, '')
+          .toLowerCase()
+          .trim();
+        if (!norm || !dedupeKey || seen.has(dedupeKey)) return; // footer lặp 2 lần, li lồng p...
+        seen.add(dedupeKey);
         lines.push(norm);
       };
 
-      if (titleText && !isNoise(titleText)) push(titleText);
+      if (titleText && !isNoise(titleText)) push(`# ${titleText}`);
       if (siteOrg && siteOrg.length <= 120 && !isNoise(siteOrg)) push(`Cơ quan: ${siteOrg}`);
       if (authorNames.length > 0) {
         push(`Tác giả: ${Array.from(new Set(authorNames)).slice(0, 5).join(', ')}`);
@@ -1154,7 +1433,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         push(`Ngày cập nhật: ${updatedDateText}`);
       }
 
-      // Gom các gạch đầu dòng ngắn (12-119 ký tự) thành khối để Core API không loại bỏ khi < 40 ký tự
+      // Gom các gạch đầu dòng Markdown (- ...) thành khối để không mất ý con khi lọc đoạn < 40 ký tự
       let pendingListLines: string[] = [];
       const flushListBuffer = () => {
         if (pendingListLines.length === 0) return;
@@ -1165,8 +1444,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const blocks = mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, table, dt, dd');
       if (blocks.length > 0) {
         blocks.forEach((b) => {
-          // Bỏ qua các thẻ lồng bên trong <table> để tránh lặp chữ
+          // Bỏ qua các thẻ lồng bên trong <table> hoặc <li> để tránh lặp chữ
           if (b.tagName !== 'TABLE' && b.closest('table')) return;
+          if (b.tagName !== 'LI' && b.closest('li')) return;
+
+          if (b.tagName === 'H1') {
+            flushListBuffer();
+            return;
+          }
 
           if (b.tagName === 'TABLE') {
             flushListBuffer();
@@ -1183,10 +1468,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 const pairs = cells
                   .map((val, idx) => (headers[idx] ? `${headers[idx]}: ${val || '-'}` : val))
                   .filter(Boolean);
-                if (pairs.length > 0) formattedRows.push(pairs.join(' | '));
+                if (pairs.length > 0) formattedRows.push(`- ${pairs.join(' | ')}`);
               } else {
                 const nonEmpty = cells.filter(Boolean);
-                if (nonEmpty.length > 0) formattedRows.push(nonEmpty.join(' | '));
+                if (nonEmpty.length > 0) formattedRows.push(`- ${nonEmpty.join(' | ')}`);
               }
             });
 
@@ -1209,6 +1494,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           const t = extractTextWithSpacing(b);
           if (!t || isNoise(t)) return;
 
+          // Bỏ qua <p> là chú thích ảnh (chỉ bọc <em>/<i> hoặc nằm ngay sau <img>/<figure>, ngắn < 95 ký tự và không có dấu câu)
+          if (b.tagName === 'P') {
+            const empText = Array.from(b.querySelectorAll('em, i'))
+              .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+              .join(' ')
+              .trim();
+            const isEmphasisOnly = empText.length > 0 && empText.length >= t.length * 0.9;
+            const prevSib = b.previousElementSibling;
+            const followsImage =
+              !!b.querySelector('img') ||
+              (!!prevSib && (prevSib.tagName === 'IMG' || prevSib.tagName === 'FIGURE' || !!prevSib.querySelector('img')));
+            if ((isEmphasisOnly || followsImage) && t.length < 95 && !/[.!?:;]$/.test(t) && !isHeading(b, t) && !isMetadataLine(t)) {
+              return;
+            }
+          }
+
           if (b.tagName === 'LI') {
             if (b.closest('.related, .related-publications, .keywords, .tags, .toc, #toc')) return;
             const onlyLink =
@@ -1218,14 +1519,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             if (onlyLink && t.length < 60 && !/[.!?]/.test(t)) return;
             if (t.length < 12) return;
 
-            if (t.length < 120) {
-              const bulletLine = `• ${t.replace(/\n+/g, ' ')}`;
+            const mdBody = extractInlineMarkdown(b).replace(/^[•\-*+]\s+/, '').trim();
+            const bulletLine = /^-?\s*\d+[.)]\s+/.test(mdBody)
+              ? mdBody.replace(/^-\s+/, '')
+              : `- ${mdBody.replace(/\n+/g, ' ')}`;
+
+            if (bulletLine.length <= 360) {
               const projectedLen = pendingListLines.join('\n').length + bulletLine.length + 1;
-              if (projectedLen > 1000) flushListBuffer();
+              if (projectedLen > 1100) flushListBuffer();
               pendingListLines.push(bulletLine);
             } else {
               flushListBuffer();
-              push(t, t.includes('\n'));
+              push(bulletLine, false);
             }
             return;
           }
@@ -1237,25 +1542,75 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             if (/^(authors?|keywords?|references?|tác giả|từ khóa|tài liệu tham khảo):?$/i.test(headingText)) {
               return;
             }
+            const mdPrefix = b.tagName === 'H2' ? '##' : '###';
             const formattedHeading = /[:.!?]$/.test(headingText) ? headingText : `${headingText}:`;
-            push(formattedHeading);
+            push(`${mdPrefix} ${formattedHeading}`);
             return;
           }
 
           if (b.tagName === 'DT') {
             const dtText = t.replace(/\n+/g, ' ').trim();
             if (b.closest('p, li, blockquote')) return;
-            push(/[:.!?]$/.test(dtText) ? dtText : `${dtText}:`);
+            push(`### ${/[:.!?]$/.test(dtText) ? dtText : `${dtText}:`}`);
             return;
           }
 
           if (b.tagName === 'DD') {
             if (b.closest('p, li, blockquote')) return;
-            if (t.length >= 15 || isMetadataLine(t)) push(t, t.includes('\n'));
+            if (t.length >= 15 || isMetadataLine(t)) {
+              push(isMetadataLine(t) ? t : extractInlineMarkdown(b), t.includes('\n'));
+            }
             return;
           }
 
-          if (keep(b, t)) push(t, t.includes('\n'));
+          if (b.tagName === 'P') {
+            if (isMetadataLine(t)) {
+              push(t, t.includes('\n'));
+              return;
+            }
+
+            // Nhận diện <p> chứa tiêu đề in đậm hoàn toàn (ví dụ: <p><strong>1. Triệu chứng bệnh</strong></p>)
+            const strongEls = Array.from(b.querySelectorAll('strong, b'));
+            const strongPlain = strongEls.map((el) => extractTextWithSpacing(el)).join(' ').replace(/\s+/g, ' ').trim();
+            const isFullBoldP = strongPlain.length >= 3 && strongPlain.length >= t.replace(/[:\-•*]/g, '').trim().length * 0.92;
+            if (
+              isFullBoldP &&
+              t.length >= 3 &&
+              t.length <= 95 &&
+              !/[.!?]$/.test(t) &&
+              !/^[•\-*+]\s+/.test(t) &&
+              !(t.includes(':') && !/:\s*$/.test(t))
+            ) {
+              const headingClean = t.replace(/\n+/g, ' ').trim();
+              if (/^(authors?|keywords?|references?|tác giả|từ khóa|tài liệu tham khảo):?$/i.test(headingClean)) {
+                return;
+              }
+              push(`### ${/[:.!?]$/.test(headingClean) ? headingClean : `${headingClean}:`}`);
+              return;
+            }
+
+            if (keep(b, t)) {
+              let mdP = extractInlineMarkdown(b);
+              if (/^[•*+]\s+/.test(mdP)) {
+                mdP = mdP.replace(/^[•*+]\s+/, '- ');
+              }
+              if (
+                !mdP.includes('\n') &&
+                mdP.length <= 265 &&
+                !mdP.startsWith('- ') &&
+                /^\*\*[^*\n]{2,60}\*\*:?\s+\S/.test(mdP)
+              ) {
+                mdP = `- ${mdP}`;
+              }
+              push(mdP, mdP.includes('\n'));
+            }
+            return;
+          }
+
+          if (keep(b, t)) {
+            const mdText = isMetadataLine(t) ? t : extractInlineMarkdown(b);
+            push(mdText, mdText.includes('\n'));
+          }
         });
         flushListBuffer();
       } else {
@@ -1265,7 +1620,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         });
       }
 
-      return lines.join('\n\n');
+      return coalesceArticleParagraphs(lines.join('\n\n'));
     } catch {
       return '';
     }
@@ -1293,16 +1648,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
-  const handlePasteArticleText = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePasteArticleText = (e: React.ClipboardEvent<HTMLElement>) => {
+    const htmlData = e.clipboardData?.getData('text/html') || '';
+    const plainData = e.clipboardData?.getData('text/plain') || '';
+    const textareaTarget = e.currentTarget instanceof HTMLTextAreaElement ? e.currentTarget : null;
+    const isFullReplace =
+      !ingestText.trim() ||
+      !textareaTarget ||
+      (textareaTarget.selectionEnd - textareaTarget.selectionStart >= ingestText.length * 0.8);
+
+    if (!isFullReplace) {
+      resetArticleState();
+      return;
+    }
+
     resetArticleState();
-    const htmlData = e.clipboardData.getData('text/html');
-    if (htmlData && htmlData.length > 100) {
+    const hasHtmlStructure = /<(?:h[1-6]|p|li|ul|ol|table|article|section|strong|b|br)\b/i.test(htmlData);
+    if (htmlData && hasHtmlStructure) {
       const cleaned = cleanArticleTextFromHtml(htmlData);
-      if (cleaned && cleaned.length >= 80) {
+      if (cleaned && cleaned.length >= 60) {
         e.preventDefault();
-        setIngestText(cleaned);
-        toast.success('Đã tự động bóc tách thân bài báo và loại bỏ menu/quảng cáo rác!');
+        setIngestText(cleaned.slice(0, 50000));
+        setArticleEditorMode('preview');
+        toast.success('Đã tự động chuẩn hóa bài báo sang định dạng Markdown sạch!');
+        return;
       }
+    }
+
+    if (plainData && plainData.trim().length >= 80) {
+      e.preventDefault();
+      const formattedPlain = coalesceArticleParagraphs(plainData.trim());
+      setIngestText((formattedPlain || plainData.trim()).slice(0, 50000));
+      setArticleEditorMode('preview');
+      toast.success('Đã dán và tự động căn chỉnh đoạn bài báo!');
     }
   };
 
@@ -1388,10 +1766,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }
 
       setIngestText(cleaned.slice(0, 50000));
+      setArticleEditorMode('preview');
       if (!editUrl) {
         setIngestSourceScope(inferSourceScope(targetUrl, '', null));
       }
-      toast.success('Đã crawl và làm sạch nội dung từ URL! Hãy kiểm tra và bấm nút Tách đoạn bên dưới.');
+      toast.success('Đã crawl và chuẩn hóa định dạng Markdown từ URL! Hãy kiểm tra bản xem trước bên dưới.');
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1574,6 +1953,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  // Xóa toàn bộ các đoạn trích cũ của bài viết đang xem để nạp lại từ đầu
+  const handleDeleteAllOldSourcesInEdit = async () => {
+    if (editRows.length === 0) return;
+    const count = editRows.length;
+    const confirmMsg = `Bạn có chắc chắn muốn xóa toàn bộ ${count} đoạn trích cũ của bài viết này để nạp lại từ đầu?\n\nSau khi xóa, bài viết sẽ được giải phóng hạn mức trích dẫn và bạn có thể chuyển sang Tab 2 để chọn lại các đoạn văn bản mới. Thao tác này không thể hoàn tác.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setDeletingAllEditRows(true);
+      const targetIds = editRows.map((r) => r.id);
+      await apiClient.post('/knowledge/sources/batch-delete', targetIds);
+      setSources((prev) => prev.filter((s) => !targetIds.includes(s.id)));
+      setEditRows([]);
+      toast.success(`Đã xóa sạch ${count} đoạn trích cũ. Bạn có thể chuyển sang Tab 2 để nạp lại từ đầu.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setDeletingAllEditRows(false);
+    }
+  };
+
   const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string; model_class?: string }) => {
     try {
       setEditSaving(true);
@@ -1611,11 +2011,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
     try {
       setIngesting(true);
+      const normalizedArticleText = coalesceArticleParagraphs(ingestText.trim());
       const res = await apiClient.post<IngestionResponse>('/knowledge/ingestions', {
         model_class: ingestClass || undefined,
         source_url: ingestUrl.trim(),
         // Tiêu đề/cơ quan/năm luôn để AI đọc lại từ bài đang dán; Admin sửa ở bước 2
-        article_text: ingestText.trim(),
+        article_text: normalizedArticleText || ingestText.trim(),
       }, { timeout: 45000 });
 
       // Kết hợp bóc tách theo Key từ văn bản (Publication date, Reviewed/Revised, Authors, Cơ quan...) với gợi ý từ AI
@@ -1644,8 +2045,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             }
           : null;
 
+      // Ẩn dòng siêu dữ liệu đơn (< 40 ký tự, Cơ quan:, Ngày đăng:) và dòng tiêu đề mở đầu (# Title) khỏi danh sách thẻ trích dẫn
+      const filteredParagraphs = res.data.paragraphs.filter((p, idx) => {
+        const trimmed = p.text.trim();
+        if (trimmed.length < 40) return false;
+        if (isStandaloneMetadataLine(trimmed)) return false;
+        if (/^#\s+\S/.test(trimmed) && !trimmed.includes('\n')) return false;
+        if (idx === 0 && p.suggested_unit_type === null && trimmed.length < 120 && !/[.!?;]$/.test(trimmed)) {
+          return false;
+        }
+        return true;
+      });
+      const finalParagraphs = filteredParagraphs.length > 0 ? filteredParagraphs : res.data.paragraphs;
+
       setIngestionResult({
         ...res.data,
+        paragraphs: finalParagraphs,
         suggested_metadata: mergedMeta,
       });
       setDismissedAiFields({});
@@ -1695,7 +2110,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const defaultClassForNewParas = aiSuggestedClass || (articleTopics[0] || ingestClass);
       const initialMap: Record<string, { selected: boolean; unitType: string; diseaseClass?: string }> = {};
 
-      res.data.paragraphs.forEach((p) => {
+      finalParagraphs.forEach((p) => {
         initialMap[p.id] = {
           selected: false,
           unitType: p.suggested_unit_type || 'SYMPTOMS',
@@ -1706,8 +2121,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setSelectedParagraphs(initialMap);
       toast.success(
         res.data.ai_suggestion_available
-          ? `Tách thành công ${res.data.paragraphs.length} đoạn. AI đã gợi ý nhãn và thông tin bài.`
-          : `Tách thành công ${res.data.paragraphs.length} đoạn, nhưng AI đang quá tải nên chưa gợi ý nhãn. Bạn tự chọn đoạn và nhãn, hoặc bấm Tách đoạn lại sau ít phút.`
+          ? `Tách thành công ${finalParagraphs.length} đoạn. AI đã gợi ý nhãn và thông tin bài.`
+          : `Tách thành công ${finalParagraphs.length} đoạn, nhưng AI đang quá tải nên chưa gợi ý nhãn. Bạn tự chọn đoạn và nhãn, hoặc bấm Tách đoạn lại sau ít phút.`
       );
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -1731,7 +2146,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const cut = match.index + match[1].length;
       const len1 = cut;
       const len2 = text.length - cut;
-      if (len1 >= 30 && len2 >= 30 && len1 <= 800 && len2 <= 800) {
+      if (len1 >= 30 && len2 >= 30 && len1 <= 1500 && len2 <= 1500) {
         const diff = Math.abs(cut - mid);
         if (diff < minDiff) {
           minDiff = diff;
@@ -1747,7 +2162,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         const cut = match.index + match[1].length;
         const len1 = cut;
         const len2 = text.length - cut;
-        if (len1 >= 30 && len2 >= 30 && len1 <= 800 && len2 <= 800) {
+        if (len1 >= 30 && len2 >= 30 && len1 <= 1500 && len2 <= 1500) {
           const diff = Math.abs(cut - mid);
           if (diff < minDiff) {
             minDiff = diff;
@@ -1764,8 +2179,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       };
     }
 
-    // 3. Fallback: ngắt tại điểm an toàn <= 800
-    const safeCut = Math.min(Math.max(mid, 30), 800);
+    // 3. Fallback: ngắt tại điểm an toàn <= 1500
+    const safeCut = Math.min(Math.max(mid, 30), 1500);
     return {
       part1: text.substring(0, safeCut).trim(),
       part2: text.substring(safeCut).trim(),
@@ -1774,21 +2189,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
   const computeSplitParts = (text: string, cutIndices: number[]): string[] => {
     const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
-    const matches = text.match(regex);
-    const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [text];
-    if (sents.length <= 1 || cutIndices.length === 0) {
+    const rawMatches = text.match(regex);
+    const rawSents = rawMatches ? rawMatches.filter((s) => s.trim().length > 0) : [text];
+    if (rawSents.length <= 1 || cutIndices.length === 0) {
       return [text];
     }
-    const sortedCuts = [...new Set(cutIndices)].filter((idx) => idx >= 0 && idx < sents.length - 1).sort((a, b) => a - b);
+    const sortedCuts = [...new Set(cutIndices)]
+      .filter((idx) => idx >= 0 && idx < rawSents.length - 1)
+      .sort((a, b) => a - b);
     if (sortedCuts.length === 0) return [text];
 
     const parts: string[] = [];
     let currentPartSents: string[] = [];
 
-    for (let i = 0; i < sents.length; i++) {
-      currentPartSents.push(sents[i]);
-      if (sortedCuts.includes(i) || i === sents.length - 1) {
-        parts.push(currentPartSents.join(' ').trim());
+    for (let i = 0; i < rawSents.length; i++) {
+      currentPartSents.push(rawSents[i]);
+      if (sortedCuts.includes(i) || i === rawSents.length - 1) {
+        parts.push(currentPartSents.join('').trim());
         currentPartSents = [];
       }
     }
@@ -1877,9 +2294,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const handleSelectAllAiSuggested = () => {
     if (!ingestionResult) return;
 
-    let availableSlots = 20 - existingVerbatimCount;
+    let availableSlots = 30 - existingVerbatimCount;
     if (availableSlots <= 0) {
-      toast.error(`Bài viết đã có ${existingVerbatimCount} đoạn lưu trữ, đã đạt giới hạn tối đa 20 đoạn.`);
+      toast.error(`Bài viết đã có ${existingVerbatimCount} đoạn lưu trữ, đã đạt giới hạn tối đa 30 đoạn.`);
       return;
     }
 
@@ -2004,10 +2421,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return;
     }
 
-    if (selections.length + existingVerbatimCount > 20) {
+    if (selections.length + existingVerbatimCount > 30) {
       toast.error(existingVerbatimCount > 0
-        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 20 đoạn (mở rộng phục vụ đồ án).`
-        : 'Mỗi bài viết được trích dẫn tối đa 20 đoạn nguyên văn (mở rộng phục vụ đồ án).');
+        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 30 đoạn (mở rộng phục vụ đồ án).`
+        : 'Mỗi bài viết được trích dẫn tối đa 30 đoạn nguyên văn (mở rộng phục vụ đồ án).');
       return;
     }
 
@@ -2081,20 +2498,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }, 0);
   const articleLength = ingestionResult?.article_length || ingestText.length || 1;
   const allowedCharsQuota = Math.max(2500, Math.floor(articleLength * 0.60));
-  // Hạn mức 20 đoạn / 60% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
+  // Hạn mức 30 đoạn / 60% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
   const countWithSaved = countSelected + existingVerbatimCount;
   const charsWithSaved = totalSelectedChars + existingVerbatimChars;
 
-  // Hiển thị đoạn văn với highlight cụm từ khi click hoặc hover vào thẻ tag
-  const renderParagraphWithHighlight = (paraId: string, text: string) => {
-    if (!highlightedMention || highlightedMention.paraId !== paraId || !highlightedMention.text.trim()) {
-      return text;
+  // Highlight cụm từ trích xuất (mention tag) & định dạng bold Markdown inline (**...**)
+  const applyMentionHighlight = (plainText: string, paraId: string | null) => {
+    if (!paraId || !highlightedMention || highlightedMention.paraId !== paraId || !highlightedMention.text.trim()) {
+      return plainText;
     }
     const term = highlightedMention.text.trim();
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`(${escaped})`, 'gi');
-    const parts = text.split(regex);
-    if (parts.length === 1) return text;
+    const parts = plainText.split(regex);
+    if (parts.length === 1) return plainText;
 
     return (
       <>
@@ -2112,6 +2529,312 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           )
         )}
       </>
+    );
+  };
+
+  const renderInlineMarkdownWithHighlight = (line: string, paraId: string | null) => {
+    const boldSegments = line.split(/(\*\*[^*\n]+\*\*)/g);
+    return (
+      <>
+        {boldSegments.map((seg, idx) => {
+          if (seg.startsWith('**') && seg.endsWith('**') && seg.length > 4) {
+            return (
+              <strong key={idx} className="font-semibold text-foreground not-italic">
+                {applyMentionHighlight(seg.slice(2, -2), paraId)}
+              </strong>
+            );
+          }
+          return <React.Fragment key={idx}>{applyMentionHighlight(seg, paraId)}</React.Fragment>;
+        })}
+      </>
+    );
+  };
+
+  // Hiển thị đoạn văn chuẩn cấu trúc (tiêu đề mục, gạch đầu dòng, chữ in đậm) và hỗ trợ highlight cụm từ
+  const renderParagraphWithHighlight = (paraId: string, text: string) => {
+    const lines = text.split(/\r?\n/);
+    return (
+      <>
+        {lines.map((rawLine, idx) => {
+          const trimmed = rawLine.trim();
+          if (!trimmed) return null;
+
+          const h1Match = trimmed.match(/^#\s+(.+)$/);
+          if (h1Match) {
+            return (
+              <span key={idx} className="block font-bold not-italic text-emerald-950 text-[13px] mb-1">
+                {renderInlineMarkdownWithHighlight(h1Match[1], paraId)}
+              </span>
+            );
+          }
+
+          const headingMatch = trimmed.match(/^#{2,6}\s+(.+)$/);
+          if (headingMatch) {
+            return (
+              <span key={idx} className="block font-bold not-italic text-emerald-900 mb-1">
+                {renderInlineMarkdownWithHighlight(headingMatch[1], paraId)}
+              </span>
+            );
+          }
+
+          const bulletMatch = trimmed.match(/^(?:[-•*+])\s+(.+)$/);
+          if (bulletMatch) {
+            return (
+              <span key={idx} className="block pl-2 my-0.5">
+                <span className="text-emerald-700 font-bold not-italic mr-1.5">•</span>
+                {renderInlineMarkdownWithHighlight(bulletMatch[1], paraId)}
+              </span>
+            );
+          }
+
+          return (
+            <span key={idx} className="block my-0.5">
+              {renderInlineMarkdownWithHighlight(rawLine, paraId)}
+            </span>
+          );
+        })}
+      </>
+    );
+  };
+
+  // Hiển thị toàn bộ bài báo ở chế độ Xem định dạng (Markdown Preview)
+  const renderFormattedArticlePreview = (rawMarkdown: string) => {
+    const blocks = rawMarkdown
+      .split(/\r?\n\s*\r?\n/)
+      .map((b) => b.trim())
+      .filter(Boolean);
+
+    return blocks.map((block, bIdx) => {
+      const lines = block.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      const isSingleMetaBlock = lines.length === 1 && isStandaloneMetadataLine(lines[0]);
+      if (isSingleMetaBlock) {
+        return (
+          <div
+            key={bIdx}
+            className="inline-flex items-center text-[11px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded border border-border/70 mr-1.5 mb-1 font-medium"
+          >
+            {lines[0].replace(/^(?:[#>*\-•+]+\s*)+/, '').replace(/\*\*/g, '')}
+          </div>
+        );
+      }
+
+      return (
+        <div key={bIdx} className="space-y-1">
+          {lines.map((line, lIdx) => {
+            if (isStandaloneMetadataLine(line)) {
+              return (
+                <div
+                  key={lIdx}
+                  className="text-[11px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded border border-border/70 inline-block mr-1.5 font-medium"
+                >
+                  {line.replace(/^(?:[#>*\-•+]+\s*)+/, '').replace(/\*\*/g, '')}
+                </div>
+              );
+            }
+
+            const h1 = line.match(/^#\s+(.+)$/);
+            if (h1) {
+              return (
+                <h4 key={lIdx} className="text-sm font-bold text-emerald-950 border-b border-emerald-100 pb-1.5">
+                  {renderInlineMarkdownWithHighlight(h1[1], null)}
+                </h4>
+              );
+            }
+
+            const h2 = line.match(/^##\s+(.+)$/);
+            if (h2) {
+              return (
+                <h5 key={lIdx} className="text-[13px] font-bold text-emerald-800 pt-1">
+                  {renderInlineMarkdownWithHighlight(h2[1], null)}
+                </h5>
+              );
+            }
+
+            const h3 = line.match(/^#{3,6}\s+(.+)$/);
+            if (h3) {
+              return (
+                <h6 key={lIdx} className="text-xs font-bold text-emerald-700 pt-0.5">
+                  {renderInlineMarkdownWithHighlight(h3[1], null)}
+                </h6>
+              );
+            }
+
+            const bullet = line.match(/^(?:[-•*+])\s+(.+)$/);
+            if (bullet) {
+              return (
+                <div key={lIdx} className="flex items-start gap-1.5 pl-2 text-xs text-foreground/90 leading-relaxed">
+                  <span className="text-emerald-700 font-bold shrink-0">•</span>
+                  <span className="flex-1">{renderInlineMarkdownWithHighlight(bullet[1], null)}</span>
+                </div>
+              );
+            }
+
+            return (
+              <p key={lIdx} className="text-xs text-foreground/90 leading-relaxed">
+                {renderInlineMarkdownWithHighlight(line, null)}
+              </p>
+            );
+          })}
+        </div>
+      );
+    });
+  };
+
+  // Trình soạn thảo & xem trước Markdown chuẩn dùng chung cho Nhập bài mới & Nạp thêm dữ liệu
+  const renderArticleEditorSection = ({ isReparseTab = false }: { isReparseTab?: boolean } = {}) => {
+    const hasText = ingestText.trim().length > 0;
+    const showingPreview = articleEditorMode === 'preview' && hasText;
+
+    return (
+      <div>
+        <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1.5">
+          <label className="font-semibold text-foreground">
+            2. Dán toàn văn bài báo *
+          </label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div
+              className="inline-flex rounded border border-border bg-muted/40 p-0.5"
+              role="group"
+              aria-label="Chế độ hiển thị nội dung bài báo"
+            >
+              <button
+                type="button"
+                onClick={() => setArticleEditorMode('preview')}
+                disabled={!hasText}
+                className={`h-5 px-2 text-[11px] font-semibold rounded inline-flex items-center gap-1 transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
+                  showingPreview
+                    ? 'bg-emerald-700 text-white shadow-2xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title={hasText ? 'Xem trước bài báo đã chuẩn hóa định dạng' : 'Cần dán hoặc crawl nội dung trước khi xem định dạng'}
+              >
+                <Eye className="w-3 h-3" />
+                <span>Xem định dạng</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setArticleEditorMode('code')}
+                className={`h-5 px-2 text-[11px] font-semibold rounded inline-flex items-center gap-1 transition-colors ${
+                  !showingPreview
+                    ? 'bg-emerald-700 text-white shadow-2xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Hiển thị và chỉnh sửa trực tiếp mã Markdown thô"
+              >
+                <Code2 className="w-3 h-3" />
+                <span>Code Markdown</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleCrawlArticleFromUrl}
+              disabled={crawlingUrl || !(editUrl || ingestUrl).trim()}
+              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Tải nhanh nội dung từ URL ở mục 1 (nếu trang chặn bot thì copy tay)"
+            >
+              {crawlingUrl ? (
+                <>
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>Đang crawl...</span>
+                </>
+              ) : (
+                <>
+                  <Globe className="w-3 h-3" />
+                  <span>Crawl từ URL</span>
+                </>
+              )}
+            </button>
+
+            <span className="text-[10px] text-muted-foreground">
+              {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+            </span>
+          </div>
+        </div>
+
+        <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
+          <span>
+            <strong>{isReparseTab ? 'Mẹo copy bài gốc:' : 'Mẹo dán cả trang:'}</strong> Nhấn{' '}
+            <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi{' '}
+            <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd>{' '}
+            {isReparseTab ? 'trên trang bài gốc rồi dán vào đây, hoặc bấm' : 'trên trang báo rồi dán vào ô dưới, hoặc bấm'}{' '}
+            <strong>Crawl từ URL</strong>. Hệ thống tự lọc rác và chuyển sang <strong>Markdown sạch</strong> (mặc định mở Xem định dạng; bấm <strong>Code Markdown</strong> để sửa tay).
+          </span>
+        </div>
+
+        {showingPreview ? (
+          <div className="rounded-md border border-emerald-200 bg-background overflow-hidden shadow-2xs">
+            <div className="px-3 py-1.5 bg-emerald-50/70 border-b border-emerald-100 flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-emerald-800 font-medium inline-flex items-center gap-1">
+                <Eye className="w-3 h-3" />
+                <span>Bản xem trước định dạng (tiêu đề, chữ đậm, gạch đầu dòng)</span>
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setArticleEditorMode('code')}
+                  className="font-semibold text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1"
+                >
+                  <Edit3 className="w-3 h-3" />
+                  <span>Sửa Code</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIngestText('');
+                    setArticleEditorMode('code');
+                    if (!isReparseTab && ingestionResult) resetArticleState();
+                  }}
+                  className="font-medium text-muted-foreground hover:text-destructive hover:underline"
+                >
+                  Xóa
+                </button>
+              </div>
+            </div>
+            <div
+              tabIndex={0}
+              onPaste={handlePasteArticleText}
+              className="max-h-[340px] min-h-[220px] overflow-y-auto p-3.5 space-y-2.5 outline-none"
+            >
+              {renderFormattedArticlePreview(ingestText)}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <Textarea
+              rows={12}
+              placeholder={
+                isReparseTab
+                  ? 'Dán văn bản bài báo vào đây để bóc tách đoạn mới hoặc tái trích xuất...'
+                  : 'Dán toàn bộ nội dung bài báo vào đây. Hệ thống sẽ tự lọc thẻ rác HTML, chuẩn hóa Markdown, tách đoạn P1, P2... và gọi AI trích xuất thông tin.'
+              }
+              value={ingestText}
+              onChange={(e) => {
+                setIngestText(e.target.value);
+                if (!isReparseTab && ingestionResult) resetArticleState();
+              }}
+              onPaste={handlePasteArticleText}
+              required
+              maxLength={50000}
+              className="text-xs font-mono resize-y leading-relaxed"
+            />
+            {hasText && (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-muted-foreground">
+                <span>Cú pháp Markdown: <code className="bg-muted px-1 rounded">## Tiêu đề</code> • <code className="bg-muted px-1 rounded">### Mục con</code> • <code className="bg-muted px-1 rounded">- **Nhãn:** Nội dung</code></span>
+                <button
+                  type="button"
+                  onClick={() => setArticleEditorMode('preview')}
+                  className="text-emerald-700 hover:text-emerald-900 font-semibold hover:underline inline-flex items-center gap-1"
+                >
+                  <Eye className="w-3 h-3" />
+                  <span>Xem định dạng</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -2552,7 +3275,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             <input
               type="checkbox"
               checked={state.selected}
-              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 30)}
+              title={
+                isSaved
+                  ? 'Đoạn này đã được lưu trong cơ sở dữ liệu (Tab 1)'
+                  : isTooLong
+                  ? 'Đoạn quá dài (> 1.500 ký tự), vui lòng chia nhỏ đoạn trước khi chọn'
+                  : isHeaderLine
+                  ? 'Dòng tiêu đề hoặc siêu dữ liệu không dùng làm đoạn trích dẫn'
+                  : (!state.selected && countWithSaved >= 30)
+                  ? `Đã đạt giới hạn tối đa 30 đoạn nguyên văn của bài viết (Tab 1 đã lưu ${existingVerbatimCount} đoạn)`
+                  : undefined
+              }
               onChange={(e) => {
                 setSelectedParagraphs((prev) => ({
                   ...prev,
@@ -2639,9 +3373,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           </div>
         </div>
 
-        <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
-          "{renderParagraphWithHighlight(para.id, para.text)}"
-        </p>
+        <div className="text-xs text-foreground/90 pl-6 leading-relaxed space-y-0.5">
+          {renderParagraphWithHighlight(para.id, para.text)}
+        </div>
 
         {renderParagraphMentions(para)}
       </div>
@@ -3806,29 +4540,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           )}
 
                           <span className="text-[11px] text-muted-foreground">
-                            • Nguyên văn: {existingVerbatimCount}/20 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
+                            • Nguyên văn: {existingVerbatimCount}/30 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
                           </span>
                         </div>
 
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
-                          onClick={handleApproveAllInEdit}
-                          className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
-                            editRows.every((r) => r.isManualApproved)
-                              ? 'text-muted-foreground hover:text-destructive'
-                              : 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                          }`}
-                          title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>
-                            {editRows.every((r) => r.isManualApproved)
-                              ? 'Bỏ duyệt toàn bộ bài'
-                              : `Duyệt toàn bộ (${editRows.length})`}
-                          </span>
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
+                            onClick={handleApproveAllInEdit}
+                            className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
+                              editRows.every((r) => r.isManualApproved)
+                                ? 'text-muted-foreground hover:text-destructive'
+                                : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                            }`}
+                            title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>
+                              {editRows.every((r) => r.isManualApproved)
+                                ? 'Bỏ duyệt toàn bộ bài'
+                                : `Duyệt toàn bộ (${editRows.length})`}
+                            </span>
+                          </Button>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={editRows.length === 0 || deletingAllEditRows}
+                            onClick={handleDeleteAllOldSourcesInEdit}
+                            className="h-7 px-2.5 text-xs font-semibold gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                            title="Xóa toàn bộ các đoạn trích cũ của bài viết này để nạp lại từ đầu"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>{deletingAllEditRows ? 'Đang xóa...' : 'Xóa toàn bộ đoạn cũ'}</span>
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="p-4 space-y-3 text-xs">
@@ -3902,9 +4651,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               </div>
                             </div>
 
-                            <p className="text-xs text-foreground/90 italic pl-3 border-l-2 border-emerald-500/60 leading-relaxed">
-                              "{renderParagraphWithHighlight(row.id, row.evidenceText)}"
-                            </p>
+                            <div className="text-xs text-foreground/90 pl-3 border-l-2 border-emerald-500/60 leading-relaxed space-y-0.5">
+                              {renderParagraphWithHighlight(row.id, row.evidenceText)}
+                            </div>
                           </div>
                         ))
                       )}
@@ -3975,53 +4724,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               </div>
                             </div>
 
-                            <div>
-                              <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1">
-                                <label className="font-semibold text-foreground">
-                                  2. Dán toàn văn bài báo *
-                                </label>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={handleCrawlArticleFromUrl}
-                                    disabled={crawlingUrl || !(editUrl || ingestUrl).trim()}
-                                    className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    title="Tải nhanh nội dung từ URL ở mục 1 (nếu trang chặn bot thì copy tay)"
-                                  >
-                                    {crawlingUrl ? (
-                                      <>
-                                        <RefreshCw className="w-3 h-3 animate-spin" />
-                                        <span>Đang crawl...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Globe className="w-3 h-3" />
-                                        <span>Crawl nội dung từ URL</span>
-                                      </>
-                                    )}
-                                  </button>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
-                                <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
-                                <span>
-                                  <strong>Mẹo copy bài gốc:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang bài gốc rồi dán vào ô dưới, hoặc bấm <strong>Crawl nội dung từ URL</strong>. Hệ thống sẽ tự lọc bỏ menu, quảng cáo rác!
-                                </span>
-                              </div>
-                              <Textarea
-                                rows={11}
-                                placeholder="Dán văn bản bài báo vào đây để bóc tách đoạn mới hoặc tái trích xuất..."
-                                value={ingestText}
-                                onChange={(e) => setIngestText(e.target.value)}
-                                onPaste={handlePasteArticleText}
-                                required
-                                maxLength={50000}
-                                className="text-xs font-mono resize-y"
-                              />
-                            </div>
+                            {renderArticleEditorSection({ isReparseTab: true })}
 
                             <Button
                               type="submit"
@@ -4313,7 +5016,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         )}
                                       </CardTitle>
                                       <CardDescription className="text-xs mt-0.5">
-                                        Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 20 đoạn nguyên văn/bài).
+                                        Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 30 đoạn nguyên văn/bài).
                                       </CardDescription>
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2">
@@ -4328,8 +5031,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         <Sparkles className="w-3 h-3 text-emerald-700" />
                                         <span>Chọn tất cả đoạn AI gợi ý</span>
                                       </Button>
-                                      <Badge variant="secondary" className="bg-muted text-foreground text-[11px]">
-                                        Đoạn: {countWithSaved} / 20
+                                      <Badge variant="secondary" className="bg-emerald-50 text-emerald-800 border border-emerald-300 text-[11px]">
+                                        Mới chọn: {countSelected}
+                                      </Badge>
+                                      <Badge
+                                        variant="secondary"
+                                        className={
+                                          countWithSaved >= 30
+                                            ? 'bg-amber-100 text-amber-900 border border-amber-300 text-[11px]'
+                                            : 'bg-muted text-foreground text-[11px]'
+                                        }
+                                      >
+                                        Tổng nguyên văn: {countWithSaved} / 30 đoạn (Tab 1 đã lưu {existingVerbatimCount})
                                       </Badge>
                                       <Badge
                                         variant="secondary"
@@ -4343,6 +5056,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   </div>
                                 </CardHeader>
                                 <CardContent className="p-4 space-y-3 max-h-[480px] overflow-y-auto">
+                                  {countWithSaved >= 30 && (
+                                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-start gap-2.5 shadow-2xs">
+                                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                                      <div className="space-y-1">
+                                        <p className="font-semibold text-amber-900">
+                                          Bài viết đã đạt giới hạn tối đa 30 đoạn nguyên văn (Tab 1 đã lưu {existingVerbatimCount} đoạn).
+                                        </p>
+                                        <p className="text-[11px] text-amber-800 leading-relaxed">
+                                          Các ô chọn đoạn mới đang được khóa để bảo đảm tính hợp lý khi trích dẫn. Bạn hãy chuyển sang <strong>Tab 1 (Các đoạn trích đã lưu)</strong> để xóa bớt đoạn cũ hoặc bấm <strong>"Xóa toàn bộ đoạn cũ"</strong> để nạp lại từ đầu.
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
                                   {suggestedNewParagraphs.length === 0 ? (
                                     <p className="text-xs text-muted-foreground italic text-center py-2">
                                       AI không đề xuất thêm đoạn nào trong phần chưa lưu; bạn có thể mở mục 'Đoạn AI không chọn' bên dưới để kiểm tra và tick thủ công.
@@ -4360,7 +5086,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     <Button
                                       type="button"
                                       onClick={handleCommitParagraphs}
-                                      disabled={committing || countSelected === 0 || countWithSaved > 20}
+                                      disabled={committing || countSelected === 0 || countWithSaved > 30}
                                       className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-9 text-xs px-4"
                                     >
                                       {committing ? 'Đang lưu...' : `Lưu & Duyệt ${countSelected} đoạn mới`}
@@ -4447,56 +5173,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         </div>
                       </div>
 
-                      <div>
-                        <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1">
-                          <label className="font-semibold text-foreground">
-                            2. Dán toàn văn bài báo *
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={handleCrawlArticleFromUrl}
-                              disabled={crawlingUrl || !(editUrl || ingestUrl).trim()}
-                              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                              title="Tải nhanh nội dung từ URL ở mục 1 (nếu trang chặn bot thì copy tay)"
-                            >
-                              {crawlingUrl ? (
-                                <>
-                                  <RefreshCw className="w-3 h-3 animate-spin" />
-                                  <span>Đang crawl...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Globe className="w-3 h-3" />
-                                  <span>Crawl nội dung từ URL</span>
-                                </>
-                              )}
-                            </button>
-                            <span className="text-[10px] text-muted-foreground">
-                              {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
-                            </span>
-                          </div>
-                        </div>
-                        <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
-                          <span>
-                            <strong>Mẹo dán cả trang:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang báo rồi dán vào ô dưới, hoặc bấm <strong>Crawl nội dung từ URL</strong>. Hệ thống sẽ tự lọc bỏ menu, quảng cáo và hotline rác!
-                          </span>
-                        </div>
-                        <Textarea
-                          rows={11}
-                          placeholder="Dán toàn bộ nội dung bài báo vào đây. Hệ thống sẽ tự lọc thẻ rác HTML, tách thành các đoạn P1, P2... và gọi AI trích xuất tiêu đề, phân loại bệnh."
-                          value={ingestText}
-                          onChange={(e) => {
-                            setIngestText(e.target.value);
-                            if (ingestionResult) resetArticleState();
-                          }}
-                          onPaste={handlePasteArticleText}
-                          required
-                          maxLength={50000}
-                          className="text-xs font-mono resize-y"
-                        />
-                      </div>
+                      {renderArticleEditorSection()}
 
                       <Button
                         type="submit"
@@ -4684,7 +5361,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               )}
                             </CardTitle>
                             <CardDescription className="text-xs mt-0.5">
-                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 20 đoạn nguyên văn</strong> (≤ 1.500 ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
+                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 30 đoạn nguyên văn</strong> (≤ 1.500 ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
                             </CardDescription>
                           </div>
 
@@ -4702,9 +5379,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             </Button>
                             <Badge
                               variant="secondary"
-                              className={countWithSaved > 20 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                              className={countWithSaved > 30 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
                             >
-                              Đoạn: {countWithSaved} / 20
+                              Đoạn: {countWithSaved} / 30
                             </Badge>
                             <Badge
                               variant="secondary"
@@ -4764,7 +5441,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         )}
                         <Button
                           onClick={handleCommitParagraphs}
-                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 20 || charsWithSaved > allowedCharsQuota || !ingestClass}
+                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 30 || charsWithSaved > allowedCharsQuota || !ingestClass}
                           className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
                         >
                           {committing ? (

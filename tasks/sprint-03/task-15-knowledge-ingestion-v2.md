@@ -582,3 +582,61 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
   - Core API `dotnet build Lavitree.sln --no-restore --disable-build-servers -m:1` thành công (`0 Error(s)`, `1 Warning(s)` có sẵn ở `LavitreeDbContextSeeder.cs`, `8.71s`).
   - Frontend `npm run build` (`tsc && vite build`) thành công (`2002 modules transformed`, `0` lỗi, `3.62s`).
   - Kiểm thử trực tiếp trên Google Chrome (`http://localhost:3000/admin/curation` & `/admin/ingest`, reload `ignoreCache: true`, không lưu/sửa CSDL): xác nhận đủ 4 `<select>` bộ lọc, `0` chữ `"Cây khỏe mạnh"` còn sót ở option/bảng tại cả 2 chế độ xem, lọc `Cà chua` thu hẹp về đúng 10 chuyên mục Cà chua, lọc `Dâu tây` -> `🌱 Kỹ thuật canh tác & Phòng ngừa` ra đúng 2 bài, lọc `🇻🇳 Việt Nam` / `🌐 Nước ngoài` khớp 10/10 dòng ở cả `Gộp bài viết` và `Từng dòng`, URL `content.ces.ncsu.edu/leaf-scorch-of-strawberry` tự chọn `🌐 Bài báo Nước ngoài (Quốc tế)`, `?edit=...` không báo dirty giả và 0 lỗi console.
+
+### 13.13 Sắp xếp bảng chữ cái tiếng Việt & Gom nhóm tách đoạn thông minh chống cắt vụn (`TASK-15-R19`, 15/11/2026)
+
+- **Sắp xếp danh sách cây trồng và chuyên mục theo bảng chữ cái tiếng Việt (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - Sắp xếp danh mục `diseases` trong `fetchDiseases` theo `a.plantName.localeCompare(b.plantName, 'vi')` rồi theo `formatTopicLabel(..., 'vi')`.
+  - Sắp xếp `uniquePlants` bằng `localeCompare(b, 'vi')` -> cả 14 loài cây trên toàn bộ dropdown (`Duyệt tri thức`, `Nhập bài báo`, `Xem & Sửa chi tiết`, `Ảnh triệu chứng`) hiển thị theo chuẩn A–Z tiếng Việt (`Anh đào (Cherry)` -> `Việt quất`).
+- **Gom nhóm tiêu đề mục, câu dẫn & các ý con ngắn trước khi tách đoạn (`AdminDashboard.tsx` & `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`)**:
+  - Frontend (`AdminDashboard.tsx`):
+    - Thêm `isStandaloneMetadataLine` và `coalesceArticleParagraphs` (gọi cuối `cleanArticleTextFromHtml` và đầu `handleParseArticle`, giữ trần `MAX_GROUP_CHARS = 1300` để không vượt ngưỡng `1.500` ký tự của `CommitIngestion`).
+    - Nhận diện tiêu đề mục (`3..85` ký tự, bỏ qua câu nối như `"Đây là..."`, `"Khi ..."`, kết thúc `:`, đánh số mục hoặc từ khóa chuẩn), câu dẫn kết thúc bằng `:`/`?`, và ý con ngắn (`• ...`, `<Nhãn <= 55 ký tự>: <Nội dung <= 255 ký tự>`, cặp Hỏi–Đáp `<= 320` ký tự) để gom vào cùng đoạn mạch lạc (tránh gộp nhầm các mục riêng lẻ dài `~285–309` ký tự như `Điều kiện thuận lợi` với `Triệu chứng`).
+    - Loại bỏ `figcaption`/`.wp-caption-text`/`.image-caption`/`.caption`, thẻ `<p>` chú thích ảnh (`< 95` ký tự không dấu câu), dòng quảng cáo `• Website: ...` và ẩn các dòng siêu dữ liệu đơn (`Cơ quan: ...`, `< 40` ký tự) khỏi danh sách thẻ trích dẫn trong `handleParseArticle` nhưng vẫn giữ nguyên `id` đoạn gốc từ API.
+    - Nâng giới hạn mỗi nửa đoạn trong `autoSplitText` lên `1500` và thêm `whitespace-pre-line` ở thẻ hiển thị đoạn trích (`Tab 1` & card bóc tách).
+  - Backend Core API (`KnowledgeController.cs`):
+    - Bổ sung `IsStandaloneMetadataBlock`, `IsSubItemBlock`, `IsIncompleteLeadIn`, `CoalesceArticleParagraphs`, `IsSectionHeading` (`<= 85` ký tự) trong `IngestArticle`, đồng thời không đẩy các dòng `< 40` ký tự hoặc siêu dữ liệu đơn thuần vào `validParagraphs` (vẫn giữ nguyên cho `BuildArticleMetaContext` gửi `META_CONTEXT`).
+- **Kiểm chứng thực tế**:
+  - Core API `dotnet build Lavitree.sln --no-restore --disable-build-servers -m:1` thành công (`0 Warning(s)`, `0 Error(s)`, `3.76s`).
+  - Frontend `npm run build` (`tsc && vite build`) thành công (`2002 modules transformed`, `0` lỗi, `10.59s`).
+  - Kiểm thử trực tiếp trên Google Chrome (sau bản build cuối, `ignoreCache: true`, không lưu CSDL): bài `https://nongnghieppho.vn/blogs/news/benh-dom-vong-tren-ca-chua` giảm từ **48 đoạn nhỏ lẻ** xuống còn **13 đoạn hoàn chỉnh** (`285–1277` ký tự; tách bạch `P4` giới thiệu `452` chars, `P5` `Điều kiện thuận lợi` `309` chars - `CAUSE_CONDITIONS`, `P6` `Triệu chứng` `285` chars - `SYMPTOMS`, `P7` `Vòng đời` `291` chars, gom gọn `Tác hại`, `Phòng ngừa`, `Sinh học`, `Hóa học`, `Canh tác`, `FAQ`; không còn tiêu đề mồ côi, chú thích ảnh hay dòng `Cơ quan`); dropdown 14 cây xếp đúng A–Z tiếng Việt và `0` lỗi console.
+
+### 13.14 Chuẩn hóa Markdown sạch khi Crawl/Copy, Chuyển đổi `Xem định dạng` / `Code Markdown` & Định dạng thẻ đoạn trích (`TASK-15-R20`, 15/11/2026)
+
+- **Chuyển HTML sang Markdown sạch khi Crawl và Copy/Paste (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - Nâng cấp `cleanArticleTextFromHtml`: thêm `extractInlineMarkdown` chuẩn hóa thẻ `<h1>` thành `# Tiêu đề`, `<h2>` thành `## Mục lớn:`, `<h3>..<h6>` / `<dt>` / đoạn in đậm toàn dòng (`<= 95` ký tự) thành `### Mục con:`, chuyển `<li>` và các đoạn có nhãn ngắn đầu dòng (`<p><strong>Nhãn:</strong> ...</p>`, `<= 265` ký tự) thành gạch đầu dòng `- **Nhãn:** Nội dung`, loại bỏ link/hình ảnh dư thừa, tránh lặp `<p>` lồng trong `<li>` và khử trùng lặp qua khóa chuẩn hóa.
+  - Nâng cấp `handlePasteArticleText`: khi dán toàn văn (HTML có cấu trúc từ trình duyệt hoặc văn bản dài `>= 80` ký tự) vào ô trống hoặc thay thế toàn bộ, tự động chuyển đổi sang Markdown sạch và mở chế độ **`Xem định dạng`** mặc định (khi đang sửa một đoạn nhỏ ở giữa bài trong `Code Markdown`, vẫn giữ nguyên hành vi dán tại vị trí con trỏ).
+  - Cập nhật `extractKeyMetadataFromText` bỏ qua tiền tố Markdown (`#`, `-`, `**`) để vẫn bóc tách chính xác Tác giả, Cơ quan, Ngày đăng và Ngày cập nhật.
+- **Khung soạn thảo hợp nhất với nút chuyển `Xem định dạng` / `Code Markdown` (`AdminDashboard.tsx`)**:
+  - Thêm helper dùng chung `renderArticleEditorSection` (áp dụng đồng nhất cho cả **Nhập bài báo mới** và **Tab 2 Nạp thêm dữ liệu bài báo**).
+  - Mặc định kích hoạt **`👁️ Xem định dạng`** khi đã có nội dung (`renderFormattedArticlePreview`: hiển thị phân cấp heading, chip metadata đầu bài, chữ in đậm và danh sách bullet `•` trực quan); cho phép chuyển 1-click sang **`</> Code Markdown`** (`<Textarea>` font monospace) để Admin tự do chỉnh sửa dấu `#`, `-`, `**`.
+- **Gom nhóm & Hiển thị chuẩn Markdown trên từng thẻ đoạn trích (`AdminDashboard.tsx` & `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`)**:
+  - Cập nhật `coalesceArticleParagraphs` (Frontend) và `CoalesceArticleParagraphs` / `ExtractDraftParagraphs` (`KnowledgeController.cs`) nhận diện tiêu đề `##`/`###`, gạch đầu dòng `- ` và nhãn in đậm `**Nhãn:**`, tách rạch ròi ranh giới giữa các mục `##`, giữ tiêu đề trên dòng đầu (`\n`) của đoạn gom và ẩn dòng `# Tiêu đề bài` đơn khỏi danh sách thẻ trích dẫn (vẫn giữ cho `META_CONTEXT`).
+  - Nâng cấp `renderParagraphWithHighlight` (`applyMentionHighlight` + `renderInlineMarkdownWithHighlight`) để render tiêu đề, danh sách dấu chấm tròn `•` và chữ in đậm `**...**` sạch đẹp bên trong cả thẻ đoạn mới (`P3..Pn`) lẫn danh sách đoạn đã lưu (Tab 1) mà vẫn giữ highlight cụm từ vật tư và bảo toàn 100% nguyên văn kiểm tra `CommitIngestion` (`computeSplitParts` giữ nguyên ký tự xuống dòng `\n`).
+- **Kiểm chứng thực tế**:
+  - Core API `dotnet build Lavitree.sln --no-restore --disable-build-servers -m:1` thành công (`0 Warning(s)`, `0 Error(s)`, `3.18s`).
+  - Frontend `npm run build` (`tsc && vite build`) thành công (`2002 modules transformed`, `0` lỗi, `3.80s`).
+  - Kiểm thử trực tiếp trên Google Chrome (`?edit=https%3A%2F%2Fnongnghieppho.vn%2Fblogs%2Fnews%2Fbenh-dom-vong-tren-ca-chua`, `ignoreCache: true`, không lưu CSDL):
+    - Bấm `Crawl từ URL`: thu được `7.848 / 50.000` ký tự, tự động hiển thị **`Xem định dạng`** mặc định (render đầy đủ tiêu đề H4/H5/H6, `<strong>`, dấu `•`, không lộ ký tự thô `#`/`**`).
+    - Bấm `Code Markdown`: mở `<textarea>` chứa đầy đủ mã Markdown chuẩn (`# `, `## `, `### `, `- **...**`); bấm `Xem định dạng` quay lại bản xem trước bình thường.
+    - Bấm `Tách đoạn & Phân tích dữ liệu mới`: trả về `14` đoạn (`8` AI gợi ý + `6` trong `Đoạn AI không chọn`), `0` ký tự `#`/`**` thô trong nội dung cả 14 thẻ, API `/knowledge/fetch-url` và `/knowledge/ingestions` đều `200 OK`, `0` lỗi console.
+
+### 13.15 Nâng trần trích dẫn tạm thời lên 30 đoạn, Làm rõ UI bộ đếm Tab 2 & Nút xóa toàn bộ đoạn cũ Tab 1 (`TASK-15-R21`, 15/11/2026)
+
+- **Mở rộng hạn mức trích dẫn lên 30 đoạn (Core API & Web Frontend)**:
+  - Backend Core API (`backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`, `backend/core-api/src/Lavitree.Application/DTOs/KnowledgeIngestionDtos.cs`):
+    - Đổi cấu hình mặc định `GetIngestConfigInt("INGEST_MAX_CHUNKS", ..., 30, 1, 100)`.
+    - Cập nhật ràng buộc DTO validation `[MaxLength(30, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 30 đoạn nguyên văn.")]` cho `CommitIngestionRequestDto.Selections`.
+    - Ghi nhận TODO trong `tasks/TODO.md`: siết lại hạn mức từ 30 về 8–20 đoạn và tỉ lệ 30% cho giai đoạn thương mại (sau bảo vệ đồ án).
+  - Web Frontend (`frontend/web/src/pages/AdminDashboard.tsx`):
+    - Cập nhật các vị trí quota: `availableSlots = 30 - existingVerbatimCount`, `selections.length + existingVerbatimCount > 30`, `countWithSaved >= 30`, `countWithSaved > 30` ở cả chế độ nhập mới và nạp thêm.
+- **Tách bạch & Làm rõ UI bộ đếm đoạn trích ở Tab 2 (Nạp thêm dữ liệu bài báo)**:
+  - Thay thế badge gộp gây hiểu nhầm bằng 2 badge riêng biệt:
+    - Badge `Mới chọn: {countSelected}` (màu xanh ngọc).
+    - Badge `Tổng nguyên văn: {countWithSaved} / 30 đoạn (Tab 1 đã lưu {existingVerbatimCount})` (nổi bật màu hổ phách khi chạm ngưỡng 30).
+  - Bổ sung banner cảnh báo màu hổ phách ở đầu danh sách đoạn mới khi chạm trần 30 đoạn, giải thích rõ nguyên nhân checkbox bị khóa và hướng dẫn sang Tab 1 xóa bớt đoạn cũ hoặc xóa sạch để nạp lại.
+  - Cập nhật tooltip/title trên checkbox khi bị khóa: `"Đã đạt giới hạn tối đa 30 đoạn nguyên văn của bài viết (Tab 1 đã lưu {existingVerbatimCount} đoạn)"`.
+- **Bổ sung nút `[🗑️ Xóa toàn bộ đoạn cũ]` ở Tab 1 (Các đoạn trích đã lưu)**:
+  - Thêm nút màu đỏ viền hồng cạnh nút duyệt, có hộp thoại xác nhận `window.confirm` cảnh báo trước khi thao tác.
+  - Gọi endpoint `POST /api/v1/knowledge/sources/batch-delete` với danh sách id của `editRows`.
+  - Tự động reset `editRows = []`, xóa `savedVerbatimTexts` và đưa `existingVerbatimCount` về `0`, mở khóa tức thì cho Tab 2 để Admin tick chọn các đoạn mới.

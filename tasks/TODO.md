@@ -132,5 +132,6 @@
 
 - [ ] **TASK-15: Nhập bài báo v2 — Dán cả trang, AI tự điền, ảnh triệu chứng, gợi ý vật tư**
   - Trách nhiệm: **Trưởng nhóm** (chia lại cho A/B sau nếu cần)
-  - Trạng thái: `[ ] PENDING`
-  - Đầu ra: Pha 1: dán cả trang và tự lọc rác, AI tự điền thông tin bài trong cùng lần gọi gán nhãn, nới giới hạn trích theo tỉ lệ bài (đề xuất ≤ 30%, tối đa 8 đoạn, chờ chốt). Pha 2: ảnh triệu chứng có ghi nguồn, hiện ở Sổ tay. Pha 3: gợi ý vật tư từ đoạn trích, Admin tự nhập PHI/nguồn, trạng thái `NOT_SOLD`, vật tư canh tác, chốt chặn thuốc cấm tạm thời. Pha 4: quản lý thuốc cấm, đoạn SUMMARY có duyệt. Chi tiết: `tasks/sprint-03/task-15-knowledge-ingestion-v2.md`.
+  - Trạng thái: `[/] IN PROGRESS`
+  - Đầu ra: Pha 1: dán cả trang và tự lọc rác, AI tự điền thông tin bài trong cùng lần gọi gán nhãn, nới giới hạn trích theo tỉ lệ bài (tạm thời mở rộng tối đa 30 đoạn nguyên văn, ≤ 60% ký tự để nạp nhanh đồ án; cần siết lại về mức chuẩn thương mại 8–20 đoạn trước release). Pha 2: ảnh triệu chứng có ghi nguồn, hiện ở Sổ tay. Pha 3: gợi ý vật tư từ đoạn trích, Admin tự nhập PHI/nguồn, trạng thái `NOT_SOLD`, vật tư canh tác, chốt chặn thuốc cấm tạm thời. Pha 4: quản lý thuốc cấm, đoạn SUMMARY có duyệt. Chi tiết: `tasks/sprint-03/task-15-knowledge-ingestion-v2.md`.
+  - **TODO Hậu Đồ Án (Commercial Release Hardening)**: Siết lại `INGEST_MAX_CHUNKS` từ 30 về 8–20 đoạn và giảm `INGEST_MAX_RATIO_PERCENT` từ 60% về 30% để chuẩn hóa quy tắc trích dẫn thương mại theo Điều 25 Luật SHTT.
