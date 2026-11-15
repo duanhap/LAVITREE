@@ -1,7 +1,7 @@
 # TASK-16: Tách `AdminDashboard.tsx` thành các trang Admin riêng
 * **Sprint**: Sprint 3
 * **Phân hệ**: frontend/web (Admin)
-* **Trạng thái**: `[/] IN PROGRESS` (Đã xong B0, B1, B2, B3, B4)
+* **Trạng thái**: `[/] IN PROGRESS` (Đã xong B0, B1, B2, B3, B4, B5)
 * **Người phụ trách**: Trưởng nhóm (làm cùng Claude Code)
 * **Độ ưu tiên**: P2 - Nên làm trước khi thêm tính năng Admin mới
 * **Tạo ngày**: 15/11/2026
@@ -83,7 +83,7 @@ Tên file và cách chia hook có thể đổi khi bắt tay làm; ghi lại tha
 | B2 (✓ Đã xong) | Tách **Chuyển chuyên gia** → `AdminEscalationsPage` | `npm run build` pass (2013 modules, chunk `AdminEscalationsPage` 6.32 kB); xem danh sách ca khám, viết phác đồ điều trị, cập nhật chuyên gia |
 | B3 (✓ Đã xong) | Tách **Kho vật tư & thuốc** → `AdminInventoryPage` (kho thuốc, gợi ý vật tư, modal sửa/tạo SP, xem bằng chứng) | `npm run build` pass (2015 modules, chunk `AdminInventoryPage` 63.75 kB); `AdminDashboard` giảm 2.674 dòng; quản lý thuốc BVTV, duyệt gợi ý |
 | B4 (✓ Đã xong) | Tách **Duyệt tri thức** → `AdminKnowledgePage` | `npm run build` pass (2016 modules, chunk `AdminKnowledgePage` 27.31 kB); `AdminDashboard` giảm thêm 1.206 dòng (xuống 4.478 dòng); duyệt/bỏ duyệt/xóa đoạn/xóa bài, modal kiểm tra trạng thái reindex AI Lavi, nút "Sửa bài" trỏ `/admin/ingest?edit=` |
-| B5 | Tách **Nhập bài báo** → `AdminIngestPage`; khung soạn bài thành `ArticleEditor` | Dán bài, tách đoạn, AI tự điền, lưu; chế độ `?edit=`; tab "đã duyệt" và "dán lại" |
+| B5 (✓ Đã xong) | Tách **Nhập bài báo** → `AdminIngestPage`; khung soạn bài thành `ArticleEditor` | `npm run build` pass (2018 modules, chunk `AdminIngestPage` 103.05 kB); tạo `features/admin/components/ArticleEditor.tsx` (~260 dòng) đóng gói khung dán bài, Markdown preview, nút Crawl, nút Mẹo; hỗ trợ đầy đủ chế độ xem & sửa bài viết (`?edit=`), tab đã duyệt & dán lại/bóc tách thêm |
 | B6 | Xóa `AdminDashboard.tsx`, cập nhật `router.tsx` và tài liệu | `npm run build`; mở lần lượt cả 7 đường dẫn `/admin/*` |
 
 Mỗi bước: `tsc --noEmit` và `npm run build` phải qua; kiểm tra trên trình duyệt (Playwright hoặc bấm tay) các luồng ghi ở cột "Kiểm tra"; ghi một dòng WORKLOG `TASK-16-Rn`.

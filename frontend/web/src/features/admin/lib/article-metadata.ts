@@ -341,3 +341,20 @@ export const extractKeyMetadataFromText = (
   return result;
 };
 
+export const isStandaloneMetadataLine = (text: string): boolean => {
+  const trimmed = text
+    .trim()
+    .replace(/^(?:[#>*\-•+]+\s*)+/, '')
+    .replace(/\*\*/g, '')
+    .trim();
+  if (!trimmed || trimmed.includes('\n') || trimmed.length > 240) return false;
+  return (
+    /^(?:original\s+publication\s+date|originally\s+published|first\s+published|publication\s*date|reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on|in))?|updated(?:\s*(?:on|in))?|revised(?:\s*(?:on|in))?|reviewed(?:\s*(?:on|in))?|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật|tác\s*giả|người\s*viết|authors?|written\s+by|prepared\s+by|cơ\s*quan|organization|publisher)\s*:/i.test(
+      trimmed
+    ) ||
+    /^(?:ngày\s+đăng|ngày\s+cập\s+nhật|người\s+viết|tác\s+giả)\s*[:\-–—]\s*\S/i.test(trimmed) ||
+    /^(?:tác\s*giả|người\s*viết|chuyên\s*gia)\s*[:\-–—]\s*[A-ZÀ-Ỹ]/i.test(trimmed)
+  );
+};
+
+
