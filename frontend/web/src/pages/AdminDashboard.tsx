@@ -2570,10 +2570,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }, 0);
 
     const articleLen = ingestionResult.article_length || ingestText.length || 1;
-    const allowedQuota = Math.max(2500, Math.floor(articleLen * 0.60));
+    const allowedQuota = Math.max(20000, Math.floor(articleLen * 0.90));
 
     if (currentSelectedChars + existingVerbatimChars > allowedQuota) {
-      toast.error(`Tổng số ký tự các đoạn đã chọn (${currentSelectedChars.toLocaleString('vi-VN')}) vượt quá giới hạn trích dẫn hợp lý (${allowedQuota.toLocaleString('vi-VN')} ký tự, tối đa 60% bài theo cấu hình mở rộng đồ án).`);
+      toast.error(`Tổng số ký tự các đoạn đã chọn (${currentSelectedChars.toLocaleString('vi-VN')}) vượt quá giới hạn trích dẫn (${allowedQuota.toLocaleString('vi-VN')} ký tự, tối đa 90% bài hoặc tối thiểu 20.000 ký tự theo cấu hình mở rộng đồ án).`);
       return;
     }
 
@@ -2631,8 +2631,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return acc + (p?.text.length || 0);
     }, 0);
   const articleLength = ingestionResult?.article_length || ingestText.length || 1;
-  const allowedCharsQuota = Math.max(2500, Math.floor(articleLength * 0.60));
-  // Hạn mức 30 đoạn / 60% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
+  const allowedCharsQuota = Math.max(20000, Math.floor(articleLength * 0.90));
+  // Hạn mức 30 đoạn / 20.000 ký tự tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
   const countWithSaved = countSelected + existingVerbatimCount;
   const charsWithSaved = totalSelectedChars + existingVerbatimChars;
 
