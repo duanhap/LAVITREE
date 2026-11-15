@@ -620,3 +620,23 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
     - Bấm `Crawl từ URL`: thu được `7.848 / 50.000` ký tự, tự động hiển thị **`Xem định dạng`** mặc định (render đầy đủ tiêu đề H4/H5/H6, `<strong>`, dấu `•`, không lộ ký tự thô `#`/`**`).
     - Bấm `Code Markdown`: mở `<textarea>` chứa đầy đủ mã Markdown chuẩn (`# `, `## `, `### `, `- **...**`); bấm `Xem định dạng` quay lại bản xem trước bình thường.
     - Bấm `Tách đoạn & Phân tích dữ liệu mới`: trả về `14` đoạn (`8` AI gợi ý + `6` trong `Đoạn AI không chọn`), `0` ký tự `#`/`**` thô trong nội dung cả 14 thẻ, API `/knowledge/fetch-url` và `/knowledge/ingestions` đều `200 OK`, `0` lỗi console.
+
+### 13.15 Nâng trần trích dẫn tạm thời lên 30 đoạn, Làm rõ UI bộ đếm Tab 2 & Nút xóa toàn bộ đoạn cũ Tab 1 (`TASK-15-R21`, 15/11/2026)
+
+- **Mở rộng hạn mức trích dẫn lên 30 đoạn (Core API & Web Frontend)**:
+  - Backend Core API (`backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`, `backend/core-api/src/Lavitree.Application/DTOs/KnowledgeIngestionDtos.cs`):
+    - Đổi cấu hình mặc định `GetIngestConfigInt("INGEST_MAX_CHUNKS", ..., 30, 1, 100)`.
+    - Cập nhật ràng buộc DTO validation `[MaxLength(30, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 30 đoạn nguyên văn.")]` cho `CommitIngestionRequestDto.Selections`.
+    - Ghi nhận TODO trong `tasks/TODO.md`: siết lại hạn mức từ 30 về 8–20 đoạn và tỉ lệ 30% cho giai đoạn thương mại (sau bảo vệ đồ án).
+  - Web Frontend (`frontend/web/src/pages/AdminDashboard.tsx`):
+    - Cập nhật các vị trí quota: `availableSlots = 30 - existingVerbatimCount`, `selections.length + existingVerbatimCount > 30`, `countWithSaved >= 30`, `countWithSaved > 30` ở cả chế độ nhập mới và nạp thêm.
+- **Tách bạch & Làm rõ UI bộ đếm đoạn trích ở Tab 2 (Nạp thêm dữ liệu bài báo)**:
+  - Thay thế badge gộp gây hiểu nhầm bằng 2 badge riêng biệt:
+    - Badge `Mới chọn: {countSelected}` (màu xanh ngọc).
+    - Badge `Tổng nguyên văn: {countWithSaved} / 30 đoạn (Tab 1 đã lưu {existingVerbatimCount})` (nổi bật màu hổ phách khi chạm ngưỡng 30).
+  - Bổ sung banner cảnh báo màu hổ phách ở đầu danh sách đoạn mới khi chạm trần 30 đoạn, giải thích rõ nguyên nhân checkbox bị khóa và hướng dẫn sang Tab 1 xóa bớt đoạn cũ hoặc xóa sạch để nạp lại.
+  - Cập nhật tooltip/title trên checkbox khi bị khóa: `"Đã đạt giới hạn tối đa 30 đoạn nguyên văn của bài viết (Tab 1 đã lưu {existingVerbatimCount} đoạn)"`.
+- **Bổ sung nút `[🗑️ Xóa toàn bộ đoạn cũ]` ở Tab 1 (Các đoạn trích đã lưu)**:
+  - Thêm nút màu đỏ viền hồng cạnh nút duyệt, có hộp thoại xác nhận `window.confirm` cảnh báo trước khi thao tác.
+  - Gọi endpoint `POST /api/v1/knowledge/sources/batch-delete` với danh sách id của `editRows`.
+  - Tự động reset `editRows = []`, xóa `savedVerbatimTexts` và đưa `existingVerbatimCount` về `0`, mở khóa tức thì cho Tab 2 để Admin tick chọn các đoạn mới.

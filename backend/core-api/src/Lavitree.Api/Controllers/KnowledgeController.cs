@@ -1285,7 +1285,7 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = "Cần chọn ít nhất 1 đoạn trích dẫn để lưu." });
         }
 
-        var maxChunks = GetIngestConfigInt("INGEST_MAX_CHUNKS", "KnowledgeIngestion:MaxChunks", 20, 1, 50);
+        var maxChunks = GetIngestConfigInt("INGEST_MAX_CHUNKS", "KnowledgeIngestion:MaxChunks", 30, 1, 100);
         var maxChunkChars = GetIngestConfigInt("INGEST_MAX_CHUNK_CHARS", "KnowledgeIngestion:MaxChunkChars", 1500, 100, 5000);
         var maxRatioPercent = GetIngestConfigInt("INGEST_MAX_RATIO_PERCENT", "KnowledgeIngestion:MaxRatioPercent", 60, 10, 100);
         var minQuotaFloor = GetIngestConfigInt("INGEST_MIN_QUOTA_FLOOR", "KnowledgeIngestion:MinQuotaFloor", 2500, 500, 20000);

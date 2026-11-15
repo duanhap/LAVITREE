@@ -720,6 +720,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [editRows, setEditRows] = useState<KnowledgeSourceItem[]>([]);
   const [editLoading, setEditLoading] = useState<boolean>(false);
   const [editSaving, setEditSaving] = useState<boolean>(false);
+  const [deletingAllEditRows, setDeletingAllEditRows] = useState<boolean>(false);
   const [editOriginalMeta, setEditOriginalMeta] = useState({
     plantName: '',
     diseaseName: '',
@@ -1952,6 +1953,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  // Xóa toàn bộ các đoạn trích cũ của bài viết đang xem để nạp lại từ đầu
+  const handleDeleteAllOldSourcesInEdit = async () => {
+    if (editRows.length === 0) return;
+    const count = editRows.length;
+    const confirmMsg = `Bạn có chắc chắn muốn xóa toàn bộ ${count} đoạn trích cũ của bài viết này để nạp lại từ đầu?\n\nSau khi xóa, bài viết sẽ được giải phóng hạn mức trích dẫn và bạn có thể chuyển sang Tab 2 để chọn lại các đoạn văn bản mới. Thao tác này không thể hoàn tác.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setDeletingAllEditRows(true);
+      const targetIds = editRows.map((r) => r.id);
+      await apiClient.post('/knowledge/sources/batch-delete', targetIds);
+      setSources((prev) => prev.filter((s) => !targetIds.includes(s.id)));
+      setEditRows([]);
+      toast.success(`Đã xóa sạch ${count} đoạn trích cũ. Bạn có thể chuyển sang Tab 2 để nạp lại từ đầu.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setDeletingAllEditRows(false);
+    }
+  };
+
   const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string; model_class?: string }) => {
     try {
       setEditSaving(true);
@@ -2272,9 +2294,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const handleSelectAllAiSuggested = () => {
     if (!ingestionResult) return;
 
-    let availableSlots = 20 - existingVerbatimCount;
+    let availableSlots = 30 - existingVerbatimCount;
     if (availableSlots <= 0) {
-      toast.error(`Bài viết đã có ${existingVerbatimCount} đoạn lưu trữ, đã đạt giới hạn tối đa 20 đoạn.`);
+      toast.error(`Bài viết đã có ${existingVerbatimCount} đoạn lưu trữ, đã đạt giới hạn tối đa 30 đoạn.`);
       return;
     }
 
@@ -2399,10 +2421,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return;
     }
 
-    if (selections.length + existingVerbatimCount > 20) {
+    if (selections.length + existingVerbatimCount > 30) {
       toast.error(existingVerbatimCount > 0
-        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 20 đoạn (mở rộng phục vụ đồ án).`
-        : 'Mỗi bài viết được trích dẫn tối đa 20 đoạn nguyên văn (mở rộng phục vụ đồ án).');
+        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 30 đoạn (mở rộng phục vụ đồ án).`
+        : 'Mỗi bài viết được trích dẫn tối đa 30 đoạn nguyên văn (mở rộng phục vụ đồ án).');
       return;
     }
 
@@ -2476,7 +2498,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }, 0);
   const articleLength = ingestionResult?.article_length || ingestText.length || 1;
   const allowedCharsQuota = Math.max(2500, Math.floor(articleLength * 0.60));
-  // Hạn mức 20 đoạn / 60% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
+  // Hạn mức 30 đoạn / 60% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
   const countWithSaved = countSelected + existingVerbatimCount;
   const charsWithSaved = totalSelectedChars + existingVerbatimChars;
 
@@ -3253,7 +3275,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             <input
               type="checkbox"
               checked={state.selected}
-              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 30)}
+              title={
+                isSaved
+                  ? 'Đoạn này đã được lưu trong cơ sở dữ liệu (Tab 1)'
+                  : isTooLong
+                  ? 'Đoạn quá dài (> 1.500 ký tự), vui lòng chia nhỏ đoạn trước khi chọn'
+                  : isHeaderLine
+                  ? 'Dòng tiêu đề hoặc siêu dữ liệu không dùng làm đoạn trích dẫn'
+                  : (!state.selected && countWithSaved >= 30)
+                  ? `Đã đạt giới hạn tối đa 30 đoạn nguyên văn của bài viết (Tab 1 đã lưu ${existingVerbatimCount} đoạn)`
+                  : undefined
+              }
               onChange={(e) => {
                 setSelectedParagraphs((prev) => ({
                   ...prev,
@@ -4507,29 +4540,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           )}
 
                           <span className="text-[11px] text-muted-foreground">
-                            • Nguyên văn: {existingVerbatimCount}/20 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
+                            • Nguyên văn: {existingVerbatimCount}/30 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
                           </span>
                         </div>
 
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
-                          onClick={handleApproveAllInEdit}
-                          className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
-                            editRows.every((r) => r.isManualApproved)
-                              ? 'text-muted-foreground hover:text-destructive'
-                              : 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                          }`}
-                          title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>
-                            {editRows.every((r) => r.isManualApproved)
-                              ? 'Bỏ duyệt toàn bộ bài'
-                              : `Duyệt toàn bộ (${editRows.length})`}
-                          </span>
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
+                            onClick={handleApproveAllInEdit}
+                            className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
+                              editRows.every((r) => r.isManualApproved)
+                                ? 'text-muted-foreground hover:text-destructive'
+                                : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                            }`}
+                            title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>
+                              {editRows.every((r) => r.isManualApproved)
+                                ? 'Bỏ duyệt toàn bộ bài'
+                                : `Duyệt toàn bộ (${editRows.length})`}
+                            </span>
+                          </Button>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={editRows.length === 0 || deletingAllEditRows}
+                            onClick={handleDeleteAllOldSourcesInEdit}
+                            className="h-7 px-2.5 text-xs font-semibold gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                            title="Xóa toàn bộ các đoạn trích cũ của bài viết này để nạp lại từ đầu"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>{deletingAllEditRows ? 'Đang xóa...' : 'Xóa toàn bộ đoạn cũ'}</span>
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="p-4 space-y-3 text-xs">
@@ -4968,7 +5016,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         )}
                                       </CardTitle>
                                       <CardDescription className="text-xs mt-0.5">
-                                        Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 20 đoạn nguyên văn/bài).
+                                        Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 30 đoạn nguyên văn/bài).
                                       </CardDescription>
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2">
@@ -4983,8 +5031,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                         <Sparkles className="w-3 h-3 text-emerald-700" />
                                         <span>Chọn tất cả đoạn AI gợi ý</span>
                                       </Button>
-                                      <Badge variant="secondary" className="bg-muted text-foreground text-[11px]">
-                                        Đoạn: {countWithSaved} / 20
+                                      <Badge variant="secondary" className="bg-emerald-50 text-emerald-800 border border-emerald-300 text-[11px]">
+                                        Mới chọn: {countSelected}
+                                      </Badge>
+                                      <Badge
+                                        variant="secondary"
+                                        className={
+                                          countWithSaved >= 30
+                                            ? 'bg-amber-100 text-amber-900 border border-amber-300 text-[11px]'
+                                            : 'bg-muted text-foreground text-[11px]'
+                                        }
+                                      >
+                                        Tổng nguyên văn: {countWithSaved} / 30 đoạn (Tab 1 đã lưu {existingVerbatimCount})
                                       </Badge>
                                       <Badge
                                         variant="secondary"
@@ -4998,6 +5056,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   </div>
                                 </CardHeader>
                                 <CardContent className="p-4 space-y-3 max-h-[480px] overflow-y-auto">
+                                  {countWithSaved >= 30 && (
+                                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-start gap-2.5 shadow-2xs">
+                                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                                      <div className="space-y-1">
+                                        <p className="font-semibold text-amber-900">
+                                          Bài viết đã đạt giới hạn tối đa 30 đoạn nguyên văn (Tab 1 đã lưu {existingVerbatimCount} đoạn).
+                                        </p>
+                                        <p className="text-[11px] text-amber-800 leading-relaxed">
+                                          Các ô chọn đoạn mới đang được khóa để bảo đảm tính hợp lý khi trích dẫn. Bạn hãy chuyển sang <strong>Tab 1 (Các đoạn trích đã lưu)</strong> để xóa bớt đoạn cũ hoặc bấm <strong>"Xóa toàn bộ đoạn cũ"</strong> để nạp lại từ đầu.
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
                                   {suggestedNewParagraphs.length === 0 ? (
                                     <p className="text-xs text-muted-foreground italic text-center py-2">
                                       AI không đề xuất thêm đoạn nào trong phần chưa lưu; bạn có thể mở mục 'Đoạn AI không chọn' bên dưới để kiểm tra và tick thủ công.
@@ -5015,7 +5086,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     <Button
                                       type="button"
                                       onClick={handleCommitParagraphs}
-                                      disabled={committing || countSelected === 0 || countWithSaved > 20}
+                                      disabled={committing || countSelected === 0 || countWithSaved > 30}
                                       className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-9 text-xs px-4"
                                     >
                                       {committing ? 'Đang lưu...' : `Lưu & Duyệt ${countSelected} đoạn mới`}
@@ -5290,7 +5361,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               )}
                             </CardTitle>
                             <CardDescription className="text-xs mt-0.5">
-                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 20 đoạn nguyên văn</strong> (≤ 1.500 ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
+                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 30 đoạn nguyên văn</strong> (≤ 1.500 ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
                             </CardDescription>
                           </div>
 
@@ -5308,9 +5379,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             </Button>
                             <Badge
                               variant="secondary"
-                              className={countWithSaved > 20 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                              className={countWithSaved > 30 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
                             >
-                              Đoạn: {countWithSaved} / 20
+                              Đoạn: {countWithSaved} / 30
                             </Badge>
                             <Badge
                               variant="secondary"
@@ -5370,7 +5441,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                         )}
                         <Button
                           onClick={handleCommitParagraphs}
-                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 20 || charsWithSaved > allowedCharsQuota || !ingestClass}
+                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 30 || charsWithSaved > allowedCharsQuota || !ingestClass}
                           className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
                         >
                           {committing ? (
