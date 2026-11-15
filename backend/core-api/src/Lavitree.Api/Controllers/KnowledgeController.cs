@@ -608,6 +608,75 @@ public class KnowledgeController : ControllerBase
         _ => unitType
     };
 
+    private static string ResolveSourceScope(string? requestedScope, string? sourceUrl, string? organization)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedScope))
+        {
+            var trimmed = requestedScope.Trim();
+            if (trimmed.Contains("quốc tế", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Contains("nước ngoài", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Contains("international", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Contains("foreign", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Quốc tế";
+            }
+            if (trimmed.Contains("việt nam", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Contains("vietnam", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Equals("vn", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Việt Nam";
+            }
+        }
+
+        var url = (sourceUrl ?? string.Empty).ToLowerInvariant();
+        var org = (organization ?? string.Empty).ToLowerInvariant();
+
+        string host = string.Empty;
+        if (Uri.TryCreate(sourceUrl, UriKind.Absolute, out var parsedUri))
+        {
+            host = parsedUri.Host.ToLowerInvariant();
+        }
+
+        if (host.EndsWith(".vn"))
+        {
+            return "Việt Nam";
+        }
+
+        if ((host.EndsWith(".edu") || host.EndsWith(".gov") || host.Contains(".ac.")) && !host.EndsWith(".vn"))
+        {
+            return "Quốc tế";
+        }
+
+        if (host.Contains("extension.")
+            || host.Contains("cabi.org")
+            || host.Contains("fao.org")
+            || host.Contains("apsnet.org")
+            || host.Contains("mdpi.com")
+            || host.Contains("sciencedirect.com")
+            || org.Contains("extension")
+            || org.Contains("university")
+            || org.Contains("usda")
+            || org.Contains("cabi")
+            || org.Contains("fao")
+            || org.Contains("đại học tiểu bang"))
+        {
+            return "Quốc tế";
+        }
+
+        if (org.Contains("việt nam")
+            || org.Contains("khuyến nông")
+            || org.Contains("cục bvtv")
+            || org.Contains("nông nghiệp")
+            || org.Contains("viện cây")
+            || org.Contains("học viện nông nghiệp")
+            || org.Contains("sở nn"))
+        {
+            return "Việt Nam";
+        }
+
+        return "Việt Nam";
+    }
+
     private async Task<List<KnowledgeSource>> LoadArticleRowsAsync(string normalizedUrl, bool tracking)
     {
         // URL cũ (seed CSV) có thể chưa chuẩn hoá nên so khớp sau khi chuẩn hoá cả hai phía
@@ -694,7 +763,7 @@ public class KnowledgeController : ControllerBase
             var changedIds = new List<Guid>();
             foreach (var s in rows)
             {
-                var before = (s.ModelClass, s.SourceTitle, s.Organization, s.PublishedDate);
+                var before = (s.ModelClass, s.SourceTitle, s.Organization, s.PublishedDate, s.SourceScope);
                 if (classMeta != null)
                 {
                     s.ModelClass = classMeta.ModelClass;
@@ -707,8 +776,12 @@ public class KnowledgeController : ControllerBase
                 {
                     s.PublishedDate = string.IsNullOrWhiteSpace(dto.PublishedDate) ? "Không ghi ngày" : dto.PublishedDate.Trim();
                 }
+                if (!string.IsNullOrWhiteSpace(dto.SourceScope))
+                {
+                    s.SourceScope = ResolveSourceScope(dto.SourceScope, normalizedUrl, s.Organization);
+                }
 
-                if (before != (s.ModelClass, s.SourceTitle, s.Organization, s.PublishedDate))
+                if (before != (s.ModelClass, s.SourceTitle, s.Organization, s.PublishedDate, s.SourceScope))
                 {
                     // Sửa xong phải duyệt lại; bỏ duyệt + reindex để Lavi không dùng bản cũ trong lúc chờ
                     s.IsManualApproved = false;
@@ -1406,7 +1479,7 @@ public class KnowledgeController : ControllerBase
                     Organization = finalOrg,
                     PublishedDate = finalDate,
                     MatchLevel = "Khớp trực tiếp",
-                    SourceScope = "Việt Nam",
+                    SourceScope = ResolveSourceScope(dto.SourceScope, normalizedUrl, finalOrg),
                     EvidenceText = text, // 100% nguyên văn từ bản lưu tạm
                     ContentType = contentType,
                     UnitType = unitType,

@@ -130,6 +130,10 @@ public class CommitIngestionRequestDto
     [JsonPropertyName("published_date")]
     public string? PublishedDate { get; set; }
 
+    [MaxLength(50, ErrorMessage = "Nguồn bài báo không được vượt quá 50 ký tự.")]
+    [JsonPropertyName("source_scope")]
+    public string? SourceScope { get; set; }
+
     [Required(ErrorMessage = "Danh sách đoạn trích không được để trống.")]
     [MinLength(1, ErrorMessage = "Cần chọn ít nhất 1 đoạn trích dẫn.")]
     [MaxLength(20, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 20 đoạn nguyên văn.")]
@@ -185,6 +189,10 @@ public class UpdateArticleRequestDto
     [MaxLength(50, ErrorMessage = "Ngày / năm xuất bản không được vượt quá 50 ký tự.")]
     [JsonPropertyName("published_date")]
     public string? PublishedDate { get; set; }
+
+    [MaxLength(50, ErrorMessage = "Nguồn bài báo không được vượt quá 50 ký tự.")]
+    [JsonPropertyName("source_scope")]
+    public string? SourceScope { get; set; }
 }
 
 // Sửa một đoạn đã lưu: đoạn nguyên văn chỉ đổi loại nội dung hoặc chuyên mục; đoạn tóm tắt được sửa chữ.
