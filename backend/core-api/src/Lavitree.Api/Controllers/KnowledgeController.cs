@@ -1101,7 +1101,7 @@ public class KnowledgeController : ControllerBase
         }
 
         // Gọi Agent Service để AI gợi ý nhãn theo số đoạn & trích xuất metadata (timeout 35s, graceful fallback)
-        var (labelMap, agentMetadata) = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs);
+        var (labelMap, agentMetadata) = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs, dto.ArticleText);
         bool aiAvailable = labelMap.Count > 0 || agentMetadata != null;
 
         foreach (var p in validParagraphs)
@@ -1720,7 +1720,31 @@ public class KnowledgeController : ControllerBase
         }
     }
 
-    private async Task<(Dictionary<string, AgentParagraphLabel> LabelMap, AgentSuggestedMetadata? Metadata)> RequestAgentLabelingAsync(string? modelClass, List<ParagraphDto> paragraphs)
+    private static string BuildArticleMetaContext(string? rawArticleText)
+    {
+        if (string.IsNullOrWhiteSpace(rawArticleText)) return string.Empty;
+        var lines = Regex.Split(rawArticleText, @"\r?\n")
+            .Select(l => Regex.Replace(l.Trim(), @"[ \t]+", " "))
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+        if (lines.Count == 0) return string.Empty;
+
+        var head = lines.Take(10).ToList();
+        var tail = lines.Count > 10
+            ? lines.Skip(Math.Max(10, lines.Count - 15)).ToList()
+            : new List<string>();
+
+        var contextText = tail.Count > 0
+            ? $"[HEAD]\n{string.Join("\n", head)}\n[TAIL]\n{string.Join("\n", tail)}"
+            : $"[HEAD]\n{string.Join("\n", head)}";
+
+        return contextText.Length > 1800 ? contextText[..1800] : contextText;
+    }
+
+    private async Task<(Dictionary<string, AgentParagraphLabel> LabelMap, AgentSuggestedMetadata? Metadata)> RequestAgentLabelingAsync(
+        string? modelClass,
+        List<ParagraphDto> paragraphs,
+        string? rawArticleText = null)
     {
         var labelMap = new Dictionary<string, AgentParagraphLabel>(StringComparer.OrdinalIgnoreCase);
         AgentSuggestedMetadata? metadata = null;
@@ -1734,6 +1758,18 @@ public class KnowledgeController : ControllerBase
                 return (labelMap, metadata);
             }
 
+            var metaContext = BuildArticleMetaContext(rawArticleText);
+            var payloadParagraphs = (!string.IsNullOrWhiteSpace(metaContext)
+                    ? eligibleParagraphs.Take(199)
+                    : eligibleParagraphs.Take(200))
+                .Select(p => new AgentParagraphItem { Id = p.Id, Text = p.Text })
+                .ToList();
+
+            if (!string.IsNullOrWhiteSpace(metaContext))
+            {
+                payloadParagraphs.Add(new AgentParagraphItem { Id = "META_CONTEXT", Text = metaContext });
+            }
+
             var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
             var internalKey = GetInternalApiKey();
 
@@ -1741,7 +1777,7 @@ public class KnowledgeController : ControllerBase
             var reqPayload = new AgentLabelParagraphsRequest
             {
                 ModelClass = modelClass,
-                Paragraphs = eligibleParagraphs.Select(p => new AgentParagraphItem { Id = p.Id, Text = p.Text }).ToList()
+                Paragraphs = payloadParagraphs
             };
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/knowledge/label-paragraphs")
@@ -1868,7 +1904,7 @@ public class KnowledgeController : ControllerBase
         @"^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|chu\s+trình\s+bệnh|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+quản\s+lý|phòng\s+ngừa|điều\s+trị|hoạt\s+chất\s+khuyến\s+cáo)$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex MetadataKeyLineRegex = new(
-        @"^(publication\s*date|reviewed\s*/\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on))?|updated(?:\s*on)?|revised|reviewed|authors?|cơ\s*quan|tác\s*giả|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật)\s*[:\-]",
+        @"^(?:original\s+publication\s+date|originally\s+published|first\s+published|publication\s*date|reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on|in))?|updated(?:\s*(?:on|in))?|revised(?:\s*(?:on|in))?|reviewed(?:\s*(?:on|in))?|authors?|written\s+by|prepared\s+by|cơ\s*quan|tác\s*giả|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static bool IsContactOrAdNoise(string text) =>

@@ -305,17 +305,72 @@ const normalizeDateDisplay = (raw: string): string => {
     return `${dmy[1].padStart(2, '0')}/${dmy[2].padStart(2, '0')}/${dmy[3]}`;
   }
 
+  const viMY = cleaned.match(/(?:tháng\s*)?(\d{1,2})(?:\s*năm\s*|\s*[\/\-]\s*)(\d{4})/i);
+  if (viMY) {
+    const mNum = parseInt(viMY[1], 10);
+    if (mNum >= 1 && mNum <= 12) {
+      return `${String(mNum).padStart(2, '0')}/${viMY[2]}`;
+    }
+  }
+
+  const engMY = cleaned.match(/\b([a-zA-Z]+)\.?\s+(?:of\s+|,\s*)?(\d{4})\b/);
+  if (engMY) {
+    const mm = MONTH_MAP[engMY[1].toLowerCase()];
+    if (mm) return `${mm}/${engMY[2]}`;
+  }
+
   const yearOnly = cleaned.match(/\b(19\d{2}|20\d{2})\b/);
   if (yearOnly && cleaned.length <= 20) return yearOnly[1];
 
   return cleaned.slice(0, 60);
 };
 
+// Trích xuất biểu thức ngày/tháng/năm đầu tiên ngay sau từ khóa (tránh bắt nhầm năm rải rác giữa đoạn văn)
+const extractDateFromSegment = (segment: string): string => {
+  const cleaned = segment
+    .replace(/^[\s:\-–—,]+/, '')
+    .replace(/^(?:on|in|date|ngày|lúc|gần\s*nhất|lần\s*cuối)\s+/i, '')
+    .trim();
+  if (!cleaned) return '';
+
+  const patterns: RegExp[] = [
+    /^([a-zA-Z]+\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+(?:19|20)\d{2})\b/,
+    /^(\d{1,2}(?:st|nd|rd|th)?\s+[a-zA-Z]+\.?,?\s+(?:19|20)\d{2})\b/,
+    /^((?:ngày\s*)?\d{1,2}\s*tháng\s*\d{1,2}[,\s]*(?:năm\s*)?(?:19|20)\d{2})\b/i,
+    /^((?:19|20)\d{2}-\d{1,2}-\d{1,2})(?:[T\s]\S*)?\b/,
+    /^(\d{1,2}[\/\-.]\d{1,2}[\/\-.](?:19|20)\d{2})\b/,
+    /^((?:tháng\s*)?(?:0?[1-9]|1[0-2])(?:\s*năm\s*|\s*[\/\-]\s*)(?:19|20)\d{2})\b/i,
+    /^([a-zA-Z]+\.?\s+(?:19|20)\d{2})\b/,
+    /^((?:19|20)\d{2})\b/,
+  ];
+
+  for (const re of patterns) {
+    const m = cleaned.match(re);
+    if (m) {
+      const normalized = normalizeDateDisplay(m[1]);
+      if (normalized) return normalized;
+    }
+  }
+  return '';
+};
+
 const KNOWN_ORG_BY_HOST: Array<{ match: RegExp; name: string }> = [
   { match: /(?:^|\.)ces\.ncsu\.edu$/i, name: 'NC State Extension Publications' },
-  { match: /(?:^|\.)extension\.cornell\.edu$/i, name: 'Cornell University Cooperative Extension' },
-  { match: /(?:^|\.)extension\.umn\.edu$/i, name: 'University of Minnesota Extension' },
-  { match: /(?:^|\.)ipm\.ucanr\.edu$/i, name: 'UC IPM (University of California)' },
+  { match: /(?:^|\.)extension\.cornell\.edu$|(?:^|\.)cornell\.edu$/i, name: 'Cornell University Cooperative Extension' },
+  { match: /(?:^|\.)extension\.umn\.edu$|(?:^|\.)umn\.edu$/i, name: 'University of Minnesota Extension' },
+  { match: /(?:^|\.)ifas\.ufl\.edu$|(?:^|\.)ufl\.edu$/i, name: 'UF/IFAS Extension, University of Florida' },
+  { match: /(?:^|\.)extension\.wvu\.edu$|(?:^|\.)wvu\.edu$/i, name: 'West Virginia University Extension' },
+  { match: /(?:^|\.)extension\.wisc\.edu$|(?:^|\.)wisc\.edu$/i, name: 'University of Wisconsin-Madison Extension' },
+  { match: /(?:^|\.)extension\.uga\.edu$|(?:^|\.)uga\.edu$/i, name: 'UGA Cooperative Extension' },
+  { match: /(?:^|\.)extension\.unh\.edu$|(?:^|\.)unh\.edu$/i, name: 'University of New Hampshire Extension' },
+  { match: /(?:^|\.)extension\.usu\.edu$|(?:^|\.)usu\.edu$/i, name: 'Utah State University Extension' },
+  { match: /(?:^|\.)udel\.edu$/i, name: 'University of Delaware Cooperative Extension' },
+  { match: /(?:^|\.)umass\.edu$/i, name: 'UMass Extension' },
+  { match: /(?:^|\.)ndsu\.edu$/i, name: 'NDSU Extension' },
+  { match: /(?:^|\.)vegcropshotline\.org$|(?:^|\.)purdue\.edu$/i, name: 'Purdue University Extension' },
+  { match: /(?:^|\.)ipm\.ucanr\.edu$|(?:^|\.)ucanr\.edu$/i, name: 'UC IPM (University of California)' },
+  { match: /(?:^|\.)frontiersin\.org$/i, name: 'Frontiers in Plant Science' },
+  { match: /(?:^|\.)ahdb\.org\.uk$/i, name: 'AHDB (Agriculture and Horticulture Development Board)' },
   { match: /(?:^|\.)khuyennongvn\.gov\.vn$/i, name: 'Trung tâm Khuyến nông Quốc gia' },
   { match: /(?:^|\.)vaas\.vn$/i, name: 'Viện Khoa học Nông nghiệp Việt Nam (VAAS)' },
   { match: /(?:^|\.)ppd\.gov\.vn$|(?:^|\.)bvtv\.gov\.vn$/i, name: 'Cục Bảo vệ thực vật' },
@@ -333,29 +388,47 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
   if (!text) return result;
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
-  const pubKeyRe = /^(?:publication\s*date|date\s*published|published\s*(?:date|on)?|posted\s*on|release\s*date|first\s*published|ngày\s*(?:đăng|xuất\s*bản|phát\s*hành)|đăng\s*ngày)\s*[:\-]\s*(.+)$/i;
-  const updKeyRe = /^(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|updated(?:\s*on)?|revised|reviewed|modified|ngày\s*cập\s*nhật|cập\s*nhật(?:\s*lần\s*cuối)?|hiệu\s*đính)\s*[:\-]\s*(.+)$/i;
+  // Regex không neo ^ để bắt được cả trường hợp <br> hoặc dấu chấm gộp "Publication date: ... Reviewed/Revised: ..." trên cùng 1 dòng
+  const pubContextRe = /\b(?:original\s+publication\s+date|publication\s*date|date\s*published|originally\s+published(?:\s+in|\s+on)?|first\s+published(?:\s+in|\s+on)?|published(?:\s+date|\s+on|\s+in)?|posted\s*on|release\s*date|ngày\s*(?:đăng|xuất\s*bản|phát\s*hành)|đăng\s*ngày|xuất\s*bản(?:\s*ngày|\s*tháng|\s*năm)?)\s*(?:[:\-]|\s)\s*([^\n;|]+)/i;
+  const updContextRe = /\b(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified|revised)|updated(?:\s+on|\s+in)?|revised(?:\s+on|\s+in)?|reviewed(?:\s+on|\s+in)?|modified(?:\s+on|\s+in)?|ngày\s*(?:cập\s*nhật|rà\s*soát|hiệu\s*đính)|cập\s*nhật(?:\s*lần\s*cuối|\s*gần\s*nhất|\s*ngày)?|(?:được\s*)?rà\s*soát\s*\/?\s*cập\s*nhật(?:\s*gần\s*nhất)?(?:\s*ngày)?|hiệu\s*đính(?:\s*ngày)?)\s*(?:[:\-]|\s)\s*([^\n;|]+)/i;
   const orgKeyRe = /^(?:cơ\s*quan|tổ\s*chức|đơn\s*vị(?:\s*phát\s*hành)?|organization|publisher|institution)\s*[:\-]\s*(.+)$/i;
-  const authorKeyRe = /^(?:tác\s*giả|author|authors)\s*[:\-]\s*(.+)$/i;
+  const authorKeyRe = /^(?:tác\s*giả|author|authors|written\s+by|prepared\s+by|biên\s*soạn|người\s*viết)\s*[:\-]\s*(.+)$/i;
+  const cleanAuthorNames = (raw: string) =>
+    raw
+      .replace(/(\p{L})\d+(?=\s*(?:,|$|\band\b|\bvà\b))/gu, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const isEdgeLine = i < 15 || i >= lines.length - 15;
 
+    let pubMatchedOnLine = false;
     if (!result.publishedDate) {
-      const m = line.match(pubKeyRe);
+      const m = line.match(pubContextRe);
       if (m) {
-        const rawVal = m[1].split(/\b(?:reviewed\s*\/\s*revised|updated|cập\s*nhật)\b/i)[0].trim();
-        const combined = parseCombinedDate(rawVal);
-        if (combined.pubDate) result.publishedDate = normalizeDateDisplay(combined.pubDate);
-        if (!result.updatedDate && combined.upDate) result.updatedDate = normalizeDateDisplay(combined.upDate);
+        const hasColon = /\b(?:publication\s*date|date\s*published|published|posted\s*on|release\s*date|ngày\s*(?:đăng|xuất\s*bản|phát\s*hành)|đăng\s*ngày)\s*[:\-]/i.test(line);
+        if (hasColon || isEdgeLine || line.length <= 180) {
+          const rawVal = m[1].split(/\b(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|last\s*(?:updated|reviewed|modified)|updated|revised|reviewed|cập\s*nhật|rà\s*soát|hiệu\s*đính)\b/i)[0].trim();
+          const parsed = extractDateFromSegment(rawVal);
+          if (parsed) {
+            result.publishedDate = parsed;
+            pubMatchedOnLine = true;
+          }
+        }
       }
     }
 
     if (!result.updatedDate) {
-      const m = line.match(updKeyRe);
+      const m = line.match(updContextRe);
       if (m) {
-        const parsed = normalizeDateDisplay(m[1]);
-        if (parsed) result.updatedDate = parsed;
+        const hasColon = /\b(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|updated|revised|reviewed|cập\s*nhật|hiệu\s*đính)\s*[:\-]/i.test(line);
+        if (hasColon || isEdgeLine || pubMatchedOnLine || line.length <= 160) {
+          const parsed = extractDateFromSegment(m[1]);
+          if (parsed) {
+            result.updatedDate = parsed;
+          }
+        }
       }
     }
 
@@ -368,14 +441,26 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
 
     if (!result.author) {
       const m = line.match(authorKeyRe);
-      if (m && m[1].trim().length >= 3 && m[1].trim().length <= 150) {
-        result.author = m[1].trim();
+      if (m && m[1].trim().length >= 3 && m[1].trim().length <= 240) {
+        const rolePhraseRe = /\b(?:wvu\s+extension|extension|specialist|professor|director|coordinator|fellow|educator|agent|research\s*(?:assistant|associate|technician|specialist)|assistant|associate|technician|scientist|pathology|entomology|horticulture|agronomy|agriculture|biology|natural\s+resources|resources|department|division|college|school|center|centre|faculty|university|institute)\b/i;
+        const cleanedRaw = cleanAuthorNames(m[1]);
+        const segments = cleanedRaw
+          .split(/,\s*(?:and\s+|và\s+)?|\s+(?:and|và)\s+/i)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const keptNames = segments.filter((seg) => !rolePhraseRe.test(seg));
+        result.author = (keptNames.length > 0 ? keptNames.join(', ') : cleanedRaw).slice(0, 180);
+      } else if (i < 12) {
+        const byMatch = line.match(/^(?:by|written\s+by|prepared\s+by)\s+(.+)$/i);
+        if (byMatch && byMatch[1].trim().length >= 4 && byMatch[1].trim().length <= 150 && !/\b(?:the|this|that|wind|rain|water|fungus)\b/i.test(byMatch[1])) {
+          result.author = cleanAuthorNames(byMatch[1]);
+        }
       }
     }
   }
 
   if (!result.author) {
-    const roleRe = /\b(professor|specialist|director|researcher|extension|scientist|entomology|plant\s+pathology|horticulture|agronomy|lecturer|ph\.?\s*d\.?|giáo\s*sư|phó\s*giáo\s*sư|tiến\s*sĩ|thạc\s*sĩ|kỹ\s*sư|chuyên\s*gia|nghiên\s*cứu\s*viên|giảng\s*viên)\b/i;
+    const roleRe = /\b(professor|specialist|director|researcher|research|extension|scientist|technician|associate|assistant|coordinator|fellow|educator|agent|temporary|interim|adjunct|emeritus|faculty|staff|student|entomology|plant\s+pathology|pathology|horticulture|agronomy|ornamental|vegetable|lecturer|ph\.?\s*d\.?|giáo\s*sư|phó\s*giáo\s*sư|tiến\s*sĩ|thạc\s*sĩ|kỹ\s*sư|chuyên\s*gia|nghiên\s*cứu\s*viên|giảng\s*viên)\b/i;
     const stopSectionRe = /^(keywords?|references?|find\s+more\s+information|publication\s*date|reviewed\s*\/\s*revised|từ\s*khóa|tài\s*liệu\s*tham\s*khảo)\b/i;
     const personNameRe = /^\p{Lu}[\p{L}.'-]+(?:\s+\p{Lu}\.?)?(?:\s+\p{Lu}[\p{L}.'-]+){1,4}$/u;
     const nonAuthorHeadings = /^(introduction|symptoms\s+and\s+signs|disease\s+cycle|management|pathogen|diagnostic\s+procedures|references|authors|keywords|leaf\s+scorch|strawberry)$/i;
@@ -384,19 +469,31 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
     const authorsHeadingIdx = lines.findIndex((l) => /^authors?:?$/i.test(l));
 
     if (authorsHeadingIdx !== -1) {
-      for (let i = authorsHeadingIdx + 1; i < Math.min(lines.length, authorsHeadingIdx + 20); i++) {
-        const cur = lines[i].replace(/:\s*$/, '').trim();
+      const colonCandidates: string[] = [];
+      const plainCandidates: string[] = [];
+      for (let i = authorsHeadingIdx + 1; i < Math.min(lines.length, authorsHeadingIdx + 35); i++) {
+        const rawLine = lines[i].trim();
+        const hadColon = rawLine.endsWith(':');
+        const cur = cleanAuthorNames(rawLine.replace(/:\s*$/, ''));
         if (stopSectionRe.test(cur)) break;
         if (roleRe.test(cur)) continue;
-        if (personNameRe.test(cur) && !nonAuthorHeadings.test(cur) && !extractedAuthors.includes(cur)) {
-          extractedAuthors.push(cur);
+        if (personNameRe.test(cur) && !nonAuthorHeadings.test(cur)) {
+          if (hadColon) {
+            if (!colonCandidates.includes(cur)) colonCandidates.push(cur);
+          } else if (!plainCandidates.includes(cur)) {
+            plainCandidates.push(cur);
+          }
         }
       }
+      const chosen = colonCandidates.length >= 2 ? colonCandidates : [...colonCandidates, ...plainCandidates];
+      chosen.forEach((name) => {
+        if (!extractedAuthors.includes(name)) extractedAuthors.push(name);
+      });
     } else {
       for (let i = 0; i < lines.length - 1; i++) {
         const cur = lines[i];
         if (!cur.endsWith(':')) continue;
-        const candidate = cur.slice(0, -1).trim();
+        const candidate = cleanAuthorNames(cur.slice(0, -1));
         const nextLine = lines[i + 1];
         if (
           personNameRe.test(candidate) &&
@@ -409,8 +506,25 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
       }
     }
 
-    if (extractedAuthors.length > 0) {
-      result.author = extractedAuthors.slice(0, 6).join(', ');
+    if (extractedAuthors.length === 0) {
+      // Nhận diện dòng liệt kê nhiều tác giả ở đầu bài (vd: UF/IFAS "Keevan MacKenzie1, Jessica Chitwood-Brown2, ... and Gary Vallad4")
+      const topByline = lines.slice(0, 10).find((l) => {
+        if (l.length < 10 || l.length > 180 || /[?!:]/.test(l)) return false;
+        const cleanedLine = cleanAuthorNames(l);
+        const tokens = cleanedLine.split(/,\s*(?:and\s+|và\s+)?|\s+(?:and|và)\s+/i).map((t) => t.trim()).filter(Boolean);
+        return (
+          tokens.length >= 2 &&
+          tokens.length <= 10 &&
+          tokens.every((t) => personNameRe.test(t) && !nonAuthorHeadings.test(t))
+        );
+      });
+      if (topByline) {
+        result.author = cleanAuthorNames(topByline);
+      }
+    }
+
+    if (!result.author && extractedAuthors.length > 0) {
+      result.author = extractedAuthors.slice(0, 10).join(', ');
     }
   }
 
@@ -806,13 +920,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           }
           if (node.nodeType !== Node.ELEMENT_NODE) return;
           const element = node as Element;
+          if (element.tagName === 'BR') {
+            parts.push('\n');
+            return;
+          }
           const isBlock = BLOCK_TAGS.has(element.tagName);
           if (isBlock) parts.push(' ');
           element.childNodes.forEach(walk);
           if (isBlock) parts.push(' ');
         };
         walk(el);
-        return parts.join('').replace(/\s+/g, ' ').trim();
+        return parts
+          .join('')
+          .replace(/[ \t\f\v]+/g, ' ')
+          .replace(/ *\r?\n */g, '\n')
+          .replace(/\n{2,}/g, '\n')
+          .trim();
       };
 
       const isNoise = (text: string): boolean => {
@@ -848,12 +971,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         return false;
       };
 
-      // Thay <br> bằng khoảng trắng để tránh dính chữ giữa các dòng (vd: 2014Reviewed)
+      // Thay <br> bằng xuống dòng để các cặp metadata trong cùng <p> (Publication date / Reviewed/Revised) tách thành dòng riêng
       doc.querySelectorAll('br').forEach((br) => {
-        br.replaceWith(doc.createTextNode(' '));
+        br.replaceWith(doc.createTextNode('\n'));
       });
 
-      // Trích xuất metadata (tiêu đề, cơ quan, tác giả, ngày đăng) TRƯỚC khi xóa <header>
+      // Trích xuất metadata (tiêu đề, cơ quan, tác giả, ngày đăng, ngày cập nhật) TRƯỚC khi xóa <header>
       const h1El = doc.querySelector('article h1, main h1, [role="main"] h1, h1');
       const titleText = (
         (h1El ? extractTextWithSpacing(h1El) : '') ||
@@ -871,15 +994,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         .trim();
       const authorEls = Array.from(doc.querySelectorAll('.author, .authors, [rel="author"], .byline'));
       const authorNames = authorEls
-        .map((el) => extractTextWithSpacing(el))
-        .filter((t) => t.length >= 3 && t.length <= 120 && !/^authors?:?$/i.test(t) && !isNoise(t));
+        .map((el) => extractTextWithSpacing(el).replace(/\n+/g, ', '))
+        .filter((t) => t.length >= 3 && t.length <= 150 && !/^authors?:?$/i.test(t) && !isNoise(t));
       if (authorMeta && !authorNames.includes(authorMeta)) {
         authorNames.unshift(authorMeta);
       }
 
       const dateEl = doc.querySelector('time, .date, .post-date, .publish-date, .detail-time');
-      const metaDate = doc.querySelector('meta[property="article:published_time"], meta[name="publish-date"], meta[name="date"]')?.getAttribute('content') || '';
-      const dateText = (dateEl?.getAttribute('datetime') || (dateEl ? extractTextWithSpacing(dateEl) : '') || metaDate || '')
+      const metaDate = doc.querySelector('meta[property="article:published_time"], meta[name="publish-date"], meta[name="date"], meta[name="dcterms.created"], meta[itemprop="datePublished"]')?.getAttribute('content') || '';
+      const dateText = (dateEl?.getAttribute('datetime') || (dateEl ? extractTextWithSpacing(dateEl).replace(/\n+/g, ' ') : '') || metaDate || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const updatedEl = doc.querySelector('time.updated, .updated-date, .modified-date, .revised-date');
+      const metaUpdatedDate =
+        doc.querySelector('meta[property="article:modified_time"], meta[property="og:updated_time"], meta[name="last-modified"], meta[name="revised"], meta[name="dcterms.modified"], meta[itemprop="dateModified"]')?.getAttribute('content') || '';
+      const updatedDateText = (
+        updatedEl?.getAttribute('datetime') ||
+        (updatedEl ? extractTextWithSpacing(updatedEl).replace(/\n+/g, ' ') : '') ||
+        metaUpdatedDate ||
+        ''
+      )
         .replace(/\s+/g, ' ')
         .trim();
 
@@ -906,9 +1041,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         /^(\d+|[IVX]+|[a-zđ])[.)]\s+\S/i.test(text);
 
       const isMetadataLine = (text: string): boolean =>
-        /^(publication date|reviewed\/revised|published|updated|ngày đăng|cập nhật|tác giả|author|authors|cơ quan):\s*\S/i.test(text) &&
+        /^(?:original\s+publication\s+date|publication\s*date|reviewed\s*\/\s*revised|date\s*revised|last\s*(?:updated|reviewed|modified)|published|updated|revised|reviewed|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật|tác\s*giả|author|authors|written\s+by|prepared\s+by|cơ\s*quan)\b/i.test(text) &&
         text.length >= 8 &&
-        text.length <= 200;
+        text.length <= 240;
 
       const keep = (el: Element | null, text: string): boolean =>
         !isNoise(text) &&
@@ -948,6 +1083,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         push(`Tác giả: ${Array.from(new Set(authorNames)).slice(0, 5).join(', ')}`);
       }
       if (dateText && dateText.length <= 100) push(`Ngày đăng: ${dateText}`);
+      if (updatedDateText && updatedDateText.length <= 100 && updatedDateText !== dateText) {
+        push(`Ngày cập nhật: ${updatedDateText}`);
+      }
 
       // Gom các gạch đầu dòng ngắn (12-119 ký tự) thành khối để Core API không loại bỏ khi < 40 ký tự
       let pendingListLines: string[] = [];
@@ -1014,13 +1152,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             if (t.length < 12) return;
 
             if (t.length < 120) {
-              const bulletLine = `• ${t}`;
+              const bulletLine = `• ${t.replace(/\n+/g, ' ')}`;
               const projectedLen = pendingListLines.join('\n').length + bulletLine.length + 1;
               if (projectedLen > 1000) flushListBuffer();
               pendingListLines.push(bulletLine);
             } else {
               flushListBuffer();
-              push(t);
+              push(t, t.includes('\n'));
             }
             return;
           }
@@ -1028,27 +1166,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           flushListBuffer();
 
           if (/^H[2-6]$/.test(b.tagName)) {
-            if (/^(authors?|keywords?|references?|tác giả|từ khóa|tài liệu tham khảo):?$/i.test(t)) {
+            const headingText = t.replace(/\n+/g, ' ').trim();
+            if (/^(authors?|keywords?|references?|tác giả|từ khóa|tài liệu tham khảo):?$/i.test(headingText)) {
               return;
             }
-            const formattedHeading = /[:.!?]$/.test(t) ? t : `${t}:`;
+            const formattedHeading = /[:.!?]$/.test(headingText) ? headingText : `${headingText}:`;
             push(formattedHeading);
             return;
           }
 
           if (b.tagName === 'DT') {
+            const dtText = t.replace(/\n+/g, ' ').trim();
             if (b.closest('p, li, blockquote')) return;
-            push(/[:.!?]$/.test(t) ? t : `${t}:`);
+            push(/[:.!?]$/.test(dtText) ? dtText : `${dtText}:`);
             return;
           }
 
           if (b.tagName === 'DD') {
             if (b.closest('p, li, blockquote')) return;
-            if (t.length >= 15) push(t);
+            if (t.length >= 15 || isMetadataLine(t)) push(t, t.includes('\n'));
             return;
           }
 
-          if (keep(b, t)) push(t);
+          if (keep(b, t)) push(t, t.includes('\n'));
         });
         flushListBuffer();
       } else {

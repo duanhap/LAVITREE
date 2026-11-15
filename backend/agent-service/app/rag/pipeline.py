@@ -143,6 +143,21 @@ def _clean_meta_text(value: Any) -> Optional[str]:
     return text
 
 
+def _validate_date_text(value: Any, article_text: Optional[str]) -> Optional[str]:
+    """Kiểm tra ngày/năm trích xuất: chỉ giữ khi có năm hợp lệ [1900..nay] và năm đó xuất hiện trong bài."""
+    cleaned = _clean_meta_text(value)
+    if cleaned is None:
+        return None
+    val_str = cleaned[:100].strip()
+    years = re.findall(r'\b(\d{4})\b', val_str)
+    current_year = datetime.now().year
+    if not years or not all(1900 <= int(y) <= current_year for y in years):
+        return None
+    if article_text is not None and not all(y in article_text for y in years):
+        return None
+    return val_str
+
+
 def _filter_metadata(
     raw_meta: Any,
     default_class: Optional[str] = None,
@@ -160,20 +175,22 @@ def _filter_metadata(
 
     s_title = _clean_meta_text(raw_meta.get("source_title"))
     org = _clean_meta_text(raw_meta.get("organization"))
-
-    p_date = _clean_meta_text(raw_meta.get("published_date"))
-    if p_date is not None:
-        p_date_str = p_date[:100].strip()
-        years = re.findall(r'\b(\d{4})\b', p_date_str)
-        current_year = datetime.now().year
-        if years and all(1900 <= int(y) <= current_year for y in years):
-            # Chống bịa: mọi năm xuất hiện trong metadata ngày đều phải có mặt trong văn bản bài báo
-            if article_text is not None and not all(y in article_text for y in years):
-                p_date = None
-            else:
-                p_date = p_date_str
+    author = _clean_meta_text(raw_meta.get("author"))
+    if author:
+        if org:
+            if "tác giả" not in org.lower() and author.lower() not in org.lower():
+                org = f"{org} (Tác giả: {author})"[:300]
         else:
-            p_date = None
+            org = f"Tác giả: {author}"[:300]
+
+    p_date = _validate_date_text(raw_meta.get("published_date"), article_text)
+    u_date = _validate_date_text(raw_meta.get("updated_date"), article_text)
+    if u_date:
+        if p_date:
+            if "cập nhật" not in p_date.lower() and u_date not in p_date:
+                p_date = f"{p_date} (Cập nhật: {u_date})"[:120]
+        else:
+            p_date = f"Cập nhật: {u_date}"[:120]
 
     return SuggestedMetadata(
         model_class=m_class,
@@ -303,13 +320,15 @@ class HybridRagPipeline:
 
         prompt = f"""Bạn là chuyên gia phân loại tài liệu nông nghiệp và trích xuất tri thức bảo vệ thực vật.
 Nhiệm vụ:
-1. Đọc các đoạn văn sau và gán nhãn cho các đoạn tiêu biểu nhất.
+1. Đọc các đoạn văn sau và gán nhãn cho các đoạn tiêu biểu nhất. LƯU Ý: KHÔNG đưa mục có id là "META_CONTEXT" vào danh sách `labels` — mục "META_CONTEXT" chỉ dùng để đọc ngữ cảnh đầu/cuối bài nhằm suy luận phần `metadata`.
    {class_context}
-2. Trích xuất thông tin tổng quan của bài viết:
+2. Trích xuất thông tin tổng quan của bài viết dựa vào toàn bộ ngữ cảnh (đặc biệt là phần đầu/cuối bài trong `META_CONTEXT` và các đoạn đầu/cuối):
    - model_class: Mã lớp bệnh trong 38 mã chuẩn (ví dụ: Tomato___Late_blight, Potato___Early_blight, Corn_(maize)___Common_rust_...).
-   - source_title: Tiêu đề bài viết nếu có trong các đoạn, nếu không có thì null.
-   - organization: Tên cơ quan/tổ chức phát hành (ưu tiên dòng đầu bài; KHÔNG lấy tên tổ chức được trích dẫn trong mục References/Tài liệu tham khảo). Nếu có tác giả, gộp theo mẫu "<Cơ quan> (Tác giả: <Tên tác giả>)". Nếu không có thì null.
-   - published_date: Ngày/năm xuất bản CÓ GHI TRONG BÀI theo định dạng DD/MM/YYYY (hoặc YYYY nếu chỉ có năm). Nếu bài có ngày cập nhật/hiệu đính (Reviewed/Revised/Updated), gộp theo mẫu "<Ngày đăng> (Cập nhật: <Ngày cập nhật>)". Không thấy năm trong bài thì null, TUYỆT ĐỐI không đoán.
+   - source_title: Tiêu đề bài viết nếu có trong ngữ cảnh/các đoạn, nếu không có thì null.
+   - organization: Tên cơ quan/tổ chức/viện/trường đại học phát hành (ưu tiên phần đầu/cuối bài hoặc tên hệ thống khuyến nông; KHÔNG lấy tên tổ chức trích dẫn trong mục References/Tài liệu tham khảo). Nếu không rõ thì null.
+   - author: Tên các tác giả/nhóm nghiên cứu bài viết (cách nhau bởi dấu phẩy, loại bỏ học hàm/chức danh hoặc số footnote). Nếu không rõ thì null.
+   - published_date: Ngày/tháng/năm xuất bản gốc CÓ GHI TRONG BÀI theo định dạng DD/MM/YYYY (hoặc MM/YYYY hoặc YYYY nếu chỉ có tháng/năm). Không thấy năm trong bài thì null, TUYỆT ĐỐI không đoán.
+   - updated_date: Ngày/tháng/năm cập nhật, hiệu đính hoặc rà soát gần nhất (Reviewed/Revised/Updated/Modified/Cập nhật/Rà soát) CÓ GHI TRONG BÀI theo định dạng DD/MM/YYYY (hoặc MM/YYYY hoặc YYYY). Nếu bài không ghi ngày cập nhật riêng thì null, TUYỆT ĐỐI không đoán.
 3. Trong mỗi đoạn được gán nhãn, trích xuất danh sách các cụm từ (mentions) được nhắc tới:
    - text: Cụm từ NGUYÊN VĂN xuất hiện trong đoạn (tên hoạt chất, thuốc, chế phẩm sinh học, vật tư hoặc biện pháp).
    - kind: Loại cụm từ, thuộc 1 trong 4 loại:
@@ -346,7 +365,9 @@ Yêu cầu đầu ra: Trả về DUY NHẤT một JSON Object hợp lệ (không
     "model_class": "Tomato___Late_blight",
     "source_title": null,
     "organization": null,
-    "published_date": null
+    "author": null,
+    "published_date": null,
+    "updated_date": null
   }}
 }}
 Chỉ chọn tối đa {MAX_SUGGESTIONS} đoạn tiêu biểu và có giá trị nhất cho danh sách 'labels'.
@@ -395,7 +416,7 @@ Chỉ chọn tối đa {MAX_SUGGESTIONS} đoạn tiêu biểu và có giá trị
             logger.error(f"Gemini paragraph labeling failed: {e}")
             return LabelParagraphsResponse(suggestions=[], metadata=None, ai_suggestion_available=False)
 
-        paragraphs_map = {p.id: p.text for p in request.paragraphs}
+        paragraphs_map = {p.id: p.text for p in request.paragraphs if p.id != "META_CONTEXT"}
         suggestions = _filter_suggestions(raw_labels, paragraphs_map)
         metadata = _filter_metadata(
             raw_meta,
