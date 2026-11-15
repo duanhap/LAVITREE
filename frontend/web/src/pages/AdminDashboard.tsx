@@ -327,7 +327,10 @@ const MONTH_MAP: Record<string, string> = {
 };
 
 const normalizeDateDisplay = (raw: string): string => {
-  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  let cleaned = raw.replace(/\s+/g, ' ').trim();
+  cleaned = cleaned
+    .replace(/^(?:thứ\s*[2-7]|thứ\s*hai|thứ\s*ba|thứ\s*tư|thứ\s*năm|thứ\s*sáu|thứ\s*bảy|chủ\s*nhật|th\s*[2-7]|t[2-7]|cn|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,\s.\-]+/i, '')
+    .trim();
   if (!cleaned) return '';
 
   const engMDY = cleaned.match(/\b([a-zA-Z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/);
@@ -384,9 +387,11 @@ const normalizeDateDisplay = (raw: string): string => {
 
 // Trích xuất biểu thức ngày/tháng/năm đầu tiên ngay sau từ khóa (tránh bắt nhầm năm rải rác giữa đoạn văn)
 const extractDateFromSegment = (segment: string): string => {
-  const cleaned = segment
+  let cleaned = segment
     .replace(/^[\s:\-–—,]+/, '')
+    .replace(/^(?:thứ\s*[2-7]|thứ\s*hai|thứ\s*ba|thứ\s*tư|thứ\s*năm|thứ\s*sáu|thứ\s*bảy|chủ\s*nhật|th\s*[2-7]|t[2-7]|cn|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,\s.\-]+/i, '')
     .replace(/^(?:on|in|date|ngày|lúc|gần\s*nhất|lần\s*cuối)\s+/i, '')
+    .replace(/^(?:thứ\s*[2-7]|thứ\s*hai|thứ\s*ba|thứ\s*tư|thứ\s*năm|thứ\s*sáu|thứ\s*bảy|chủ\s*nhật|th\s*[2-7]|t[2-7]|cn|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,\s.\-]+/i, '')
     .trim();
   if (!cleaned) return '';
 
@@ -475,6 +480,32 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
             result.publishedDate = parsed;
             pubMatchedOnLine = true;
           }
+        }
+      } else if (i < 10 && line.length <= 40) {
+        // Nhận diện ngày đăng đứng riêng một dòng ngắn ở đầu bài
+        const standaloneDate = extractDateFromSegment(line);
+        if (standaloneDate && (line.length <= 30 || /^(?:th\s*[2-7]|thứ\s*\w+|\d{1,2}[\/\-.]\d{1,2}[\/\-.](?:19|20)\d{2})/i.test(line))) {
+          result.publishedDate = standaloneDate;
+          pubMatchedOnLine = true;
+        }
+      }
+    }
+
+    // Nhận diện tác giả đứng cạnh ngày đăng khi copy thủ công (Dòng 1: "My Trần", Dòng 2: "Th 2 11/08/2025")
+    if (!result.author && i < 8 && i + 1 < lines.length) {
+      const nextLine = lines[i + 1];
+      const nextDate = extractDateFromSegment(nextLine);
+      if (nextDate && nextLine.length <= 35) {
+        const candidate = line.trim();
+        const isCandidateName =
+          candidate.length >= 2 &&
+          candidate.length <= 40 &&
+          !/[.!?:;,]$/.test(candidate) &&
+          !candidate.startsWith('#') &&
+          !/^(?:trang\s*chủ|tin\s*tức|bài\s*viết|chuyên\s*mục|hướng\s*dẫn|nguyên\s*nhân|triệu\s*chứng|điều\s*trị|phòng\s*ngừa|nông\s*nghiệp)\b/i.test(candidate);
+        if (isCandidateName) {
+          result.author = cleanAuthorNames(candidate);
+          if (!result.publishedDate) result.publishedDate = nextDate;
         }
       }
     }
@@ -721,6 +752,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [editLoading, setEditLoading] = useState<boolean>(false);
   const [editSaving, setEditSaving] = useState<boolean>(false);
   const [deletingAllEditRows, setDeletingAllEditRows] = useState<boolean>(false);
+  const [selectedEditRowIds, setSelectedEditRowIds] = useState<string[]>([]);
   const [editOriginalMeta, setEditOriginalMeta] = useState({
     plantName: '',
     diseaseName: '',
@@ -990,7 +1022,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       .trim();
     if (!trimmed || trimmed.includes('\n') || trimmed.length > 240) return false;
     return (
-      /^(?:original\s+publication\s+date|originally\s+published|first\s+published|publication\s*date|reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on|in))?|updated(?:\s*(?:on|in))?|revised(?:\s*(?:on|in))?|reviewed(?:\s*(?:on|in))?|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật|tác\s*giả|authors?|written\s+by|prepared\s+by|cơ\s*quan|organization|publisher)\s*:/i.test(
+      /^(?:original\s+publication\s+date|originally\s+published|first\s+published|publication\s*date|reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on|in))?|updated(?:\s*(?:on|in))?|revised(?:\s*(?:on|in))?|reviewed(?:\s*(?:on|in))?|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật|tác\s*giả|người\s*viết|authors?|written\s+by|prepared\s+by|cơ\s*quan|organization|publisher)\s*:/i.test(
         trimmed
       ) ||
       /^(?:last\s*(?:updated|reviewed|modified)|reviewed\s*\/\s*revised|publication\s*date|originally\s+published)(?=\s|$).*\d{4}/i.test(
@@ -1328,34 +1360,85 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         .replace(/\s+/g, ' ')
         .trim();
 
-      const authorMeta = (doc.querySelector('meta[name="author"]')?.getAttribute('content') || '')
+      const authorMeta = (
+        doc.querySelector(
+          'meta[itemprop="author"], meta[name="author"], meta[property="article:author"], meta[name="creator"], meta[name="byl"]'
+        )?.getAttribute('content') || ''
+      )
         .replace(/\s+/g, ' ')
         .trim();
-      const authorEls = Array.from(doc.querySelectorAll('.author, .authors, [rel="author"], .byline'));
+
+      const authorEls = Array.from(
+        doc.querySelectorAll(
+          '.author, .authors, [rel="author"], .byline, [itemprop="author"], [itemprop="creator"], .article-author, .post-author, .blog-author, .author-name, .user-author, .entry-author, .article-details .media .media-body .mt-0, .article-details .media .media-body div:first-child, .time-post-article, .post-meta .author, .post-info .author'
+        )
+      ).filter((el) => !el.closest('aside, .sidebar, .related, .related-posts, .related-articles, footer'));
       const authorNames = authorEls
-        .map((el) => extractTextWithSpacing(el).replace(/\n+/g, ', '))
-        .filter((t) => t.length >= 3 && t.length <= 150 && !/^authors?:?$/i.test(t) && !isNoise(t));
+        .map((el) => {
+          const raw = extractTextWithSpacing(el).replace(/\n+/g, ', ');
+          return raw.replace(/^(?:người\s*viết|tác\s*giả|author|written\s*by|posted\s*by)\s*[:\-]\s*/i, '').trim();
+        })
+        .filter((t) => {
+          if (t.length < 2 || t.length > 50 || /^authors?:?$/i.test(t) || isNoise(t)) return false;
+          if (/[:|;]/.test(t)) return false;
+          if (/\b(?:cách\s*làm|ý\s*nghĩa|khai\s*trương|hướng\s*dẫn|tại\s*nhà|cây\s*cảnh|phong\s*thủy)\b/i.test(t)) return false;
+          return true;
+        });
+
       if (authorMeta && !authorNames.includes(authorMeta)) {
         authorNames.unshift(authorMeta);
       }
 
-      const dateEl = doc.querySelector('time, .date, .post-date, .publish-date, .detail-time');
-      const metaDate = doc.querySelector('meta[property="article:published_time"], meta[name="publish-date"], meta[name="date"], meta[name="dcterms.created"], meta[itemprop="datePublished"]')?.getAttribute('content') || '';
-      const dateText = (dateEl?.getAttribute('datetime') || (dateEl ? extractTextWithSpacing(dateEl).replace(/\n+/g, ' ') : '') || metaDate || '')
-        .replace(/\s+/g, ' ')
-        .trim();
+      const metaDate = (
+        doc.querySelector(
+          'meta[property="article:published_time"], meta[property="og:published_time"], meta[name="publish-date"], meta[name="date"], meta[name="dcterms.created"], meta[itemprop="datePublished"]'
+        )?.getAttribute('content') || ''
+      ).trim();
 
-      const updatedEl = doc.querySelector('time.updated, .updated-date, .modified-date, .revised-date');
-      const metaUpdatedDate =
-        doc.querySelector('meta[property="article:modified_time"], meta[property="og:updated_time"], meta[name="last-modified"], meta[name="revised"], meta[name="dcterms.modified"], meta[itemprop="dateModified"]')?.getAttribute('content') || '';
-      const updatedDateText = (
-        updatedEl?.getAttribute('datetime') ||
-        (updatedEl ? extractTextWithSpacing(updatedEl).replace(/\n+/g, ' ') : '') ||
-        metaUpdatedDate ||
-        ''
-      )
-        .replace(/\s+/g, ' ')
-        .trim();
+      let dateText = metaDate ? extractDateFromSegment(metaDate) : '';
+
+      if (!dateText) {
+        const dateCandidates = Array.from(
+          doc.querySelectorAll(
+            'time:not(.updated):not(.modified-date), [itemprop="datePublished"], .date, .post-date, .publish-date, .detail-time, .article-date, .entry-date, .article-details small, .media small, .media-body small, .post-meta small, small.text-muted, .time-post-article'
+          )
+        );
+        for (const el of dateCandidates) {
+          const dtAttr = (el.getAttribute('datetime') || el.getAttribute('content') || '').trim();
+          if (dtAttr) {
+            const parsed = extractDateFromSegment(dtAttr);
+            if (parsed) {
+              dateText = parsed;
+              break;
+            }
+          }
+          const text = extractTextWithSpacing(el);
+          if (text) {
+            const parsed = extractDateFromSegment(text);
+            if (parsed) {
+              dateText = parsed;
+              break;
+            }
+          }
+        }
+      }
+
+      const metaUpdatedDate = (
+        doc.querySelector(
+          'meta[property="article:modified_time"], meta[property="og:updated_time"], meta[name="last-modified"], meta[name="revised"], meta[name="dcterms.modified"], meta[itemprop="dateModified"]'
+        )?.getAttribute('content') || ''
+      ).trim();
+
+      let updatedDateText = metaUpdatedDate ? extractDateFromSegment(metaUpdatedDate) : '';
+
+      if (!updatedDateText) {
+        const updatedEl = doc.querySelector('time.updated, .updated-date, .modified-date, .revised-date');
+        if (updatedEl) {
+          const dtAttr = (updatedEl.getAttribute('datetime') || updatedEl.getAttribute('content') || '').trim();
+          const val = dtAttr || extractTextWithSpacing(updatedEl);
+          if (val) updatedDateText = extractDateFromSegment(val);
+        }
+      }
 
       // Loại bỏ thẻ rác, menu, header (trừ header chứa h1 bài), footer, quảng cáo
       const junkSelectors = [
@@ -1795,6 +1878,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       );
       const rows = res.data.sources || [];
       setEditRows(rows);
+      setSelectedEditRowIds([]);
       setSummaryDrafts(Object.fromEntries(rows.filter((r) => !r.isVerbatim).map((r) => [r.id, r.evidenceText])));
       const canonicalUrl = isSafeHttpUrl(res.data.source_url) ? res.data.source_url.trim() : url.trim();
       setEditUrl(canonicalUrl);
@@ -1948,31 +2032,81 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.success('Đã xóa đoạn trích.');
       setEditRows((prev) => prev.filter((r) => r.id !== sourceId));
       setSources((prev) => prev.filter((r) => r.id !== sourceId));
+      setSelectedEditRowIds((prev) => prev.filter((id) => id !== sourceId));
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   };
 
-  // Xóa toàn bộ các đoạn trích cũ của bài viết đang xem để nạp lại từ đầu
-  const handleDeleteAllOldSourcesInEdit = async () => {
-    if (editRows.length === 0) return;
-    const count = editRows.length;
-    const confirmMsg = `Bạn có chắc chắn muốn xóa toàn bộ ${count} đoạn trích cũ của bài viết này để nạp lại từ đầu?\n\nSau khi xóa, bài viết sẽ được giải phóng hạn mức trích dẫn và bạn có thể chuyển sang Tab 2 để chọn lại các đoạn văn bản mới. Thao tác này không thể hoàn tác.`;
+  // Xóa các đoạn trích đã chọn trong Tab 1
+  const handleDeleteSelectedEditRows = async () => {
+    if (selectedEditRowIds.length === 0) return;
+    const count = selectedEditRowIds.length;
+    const approvedCount = editRows.filter((r) => selectedEditRowIds.includes(r.id) && r.isManualApproved).length;
+    const confirmMsg = approvedCount > 0
+      ? `Bạn có chắc chắn muốn xóa ${count} đoạn trích đã chọn khỏi bài viết này?\n\n⚠️ Lưu ý: Trong đó có ${approvedCount} đoạn ĐÃ ĐƯỢC DUYỆT cũng sẽ bị xóa.\n\nThao tác này không thể hoàn tác.`
+      : `Bạn có chắc chắn muốn xóa ${count} đoạn trích đã chọn khỏi bài viết này? Thao tác này không thể hoàn tác.`;
     if (!window.confirm(confirmMsg)) return;
 
     try {
       setDeletingAllEditRows(true);
-      const targetIds = editRows.map((r) => r.id);
+      const targetIds = [...selectedEditRowIds];
       await apiClient.post('/knowledge/sources/batch-delete', targetIds);
       setSources((prev) => prev.filter((s) => !targetIds.includes(s.id)));
-      setEditRows([]);
-      toast.success(`Đã xóa sạch ${count} đoạn trích cũ. Bạn có thể chuyển sang Tab 2 để nạp lại từ đầu.`);
+      setEditRows((prev) => prev.filter((r) => !targetIds.includes(r.id)));
+      setSelectedEditRowIds([]);
+      toast.success(`Đã xóa ${count} đoạn trích đã chọn.`);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setDeletingAllEditRows(false);
     }
   };
+
+  // Xóa toàn bộ các đoạn trích chưa duyệt trong Tab 1 (giữ nguyên các đoạn đã duyệt)
+  const handleDeletePendingEditRows = async () => {
+    const pendingIds = editRows.filter((r) => !r.isManualApproved).map((r) => r.id);
+    if (pendingIds.length === 0) {
+      toast.info('Tất cả các đoạn trích trong bài đều đã được duyệt.');
+      return;
+    }
+    const count = pendingIds.length;
+    const confirmMsg = `Bạn có chắc chắn muốn xóa toàn bộ ${count} đoạn trích CHƯA DUYỆT khỏi bài viết này?\n\nCác đoạn đã duyệt sẽ được giữ nguyên an toàn. Thao tác này không thể hoàn tác.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setDeletingAllEditRows(true);
+      await apiClient.post('/knowledge/sources/batch-delete', pendingIds);
+      setSources((prev) => prev.filter((s) => !pendingIds.includes(s.id)));
+      setEditRows((prev) => prev.filter((r) => !pendingIds.includes(r.id)));
+      setSelectedEditRowIds((prev) => prev.filter((id) => !pendingIds.includes(id)));
+      toast.success(`Đã xóa ${count} đoạn trích chưa duyệt. Các đoạn đã duyệt vẫn được giữ nguyên an toàn.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setDeletingAllEditRows(false);
+    }
+  };
+
+  // Duyệt hoặc bỏ duyệt các đoạn trích đã chọn trong Tab 1
+  const handleApproveSelectedEditRows = async (targetApprovedStatus: boolean) => {
+    if (selectedEditRowIds.length === 0) return;
+    try {
+      await apiClient.patch('/knowledge/sources/approve-batch', {
+        source_ids: selectedEditRowIds,
+        is_approved: targetApprovedStatus,
+        reviewer_notes: targetApprovedStatus ? 'Duyệt các đoạn đã chọn từ trang chi tiết bài viết' : 'Bỏ duyệt các đoạn đã chọn',
+      });
+      setEditRows((prev) =>
+        prev.map((r) => (selectedEditRowIds.includes(r.id) ? { ...r, isManualApproved: targetApprovedStatus } : r))
+      );
+      toast.success(targetApprovedStatus ? `Đã duyệt ${selectedEditRowIds.length} đoạn đã chọn.` : `Đã bỏ duyệt ${selectedEditRowIds.length} đoạn đã chọn.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+
 
   const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string; model_class?: string }) => {
     try {
@@ -4513,7 +4647,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   {/* Card chứa danh sách các đoạn trích & trạng thái duyệt toàn bộ */}
                   <Card className="border-border bg-card shadow-xs">
                     <CardHeader className="py-2.5 px-4 border-b border-border bg-muted/20">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Layers className="w-4 h-4 text-emerald-700" />
                           <span className="text-xs font-bold text-foreground">
@@ -4544,52 +4678,193 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           </span>
                         </div>
 
+                        {/* Nhóm nút thao tác hàng loạt */}
                         <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
-                            onClick={handleApproveAllInEdit}
-                            className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
-                              editRows.every((r) => r.isManualApproved)
-                                ? 'text-muted-foreground hover:text-destructive'
-                                : 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                            }`}
-                            title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>
-                              {editRows.every((r) => r.isManualApproved)
-                                ? 'Bỏ duyệt toàn bộ bài'
-                                : `Duyệt toàn bộ (${editRows.length})`}
-                            </span>
-                          </Button>
+                          {selectedEditRowIds.length > 0 ? (
+                            <>
+                              <Badge variant="secondary" className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-semibold py-0.5 px-2">
+                                Đã chọn {selectedEditRowIds.length}/{editRows.length} đoạn
+                              </Badge>
 
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={editRows.length === 0 || deletingAllEditRows}
-                            onClick={handleDeleteAllOldSourcesInEdit}
-                            className="h-7 px-2.5 text-xs font-semibold gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                            title="Xóa toàn bộ các đoạn trích cũ của bài viết này để nạp lại từ đầu"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>{deletingAllEditRows ? 'Đang xóa...' : 'Xóa toàn bộ đoạn cũ'}</span>
-                          </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleApproveSelectedEditRows(true)}
+                                className="h-7 px-2.5 text-xs font-semibold gap-1 bg-emerald-700 hover:bg-emerald-800 text-white"
+                                title="Duyệt các đoạn trích đã chọn"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Duyệt ({selectedEditRowIds.length})</span>
+                              </Button>
+
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleApproveSelectedEditRows(false)}
+                                className="h-7 px-2.5 text-xs font-semibold gap-1 text-muted-foreground hover:text-amber-800 border-amber-300 hover:bg-amber-50"
+                                title="Bỏ duyệt các đoạn trích đã chọn"
+                              >
+                                <span>Bỏ duyệt ({selectedEditRowIds.length})</span>
+                              </Button>
+
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
+                                disabled={deletingAllEditRows}
+                                onClick={handleDeleteSelectedEditRows}
+                                className="h-7 px-2.5 text-xs font-semibold gap-1.5 bg-red-600 hover:bg-red-700 text-white"
+                                title="Xóa các đoạn trích đã chọn khỏi bài viết"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>{deletingAllEditRows ? 'Đang xóa...' : `Xóa ${selectedEditRowIds.length} đoạn đã chọn`}</span>
+                              </Button>
+
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setSelectedEditRowIds([])}
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                              >
+                                Bỏ chọn
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
+                                onClick={handleApproveAllInEdit}
+                                className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
+                                  editRows.every((r) => r.isManualApproved)
+                                    ? 'text-muted-foreground hover:text-destructive'
+                                    : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                }`}
+                                title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>
+                                  {editRows.every((r) => r.isManualApproved)
+                                    ? 'Bỏ duyệt toàn bộ bài'
+                                    : `Duyệt toàn bộ (${editRows.length})`}
+                                </span>
+                              </Button>
+
+                              {editRows.filter((r) => !r.isManualApproved).length > 0 && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={deletingAllEditRows}
+                                  onClick={handleDeletePendingEditRows}
+                                  className="h-7 px-2.5 text-xs font-semibold gap-1.5 border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100"
+                                  title="Xóa toàn bộ các đoạn chưa duyệt để giải phóng hạn mức, giữ nguyên các đoạn đã duyệt"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-amber-700" />
+                                  <span>{deletingAllEditRows ? 'Đang xóa...' : `Xóa ${editRows.filter((r) => !r.isManualApproved).length} đoạn chưa duyệt`}</span>
+                                </Button>
+                              )}
+                            </>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
+
+                    {/* Thanh chọn nhanh checkbox khi có đoạn trích */}
+                    {editRows.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-border/70 bg-muted/15 text-xs">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <label className="flex items-center gap-1.5 cursor-pointer font-medium text-foreground select-none">
+                            <input
+                              type="checkbox"
+                              checked={editRows.length > 0 && selectedEditRowIds.length === editRows.length}
+                              ref={(el) => {
+                                if (el) {
+                                  el.indeterminate = selectedEditRowIds.length > 0 && selectedEditRowIds.length < editRows.length;
+                                }
+                              }}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedEditRowIds(editRows.map((r) => r.id));
+                                } else {
+                                  setSelectedEditRowIds([]);
+                                }
+                              }}
+                              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600 cursor-pointer"
+                            />
+                            <span>Chọn tất cả ({editRows.length})</span>
+                          </label>
+
+                          {editRows.filter((r) => !r.isManualApproved).length > 0 &&
+                            editRows.filter((r) => !r.isManualApproved).length < editRows.length && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedEditRowIds(editRows.filter((r) => !r.isManualApproved).map((r) => r.id))
+                                }
+                                className="text-[11px] text-amber-800 hover:text-amber-950 font-semibold underline cursor-pointer"
+                              >
+                                Chỉ chọn {editRows.filter((r) => !r.isManualApproved).length} đoạn chưa duyệt
+                              </button>
+                            )}
+
+                          {editRows.filter((r) => r.isManualApproved).length > 0 &&
+                            editRows.filter((r) => r.isManualApproved).length < editRows.length && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedEditRowIds(editRows.filter((r) => r.isManualApproved).map((r) => r.id))
+                                }
+                                className="text-[11px] text-emerald-800 hover:text-emerald-950 font-semibold underline cursor-pointer"
+                              >
+                                Chỉ chọn {editRows.filter((r) => r.isManualApproved).length} đoạn đã duyệt
+                              </button>
+                            )}
+                        </div>
+
+                        <span className="text-[11px] text-muted-foreground italic">
+                          {selectedEditRowIds.length > 0
+                            ? `Đang chọn ${selectedEditRowIds.length} đoạn trích`
+                            : 'Tick chọn ô vuông trên từng đoạn để xóa hoặc duyệt có chọn lọc'}
+                        </span>
+                      </div>
+                    )}
+
                     <CardContent className="p-4 space-y-3 text-xs">
                       {editLoading && editRows.length === 0 ? (
                         <p className="text-muted-foreground text-center py-6">Đang tải danh sách đoạn đã lưu...</p>
                       ) : editRows.length === 0 ? (
                         <p className="text-muted-foreground text-center py-6">Bài viết chưa có đoạn trích nào. Hãy chuyển sang Tab 2 để nạp đoạn.</p>
                       ) : (
-                        editRows.map((row, rIdx) => (
-                          <div key={row.id} className="p-3.5 rounded-xl border border-border bg-background space-y-2.5 shadow-2xs hover:border-emerald-200 transition-colors">
+                        editRows.map((row, rIdx) => {
+                          const isRowSelected = selectedEditRowIds.includes(row.id);
+                          return (
+                          <div
+                            key={row.id}
+                            className={`p-3.5 rounded-xl border space-y-2.5 shadow-2xs transition-all ${
+                              isRowSelected
+                                ? 'border-emerald-500 bg-emerald-50/25 ring-1 ring-emerald-500/30'
+                                : 'border-border bg-background hover:border-emerald-200'
+                            }`}
+                          >
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex flex-wrap items-center gap-1.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isRowSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedEditRowIds((prev) => [...prev, row.id]);
+                                    } else {
+                                      setSelectedEditRowIds((prev) => prev.filter((id) => id !== row.id));
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600 cursor-pointer shrink-0"
+                                  title="Tick chọn để duyệt hoặc xóa đoạn này"
+                                />
                                 <span className="font-bold text-emerald-800 font-mono text-xs">Đoạn #{rIdx + 1}</span>
                                 <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
                                   {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
@@ -4655,7 +4930,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               {renderParagraphWithHighlight(row.id, row.evidenceText)}
                             </div>
                           </div>
-                        ))
+                        );
+                        })
                       )}
                     </CardContent>
                   </Card>

@@ -640,3 +640,40 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
   - Thêm nút màu đỏ viền hồng cạnh nút duyệt, có hộp thoại xác nhận `window.confirm` cảnh báo trước khi thao tác.
   - Gọi endpoint `POST /api/v1/knowledge/sources/batch-delete` với danh sách id của `editRows`.
   - Tự động reset `editRows = []`, xóa `savedVerbatimTexts` và đưa `existingVerbatimCount` về `0`, mở khóa tức thì cho Tab 2 để Admin tick chọn các đoạn mới.
+
+### 13.16 Trích xuất tác giả & ngày đăng từ cấu hình DOM Haravan/Shopify & Bóc tách thứ ngày tiếng Việt (`TASK-15-R22`, 15/11/2026)
+
+- **Nguyên nhân không crawl được `My Trần` & `Th 2 11/08/2025`**:
+  - Tên tác giả `My Trần` nằm trong `<meta itemprop="author" content="My Trần">` và khối `<div class="article-details"><div class="media"><div class="media-body"><div class="mt-0">My Trần</div>` (không mang class `.author`, `.authors`, `[rel="author"]` cũ).
+  - Ngày đăng nằm trong `<small class="text-muted font-weight-light">Th 2 11/08/2025</small>` (hai thẻ `<meta itemprop="datePublished">` và `dateModified` trên trang bị rỗng `content=""`, không dùng thẻ `<time>`, không có class `.date`/`.post-date`, và bị tiền tố thứ ngày `Th 2 ` làm trượt regex neo `^`).
+  - Toàn bộ khối `.media` chứa `div.mt-0` và `small` nằm ngoài bộ lọc thẻ đoạn văn (`p, h1..h6, li, table`) nên bị bỏ qua.
+- **Giải pháp xử lý triệt để (`frontend/web/src/pages/AdminDashboard.tsx` & `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`)**:
+  - `cleanArticleTextFromHtml`:
+    - Mở rộng bộ chọn tác giả `authorMeta`: đọc thêm `meta[itemprop="author"]`, `meta[property="article:author"]`, `meta[name="creator"]`, `meta[name="byl"]`.
+    - Mở rộng `authorEls`: quét thêm `.author-name`, `.user-author`, `.entry-author`, `.media-body .mt-0`, `.article-details .media .media-body div:first-child`, `.time-post-article`, `.post-meta .author`.
+    - Tự động quét ngày đăng từ danh sách thẻ thời gian DOM (`small`, `small.text-muted`, `.media small`, `.article-details small`, `.time-post-article`, `[itemprop="datePublished"]`) khi thẻ `<meta>` bị rỗng hoặc không tồn tại.
+  - `normalizeDateDisplay` & `extractDateFromSegment`:
+    - Bóc tách và loại bỏ tiền tố thứ ngày tiếng Việt và tiếng Anh (`Th 2`, `Thứ Hai`, `Thứ 2`, `CN`, `Monday`...) trước khi chuẩn hóa định dạng ngày (`DD/MM/YYYY`).
+  - `extractKeyMetadataFromText`:
+    - Bổ sung quy tắc nhận diện ngày đăng đứng riêng dòng ngắn đầu bài và cặp Tác giả – Ngày đăng liền kề (`Dòng 1: Tên người`, `Dòng 2: Ngày tháng`) khi copy/paste văn bản thủ công.
+  - Core API (`KnowledgeController.cs`):
+    - Mở rộng `MetadataKeyLineRegex` nhận diện thêm tiền tố `người\s*viết` làm dòng siêu dữ liệu.
+
+### 13.17 Nâng cấp xóa đoạn trích có lựa chọn & Nút xóa nhanh các đoạn chưa duyệt Tab 1 (`TASK-15-R23`, 15/11/2026)
+
+- **Vấn đề thực tế**: Nút `[🗑️ Xóa toàn bộ đoạn cũ]` ở Tab 1 mang tính xóa càn quét (blanket delete), gây bất tiện khi Admin đã kiểm duyệt cẩn thận nhiều đoạn trích chuẩn và chỉ muốn loại bỏ các đoạn rác hoặc các đoạn chưa duyệt để giải phóng trần quota nạp đoạn mới.
+- **Giải pháp hoàn thiện (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - **Checkbox chọn lọc trên từng đoạn trích**: Thêm ô tick `[ ]` (`selectedEditRowIds`) cạnh nhãn `Đoạn #K`, hỗ trợ hiệu ứng highlight viền xanh ngọc `ring-emerald-500` nổi bật khi được chọn.
+  - **Thanh thao tác hàng loạt khi có đoạn được chọn (`selectedEditRowIds.length > 0`)**:
+    - Badge đếm số đoạn đã chọn: `Đã chọn K/N đoạn`.
+    - Nút `[✓ Duyệt (K)]` và `[Bỏ duyệt (K)]` gọi endpoint batch approve của Core API.
+    - Nút màu đỏ nổi bật: **`[🗑️ Xóa K đoạn đã chọn]`** gọi `POST /api/v1/knowledge/sources/batch-delete`, giải phóng ngay các đoạn được chọn khỏi `editRows` và `sources`.
+    - Nút `[Bỏ chọn]` để hủy nhanh toàn bộ lựa chọn.
+  - **Nút thông minh khi chưa tick chọn đoạn nào**:
+    - Khi có đoạn chưa duyệt (`pendingCount > 0`): Hiển thị nút màu cam thông minh **`[🗑️ Xóa P đoạn chưa duyệt]`** kèm xác nhận an toàn nhắc rõ các đoạn đã duyệt sẽ được bảo vệ 100%. Bấm nút này lập tức xóa sạch các đoạn rác/chưa duyệt chỉ với 1 cú click.
+    - **Xóa bỏ hoàn toàn nút blanket `[Xóa toàn bộ bài]`**: Loại bỏ nút xóa toàn bộ khỏi thanh công cụ chính để triệt tiêu hoàn toàn nguy cơ vô tình bấm nhầm làm mất các đoạn đã duyệt. Khi bài viết đã được duyệt 100% (như trường hợp 19/19 đoạn), thanh công cụ trên cùng không có bất kỳ nút xóa nào. Nếu Admin thực sự muốn xóa hết, phải chủ động tick `Chọn tất cả` rồi mới bấm `[Xóa {N} đoạn đã chọn]` kèm hộp thoại cảnh báo.
+  - **Thanh chọn nhanh phụ (Sub-toolbar)**:
+    - Checkbox master `Chọn tất cả (N)` (hỗ trợ trạng thái gạch ngang `indeterminate` khi chọn dở).
+    - Nút `Chỉ chọn P đoạn chưa duyệt` và `Chỉ chọn A đoạn đã duyệt`.
+  - **Mở khóa quota Tab 2**: Sau khi xóa chọn lọc hoặc xóa đoạn chưa duyệt, `editRows` giảm $\rightarrow$ `existingVerbatimCount` giảm $\rightarrow$ Tab 2 tự động mở thêm slot khả dụng cho Admin tick nạp đoạn mới.
+- **Kiểm chứng**: Core API `dotnet build` (`0` lỗi), Frontend `npm run build` (`2002 modules transformed`, `0` lỗi).
