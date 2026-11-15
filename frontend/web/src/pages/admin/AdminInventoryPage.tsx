@@ -94,7 +94,8 @@ export const AdminInventoryPage: React.FC = () => {
   const [newMedActiveIngredient, setNewMedActiveIngredient] = useState<string>('');
   const [newMedPrice, setNewMedPrice] = useState<number>(50000);
   const [newMedDosage, setNewMedDosage] = useState<string>('Pha theo hướng dẫn trên bao bì');
-  const [newMedPhi, setNewMedPhi] = useState<number | ''>(7);
+  // PHI để trống mặc định: Admin phải tra nhãn/nguồn rồi nhập, hệ thống không tự điền (TASK-15-R37)
+  const [newMedPhi, setNewMedPhi] = useState<number | ''>('');
   const [newMedStock, setNewMedStock] = useState<number>(50);
   const [newMedAvailability, setNewMedAvailability] = useState<string>('IN_STOCK');
   const [newMedSourceUrl, setNewMedSourceUrl] = useState<string>('');
@@ -285,7 +286,7 @@ export const AdminInventoryPage: React.FC = () => {
             : 'Hóa học';
       setNewMedType(mappedType);
       setNewMedActiveIngredient(sug.kind === 'CHEMICAL' || sug.kind === 'BIOLOGICAL' ? sug.mention_text : '');
-      setNewMedPhi(mappedType === 'Hóa học' ? 7 : 0);
+      setNewMedPhi('');
       setNewMedAvailability('NOT_SOLD');
       setNewMedSourceUrl('');
       setNewMedImageUrl('');
@@ -305,7 +306,7 @@ export const AdminInventoryPage: React.FC = () => {
       setNewMedName('');
       setNewMedType('Hóa học');
       setNewMedActiveIngredient('');
-      setNewMedPhi(7);
+      setNewMedPhi('');
       setNewMedAvailability('IN_STOCK');
       setNewMedSourceUrl('');
       setNewMedImageUrl('');
@@ -341,7 +342,7 @@ Hãy trích xuất và phân tích thật đầy đủ, chuyên sâu và trả v
   "description": "Mô tả chuẩn hóa nông nghiệp, bố cục 4 phần mạch lạc rõ đẹp (khoảng 150 - 300 từ):\\n• Bản chất & Phân loại: (Sản phẩm là gì, nguồn gốc, công thức hoặc dạng tồn tại...)\\n• Công dụng nông nghiệp: (Hạ phèn, nâng pH đất, khử trùng tiêu diệt mầm bệnh nấm khuẩn trong đất, kích rễ, giải độc hữu cơ...)\\n• Phạm vi & Cây trồng: (Dùng cho đất trồng rau màu, cây ăn quả, xử lý hố trồng, chuồng trại...)\\n• Hướng dẫn & Lưu ý khi dùng: (Bón lúc làm đất/đầu vụ, tuyệt đối không trộn chung với phân đạm để tránh thất thoát đạm, mang găng tay và đồ bảo hộ)",
   "image_url": "URL ảnh chụp sản phẩm thực tế từ bài viết (link https://..., nếu không có link ảnh trực tiếp thì để rỗng '')",
   "dosage_instruction": "Liều lượng sử dụng và cách bón/pha thực tế (ví dụ: Bón 20 - 50kg/sào tùy độ chua của đất)",
-  "phi_days": 0,
+  "phi_days": null,
   "price": 0,
   "target_disease_code": "NONE"
 }
@@ -349,7 +350,7 @@ Hãy trích xuất và phân tích thật đầy đủ, chuyên sâu và trả v
 Lưu ý quan trọng:
 - Trường description: BẮT BUỘC dùng dấu chấm đầu dòng • rõ ràng cho từng mục, mỗi mục xuống dòng cách biệt, tuyệt đối không viết thành một đoạn văn xuôi dài dính chùm.
 - Với trường target_disease_code: Nếu là vật tư cải tạo đất chung (như vôi bột, phân bón, bạt phủ, bẫy dính...) hoặc phòng trừ diện rộng, BẮT BUỘC để là "NONE" (Không chỉ định). Chỉ điền mã bệnh khi là thuốc đặc trị riêng cho 1 bệnh cụ thể.
-- Trường phi_days: Nếu là Vật tư canh tác hoặc Chế phẩm sinh học thì để 0 ngày.`;
+- Trường phi_days: CHỈ điền số ngày cách ly ghi rõ trong nguồn/nhãn thuốc. Nếu nguồn không ghi hoặc là Vật tư canh tác thì để null, TUYỆT ĐỐI không tự đoán (kể cả với chế phẩm sinh học).`;
 
     navigator.clipboard.writeText(prompt);
     toast.success('Đã sao chép Prompt cho Gemini! Hãy dán vào Gemini Web rồi copy kết quả JSON dán vào ô bên dưới.');
@@ -431,8 +432,12 @@ Lưu ý quan trọng:
       toast.error('Tên hoặc hoạt chất thuộc danh mục thuốc BVTV cấm sử dụng tại Việt Nam.');
       return;
     }
-    if (newMedType === 'Hóa học' && newMedPhi === '') {
-      toast.error('Thuốc hóa học bắt buộc nhập thời gian cách ly (PHI) theo nhãn (hoặc mặc định 7 ngày).');
+    if (!isSupply && (newMedPhi === '' || Number.isNaN(Number(newMedPhi)))) {
+      toast.error('Thuốc hóa học/sinh học bắt buộc nhập thời gian cách ly (PHI) theo nhãn thuốc hoặc nguồn tra cứu.');
+      return;
+    }
+    if (!isSupply && (Number(newMedPhi) < 0 || Number(newMedPhi) > 365)) {
+      toast.error('Thời gian cách ly (PHI) phải từ 0 đến 365 ngày.');
       return;
     }
     if (newMedSourceUrl.trim() && !/^https?:\/\//i.test(newMedSourceUrl.trim())) {
@@ -455,7 +460,7 @@ Lưu ý quan trọng:
         active_ingredient: isSupply ? null : newMedActiveIngredient.trim() || undefined,
         price: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedPrice) || 0),
         dosage_instruction: combinedDosage || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
-        phi_days: isSupply ? null : (newMedPhi === '' ? (newMedType === 'Hóa học' ? 7 : 0) : Number(newMedPhi)),
+        phi_days: isSupply ? null : Number(newMedPhi),
         stock_quantity: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedStock) || 0),
         availability: newMedAvailability,
         info_source_url: newMedSourceUrl.trim() || undefined,
@@ -2172,10 +2177,8 @@ Lưu ý quan trọng:
                   Thời gian cách ly PHI (ngày)
                   {newMedType === 'Vật tư canh tác' ? (
                     <span className="font-normal text-muted-foreground ml-1">(Không áp dụng)</span>
-                  ) : newMedType === 'Sinh học' ? (
-                    <span className="font-normal text-muted-foreground ml-1">(Mặc định 0 ngày)</span>
                   ) : (
-                    <span className="font-normal text-muted-foreground ml-1">(Mặc định 7 ngày nếu để trống)</span>
+                    <span className="font-normal text-destructive ml-1">* bắt buộc, lấy theo nhãn thuốc / nguồn</span>
                   )}
                 </label>
                 <Input
@@ -2184,9 +2187,7 @@ Lưu ý quan trọng:
                   placeholder={
                     newMedType === 'Vật tư canh tác'
                       ? 'Không áp dụng'
-                      : newMedType === 'Sinh học'
-                        ? '0 (An toàn, sinh học)'
-                        : '7 (Xem trên nhãn thuốc)'
+                      : 'Số ngày ghi trên nhãn (VD: 7, 14)'
                   }
                   value={newMedPhi}
                   onChange={(e) => setNewMedPhi(e.target.value === '' ? '' : parseInt(e.target.value, 10))}

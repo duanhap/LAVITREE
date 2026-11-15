@@ -430,19 +430,22 @@ public class MedicinesController : ControllerBase
             return BadRequest(new { detail = $"Hoạt chất hoặc tên sản phẩm '{dto.ActiveIngredient ?? dto.Name}' nằm trong Danh mục thuốc BVTV cấm sử dụng tại Việt Nam theo Thông tư 75/2025. Tuyệt đối không được phép đưa vào lưu hành." });
         }
 
-        // Xử lý PHI linh hoạt: Thuốc hóa học mặc định 7 ngày nếu bỏ trống; sinh học / vật tư canh tác mặc định 0 ngày
-        int? phiDays = dto.PhiDays;
-        if (isFarmingSupply)
+        // PHI (thời gian cách ly trước thu hoạch): KHÔNG tự điền mặc định. Con số này được hiện cho nông dân và
+        // dùng trong guardrail của Lavi (chặn thuốc khi còn ít ngày tới thu hoạch), nên phải lấy từ nhãn/nguồn.
+        // Thuốc hóa học và sinh học bắt buộc nhập (khớp CHECK CK_Products_PhiDays_RequiredForMedicine và
+        // schema MCP của Agent); vật tư canh tác không áp dụng → null.
+        int? phiDays = null;
+        if (!isFarmingSupply)
         {
-            phiDays = null;
-        }
-        else if (medicineType == "Hóa học")
-        {
-            phiDays = dto.PhiDays ?? 7;
-        }
-        else
-        {
-            phiDays = dto.PhiDays ?? 0;
+            if (!dto.PhiDays.HasValue)
+            {
+                return BadRequest(new { detail = "Thuốc hóa học/sinh học bắt buộc nhập thời gian cách ly (PHI) theo nhãn thuốc hoặc nguồn tra cứu. Hệ thống không tự điền giá trị mặc định." });
+            }
+            if (dto.PhiDays.Value < 0 || dto.PhiDays.Value > 365)
+            {
+                return BadRequest(new { detail = "Thời gian cách ly (PHI) phải từ 0 đến 365 ngày." });
+            }
+            phiDays = dto.PhiDays.Value;
         }
 
         var product = new Lavitree.Domain.Entities.Product
