@@ -2107,6 +2107,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.info('Tất cả các đoạn trích trong bài đều đã được duyệt.');
       return;
     }
+    if (pendingIds.length === editRows.length) {
+      // Mọi đoạn đều chờ duyệt (vd ngay sau "Lưu thông tin bài") → thao tác này sẽ xóa cả bài; không làm ngầm.
+      toast.error('Tất cả các đoạn đều đang chờ duyệt — xóa sẽ mất cả bài. Hãy duyệt các đoạn muốn giữ trước; muốn bỏ cả bài thì dùng nút "Xóa bài" ở trang Duyệt tri thức.');
+      return;
+    }
     const count = pendingIds.length;
     const confirmMsg = `Bạn có chắc chắn muốn xóa toàn bộ ${count} đoạn trích CHƯA DUYỆT khỏi bài viết này?\n\nCác đoạn đã duyệt sẽ được giữ nguyên an toàn. Thao tác này không thể hoàn tác.`;
     if (!window.confirm(confirmMsg)) return;
@@ -5439,7 +5444,9 @@ ${bodySnippet}
                                 </span>
                               </Button>
 
-                              {editRows.filter((r) => !r.isManualApproved).length > 0 && (
+                              {/* Chỉ hiện khi bài còn ít nhất 1 đoạn đã duyệt: sau "Lưu thông tin bài" mọi đoạn về chờ duyệt,
+                                  lúc đó nút này = xóa cả bài (việc đó đã có nút "Xóa bài" ở trang Duyệt tri thức, có hộp xác nhận riêng). */}
+                              {editRows.some((r) => !r.isManualApproved) && editRows.some((r) => r.isManualApproved) && (
                                 <Button
                                   type="button"
                                   size="sm"
