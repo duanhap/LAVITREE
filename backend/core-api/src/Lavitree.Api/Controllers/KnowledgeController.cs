@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -630,7 +632,7 @@ public class KnowledgeController : ControllerBase
         var normalizedUrl = NormalizeUrl(url ?? string.Empty);
         if (string.IsNullOrEmpty(normalizedUrl))
         {
-            return BadRequest(new { detail = "Thiếu URL bài viết." });
+            return BadRequest(new { detail = "URL bài viết không hợp lệ (chỉ hỗ trợ http:// hoặc https://)." });
         }
 
         var rows = await LoadArticleRowsAsync(normalizedUrl, tracking: false);
@@ -664,6 +666,10 @@ public class KnowledgeController : ControllerBase
         }
 
         var normalizedUrl = NormalizeUrl(dto.SourceUrl);
+        if (string.IsNullOrEmpty(normalizedUrl))
+        {
+            return BadRequest(new { detail = "URL bài viết không hợp lệ (chỉ hỗ trợ http:// hoặc https://)." });
+        }
         ClassMetadata? classMeta = null;
         if (!string.IsNullOrWhiteSpace(dto.ModelClass))
         {
@@ -758,6 +764,32 @@ public class KnowledgeController : ControllerBase
         }
 
         var changed = false;
+        if (!string.IsNullOrWhiteSpace(dto.ModelClass))
+        {
+            var targetClass = dto.ModelClass.Trim();
+            var classMeta = All38Classes.FirstOrDefault(c => c.ModelClass == targetClass);
+            if (classMeta == null)
+            {
+                return BadRequest(new { detail = $"Mã lớp '{dto.ModelClass}' không thuộc 38 lớp được hỗ trợ." });
+            }
+            if (source.ModelClass != classMeta.ModelClass)
+            {
+                source.ModelClass = classMeta.ModelClass;
+                source.PlantName = classMeta.PlantName;
+                source.DiseaseName = classMeta.DiseaseName;
+
+                var pendingSuggestions = await _dbContext.ProductSuggestions
+                    .Where(p => !p.IsDeleted && p.Status == "PENDING" && p.KnowledgeSourceId == source.Id)
+                    .ToListAsync();
+                foreach (var p in pendingSuggestions)
+                {
+                    p.ModelClass = classMeta.ModelClass;
+                }
+
+                changed = true;
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(dto.UnitType))
         {
             var unit = dto.UnitType.Trim().ToUpperInvariant();
@@ -812,6 +844,183 @@ public class KnowledgeController : ControllerBase
         return Ok(new { source_id = source.Id, is_manual_approved = false, reindex_status = reindexStatus });
     }
 
+    // 4.2d. POST /api/v1/knowledge/fetch-url (Tải HTML bài báo từ URL an toàn chống SSRF cho Admin)
+    [HttpPost("fetch-url")]
+    public async Task<IActionResult> FetchArticleUrl([FromBody] FetchUrlRequestDto dto, CancellationToken cancellationToken)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var (currentUri, validationError) = await ValidateSafePublicUrlAsync(dto.Url, cancellationToken);
+        if (currentUri == null)
+        {
+            return BadRequest(new { detail = validationError ?? "URL không hợp lệ." });
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        using var handler = new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseProxy = false,
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+            AutomaticDecompression = DecompressionMethods.All,
+            ConnectCallback = async (context, token) =>
+            {
+                var hostIps = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token);
+                var safeIps = hostIps.Where(ip => !IsPrivateOrReservedIp(ip)).ToArray();
+                if (safeIps.Length == 0 || safeIps.Length != hostIps.Length)
+                {
+                    throw new HttpRequestException("Địa chỉ IP đích nằm trong dải mạng nội bộ bị chặn (SSRF protection).");
+                }
+
+                Exception? lastEx = null;
+                foreach (var ip in safeIps)
+                {
+                    var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+                    {
+                        NoDelay = true
+                    };
+                    try
+                    {
+                        await socket.ConnectAsync(ip, context.DnsEndPoint.Port, token);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        socket.Dispose();
+                        lastEx = ex;
+                    }
+                }
+                throw lastEx ?? new HttpRequestException("Không thể kết nối tới máy chủ bài báo.");
+            }
+        };
+
+        using var httpClient = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+
+        try
+        {
+            HttpResponseMessage? response = null;
+            const int maxRedirects = 3;
+
+            for (int hop = 0; hop <= maxRedirects; hop++)
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, currentUri);
+                req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
+                req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                req.Headers.TryAddWithoutValidation("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7");
+
+                response?.Dispose();
+                response = await httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+
+                var statusCode = (int)response.StatusCode;
+                if (statusCode is 301 or 302 or 303 or 307 or 308 && response.Headers.Location != null)
+                {
+                    if (hop == maxRedirects)
+                    {
+                        response.Dispose();
+                        return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                        {
+                            detail = "Trang web chuyển hướng quá nhiều lần. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                        });
+                    }
+
+                    var nextUri = response.Headers.Location.IsAbsoluteUri
+                        ? response.Headers.Location
+                        : new Uri(currentUri, response.Headers.Location);
+
+                    var (validatedNext, redirectErr) = await ValidateSafePublicUrlAsync(nextUri.ToString(), cts.Token);
+                    if (validatedNext == null)
+                    {
+                        response.Dispose();
+                        return BadRequest(new { detail = redirectErr ?? "Chuyển hướng sang URL không an toàn (SSRF protection)." });
+                    }
+
+                    currentUri = validatedNext;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (response == null)
+            {
+                return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                {
+                    detail = "Trang web không phản hồi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                });
+            }
+
+            using (response)
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                    {
+                        detail = $"Trang web không cho phép tải tự động hoặc phản hồi lỗi (HTTP {(int)response.StatusCode}). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                    });
+                }
+
+                var mediaType = response.Content.Headers.ContentType?.MediaType;
+                if (!string.IsNullOrWhiteSpace(mediaType) &&
+                    !mediaType.Contains("html", StringComparison.OrdinalIgnoreCase) &&
+                    !mediaType.Contains("xml", StringComparison.OrdinalIgnoreCase) &&
+                    !mediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                    {
+                        detail = $"URL trả về định dạng '{mediaType}' không phải trang web HTML. Vui lòng copy nội dung thủ công."
+                    });
+                }
+
+                var html = await ReadLimitedHtmlAsync(response.Content, maxBytes: 2 * 1024 * 1024, cts.Token);
+                if (string.IsNullOrWhiteSpace(html))
+                {
+                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+                    {
+                        detail = "Trang web trả về nội dung trống (có thể trang dùng JavaScript render). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+                    });
+                }
+
+                return Ok(new FetchUrlResponseDto
+                {
+                    Url = currentUri.ToString(),
+                    Html = html
+                });
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch article URL safely: {Url}", currentUri);
+            if (ex.Message.Contains("SSRF", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { detail = ex.Message });
+            }
+            return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+            {
+                detail = "Trang web không cho phép tải tự động hoặc phản hồi lỗi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+            {
+                detail = "Hết thời gian chờ tải trang web (15s). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
+            });
+        }
+    }
+
     // 4.3. POST /api/v1/knowledge/ingestions (Nhập bài báo - Bước 1: Dán văn bản, AI gợi ý đoạn)
     [HttpPost("ingestions")]
     public async Task<IActionResult> IngestArticle([FromBody] IngestArticleRequestDto dto)
@@ -842,7 +1051,7 @@ public class KnowledgeController : ControllerBase
         var validParagraphs = new List<ParagraphDto>();
         int pIndex = 1;
 
-        // Tiêu đề mục ngắn ("Biện pháp hóa học:", "4. Biện pháp quản lý") được ghép vào đoạn ngay sau
+        // Tiêu đề mục ngắn ("Biện pháp hóa học:", "4. Biện pháp quản lý", "Disease Cycle") được ghép vào đoạn ngay sau
         // để không mất ngữ cảnh; dòng ngắn khác (menu, tiêu đề trang) vẫn bị bỏ như trước
         string? pendingHeading = null;
         foreach (var raw in rawParagraphs)
@@ -856,16 +1065,18 @@ public class KnowledgeController : ControllerBase
                 {
                     pendingHeading = cleaned;
                 }
-                else if (validParagraphs.Count < 3 && cleaned.Length >= 10)
+                else if ((validParagraphs.Count < 6 || MetadataKeyLineRegex.IsMatch(cleaned)) && cleaned.Length >= 10)
                 {
-                    // Phần đầu bài (tiêu đề, tác giả, ngày đăng): giữ để AI điền metadata, Admin không cần chọn
+                    // Phần đầu bài hoặc dòng metadata tường minh (Publication date, Reviewed/Revised...): giữ để AI điền metadata
                     validParagraphs.Add(new ParagraphDto { Id = $"P{pIndex++}", Text = cleaned, SuggestedUnitType = null });
                 }
                 continue;
             }
             if (pendingHeading != null)
             {
-                cleaned = $"{pendingHeading} {cleaned}";
+                cleaned = pendingHeading.EndsWith(':') || pendingHeading.EndsWith('.') || pendingHeading.EndsWith('!') || pendingHeading.EndsWith('?')
+                    ? $"{pendingHeading} {cleaned}"
+                    : $"{pendingHeading}: {cleaned}";
                 pendingHeading = null;
             }
 
@@ -890,7 +1101,7 @@ public class KnowledgeController : ControllerBase
         }
 
         // Gọi Agent Service để AI gợi ý nhãn theo số đoạn & trích xuất metadata (timeout 35s, graceful fallback)
-        var (labelMap, agentMetadata) = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs);
+        var (labelMap, agentMetadata) = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs, dto.ArticleText);
         bool aiAvailable = labelMap.Count > 0 || agentMetadata != null;
 
         foreach (var p in validParagraphs)
@@ -988,9 +1199,14 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = "Cần chọn ít nhất 1 đoạn trích dẫn để lưu." });
         }
 
-        if (dto.Selections.Count > 8)
+        var maxChunks = GetIngestConfigInt("INGEST_MAX_CHUNKS", "KnowledgeIngestion:MaxChunks", 20, 1, 50);
+        var maxChunkChars = GetIngestConfigInt("INGEST_MAX_CHUNK_CHARS", "KnowledgeIngestion:MaxChunkChars", 1500, 100, 5000);
+        var maxRatioPercent = GetIngestConfigInt("INGEST_MAX_RATIO_PERCENT", "KnowledgeIngestion:MaxRatioPercent", 60, 10, 100);
+        var minQuotaFloor = GetIngestConfigInt("INGEST_MIN_QUOTA_FLOOR", "KnowledgeIngestion:MinQuotaFloor", 2500, 500, 20000);
+
+        if (dto.Selections.Count > maxChunks)
         {
-            return BadRequest(new { detail = "Mỗi bài chỉ được trích dẫn tối đa 8 đoạn nguyên văn (TASK-15)." });
+            return BadRequest(new { detail = $"Mỗi bài chỉ được trích dẫn tối đa {maxChunks} đoạn nguyên văn." });
         }
 
         var allowedUnitTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1012,9 +1228,9 @@ public class KnowledgeController : ControllerBase
             }
         }
 
-        // Kiểm tra tồn tại trong session RAM & độ dài <= 800 ký tự (hỗ trợ đoạn tách và chỉnh sửa mentions)
+        // Kiểm tra tồn tại trong session RAM & độ dài <= 1500 ký tự (hỗ trợ đoạn tách và chỉnh sửa mentions)
         var sessionDict = session.Paragraphs.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
-        var chosenParagraphs = new List<(string Id, string Text, string UnitType, List<MentionDto> Mentions)>();
+        var chosenParagraphs = new List<(string Id, string Text, string UnitType, List<MentionDto> Mentions, string? ModelClass)>();
 
         foreach (var sel in dto.Selections)
         {
@@ -1067,25 +1283,28 @@ public class KnowledgeController : ControllerBase
                 return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' quá ngắn ({chosenText.Length} ký tự, tối thiểu 30 ký tự)." });
             }
 
-            if (chosenText.Length > 800)
+            if (chosenText.Length > maxChunkChars)
             {
-                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {chosenText.Length} ký tự, vượt quá giới hạn 800 ký tự cho phép." });
+                return BadRequest(new { detail = $"Đoạn '{sel.ParagraphId}' dài {chosenText.Length} ký tự, vượt quá giới hạn {maxChunkChars} ký tự cho phép." });
             }
 
-            chosenParagraphs.Add((sel.ParagraphId, chosenText, sel.UnitType.ToUpperInvariant(), chosenMentions));
+            chosenParagraphs.Add((sel.ParagraphId, chosenText, sel.UnitType.ToUpperInvariant(), chosenMentions, sel.ModelClass));
         }
 
-        // Quy tắc trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT):
-        // Tổng số ký tự các đoạn trích dẫn của bài <= max(1200 ký tự, 30% độ dài bài viết)
+        // Quy tắc trích dẫn: Tổng số ký tự các đoạn trích dẫn <= max(minQuotaFloor, maxRatioPercent% độ dài bài viết)
         var totalSelectedChars = chosenParagraphs.Sum(p => p.Text.Length);
-        var allowedCharsQuota = Math.Max(1200, (int)Math.Floor(session.ArticleLength * 0.30));
+        var allowedCharsQuota = Math.Max(minQuotaFloor, (int)Math.Floor(session.ArticleLength * (maxRatioPercent / 100.0)));
         if (session.ArticleLength > 0 && totalSelectedChars > allowedCharsQuota)
         {
-            return BadRequest(new { detail = $"Tổng độ dài các đoạn đã chọn ({totalSelectedChars:N0} ký tự) vượt quá giới hạn trích dẫn hợp lý cho bài viết này ({allowedCharsQuota:N0} ký tự, tối đa 30% độ dài bài báo theo quy định TASK-15)." });
+            return BadRequest(new { detail = $"Tổng độ dài các đoạn đã chọn ({totalSelectedChars:N0} ký tự) vượt quá giới hạn trích dẫn ({allowedCharsQuota:N0} ký tự, tối đa {maxRatioPercent}% độ dài bài báo)." });
         }
 
         // Kiểm tra số lượng đoạn nguyên văn đã lưu trong CSDL của URL này (chuẩn hoá)
         var normalizedUrl = NormalizeUrl(session.SourceUrl);
+        if (string.IsNullOrEmpty(normalizedUrl))
+        {
+            return BadRequest(new { detail = "URL bài viết không hợp lệ (chỉ hỗ trợ http:// hoặc https://)." });
+        }
         var urlLock = _urlLocks.GetOrAdd(normalizedUrl, _ => new SemaphoreSlim(1, 1));
         await urlLock.WaitAsync();
         try
@@ -1100,19 +1319,18 @@ public class KnowledgeController : ControllerBase
                 .Where(s => NormalizeUrl(s.SourceUrl) == normalizedUrl)
                 .ToList();
 
-            if (existingVerbatim.Count + chosenParagraphs.Count > 8)
+            if (existingVerbatim.Count + chosenParagraphs.Count > maxChunks)
             {
                 await transaction.RollbackAsync();
-                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa 8 đoạn nguyên văn cho mỗi URL theo quy định trích dẫn hợp lý (TASK-15 / Điều 25 Luật SHTT)." });
+                return BadRequest(new { detail = $"Bài báo này đã có {existingVerbatim.Count} đoạn nguyên văn. Thêm {chosenParagraphs.Count} đoạn sẽ vượt quá giới hạn tối đa {maxChunks} đoạn nguyên văn cho mỗi URL." });
             }
 
-            // Hạn mức ký tự tính CỘNG DỒN với các đoạn đã lưu trước đó của cùng URL,
-            // nếu không Admin chia nhỏ nhiều lần commit là vượt được 30% bài
+            // Hạn mức ký tự tính CỘNG DỒN với các đoạn đã lưu trước đó của cùng URL
             var existingChars = existingVerbatim.Sum(s => (s.EvidenceText ?? string.Empty).Length);
             if (session.ArticleLength > 0 && existingChars + totalSelectedChars > allowedCharsQuota)
             {
                 await transaction.RollbackAsync();
-                return BadRequest(new { detail = $"Bài báo này đã lưu {existingChars:N0} ký tự nguyên văn. Thêm {totalSelectedChars:N0} ký tự sẽ vượt giới hạn trích dẫn hợp lý {allowedCharsQuota:N0} ký tự (30% bài, tối thiểu 1.200)." });
+                return BadRequest(new { detail = $"Bài báo này đã lưu {existingChars:N0} ký tự nguyên văn. Thêm {totalSelectedChars:N0} ký tự sẽ vượt giới hạn trích dẫn {allowedCharsQuota:N0} ký tự ({maxRatioPercent}% bài, tối thiểu {minQuotaFloor:N0})." });
             }
 
             // Xác định metadata cuối cùng do Admin duyệt / sửa ở Bước 2
@@ -1150,7 +1368,7 @@ public class KnowledgeController : ControllerBase
             var createdSources = new List<KnowledgeSource>();
             var now = DateTime.UtcNow;
 
-            foreach (var (pId, text, unitType, mentions) in chosenParagraphs)
+            foreach (var (pId, text, unitType, mentions, selModelClass) in chosenParagraphs)
             {
                 var cleanText = text.Trim();
                 // Bỏ qua nếu đoạn trùng chữ 100% với một đoạn đã lưu của cùng URL
@@ -1160,14 +1378,29 @@ public class KnowledgeController : ControllerBase
                     continue;
                 }
 
+                // Hỗ trợ chuyên mục / bệnh hại riêng cho từng đoạn
+                var segModelClass = finalModelClass;
+                var segPlantName = plantName;
+                var segDiseaseName = diseaseName;
+                if (!string.IsNullOrWhiteSpace(selModelClass))
+                {
+                    var segMeta = All38Classes.FirstOrDefault(c => c.ModelClass == selModelClass.Trim());
+                    if (segMeta != null)
+                    {
+                        segModelClass = segMeta.ModelClass;
+                        segPlantName = segMeta.PlantName;
+                        segDiseaseName = segMeta.DiseaseName;
+                    }
+                }
+
                 var contentType = ContentTypeForUnit(unitType);
 
                 var source = new KnowledgeSource
                 {
                     Id = Guid.NewGuid(),
-                    ModelClass = finalModelClass,
-                    PlantName = plantName,
-                    DiseaseName = diseaseName,
+                    ModelClass = segModelClass,
+                    PlantName = segPlantName,
+                    DiseaseName = segDiseaseName,
                     SourceUrl = normalizedUrl, // Lưu URL đã chuẩn hóa
                     SourceTitle = finalSourceTitle,
                     Organization = finalOrg,
@@ -1205,19 +1438,23 @@ public class KnowledgeController : ControllerBase
                 .Where(p => !p.IsDeleted)
                 .ToListAsync();
 
-            // Gợi ý Admin đã bỏ qua không hiện lại với cùng cụm từ và cùng bệnh
-            var dismissedMentions = new HashSet<string>(
-                await _dbContext.ProductSuggestions
-                    .Where(s => !s.IsDeleted && s.Status == "DISMISSED" && s.ModelClass == finalModelClass)
-                    .Select(s => s.MentionText.ToLower())
-                    .ToListAsync(),
-                StringComparer.OrdinalIgnoreCase);
+            // Gợi ý Admin đã bỏ qua không hiện lại với cùng cụm từ và cùng bệnh (theo từng mã bệnh của đoạn)
+            var targetClasses = createdSources.Select(s => s.ModelClass).Distinct().ToList();
+            var dismissedRows = await _dbContext.ProductSuggestions
+                .AsNoTracking()
+                .Where(s => !s.IsDeleted && s.Status == "DISMISSED" && targetClasses.Contains(s.ModelClass))
+                .Select(s => new { s.ModelClass, s.MentionText })
+                .ToListAsync();
+
+            var dismissedMentions = new HashSet<(string ModelClass, string MentionText)>(
+                dismissedRows.Select(s => (s.ModelClass.Trim().ToLowerInvariant(), s.MentionText.Trim().ToLowerInvariant())));
 
             foreach (var createdSource in createdSources)
             {
                 var matchedPara = chosenParagraphs.FirstOrDefault(cp => cp.Text == createdSource.EvidenceText);
                 if (matchedPara.Mentions == null || matchedPara.Mentions.Count == 0) continue;
 
+                var segClassKey = createdSource.ModelClass.Trim().ToLowerInvariant();
                 var seenInSource = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var mention in matchedPara.Mentions)
                 {
@@ -1227,7 +1464,7 @@ public class KnowledgeController : ControllerBase
 
                     // Chống bịa lớp 2 ở Core: cụm từ phải có nguyên văn trong đoạn đã lưu
                     if (!createdSource.EvidenceText.Contains(mentionText, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!seenInSource.Add(mentionText) || dismissedMentions.Contains(mentionText)) continue;
+                    if (!seenInSource.Add(mentionText) || dismissedMentions.Contains((segClassKey, mentionText.ToLowerInvariant()))) continue;
 
                     // So khớp theo HOẠT CHẤT (không theo tên thương mại); biện pháp canh tác không có sản phẩm
                     Product? matchedProduct = null;
@@ -1256,7 +1493,7 @@ public class KnowledgeController : ControllerBase
                     _dbContext.ProductSuggestions.Add(new ProductSuggestion
                     {
                         KnowledgeSourceId = createdSource.Id,
-                        ModelClass = finalModelClass,
+                        ModelClass = createdSource.ModelClass,
                         MentionText = mentionText,
                         Kind = mentionKind,
                         Status = "PENDING",
@@ -1483,18 +1720,54 @@ public class KnowledgeController : ControllerBase
         }
     }
 
-    private async Task<(Dictionary<string, AgentParagraphLabel> LabelMap, AgentSuggestedMetadata? Metadata)> RequestAgentLabelingAsync(string? modelClass, List<ParagraphDto> paragraphs)
+    private static string BuildArticleMetaContext(string? rawArticleText)
+    {
+        if (string.IsNullOrWhiteSpace(rawArticleText)) return string.Empty;
+        var lines = Regex.Split(rawArticleText, @"\r?\n")
+            .Select(l => Regex.Replace(l.Trim(), @"[ \t]+", " "))
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+        if (lines.Count == 0) return string.Empty;
+
+        var head = lines.Take(10).ToList();
+        var tail = lines.Count > 10
+            ? lines.Skip(Math.Max(10, lines.Count - 15)).ToList()
+            : new List<string>();
+
+        var contextText = tail.Count > 0
+            ? $"[HEAD]\n{string.Join("\n", head)}\n[TAIL]\n{string.Join("\n", tail)}"
+            : $"[HEAD]\n{string.Join("\n", head)}";
+
+        return contextText.Length > 1800 ? contextText[..1800] : contextText;
+    }
+
+    private async Task<(Dictionary<string, AgentParagraphLabel> LabelMap, AgentSuggestedMetadata? Metadata)> RequestAgentLabelingAsync(
+        string? modelClass,
+        List<ParagraphDto> paragraphs,
+        string? rawArticleText = null)
     {
         var labelMap = new Dictionary<string, AgentParagraphLabel>(StringComparer.OrdinalIgnoreCase);
         AgentSuggestedMetadata? metadata = null;
 
         try
         {
-            // CHỈ GỬI các đoạn có Text.Length <= 800 ký tự (các đoạn dài hơn không được chọn theo quy định và sẽ làm Agent 422)
-            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 800).ToList();
+            // Gửi các đoạn <= 2000 ký tự (khớp schema Agent) để các đoạn dài 801-1500 ký tự hoặc cần tách vẫn được AI gán nhãn và trích xuất mentions
+            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 2000).ToList();
             if (eligibleParagraphs.Count == 0)
             {
                 return (labelMap, metadata);
+            }
+
+            var metaContext = BuildArticleMetaContext(rawArticleText);
+            var payloadParagraphs = (!string.IsNullOrWhiteSpace(metaContext)
+                    ? eligibleParagraphs.Take(199)
+                    : eligibleParagraphs.Take(200))
+                .Select(p => new AgentParagraphItem { Id = p.Id, Text = p.Text })
+                .ToList();
+
+            if (!string.IsNullOrWhiteSpace(metaContext))
+            {
+                payloadParagraphs.Add(new AgentParagraphItem { Id = "META_CONTEXT", Text = metaContext });
             }
 
             var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
@@ -1504,7 +1777,7 @@ public class KnowledgeController : ControllerBase
             var reqPayload = new AgentLabelParagraphsRequest
             {
                 ModelClass = modelClass,
-                Paragraphs = eligibleParagraphs.Select(p => new AgentParagraphItem { Id = p.Id, Text = p.Text }).ToList()
+                Paragraphs = payloadParagraphs
             };
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/knowledge/label-paragraphs")
@@ -1556,6 +1829,14 @@ public class KnowledgeController : ControllerBase
         return key;
     }
 
+    private int GetIngestConfigInt(string envKey, string configKey, int defaultValue, int minValue, int maxValue)
+    {
+        var raw = Environment.GetEnvironmentVariable(envKey)
+               ?? _configuration[configKey]
+               ?? _configuration[envKey];
+        return int.TryParse(raw, out var val) && val >= minValue && val <= maxValue ? val : defaultValue;
+    }
+
     public static string NormalizeUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return string.Empty;
@@ -1569,7 +1850,13 @@ public class KnowledgeController : ControllerBase
 
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
-            return url.Trim().TrimEnd('/').ToLowerInvariant();
+            return string.Empty;
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
         }
 
         var scheme = "https";
@@ -1613,12 +1900,156 @@ public class KnowledgeController : ControllerBase
         @"hotline|zalo|liên hệ|tư vấn miễn phí|đặt hàng|mua hàng|gọi ngay|inbox|fanpage|bạn đang đọc bài viết|đăng ký nhận bản tin|chia sẻ facebook",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex SectionHeadingRegex = new(@"(:\s*$)|(^(\d+|[IVX]+|[a-zđ])[.)]\s+\S)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex CommonHeadingWordsRegex = new(
+        @"^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|chu\s+trình\s+bệnh|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+quản\s+lý|phòng\s+ngừa|điều\s+trị|hoạt\s+chất\s+khuyến\s+cáo)$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex MetadataKeyLineRegex = new(
+        @"^(?:original\s+publication\s+date|originally\s+published|first\s+published|publication\s*date|reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on|in))?|updated(?:\s*(?:on|in))?|revised(?:\s*(?:on|in))?|reviewed(?:\s*(?:on|in))?|authors?|written\s+by|prepared\s+by|cơ\s*quan|tác\s*giả|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static bool IsContactOrAdNoise(string text) =>
         text.Length <= 300 && ContactKeywordRegex.IsMatch(text) &&
         (PhoneRegex.IsMatch(text) || text.Length <= 120);
 
-    private static bool IsSectionHeading(string text) => text.Length >= 3 && SectionHeadingRegex.IsMatch(text);
+    private static bool IsSectionHeading(string text) =>
+        text.Length >= 3 && (SectionHeadingRegex.IsMatch(text) || CommonHeadingWordsRegex.IsMatch(text.Trim()));
+
+    private static bool IsPrivateOrReservedIp(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6)
+        {
+            ip = ip.MapToIPv4();
+        }
+
+        if (IPAddress.IsLoopback(ip))
+        {
+            return true;
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            if (b[0] == 0) return true;                                  // 0.0.0.0/8
+            if (b[0] == 10) return true;                                 // 10.0.0.0/8
+            if (b[0] == 127) return true;                                // 127.0.0.0/8
+            if (b[0] == 169 && b[1] == 254) return true;                 // 169.254.0.0/16 (Link-local & Cloud Metadata)
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;    // 172.16.0.0/12
+            if (b[0] == 192 && b[1] == 168) return true;                 // 192.168.0.0/16
+            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;   // 100.64.0.0/10 (CGNAT)
+            if (b[0] == 192 && b[1] == 0 && b[2] == 0) return true;      // 192.0.0.0/24
+            if (b[0] == 192 && b[1] == 0 && b[2] == 2) return true;      // 192.0.2.0/24
+            if (b[0] == 198 && (b[1] == 18 || b[1] == 19)) return true;  // 198.18.0.0/15
+            if (b[0] == 198 && b[1] == 51 && b[2] == 100) return true;   // 198.51.100.0/24
+            if (b[0] == 203 && b[1] == 0 && b[2] == 113) return true;    // 203.0.113.0/24
+            if (b[0] >= 224) return true;                                // 224.0.0.0/4 Multicast & 240.0.0.0/4 Reserved
+            return false;
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.Equals(IPAddress.IPv6Any) || ip.Equals(IPAddress.IPv6None)) return true;
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6Multicast || ip.IsIPv6SiteLocal || ip.IsIPv6Teredo) return true;
+            var b = ip.GetAddressBytes();
+            if ((b[0] & 0xFE) == 0xFC) return true;                      // fc00::/7 Unique Local
+            if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) return true;      // fe80::/10 Link Local
+            // 64:ff9b::/96 & 64:ff9b:1::/48 (NAT64 có thể nhúng IPv4 nội bộ)
+            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B) return true;
+            // 2002::/16 (6to4 nhúng IPv4 ở 2 byte tiếp theo)
+            if (b[0] == 0x20 && b[1] == 0x02) return true;
+            // ::/96 (IPv4-compatible IPv6 đã deprecated)
+            if (b.Take(12).All(x => x == 0)) return true;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static async Task<(Uri? Uri, string? Error)> ValidateSafePublicUrlAsync(string rawUrl, CancellationToken ct)
+    {
+        if (!Uri.TryCreate(rawUrl.Trim(), UriKind.Absolute, out var uri))
+        {
+            return (null, "Đường dẫn URL không hợp lệ.");
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, "Chỉ hỗ trợ giao thức http:// hoặc https://.");
+        }
+
+        var host = uri.DnsSafeHost.Trim().TrimEnd('.').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(host) ||
+            host == "localhost" ||
+            host == "127.0.0.1" ||
+            host == "0.0.0.0" ||
+            host == "::1" ||
+            host.EndsWith(".local", StringComparison.Ordinal) ||
+            host.EndsWith(".internal", StringComparison.Ordinal) ||
+            host.EndsWith(".localhost", StringComparison.Ordinal))
+        {
+            return (null, "URL không được phép trỏ tới địa chỉ nội bộ (SSRF protection).");
+        }
+
+        if (IPAddress.TryParse(host, out var literalIp))
+        {
+            if (IsPrivateOrReservedIp(literalIp))
+            {
+                return (null, "URL không được phép trỏ tới IP mạng nội bộ hoặc riêng tư (SSRF protection).");
+            }
+            return (uri, null);
+        }
+
+        IPAddress[] addresses;
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(host, ct);
+        }
+        catch (Exception)
+        {
+            return (null, "Không thể phân giải tên miền của URL này.");
+        }
+
+        if (addresses.Length == 0 || addresses.Any(IsPrivateOrReservedIp))
+        {
+            return (null, "Tên miền trỏ tới địa chỉ IP nội bộ hoặc không hợp lệ (SSRF protection).");
+        }
+
+        return (uri, null);
+    }
+
+    private static async Task<string> ReadLimitedHtmlAsync(HttpContent content, int maxBytes, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        using var ms = new MemoryStream();
+        var buffer = new byte[16384];
+        var totalRead = 0;
+
+        while (totalRead < maxBytes)
+        {
+            var toRead = Math.Min(buffer.Length, maxBytes - totalRead);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, toRead), ct);
+            if (read == 0) break;
+            ms.Write(buffer, 0, read);
+            totalRead += read;
+        }
+
+        var bytes = ms.ToArray();
+        var encoding = Encoding.UTF8;
+        var charset = content.Headers.ContentType?.CharSet?.Trim('"', '\'', ' ');
+        if (!string.IsNullOrWhiteSpace(charset))
+        {
+            try
+            {
+                encoding = Encoding.GetEncoding(charset);
+            }
+            catch
+            {
+                encoding = Encoding.UTF8;
+            }
+        }
+
+        return encoding.GetString(bytes);
+    }
     private static readonly HashSet<string> ValidMentionKinds = new(StringComparer.Ordinal)
     {
         "CHEMICAL", "BIOLOGICAL", "SUPPLY", "PRACTICE"

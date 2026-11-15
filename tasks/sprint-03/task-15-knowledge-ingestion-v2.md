@@ -440,3 +440,117 @@ Yêu cầu: bấm vào một bài ở Duyệt tri thức để sửa lại như 
 **Kiểm thử:** Core build sạch; web `tsc` và `npm run build` đạt. Chrome headless trên Postgres local: mở bài từ Duyệt tri thức, thông tin điền đúng; lưu thông tin bài `200` (3 đoạn về chờ duyệt); đổi loại đoạn `200`; dán lại bài thấy 3 nhãn "Đã lưu", lưu thêm đoạn `201`; Thoát sửa xóa form. Qua API: đoạn có tiêu đề mục `201`, dòng tiêu đề `400`, đoạn tách bị sửa chữ `400`, sửa chữ đoạn nguyên văn `400`.
 
 **Chưa làm:** trang Duyệt tri thức chưa lọc riêng "bài chỉ có tóm tắt"; chưa thử trên Supabase (cần duyệt).
+
+---
+
+## 13. ĐỢT CẢI TIẾN TOÀN DIỆN UX/UI & ĐỒNG BỘ TRI THỨC (14/11/2026, theo phản hồi Admin thực tế)
+
+Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng trình duyệt Google Chrome và nâng cấp giao diện, nghiệp vụ theo yêu cầu:
+
+### 13.1. Thuật ngữ nghiệp vụ & Khung nhìn Admin (AdminShell)
+- [x] **Đổi tên "Reindex" thành "Đồng bộ tri thức"**: Thay thế toàn bộ thuật ngữ kỹ thuật "Reindex" / "Trạng thái Reindex" trên nút bấm, tiêu đề Dialog và thông báo bằng "Đồng bộ tri thức", kèm chú thích rõ ràng về việc cập nhật dữ liệu vector nạp não cho trợ lý AI Lavi.
+- [x] **Menu thu nhỏ (Collapsible Sidebar)**: Nâng cấp `AdminShell` cho phép thu gọn sidebar từ `w-64` về icon bar `w-16` (hoặc mở lại), lưu tùy chọn vào `localStorage`. Tối ưu không gian ngang cho màn hình 2 cột khi nhập bài.
+- [x] **Nút mở link bài viết gốc tab mới**: Thêm icon `ExternalLink` ngay cạnh ô URL bài viết gốc và cạnh tiêu đề bài, click mở tab mới `target="_blank" rel="noopener noreferrer"`.
+
+### 13.2. Chuẩn hóa Form & Tách bạch thông tin bài viết
+- [x] **Xóa bỏ trùng lặp chọn Cây / Bệnh**: Bỏ hẳn mục chọn cây/bệnh ở cột trái, chỉ giữ duy nhất tại Card "Thông tin bài viết & Phân loại" ở cột phải.
+- [x] **Tách bạch 4 trường thông tin bài báo**: Tách riêng Tác giả, Cơ quan / Viện nghiên cứu, Ngày đăng bài, Ngày cập nhật thay vì dồn chung vào một ô.
+
+### 13.3. Tương tác Thẻ vật tư (Mentions) & Tách đoạn nguyên văn chuẩn Điều 25 Luật SHTT
+- [x] **Click tag highlight văn bản**: Khi click hoặc hover vào thẻ tag vật tư, đoạn văn bản tương ứng bên trên tự động sáng đèn / highlight màu vàng nhạt.
+- [x] **Dịch nghĩa / Chú thích tiếng Việt cho tag**: Hiển thị tooltip hoặc bản dịch tiếng Việt cho các thuật ngữ/hoạt chất tiếng Anh (ví dụ: Thinning of whole plants -> Tỉa thưa cả cây, copper -> Gốc đồng).
+- [x] **Khóa sửa chữ khi tách đoạn (Click-to-split)**: Tuyệt đối cấm gõ tự do (free-text) khi tách đoạn để tránh sửa đổi làm sai lệch bài báo gốc (vi phạm Điều 25 Luật SHTT). Chuyển sang cơ chế click chọn dấu câu (`.`, `!`, `?`, `;`) để chia đôi đoạn, bảo đảm 2 đoạn con ghép lại đúng 100% nguyên văn bài gốc.
+
+### 13.4. Tối giản Bảng Duyệt tri thức & Giao diện 2 Tab chi tiết bài viết
+- [x] **Tối giản bảng Duyệt tri thức (`/admin/knowledge`)**: Bỏ các nút rườm rà (Xem chi tiết, Thu gọn, Bỏ duyệt cả bài trên từng dòng), mỗi dòng chỉ giữ nút chính "Mở bài viết" và nút xóa.
+- [x] **Giao diện Chi tiết bài viết 2 Tab**:
+  - **Tab 1 ("Thông tin & Các đoạn đã duyệt")**: Xem toàn bộ thông tin bài báo, các đoạn trích đã lưu/duyệt. Tích hợp thuật toán cảnh báo màu vàng khi phát hiện các đoạn trích có nội dung trùng lặp nhau (> 85%).
+  - **Tab 2 ("Nạp thêm / Tái phân tích bài báo")**: Dán bài mới để phân tích thêm, tự động ẩn các đoạn đã lưu ở Tab 1 để tránh dài trang. Tích hợp bảng so sánh thông minh (Side-by-side Diff) nếu thông tin AI mới khác với thông tin đang lưu ở Tab 1, cho phép Admin 1-click chọn "Giữ cũ" hoặc "Áp dụng mới".
+
+### 13.5. Tinh chỉnh UX Chi tiết bài viết & Khử trùng lặp trường dữ liệu (14/11/2026, theo phản ánh Admin)
+- [x] **Xóa bỏ giật màn hình (Flash/Jump UI)**: Nhận diện `editParam` trên query URL để hiển thị Loading Skeleton mượt mà thay vì lộ form "Dán văn bản bài báo khuyến nông" trắng tinh trong lúc tải API.
+- [x] **Khử trùng lặp 2 tầng (Banner vs Form Card)**: Hợp nhất thông tin bài viết vào Header chính. Ẩn khối form 6 ô input trùng lặp choán màn hình; chỉ mở ra dạng Card khi Admin chủ động bấm `[✏️ Sửa thông tin bài]`. Mặc định màn hình tập trung 100% vào danh sách đoạn trích và thao tác duyệt.
+- [x] **Chuẩn hóa nhãn "Cây khỏe mạnh"**: Loại bỏ hoàn toàn sự phi lý khi gọi cây khỏe mạnh là "Bệnh hại mục tiêu". Đổi thành `🌱 Chăm sóc cây khỏe mạnh` / `Kỹ thuật canh tác & Phòng ngừa` trên toàn bộ Header, dropdown và badge từng đoạn trích.
+- [x] **Phân loại đa chủ đề cấp Đoạn trích (Multi-topic Paragraph Level)**: Tách riêng Loài cây (`editOriginalMeta.plantName`) và danh sách các chủ đề trong bài (`articleDistinctTopics`). Hiển thị badge chủ đề riêng cho từng đoạn trích, không ép đồng bộ một bệnh duy nhất cho cả bài báo.
+- [x] **Thao tác nhanh Duyệt toàn bộ / Bỏ duyệt toàn bộ**: Thêm nút thao tác 1-click duyệt toàn bộ các đoạn trong bài viết ngay tại thanh công cụ Tab 1.
+- [x] **Tối giản hóa thông tin Header dạng Báo cáo**: Chuyển thông tin bài báo (Cơ quan, Tác giả, Ngày đăng, URL) từ các khung tròn xám sang định dạng văn bản thanh lịch, ngắn gọn như báo cáo học thuật. Chỉ highlight nhẹ Loài cây và Chủ đề trong bài để giảm thiểu phân tâm thị giác.
+- [x] **Xóa bỏ 2 cục Header đoạn trích trùng lặp**: Gộp thanh công cụ và CardHeader của bảng đoạn trích thành một khung duy nhất (`Các đoạn trích đã lưu`), tích hợp nút "Bỏ duyệt toàn bộ bài" trực tiếp trong header card.
+- [x] **Dọn sạch nút bấm thừa**: Loại bỏ nút `+ Nhập bài mới` gây xao nhãng; xóa nút sửa bài bị lặp 2 lần; đổi tiêu đề trang thành "Chi tiết bài viết tri thức" khi mở bài cũ.
+- [x] **Đưa 2 Tabs lên trên cùng phân định 2 tác vụ**: Đưa cụm 2 Tabs ("1. Xem & Sửa chi tiết" vs "2. Nạp thêm dữ liệu bài báo") lên ngay đầu trang cạnh nút "Quay lại danh sách", phân định rạch ròi 100% giữa việc xem/sửa duyệt bài và việc nạp thêm dữ liệu từ văn bản.
+- [x] **Hộp hướng dẫn & Nút mở bài gốc tại Tab 2**: Bổ sung hộp mẹo copy bài báo tại Tab 2 với nút `[🔗 Mở trang bài gốc ↗]` và hướng dẫn `Ctrl+A`, `Ctrl+C` giúp Admin lấy thêm toàn văn dễ dàng ngay tại chỗ.
+
+### 13.6. Tinh chỉnh Phân đoạn trích dẫn Đa mốc cắt, Đa chủ đề cấp đoạn & Mở rộng hạn mức Đồ án (14/11/2026)
+- [x] **Tách ngày xuất bản và ngày cập nhật**: Sửa lỗi hiển thị dính chuỗi `"2014 (Cập nhật 26/07/2024)"` trong ô ngày đăng. Regex tự động bóc tách thành Ngày đăng/xuất bản (`2014`) và Ngày cập nhật (`26/07/2024`) vào 2 ô riêng biệt.
+- [x] **Làm mờ Placeholder**: Đổi placeholder tác giả và ngày cập nhật thành văn bản mờ, in nghiêng (`(Để trống nếu không rõ tác giả)` / `(Để trống nếu không có)` với `placeholder:text-muted-foreground/35 placeholder:italic`), tránh gây hiểu nhầm là ô đã được điền sẵn giá trị.
+- [x] **Phân loại Chuyên mục / Bệnh hại theo từng đoạn trích**: Bài viết có thể chứa nhiều chủ đề khác nhau (ví dụ: đoạn chăm sóc cây khỏe mạnh + đoạn điều trị bệnh đốm lá). Mỗi đoạn trích được trang bị dropdown chọn Chuyên mục / Bệnh hại riêng biệt, mặc định thừa hưởng từ AI/bài viết và Admin có thể tùy chỉnh độc lập. Core API lưu trữ `ModelClass` riêng cho từng đoạn trích trong `KnowledgeSources`.
+- [x] **Mở rộng hạn mức trích dẫn phục vụ Demo / Bảo vệ Đồ án**:
+  - Tối đa **20 đoạn trích nguyên văn/bài** (trước là 8 đoạn).
+  - Tối đa **1.500 ký tự/đoạn** (trước là 800 ký tự).
+  - Hạn mức trích dẫn hợp lý nâng lên **60% độ dài bài viết, sàn tối thiểu 2.500 ký tự** (trước là 30% / 1.200 ký tự).
+  - *Ghi chú quan trọng*: Mở rộng tạm thời nhằm hỗ trợ nạp lượng lớn tri thức phục vụ chấm điểm và bảo vệ đồ án tốt nghiệp PTIT. Sẽ kích hoạt lại các hạn mức siết chặt bản quyền (`INGEST_MAX_CHUNKS=8`, `INGEST_MAX_CHUNK_CHARS=800`) khi triển khai hệ thống thương mại chính thức.
+- [x] **Chia đoạn tương tác đa mốc cắt (Multi-cut point Interactive Split Dialog)**: Thay thế nút chia đôi cố định bằng cơ chế click trực quan. Admin nhấp vào nút `[✂️ Cắt tại đây]` sau bất kỳ câu nào để đặt 1 hoặc nhiều mốc cắt (`Mốc #1`, `Mốc #2`...), xem trước kích thước/nội dung từng đoạn con, và chia đoạn thành N phần hợp lệ trong 1 click mà vẫn bảo toàn 100% nguyên văn bài gốc (Điều 25 Luật SHTT).
+- [x] **Nút chọn nhanh tất cả đoạn AI gợi ý**: Đồng bộ nút `[✨ Chọn tất cả đoạn AI gợi ý]` tại cả 2 nơi (Tab 2 Nạp thêm và Form Nhập bài mới) giúp Admin 1-click duyệt nhanh các đoạn trích có ý nghĩa tri thức mà AI đã chọn lọc.
+
+### 13.7. Danh sách Chuyên đề / Bệnh hại dạng Tags & Đồng bộ hoàn toàn Tab 2 với Nhập bài báo (14/11/2026)
+- [x] **Bỏ dropdown đơn cấp bài báo, thay bằng Danh sách Chuyên đề (Tags + Selector)**: Thay thế hoàn toàn ô select đơn lẻ bằng giao diện danh sách tags chuyên đề trong bài (`articleTopics`). Admin có thể xem trực quan các chủ đề bài viết bao quát, bấm `✕` để gỡ bỏ, hoặc chọn bệnh có sẵn của cây từ dropdown và bấm `[+ Thêm vào bài]`.
+- [x] **Đổi chuyên mục trực tiếp trên từng đoạn đã lưu (Tab 1)**: Bổ sung selector đổi chuyên đề/bệnh hại ngay trên từng đoạn đã lưu của Tab 1. Core API `PATCH /api/v1/knowledge/sources/{id}` hỗ trợ cập nhật `ModelClass` độc lập cho từng đoạn và tự động kích hoạt reindex.
+- [x] **Bảo toàn tính độc lập khi Lưu thông tin bài (`PATCH sources/by-url`)**: Không ghi đè cào bằng một mã bệnh duy nhất lên toàn bộ các đoạn khi bài viết chứa nhiều chuyên đề khác nhau.
+- [x] **Đồng bộ triệt để Tab 2 (Nạp thêm) y hệt màn hình Nhập bài báo**:
+  - Tự động áp dụng `meta.model_class` do AI đề xuất cho các đoạn mới bóc tách ở Tab 2, khắc phục lỗi nhận nhầm thành Cây khỏe mạnh.
+  - Bổ sung khối Thẻ vật tư / Hoạt chất (`para.mentions`) tương tác đầy đủ dưới mỗi đoạn: dịch nghĩa tiếng Việt, hover highlight, đổi loại thẻ, xóa thẻ, thêm cụm từ mới.
+  - Thêm badge `AI đã gợi ý nhãn` / `Tự gán nhãn` và badge `Ký tự: ... / ... (%)` vào CardHeader của danh sách đoạn mới ở Tab 2.
+  - Tích hợp accordion `⌄ Đoạn AI không chọn: X đoạn (vẫn tick để lưu được)` cho phép xem và phục hồi đoạn trích ngoài gợi ý của AI.
+
+### 13.8. Sửa lỗi lọc nhầm nội dung tiếng Anh, bảo toàn Bảng/Danh sách & Bổ sung nút Crawl nội dung từ URL (14/11/2026)
+- [x] **Khắc phục lỗi mất đoạn văn tiếng Anh bắt đầu bằng `"In ..."`**: Sửa regex nhận diện nút mạng xã hội (`linkedin`/`in`) trong `frontend/web/src/pages/AdminDashboard.tsx` (`cleanArticleTextFromHtml`) bằng cách giới hạn khớp nguyên từ ngắn (`<= 35` ký tự), chấm dứt tình trạng xóa nhầm các đoạn chuyên môn như `Disease Cycle` hay `Management` khi dán bài báo tiếng Anh (ví dụ NC State Extension).
+- [x] **Bảo toàn cấu trúc Bảng, Danh sách, Tiêu đề mục & Metadata đầu bài**:
+  - Chuyển thẻ `<table>` thành các dòng văn bản dễ đọc (`Header: Value | ...`) gom nhóm hợp lý (`<= 1200` ký tự/khối); gom các mục `<li>` ngắn (`12–119` ký tự) thành khối gạch đầu dòng `•` để không bị bộ tách đoạn (`< 40` ký tự) của Core API loại bỏ.
+  - Tự động bổ sung dấu `:` sau thẻ `H2..H6` (trừ `Authors`/`Keywords`/`References`) và mở rộng `KnowledgeController.IsSectionHeading` (`CommonHeadingWordsRegex`) trong `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs` để gắn đúng tiêu đề mục vào đoạn trích tương ứng.
+  - Bóc tách sẵn metadata (`h1`, `og:site_name`, `.author`/`.authors`, `time`/ngày đăng/cập nhật) trước khi loại `<header>`/`<footer>`, bổ sung khoảng trắng quanh block tag để tránh dính chuỗi ngày tháng, và cho phép giữ tối đa 6 dòng metadata ngắn ở đầu bài trong `IngestArticle`.
+- [x] **Bổ sung nút `"Crawl nội dung từ URL"` an toàn (SSRF Guardrails + Cơ chế 3 tầng)**:
+  - UI đặt nút gọn ở góc trên phải khung nhập văn bản bài báo tại cả form **Nhập bài báo mới** (`/admin/ingest`) và **Tab 2 Nạp thêm dữ liệu bài báo**, sử dụng chung bộ chuẩn hóa `cleanArticleTextFromHtml` với luồng dán tay.
+  - **Tầng 1 (Core API)**: Thêm `POST /api/v1/knowledge/fetch-url` (`FetchUrlRequestDto` / `FetchUrlResponseDto` trong `backend/core-api/src/Lavitree.Application/DTOs/KnowledgeIngestionDtos.cs` và `KnowledgeController.FetchArticleUrl`), dùng `SocketsHttpHandler.ConnectCallback` chặn IP private/loopback/link-local/metadata (`169.254.169.254`), kiểm tra redirect thủ công (tối đa 3 hops), giới hạn 2MB và timeout 15 giây.
+  - **Tầng 2 (Vite Dev Middleware)**: Thêm middleware `GET /__dev/fetch-url` trong `frontend/web/vite.config.ts` có kiểm tra DNS/IP chống SSRF để môi trường dev hoạt động ngay cả khi container `core-api` chưa rebuild/restart.
+  - **Tầng 3 (Fallback CORS Proxy & Thông báo Copy tay)**: Tự động thử CORS proxy dự phòng nếu tầng 1/2 chưa khả dụng; trường hợp trang đích bật chống bot (Cloudflare/403), hiển thị thông báo rõ ràng để Admin dùng thao tác copy-paste tay (`Ctrl+A, Ctrl+C`).
+- [x] **Nâng ngưỡng phân tích đoạn dài & số lượng gợi ý AI**:
+  - Nâng giới hạn độ dài đoạn gửi sang Agent Service trong `KnowledgeController.RequestAgentLabelingAsync` từ `<= 800` lên `<= 2000` ký tự để các đoạn chi tiết như `Symptoms and Signs` không bị bỏ qua khi gán nhãn và bóc tách mention.
+  - Nâng `MAX_SUGGESTIONS` trong `backend/agent-service/app/rag/pipeline.py` từ `8` lên `20`.
+
+### 13.9. Vá rà soát bảo mật & toàn vẹn dữ liệu trước khi merge main (`TASK-15-R14`, 15/11/2026)
+- [x] **Loại bỏ proxy bên thứ ba khi crawl URL (Khắc phục rủi ro toàn vẹn dữ liệu mức Cao)**:
+  - Xóa bỏ hoàn toàn fallback sang proxy công khai bên thứ ba (`api.allorigins.win`, `api.codetabs.com`) trong `frontend/web/src/pages/AdminDashboard.tsx` (`handleCrawlArticleFromUrl`).
+  - Giới hạn middleware `GET /__dev/fetch-url` chỉ chạy ở chế độ `import.meta.env.DEV` và **không** fallback khi Core API chủ động từ chối (`400/401/403/422`). Môi trường production chỉ gọi duy nhất `POST /api/v1/knowledge/fetch-url` của Core API.
+- [x] **Chặn URL scheme không hợp lệ (`?edit=` XSS hardening & `NormalizeUrl`)**:
+  - Thêm helper `isSafeHttpUrl` trong `frontend/web/src/pages/AdminDashboard.tsx`; kiểm tra `url` ngay đầu `loadArticleForEdit`, gán `editUrl`/`ingestUrl` theo `res.data.source_url` chuẩn từ CSDL và chỉ render `<a href>` khi URL thuộc `http://` hoặc `https://`.
+  - Cập nhật `KnowledgeController.NormalizeUrl` trong `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs` trả về chuỗi rỗng nếu scheme không phải `http`/`https`; các endpoint `GET/PATCH sources/by-url` và `CommitIngestion` từ chối `400 BadRequest` với scheme không hợp lệ.
+- [x] **Đưa hạn mức trích dẫn ra cấu hình môi trường/appsettings**:
+  - Thêm helper `GetIngestConfigInt` đọc `INGEST_MAX_CHUNKS` (`KnowledgeIngestion:MaxChunks`, mặc định `20`), `INGEST_MAX_CHUNK_CHARS` (`KnowledgeIngestion:MaxChunkChars`, mặc định `1500`), `INGEST_MAX_RATIO_PERCENT` (`KnowledgeIngestion:MaxRatioPercent`, mặc định `60`) và `INGEST_MIN_QUOTA_FLOOR` (`KnowledgeIngestion:MinQuotaFloor`, mặc định `2500`) để dễ dàng siết chặt lại khi lên bản thương mại.
+- [x] **Đồng bộ mã bệnh cho `ProductSuggestions` theo từng đoạn trích**:
+  - Trong `CommitIngestion`, mỗi `ProductSuggestion` mới lưu theo `createdSource.ModelClass` riêng của đoạn trích (và truy vấn `DISMISSED` theo cặp `(ModelClass, MentionText)`) thay vì dùng mã bệnh chung `finalModelClass`.
+  - Trong `UpdateSourceUnit` (`PATCH /api/v1/knowledge/sources/{id}`), khi đổi bệnh của một đoạn trích, tự động cập nhật `ModelClass` cho các gợi ý `PENDING` gắn với đoạn đó.
+- [x] **Bổ sung dải IPv6 SSRF, giới hạn stream 2MB cho Vite Dev Proxy & tách task VS Code mặc định về Local**:
+  - Chặn thêm `64:ff9b::/96` / `64:ff9b:1::/48` (NAT64), `2002::/16` (6to4) và `::/96` trong `IsPrivateOrReservedIp` của `KnowledgeController.cs`.
+  - Nâng cấp `/__dev/fetch-url` trong `frontend/web/vite.config.ts` đọc stream từng chunk và hủy ngay khi chạm mốc `2MB` (`reader.cancel()`).
+  - Đổi task test mặc định trong `.vscode/tasks.json` trỏ về `CORE_API_URL=http://localhost:5176`, tách task trỏ `https://lavitree.io.vn` thành tùy chọn riêng để tránh ghi nhầm dữ liệu test lên production.
+
+### 13.10. Bóc tách siêu dữ liệu Key-Value tất định & bảo toàn ngày cập nhật (`TASK-15-R15`, 15/11/2026)
+- [x] **Bóc tách Key-Value phía Frontend (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - Thêm bộ nhận diện siêu dữ liệu tất định gồm `extractKeyMetadataFromText`, `normalizeDateDisplay`, `MONTH_MAP`, `KNOWN_ORG_BY_HOST`, `parseCombinedOrg` và `parseCombinedDate`.
+  - Hỗ trợ chuẩn hóa đa dạng định dạng ngày (tiếng Anh như `July 24, 2014`, tiếng Việt và ISO) về `DD/MM/YYYY` (ví dụ `Publication date: July 24, 2014` -> `24/07/2014`, `Reviewed/Revised: July 26, 2024` -> `26/07/2024`); trích xuất tác giả từ khối `Authors` hoặc các cặp `<Tên>:\n<Chức danh>` (như `Garrett Ridge: Research Specialist Plant Pathology`), và xác định cơ quan xuất bản từ phần đầu bài hoặc bảng `KNOWN_ORG_BY_HOST` theo domain nguồn.
+  - Tích hợp vào `handleParseArticle`: gộp kết quả Key-Value với `suggested_metadata` từ AI (ưu tiên giá trị tường minh từ Key-Value cho cơ quan, tác giả, ngày đăng và ngày cập nhật), đồng thời tự điền các trường còn trống (`ingestAuthor`, `ingestUpdatedDate`) ở Tab 2 (`editUrl` / Nạp thêm dữ liệu bài báo).
+  - Cập nhật các nút `[Áp dụng tất cả]` ở Tab 2, popover Cơ quan `[Áp dụng]` và popover Ngày `[Áp dụng]` để điền tách biệt đầy đủ cả `ingestOrg` & `ingestAuthor` lẫn `ingestPublishedDate` & `ingestUpdatedDate`.
+- [x] **Giữ nguyên dòng metadata cuối bài phía Core API (`backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`)**:
+  - Bổ sung `MetadataKeyLineRegex` (ngay sau `CommonHeadingWordsRegex`) và cập nhật `IngestArticle` để không loại bỏ các dòng ngắn (`10 <= cleaned.Length < 40`) khớp mẫu khóa metadata (ví dụ `Publication date:`, `Reviewed/Revised:`, `Authors:`) nằm rải rác hoặc ở cuối bài báo trước khi gửi sang Agent Service.
+- [x] **Bảo toàn ngày đầy đủ & ngày cập nhật phía Agent Service (`backend/agent-service/app/rag/pipeline.py`)**:
+  - Sửa `_filter_metadata`: giữ nguyên chuỗi `published_date` đầy đủ (tối đa 100 ký tự, bao gồm cả định dạng `DD/MM/YYYY (Cập nhật: DD/MM/YYYY)`) thay vì cắt chỉ còn 1 năm 4 chữ số, miễn là mọi năm 4 chữ số trong chuỗi đều hợp lệ (`1900 <= int(y) <= current_year`) và xuất hiện trong `article_text`.
+  - Cập nhật prompt trong `label_paragraphs` yêu cầu `organization` bỏ qua phần `References` cuối bài và `published_date` giữ định dạng `DD/MM/YYYY` kèm `(Cập nhật: ...)` khi có.
+- [x] **Hoàn thiện xử lý `<br>`, ngữ cảnh AI `META_CONTEXT` & Kiểm thử thực tế Google Chrome (`TASK-15-R16`, 15/11/2026)**:
+  - Sửa `cleanArticleTextFromHtml` trong `frontend/web/src/pages/AdminDashboard.tsx`: giữ xuống dòng `\n` cho thẻ `<br>` (thay vì thay bằng `' '`), đọc thêm thẻ meta cập nhật (`article:modified_time`, `og:updated_time`, `last-modified`, `revised`, `dateModified`) và đẩy `Ngày cập nhật: ...` trước khi dọn DOM.
+  - Thêm `extractDateFromSegment` và bỏ neo đầu dòng `^` trong `extractKeyMetadataFromText` để bắt đúng cả ngày đăng và ngày cập nhật nằm cùng dòng (như `Publication date: ... Reviewed/Revised: ...`, `Last Reviewed: July 2020`, `Last Revised: 03/01/2024`), hỗ trợ `Month YYYY` (`07/2020`) và lọc bỏ chức danh học thuật (`Research Technician`, `Research Associate`, `WVU Extension Specialist...`) khỏi tên tác giả.
+  - Bổ sung `BuildArticleMetaContext` (`META_CONTEXT` gồm 10 dòng đầu + 15 dòng cuối bài) trong `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`, mở rộng `MetadataKeyLineRegex`, và tách rõ `"author"` + `"updated_date"` trong JSON schema + `_validate_date_text` của `backend/agent-service/app/rag/pipeline.py` (loại `"META_CONTEXT"` khỏi danh sách `labels` được gán nhãn).
+  - **Kết quả kiểm thử thực tế trên Google Chrome (`http://localhost:3000/admin/ingest`)**:
+    1. `content.ces.ncsu.edu/leaf-scorch-of-strawberry`: `Tiêu đề`=`Leaf Scorch of Strawberry`, `Cơ quan`=`NC State Extension Publications`, `Tác giả`=`Frank Louws, Garrett Ridge, Bill Cline`, `Ngày đăng`=`24/07/2014`, `Ngày cập nhật`=`26/07/2024`.
+    2. `content.ces.ncsu.edu/tomato-yellow-leaf-curl-virus`: `Tiêu đề`=`Tomato Yellow Leaf Curl Virus Plant Disease Factsheets`, `Cơ quan`=`NC State Extension Publications`, đủ 5 tác giả `Leighann Murray, Ella Reeves, Inga Meadows, Ella Hinchliffe, Sara Villani` (không lẫn chức danh), `Ngày đăng`=`14/07/2023`.
+    3. `extension.wvu.edu/.../bacterial-leaf-spot-of-pepper`: `Tiêu đề`=`Bacterial Leaf Spot of Pepper`, `Cơ quan`=`West Virginia University Extension`, `Tác giả`=`Mahfuz Rahman, Nur Alam`, `Ngày cập nhật`=`07/2020` *(ghi chú: `ask.ifas.ufl.edu/publication/PP351` tự chuyển hướng vòng lặp nên UI báo rõ hướng dẫn Ctrl+A/Ctrl+C thủ công)*.
+    4. `hort.extension.wisc.edu/articles/septoria-leaf-spot/`: `Tiêu đề`=`Septoria Leaf Spot`, `Cơ quan`=`Wisconsin Horticulture`, `Tác giả`=`Brian Hudelson`, `Ngày đăng`=`2024`, `Ngày cập nhật`=`03/01/2024`; và `nongnghieppho.vn/blogs/news/benh-dom-vong-tren-ca-chua`: `Tiêu đề` + `Cơ quan`=`Nông Nghiệp Phố`.
+    5. Chế độ Xem chi tiết -> Tab 2 (`Nạp thêm dữ liệu bài báo`) cho `leaf-scorch-of-strawberry`: tự động điền `Tác giả`=`Frank Louws, Garrett Ridge, Bill Cline` và `Ngày cập nhật`=`26/07/2024`, hiển thị `3 ô có AI đề xuất`.

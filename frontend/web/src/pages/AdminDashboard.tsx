@@ -13,7 +13,7 @@ import {
   ExternalLink, Search, Filter, Layers, Database, Package,
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Trash2,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon,
-  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors
+  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3, Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -171,26 +171,481 @@ const SECTION_COPY: Record<string, { title: string; description: string }> = {
   },
 };
 
+// Từ điển dịch thuật thuật ngữ nông nghiệp / hoạt chất sang tiếng Việt
+const AGRI_TRANSLATIONS: Record<string, string> = {
+  'fungicides': 'Thuốc trừ nấm bệnh',
+  'fungicide': 'Thuốc trừ nấm bệnh',
+  'copper': 'Gốc đồng (diệt nấm & vi khuẩn)',
+  'chlorothalonil': 'Hoạt chất trừ nấm Chlorothalonil',
+  'mancozeb': 'Hoạt chất trừ nấm Mancozeb',
+  'azoxystrobin': 'Hoạt chất Azoxystrobin',
+  'metalaxyl': 'Hoạt chất lưu dẫn Metalaxyl',
+  'thinning of whole plants': 'Tỉa bớt toàn bộ cây / tỉa thưa',
+  'thinning': 'Tỉa thưa mật độ',
+  'removal of selected branches from individual plants': 'Tỉa bỏ cành bệnh / cành rậm rạp',
+  'removal of selected branches': 'Cắt tỉa cành chọn lọc',
+  'crop rotation': 'Luân canh cây trồng',
+  'drip irrigation': 'Tưới nhỏ giọt (tránh ướt lá)',
+  'pruning': 'Cắt tỉa cành',
+  'mulching': 'Phủ gốc / phủ bạt giữ ẩm',
+  'resistant varieties': 'Giống kháng bệnh',
+  'sanitation': 'Vệ sinh đồng ruộng / tiêu hủy tàn dư',
+  'biological control': 'Biện pháp sinh học',
+  'neem oil': 'Dầu neem sinh học',
+  'bacillus subtilis': 'Vi khuẩn đối kháng Bacillus subtilis',
+  'trichoderma': 'Nấm đối kháng Trichoderma',
+  'potassium phosphite': 'Lân Phosphite kích kháng',
+  'bordeaux mixture': 'Booc-đô (Bordeaux) trị nấm',
+  'insecticide': 'Thuốc trừ sâu',
+  'insecticides': 'Thuốc trừ sâu',
+  'potassium': 'Phân Kali',
+  'calcium': 'Canxi chống nứt / thối'
+};
+
+const getAgriTranslation = (text: string): string | null => {
+  if (!text) return null;
+  const lower = text.trim().toLowerCase();
+  if (AGRI_TRANSLATIONS[lower]) return AGRI_TRANSLATIONS[lower];
+  for (const [key, val] of Object.entries(AGRI_TRANSLATIONS)) {
+    if (lower.includes(key)) return val;
+  }
+  return null;
+};
+
+const buildCombinedOrg = (org: string, author: string) => {
+  const o = org.trim();
+  const a = author.trim();
+  if (o && a) return `${o} (Tác giả: ${a})`;
+  if (a) return `Tác giả: ${a}`;
+  return o;
+};
+
+const parseCombinedOrg = (raw?: string | null): { org: string; author: string } => {
+  const text = (raw || '').trim();
+  if (!text) return { org: '', author: '' };
+  const authorMatch = text.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+  if (authorMatch) {
+    return { org: authorMatch[1].trim(), author: authorMatch[2].trim() };
+  }
+  if (/^(?:Tác giả|Author):/i.test(text)) {
+    return { org: '', author: text.replace(/^(?:Tác giả|Author):\s*/i, '').trim() };
+  }
+  return { org: text, author: '' };
+};
+
+const buildCombinedDate = (pubDate: string, upDate: string) => {
+  const p = pubDate.trim();
+  const u = upDate.trim();
+  if (p && u) return `${p} (Cập nhật: ${u})`;
+  if (u) return `Cập nhật: ${u}`;
+  return p;
+};
+
+const parseCombinedDate = (raw?: string | null): { pubDate: string; upDate: string } => {
+  const text = (raw || '').trim();
+  if (!text || text === 'Không ghi ngày') return { pubDate: '', upDate: '' };
+  const dateMatch = text.match(/^(.*?)\s*\((?:Cập nhật|Updated)?[:\s]*(.*?)\)$/i);
+  if (dateMatch) {
+    return { pubDate: dateMatch[1].trim(), upDate: dateMatch[2].trim() };
+  }
+  if (/^(?:Cập nhật|Updated):/i.test(text)) {
+    return { pubDate: '', upDate: text.replace(/^(?:Cập nhật|Updated):\s*/i, '').trim() };
+  }
+  return { pubDate: text, upDate: '' };
+};
+
+const MONTH_MAP: Record<string, string> = {
+  january: '01', jan: '01',
+  february: '02', feb: '02',
+  march: '03', mar: '03',
+  april: '04', apr: '04',
+  may: '05',
+  june: '06', jun: '06',
+  july: '07', jul: '07',
+  august: '08', aug: '08',
+  september: '09', sept: '09', sep: '09',
+  october: '10', oct: '10',
+  november: '11', nov: '11',
+  december: '12', dec: '12',
+};
+
+const normalizeDateDisplay = (raw: string): string => {
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+
+  const engMDY = cleaned.match(/\b([a-zA-Z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/);
+  if (engMDY) {
+    const mm = MONTH_MAP[engMDY[1].toLowerCase()];
+    if (mm) return `${engMDY[2].padStart(2, '0')}/${mm}/${engMDY[3]}`;
+  }
+
+  const engDMY = cleaned.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-zA-Z]+)\.?,?\s+(\d{4})\b/);
+  if (engDMY) {
+    const mm = MONTH_MAP[engDMY[2].toLowerCase()];
+    if (mm) return `${engDMY[1].padStart(2, '0')}/${mm}/${engDMY[3]}`;
+  }
+
+  const viDate = cleaned.match(/(?:ngày\s*)?(\d{1,2})\s*tháng\s*(\d{1,2})[,\s]*(?:năm\s*)?(\d{4})/i);
+  if (viDate) {
+    return `${viDate[1].padStart(2, '0')}/${viDate[2].padStart(2, '0')}/${viDate[3]}`;
+  }
+
+  const iso = cleaned.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (iso) {
+    return `${iso[3].padStart(2, '0')}/${iso[2].padStart(2, '0')}/${iso[1]}`;
+  }
+
+  const dmy = cleaned.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
+  if (dmy) {
+    const p1 = parseInt(dmy[1], 10);
+    const p2 = parseInt(dmy[2], 10);
+    if (p1 <= 12 && p2 > 12) {
+      return `${dmy[2].padStart(2, '0')}/${dmy[1].padStart(2, '0')}/${dmy[3]}`;
+    }
+    return `${dmy[1].padStart(2, '0')}/${dmy[2].padStart(2, '0')}/${dmy[3]}`;
+  }
+
+  const viMY = cleaned.match(/(?:tháng\s*)?(\d{1,2})(?:\s*năm\s*|\s*[\/\-]\s*)(\d{4})/i);
+  if (viMY) {
+    const mNum = parseInt(viMY[1], 10);
+    if (mNum >= 1 && mNum <= 12) {
+      return `${String(mNum).padStart(2, '0')}/${viMY[2]}`;
+    }
+  }
+
+  const engMY = cleaned.match(/\b([a-zA-Z]+)\.?\s+(?:of\s+|,\s*)?(\d{4})\b/);
+  if (engMY) {
+    const mm = MONTH_MAP[engMY[1].toLowerCase()];
+    if (mm) return `${mm}/${engMY[2]}`;
+  }
+
+  const yearOnly = cleaned.match(/\b(19\d{2}|20\d{2})\b/);
+  if (yearOnly && cleaned.length <= 20) return yearOnly[1];
+
+  return cleaned.slice(0, 60);
+};
+
+// Trích xuất biểu thức ngày/tháng/năm đầu tiên ngay sau từ khóa (tránh bắt nhầm năm rải rác giữa đoạn văn)
+const extractDateFromSegment = (segment: string): string => {
+  const cleaned = segment
+    .replace(/^[\s:\-–—,]+/, '')
+    .replace(/^(?:on|in|date|ngày|lúc|gần\s*nhất|lần\s*cuối)\s+/i, '')
+    .trim();
+  if (!cleaned) return '';
+
+  const patterns: RegExp[] = [
+    /^([a-zA-Z]+\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+(?:19|20)\d{2})\b/,
+    /^(\d{1,2}(?:st|nd|rd|th)?\s+[a-zA-Z]+\.?,?\s+(?:19|20)\d{2})\b/,
+    /^((?:ngày\s*)?\d{1,2}\s*tháng\s*\d{1,2}[,\s]*(?:năm\s*)?(?:19|20)\d{2})\b/i,
+    /^((?:19|20)\d{2}-\d{1,2}-\d{1,2})(?:[T\s]\S*)?\b/,
+    /^(\d{1,2}[\/\-.]\d{1,2}[\/\-.](?:19|20)\d{2})\b/,
+    /^((?:tháng\s*)?(?:0?[1-9]|1[0-2])(?:\s*năm\s*|\s*[\/\-]\s*)(?:19|20)\d{2})\b/i,
+    /^([a-zA-Z]+\.?\s+(?:19|20)\d{2})\b/,
+    /^((?:19|20)\d{2})\b/,
+  ];
+
+  for (const re of patterns) {
+    const m = cleaned.match(re);
+    if (m) {
+      const normalized = normalizeDateDisplay(m[1]);
+      if (normalized) return normalized;
+    }
+  }
+  return '';
+};
+
+const KNOWN_ORG_BY_HOST: Array<{ match: RegExp; name: string }> = [
+  { match: /(?:^|\.)ces\.ncsu\.edu$/i, name: 'NC State Extension Publications' },
+  { match: /(?:^|\.)extension\.cornell\.edu$|(?:^|\.)cornell\.edu$/i, name: 'Cornell University Cooperative Extension' },
+  { match: /(?:^|\.)extension\.umn\.edu$|(?:^|\.)umn\.edu$/i, name: 'University of Minnesota Extension' },
+  { match: /(?:^|\.)ifas\.ufl\.edu$|(?:^|\.)ufl\.edu$/i, name: 'UF/IFAS Extension, University of Florida' },
+  { match: /(?:^|\.)extension\.wvu\.edu$|(?:^|\.)wvu\.edu$/i, name: 'West Virginia University Extension' },
+  { match: /(?:^|\.)extension\.wisc\.edu$|(?:^|\.)wisc\.edu$/i, name: 'University of Wisconsin-Madison Extension' },
+  { match: /(?:^|\.)extension\.uga\.edu$|(?:^|\.)uga\.edu$/i, name: 'UGA Cooperative Extension' },
+  { match: /(?:^|\.)extension\.unh\.edu$|(?:^|\.)unh\.edu$/i, name: 'University of New Hampshire Extension' },
+  { match: /(?:^|\.)extension\.usu\.edu$|(?:^|\.)usu\.edu$/i, name: 'Utah State University Extension' },
+  { match: /(?:^|\.)udel\.edu$/i, name: 'University of Delaware Cooperative Extension' },
+  { match: /(?:^|\.)umass\.edu$/i, name: 'UMass Extension' },
+  { match: /(?:^|\.)ndsu\.edu$/i, name: 'NDSU Extension' },
+  { match: /(?:^|\.)vegcropshotline\.org$|(?:^|\.)purdue\.edu$/i, name: 'Purdue University Extension' },
+  { match: /(?:^|\.)ipm\.ucanr\.edu$|(?:^|\.)ucanr\.edu$/i, name: 'UC IPM (University of California)' },
+  { match: /(?:^|\.)frontiersin\.org$/i, name: 'Frontiers in Plant Science' },
+  { match: /(?:^|\.)ahdb\.org\.uk$/i, name: 'AHDB (Agriculture and Horticulture Development Board)' },
+  { match: /(?:^|\.)khuyennongvn\.gov\.vn$/i, name: 'Trung tâm Khuyến nông Quốc gia' },
+  { match: /(?:^|\.)vaas\.vn$/i, name: 'Viện Khoa học Nông nghiệp Việt Nam (VAAS)' },
+  { match: /(?:^|\.)ppd\.gov\.vn$|(?:^|\.)bvtv\.gov\.vn$/i, name: 'Cục Bảo vệ thực vật' },
+  { match: /(?:^|\.)iasvn\.org$/i, name: 'Viện Khoa học Kỹ thuật Nông nghiệp miền Nam (IAS)' },
+];
+
+const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
+  const result = {
+    organization: '',
+    author: '',
+    publishedDate: '',
+    updatedDate: '',
+  };
+
+  if (!text) return result;
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  // Regex không neo ^ để bắt được cả trường hợp <br> hoặc dấu chấm gộp "Publication date: ... Reviewed/Revised: ..." trên cùng 1 dòng
+  const pubContextRe = /\b(?:original\s+publication\s+date|publication\s*date|date\s*published|originally\s+published(?:\s+in|\s+on)?|first\s+published(?:\s+in|\s+on)?|published(?:\s+date|\s+on|\s+in)?|posted\s*on|release\s*date|ngày\s*(?:đăng|xuất\s*bản|phát\s*hành)|đăng\s*ngày|xuất\s*bản(?:\s*ngày|\s*tháng|\s*năm)?)\s*(?:[:\-]|\s)\s*([^\n;|]+)/i;
+  const updContextRe = /\b(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified|revised)|updated(?:\s+on|\s+in)?|revised(?:\s+on|\s+in)?|reviewed(?:\s+on|\s+in)?|modified(?:\s+on|\s+in)?|ngày\s*(?:cập\s*nhật|rà\s*soát|hiệu\s*đính)|cập\s*nhật(?:\s*lần\s*cuối|\s*gần\s*nhất|\s*ngày)?|(?:được\s*)?rà\s*soát\s*\/?\s*cập\s*nhật(?:\s*gần\s*nhất)?(?:\s*ngày)?|hiệu\s*đính(?:\s*ngày)?)\s*(?:[:\-]|\s)\s*([^\n;|]+)/i;
+  const orgKeyRe = /^(?:cơ\s*quan|tổ\s*chức|đơn\s*vị(?:\s*phát\s*hành)?|organization|publisher|institution)\s*[:\-]\s*(.+)$/i;
+  const authorKeyRe = /^(?:tác\s*giả|author|authors|written\s+by|prepared\s+by|biên\s*soạn|người\s*viết)\s*[:\-]\s*(.+)$/i;
+  const cleanAuthorNames = (raw: string) =>
+    raw
+      .replace(/(\p{L})\d+(?=\s*(?:,|$|\band\b|\bvà\b))/gu, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isEdgeLine = i < 15 || i >= lines.length - 15;
+
+    let pubMatchedOnLine = false;
+    if (!result.publishedDate) {
+      const m = line.match(pubContextRe);
+      if (m) {
+        const hasColon = /\b(?:publication\s*date|date\s*published|published|posted\s*on|release\s*date|ngày\s*(?:đăng|xuất\s*bản|phát\s*hành)|đăng\s*ngày)\s*[:\-]/i.test(line);
+        if (hasColon || isEdgeLine || line.length <= 180) {
+          const rawVal = m[1].split(/\b(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|last\s*(?:updated|reviewed|modified)|updated|revised|reviewed|cập\s*nhật|rà\s*soát|hiệu\s*đính)\b/i)[0].trim();
+          const parsed = extractDateFromSegment(rawVal);
+          if (parsed) {
+            result.publishedDate = parsed;
+            pubMatchedOnLine = true;
+          }
+        }
+      }
+    }
+
+    if (!result.updatedDate) {
+      const m = line.match(updContextRe);
+      if (m) {
+        const hasColon = /\b(?:reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|updated|revised|reviewed|cập\s*nhật|hiệu\s*đính)\s*[:\-]/i.test(line);
+        if (hasColon || isEdgeLine || pubMatchedOnLine || line.length <= 160) {
+          const parsed = extractDateFromSegment(m[1]);
+          if (parsed) {
+            result.updatedDate = parsed;
+          }
+        }
+      }
+    }
+
+    if (!result.organization && i < 15) {
+      const m = line.match(orgKeyRe);
+      if (m && m[1].trim().length >= 3 && m[1].trim().length <= 120) {
+        result.organization = m[1].trim();
+      }
+    }
+
+    if (!result.author) {
+      const m = line.match(authorKeyRe);
+      if (m && m[1].trim().length >= 3 && m[1].trim().length <= 240) {
+        const rolePhraseRe = /\b(?:wvu\s+extension|extension|specialist|professor|director|coordinator|fellow|educator|agent|research\s*(?:assistant|associate|technician|specialist)|assistant|associate|technician|scientist|pathology|entomology|horticulture|agronomy|agriculture|biology|natural\s+resources|resources|department|division|college|school|center|centre|faculty|university|institute)\b/i;
+        const cleanedRaw = cleanAuthorNames(m[1]);
+        const segments = cleanedRaw
+          .split(/,\s*(?:and\s+|và\s+)?|\s+(?:and|và)\s+/i)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const keptNames = segments.filter((seg) => !rolePhraseRe.test(seg));
+        result.author = (keptNames.length > 0 ? keptNames.join(', ') : cleanedRaw).slice(0, 180);
+      } else if (i < 12) {
+        const byMatch = line.match(/^(?:by|written\s+by|prepared\s+by)\s+(.+)$/i);
+        if (byMatch && byMatch[1].trim().length >= 4 && byMatch[1].trim().length <= 150 && !/\b(?:the|this|that|wind|rain|water|fungus)\b/i.test(byMatch[1])) {
+          result.author = cleanAuthorNames(byMatch[1]);
+        }
+      }
+    }
+  }
+
+  if (!result.author) {
+    const roleRe = /\b(professor|specialist|director|researcher|research|extension|scientist|technician|associate|assistant|coordinator|fellow|educator|agent|temporary|interim|adjunct|emeritus|faculty|staff|student|entomology|plant\s+pathology|pathology|horticulture|agronomy|ornamental|vegetable|lecturer|ph\.?\s*d\.?|giáo\s*sư|phó\s*giáo\s*sư|tiến\s*sĩ|thạc\s*sĩ|kỹ\s*sư|chuyên\s*gia|nghiên\s*cứu\s*viên|giảng\s*viên)\b/i;
+    const stopSectionRe = /^(keywords?|references?|find\s+more\s+information|publication\s*date|reviewed\s*\/\s*revised|từ\s*khóa|tài\s*liệu\s*tham\s*khảo)\b/i;
+    const personNameRe = /^\p{Lu}[\p{L}.'-]+(?:\s+\p{Lu}\.?)?(?:\s+\p{Lu}[\p{L}.'-]+){1,4}$/u;
+    const nonAuthorHeadings = /^(introduction|symptoms\s+and\s+signs|disease\s+cycle|management|pathogen|diagnostic\s+procedures|references|authors|keywords|leaf\s+scorch|strawberry)$/i;
+
+    const extractedAuthors: string[] = [];
+    const authorsHeadingIdx = lines.findIndex((l) => /^authors?:?$/i.test(l));
+
+    if (authorsHeadingIdx !== -1) {
+      const colonCandidates: string[] = [];
+      const plainCandidates: string[] = [];
+      for (let i = authorsHeadingIdx + 1; i < Math.min(lines.length, authorsHeadingIdx + 35); i++) {
+        const rawLine = lines[i].trim();
+        const hadColon = rawLine.endsWith(':');
+        const cur = cleanAuthorNames(rawLine.replace(/:\s*$/, ''));
+        if (stopSectionRe.test(cur)) break;
+        if (roleRe.test(cur)) continue;
+        if (personNameRe.test(cur) && !nonAuthorHeadings.test(cur)) {
+          if (hadColon) {
+            if (!colonCandidates.includes(cur)) colonCandidates.push(cur);
+          } else if (!plainCandidates.includes(cur)) {
+            plainCandidates.push(cur);
+          }
+        }
+      }
+      const chosen = colonCandidates.length >= 2 ? colonCandidates : [...colonCandidates, ...plainCandidates];
+      chosen.forEach((name) => {
+        if (!extractedAuthors.includes(name)) extractedAuthors.push(name);
+      });
+    } else {
+      for (let i = 0; i < lines.length - 1; i++) {
+        const cur = lines[i];
+        if (!cur.endsWith(':')) continue;
+        const candidate = cleanAuthorNames(cur.slice(0, -1));
+        const nextLine = lines[i + 1];
+        if (
+          personNameRe.test(candidate) &&
+          !nonAuthorHeadings.test(candidate) &&
+          roleRe.test(nextLine) &&
+          !extractedAuthors.includes(candidate)
+        ) {
+          extractedAuthors.push(candidate);
+        }
+      }
+    }
+
+    if (extractedAuthors.length === 0) {
+      // Nhận diện dòng liệt kê nhiều tác giả ở đầu bài (vd: UF/IFAS "Keevan MacKenzie1, Jessica Chitwood-Brown2, ... and Gary Vallad4")
+      const topByline = lines.slice(0, 10).find((l) => {
+        if (l.length < 10 || l.length > 180 || /[?!:]/.test(l)) return false;
+        const cleanedLine = cleanAuthorNames(l);
+        const tokens = cleanedLine.split(/,\s*(?:and\s+|và\s+)?|\s+(?:and|và)\s+/i).map((t) => t.trim()).filter(Boolean);
+        return (
+          tokens.length >= 2 &&
+          tokens.length <= 10 &&
+          tokens.every((t) => personNameRe.test(t) && !nonAuthorHeadings.test(t))
+        );
+      });
+      if (topByline) {
+        result.author = cleanAuthorNames(topByline);
+      }
+    }
+
+    if (!result.author && extractedAuthors.length > 0) {
+      result.author = extractedAuthors.slice(0, 10).join(', ');
+    }
+  }
+
+  if (!result.organization) {
+    const topOrgLine = lines.slice(0, 8).find(
+      (l) =>
+        l.length >= 6 &&
+        l.length <= 100 &&
+        !l.endsWith(':') &&
+        /\b(extension|university|institute|center|centre|trung\s*tâm|viện|cục|bộ\s*nông\s*nghiệp|sở\s*nông\s*nghiệp|khuyến\s*nông)\b/i.test(l)
+    );
+    if (topOrgLine) {
+      result.organization = topOrgLine;
+    } else if (sourceUrl) {
+      try {
+        const host = new URL(sourceUrl.trim()).hostname.toLowerCase();
+        const matchedHost = KNOWN_ORG_BY_HOST.find((item) => item.match.test(host));
+        if (matchedHost) result.organization = matchedHost.name;
+      } catch {
+        // ignore invalid URL
+      }
+    }
+  }
+
+  return result;
+};
+
+const isSafeHttpUrl = (url?: string | null): boolean => {
+  if (!url) return false;
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+interface DuplicatePair {
+  idA: string;
+  idB: string;
+  indexA: number;
+  indexB: number;
+  textA: string;
+  textB: string;
+  similarity: number;
+}
+
+const findDuplicateChunks = (rows: KnowledgeSourceItem[]): DuplicatePair[] => {
+  const clean = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+  const pairs: DuplicatePair[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const textA = clean(rows[i].evidenceText);
+      const textB = clean(rows[j].evidenceText);
+      if (!textA || !textB) continue;
+
+      if (textA === textB) {
+        pairs.push({
+          idA: rows[i].id,
+          idB: rows[j].id,
+          indexA: i + 1,
+          indexB: j + 1,
+          textA: rows[i].evidenceText,
+          textB: rows[j].evidenceText,
+          similarity: 100,
+        });
+        continue;
+      }
+
+      const wordsA = new Set(textA.split(' '));
+      const wordsB = new Set(textB.split(' '));
+      let inter = 0;
+      for (const w of wordsA) {
+        if (wordsB.has(w)) inter++;
+      }
+      const union = new Set([...wordsA, ...wordsB]).size;
+      const sim = union > 0 ? (inter / union) * 100 : 0;
+      if (sim >= 75) {
+        pairs.push({
+          idA: rows[i].id,
+          idB: rows[j].id,
+          indexA: i + 1,
+          indexB: j + 1,
+          textA: rows[i].evidenceText,
+          textB: rows[j].evidenceText,
+          similarity: Math.round(sim),
+        });
+      }
+    }
+  }
+  return pairs;
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'ingestion' }) => {
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
   const [diseases, setDiseases] = useState<DiseaseOption[]>([]);
 
   // ==================== TAB 1: NHẬP BÀI BÁO (HITL INGESTION) ====================
-  // Mục 3 là "Tùy chọn - để AI tự đoán": không chọn sẵn cây/bệnh
+  // Phân loại cây/bệnh
   const [ingestClass, setIngestClass] = useState<string>('');
   // true khi cây/bệnh do AI đoán từ bài trước: bài mới phải đoán lại, không mang theo
   const [classFromAi, setClassFromAi] = useState<boolean>(false);
   const [selectedPlant, setSelectedPlant] = useState<string>('');
   const [ingestUrl, setIngestUrl] = useState<string>('');
   const [ingestTitle, setIngestTitle] = useState<string>('');
+  // Tách biệt rõ ràng 4 trường: Cơ quan, Tác giả, Ngày đăng, Ngày cập nhật
   const [ingestOrg, setIngestOrg] = useState<string>('');
-  const [ingestDate, setIngestDate] = useState<string>('');
+  const [ingestAuthor, setIngestAuthor] = useState<string>('');
+  const [ingestPublishedDate, setIngestPublishedDate] = useState<string>('');
+  const [ingestUpdatedDate, setIngestUpdatedDate] = useState<string>('');
+  const [ingestDate, setIngestDate] = useState<string>(''); // fallback tương thích
   const [ingestText, setIngestText] = useState<string>('');
   const [ingesting, setIngesting] = useState<boolean>(false);
+  const [crawlingUrl, setCrawlingUrl] = useState<boolean>(false);
   const [ingestionResult, setIngestionResult] = useState<IngestionResponse | null>(null);
 
   // Chọn đoạn để commit
-  const [selectedParagraphs, setSelectedParagraphs] = useState<Record<string, { selected: boolean; unitType: string }>>({});
+  const [selectedParagraphs, setSelectedParagraphs] = useState<Record<string, { selected: boolean; unitType: string; diseaseClass?: string }>>({});
   const [commitNotes, setCommitNotes] = useState<string>('Đã đối chiếu với bài viết gốc');
   const [committing, setCommitting] = useState<boolean>(false);
   const [showNoiseParagraphs, setShowNoiseParagraphs] = useState<boolean>(false);
@@ -203,14 +658,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [editRows, setEditRows] = useState<KnowledgeSourceItem[]>([]);
   const [editLoading, setEditLoading] = useState<boolean>(false);
   const [editSaving, setEditSaving] = useState<boolean>(false);
-  const [editOriginalMeta, setEditOriginalMeta] = useState({ modelClass: '', title: '', org: '', date: '' });
+  const [editOriginalMeta, setEditOriginalMeta] = useState({
+    plantName: '',
+    diseaseName: '',
+    modelClass: '',
+    title: '',
+    org: '',
+    author: '',
+    pubDate: '',
+    upDate: '',
+    date: '',
+  });
   const [summaryDrafts, setSummaryDrafts] = useState<Record<string, string>>({});
+  const [editSubTab, setEditSubTab] = useState<'approved' | 'reparse'>('approved');
+  const [dismissMetaDiff, setDismissMetaDiff] = useState<boolean>(false);
+  const [dismissedAiFields, setDismissedAiFields] = useState<Record<string, boolean>>({});
+  const [activeAiPopoverField, setActiveAiPopoverField] = useState<string | null>(null);
+  const [isMetaCardCollapsed, setIsMetaCardCollapsed] = useState<boolean>(false);
+  const [showMetaEditPanel, setShowMetaEditPanel] = useState<boolean>(false);
+  const [articleTopics, setArticleTopics] = useState<string[]>([]);
+  const [selectedTopicToAdd, setSelectedTopicToAdd] = useState<string>('');
 
-  // Tách đoạn > 800 ký tự (hoặc theo ý Admin)
+  // Highlight cụm từ trích xuất (mention tag)
+  const [highlightedMention, setHighlightedMention] = useState<{ paraId: string; text: string } | null>(null);
+
+  // Tách đoạn an toàn theo dấu câu (Điều 25 Luật SHTT - Không sửa đổi nguyên văn)
   const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
   const [splitTargetPara, setSplitTargetPara] = useState<ParagraphItem | null>(null);
   const [splitPart1, setSplitPart1] = useState<string>('');
   const [splitPart2, setSplitPart2] = useState<string>('');
+  const [selectedCutIndex, setSelectedCutIndex] = useState<number>(-1);
+  const [selectedCutIndices, setSelectedCutIndices] = useState<number[]>([]);
 
   // Thêm / sửa thẻ vật tư (mentions)
   const [addingMentionParaId, setAddingMentionParaId] = useState<string | null>(null);
@@ -345,10 +823,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const handlePlantChange = (plant: string) => {
     setSelectedPlant(plant);
     setClassFromAi(false);
-    // Đổi cây thì bỏ bệnh không thuộc cây đó; không tự đoán bệnh đầu danh sách
+    const plantDiseases = diseases.filter((d) => d.plantName === plant);
+    setArticleTopics((prev) => {
+      const remaining = prev.filter((code) => plantDiseases.some((d) => d.classCode === code));
+      if (remaining.length > 0) return remaining;
+      return plantDiseases.length > 0 ? [plantDiseases[0].classCode] : [];
+    });
+    setSelectedTopicToAdd('');
     const current = diseases.find((d) => d.classCode === ingestClass);
     if (!current || current.plantName !== plant) {
-      setIngestClass('');
+      setIngestClass(plantDiseases.length > 0 ? plantDiseases[0].classCode : '');
     }
   };
 
@@ -379,82 +863,337 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   }, [imageFilterClass, imageFilterPart, imageFilterApproval]);
 
-  // ==================== TAB 1 LOGIC (TASK-15 V2) ====================
+  // Nhận diện đoạn/chủ đề thuộc nhóm Chăm sóc cây khỏe mạnh (không phải bệnh hại)
+  const isHealthyTopic = (diseaseName?: string, modelClass?: string): boolean => {
+    const name = (diseaseName || '').toLowerCase();
+    const cls = (modelClass || '').toLowerCase();
+    return name.includes('khỏe mạnh') || cls.endsWith('healthy');
+  };
+
+  // Danh sách các chủ đề / bệnh riêng biệt có trong bài viết đang xem
+  const articleDistinctTopics = React.useMemo(() => {
+    const list: Array<{ plantName: string; label: string; isHealthy: boolean; modelClass: string }> = [];
+    editRows.forEach((r) => {
+      const isH = isHealthyTopic(r.diseaseName, r.modelClass);
+      const label = isH ? 'Chăm sóc cây khỏe mạnh' : (r.diseaseName || 'Bệnh hại');
+      if (!list.some((d) => d.modelClass === r.modelClass)) {
+        list.push({ plantName: r.plantName, label, isHealthy: isH, modelClass: r.modelClass });
+      }
+    });
+    return list;
+  }, [editRows]);
+
+  const handleApproveAllInEdit = async () => {
+    if (editRows.length === 0) return;
+    const allApproved = editRows.every((r) => r.isManualApproved);
+    const targetStatus = !allApproved;
+    const ids = editRows.map((r) => r.id);
+    try {
+      await apiClient.patch('/knowledge/sources/approve-batch', {
+        source_ids: ids,
+        is_approved: targetStatus,
+        reviewer_notes: targetStatus ? 'Duyệt toàn bộ từ trang chi tiết bài viết' : 'Bỏ duyệt toàn bộ',
+      });
+      setEditRows((prev) => prev.map((r) => ({ ...r, isManualApproved: targetStatus })));
+      toast.success(targetStatus ? `Đã duyệt toàn bộ ${ids.length} đoạn của bài viết.` : `Đã bỏ duyệt ${ids.length} đoạn.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+    // ==================== TAB 1 LOGIC (TASK-15 V2) ====================
   const cleanArticleTextFromHtml = (html: string): string => {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      // Loại bỏ thẻ rác, menu, header, footer, quảng cáo
+      const BLOCK_TAGS = new Set([
+        'DIV', 'P', 'LI', 'TR', 'TD', 'TH', 'DT', 'DD',
+        'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'SECTION', 'ARTICLE'
+      ]);
+      const extractTextWithSpacing = (el: Element): string => {
+        const parts: string[] = [];
+        const walk = (node: Node) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            if (node.textContent) parts.push(node.textContent);
+            return;
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          const element = node as Element;
+          if (element.tagName === 'BR') {
+            parts.push('\n');
+            return;
+          }
+          const isBlock = BLOCK_TAGS.has(element.tagName);
+          if (isBlock) parts.push(' ');
+          element.childNodes.forEach(walk);
+          if (isBlock) parts.push(' ');
+        };
+        walk(el);
+        return parts
+          .join('')
+          .replace(/[ \t\f\v]+/g, ' ')
+          .replace(/ *\r?\n */g, '\n')
+          .replace(/\n{2,}/g, '\n')
+          .trim();
+      };
+
+      const isNoise = (text: string): boolean => {
+        const trimmed = text.trim();
+        if (!trimmed || trimmed.length < 3) return true;
+        const lower = trimmed.toLowerCase();
+        // Chỉ lọc tên nút mạng xã hội / điều hướng khi dòng ngắn (tránh xóa đoạn văn bắt đầu bằng "In ...")
+        if (
+          trimmed.length <= 35 &&
+          /^(facebook|zalo|twitter|x|youtube|linkedin|pinterest|instagram|in|share|tweet|print|email|search|log\s*in|sign\s*in|menu|publications|related publications|where next\??)$/i.test(lower)
+        ) {
+          return true;
+        }
+        if (/^(skip to|nhảy tới|chuyển tới)\s+/i.test(lower)) return true;
+        if (
+          trimmed.length <= 80 &&
+          /^(chia sẻ|bình luận|tin liên quan|xem thêm|bài viết liên quan|từ khóa|keywords?|tag|hotline|liên hệ|quảng cáo)\b/i.test(lower)
+        ) {
+          return true;
+        }
+        if (/^(điện thoại|sđt|hotline|email|fax):\s*[\d\s.\-]+$/i.test(lower)) return true;
+        // Hotline/quảng cáo: có số điện thoại đi kèm từ khóa liên hệ, hoặc dòng footer quen thuộc
+        const hasPhone = /(\+84|\b0)\d{2,3}[\s.-]?\d{3}[\s.-]?\d{3,4}\b/.test(trimmed);
+        if (trimmed.length <= 300 && hasPhone && /hotline|zalo|liên hệ|tư vấn|đặt hàng|mua hàng|gọi/i.test(lower)) return true;
+        if (/^bạn đang đọc bài viết|^đăng ký nhận bản tin/i.test(lower)) return true;
+        if (/^receive email notifications for new publications$/i.test(trimmed)) return true;
+        if (/^read our (commitment to nondiscrimination|privacy statement)\.?$/i.test(trimmed)) return true;
+        if (/^recommendations for the use of agricultural chemicals are included in this publication as a convenience/i.test(trimmed)) return true;
+        if (/^n\.c\.\s*cooperative extension prohibits discrimination and harassment/i.test(trimmed)) return true;
+        if (/^n\.c\.\s*cooperative extension is based at north carolina/i.test(trimmed)) return true;
+        if (/^find more information at the following .* websites:?$/i.test(trimmed)) return true;
+        if (/^(college of agriculture & life sciences|cals news|extension at nc a&t|jobs|give now|county centers|contact us|ncce logo|nc state extension)$/i.test(trimmed)) return true;
+        return false;
+      };
+
+      // Thay <br> bằng xuống dòng để các cặp metadata trong cùng <p> (Publication date / Reviewed/Revised) tách thành dòng riêng
+      doc.querySelectorAll('br').forEach((br) => {
+        br.replaceWith(doc.createTextNode('\n'));
+      });
+
+      // Trích xuất metadata (tiêu đề, cơ quan, tác giả, ngày đăng, ngày cập nhật) TRƯỚC khi xóa <header>
+      const h1El = doc.querySelector('article h1, main h1, [role="main"] h1, h1');
+      const titleText = (
+        (h1El ? extractTextWithSpacing(h1El) : '') ||
+        doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+        doc.title ||
+        ''
+      ).replace(/\s+/g, ' ').trim();
+
+      const siteOrg = (doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const authorMeta = (doc.querySelector('meta[name="author"]')?.getAttribute('content') || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const authorEls = Array.from(doc.querySelectorAll('.author, .authors, [rel="author"], .byline'));
+      const authorNames = authorEls
+        .map((el) => extractTextWithSpacing(el).replace(/\n+/g, ', '))
+        .filter((t) => t.length >= 3 && t.length <= 150 && !/^authors?:?$/i.test(t) && !isNoise(t));
+      if (authorMeta && !authorNames.includes(authorMeta)) {
+        authorNames.unshift(authorMeta);
+      }
+
+      const dateEl = doc.querySelector('time, .date, .post-date, .publish-date, .detail-time');
+      const metaDate = doc.querySelector('meta[property="article:published_time"], meta[name="publish-date"], meta[name="date"], meta[name="dcterms.created"], meta[itemprop="datePublished"]')?.getAttribute('content') || '';
+      const dateText = (dateEl?.getAttribute('datetime') || (dateEl ? extractTextWithSpacing(dateEl).replace(/\n+/g, ' ') : '') || metaDate || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const updatedEl = doc.querySelector('time.updated, .updated-date, .modified-date, .revised-date');
+      const metaUpdatedDate =
+        doc.querySelector('meta[property="article:modified_time"], meta[property="og:updated_time"], meta[name="last-modified"], meta[name="revised"], meta[name="dcterms.modified"], meta[itemprop="dateModified"]')?.getAttribute('content') || '';
+      const updatedDateText = (
+        updatedEl?.getAttribute('datetime') ||
+        (updatedEl ? extractTextWithSpacing(updatedEl).replace(/\n+/g, ' ') : '') ||
+        metaUpdatedDate ||
+        ''
+      )
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      // Loại bỏ thẻ rác, menu, header (trừ header chứa h1 bài), footer, quảng cáo
       const junkSelectors = [
-        'script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'iframe', 'noscript', 'svg',
+        'script', 'style', 'nav', 'footer', 'aside', 'form', 'iframe', 'noscript', 'svg',
         '.menu', '.navbar', '.sidebar', '.ad', '.ads', '.advertisement',
         '.social-share', '.share-buttons', '.share', '.comment', '.comments',
-        '.related', '.related-posts', '.breadcrumb', '.hotline', '.contact-info',
-        '[role="navigation"]', '[role="banner"]', '[role="complementary"]'
+        '.related', '.related-posts', '.related-publications', '.breadcrumb',
+        '.hotline', '.contact-info', '.skip-link', '.visually-hidden', '.sr-only',
+        '.newsletter', '.subscribe', '.cookie-banner', '.legal-disclaimer', '.disclaimer',
+        '[aria-hidden="true"]', '[role="navigation"]', '[role="banner"]', '[role="complementary"]'
       ];
       junkSelectors.forEach((sel) => {
         doc.querySelectorAll(sel).forEach((el) => el.remove());
       });
+      doc.querySelectorAll('header').forEach((el) => {
+        if (!el.querySelector('h1')) el.remove();
+      });
 
-      const isNoise = (text: string): boolean => {
-        if (!text || text.length < 5) return true;
-        const lower = text.toLowerCase();
-        if (/^(chia sẻ|bình luận|tin liên quan|xem thêm|bài viết liên quan|từ khóa|tag|hotline|liên hệ|quảng cáo)\b/i.test(text)) return true;
-        if (/^(điện thoại|sđt|hotline|email|fax):\s*[\d\s.\-]+$/i.test(text)) return true;
-        if (/^(facebook|zalo|twitter|youtube|in)\b/i.test(lower)) return true;
-        // Hotline/quảng cáo: có số điện thoại đi kèm từ khóa liên hệ, hoặc dòng footer quen thuộc
-        const hasPhone = /(\+84|\b0)\d{2,3}[\s.-]?\d{3}[\s.-]?\d{3,4}\b/.test(text);
-        if (text.length <= 300 && hasPhone && /hotline|zalo|liên hệ|tư vấn|đặt hàng|mua hàng|gọi/i.test(text)) return true;
-        if (/^bạn đang đọc bài viết|^đăng ký nhận bản tin/i.test(text)) return true;
-        return false;
-      };
-
-      // Dòng ngắn chỉ giữ khi là tiêu đề mục ("Biện pháp hóa học:", "4. Biện pháp quản lý");
-      // Core sẽ ghép tiêu đề mục vào đoạn ngay sau để không mất ngữ cảnh
       const isHeading = (el: Element | null, text: string): boolean =>
         (!!el && /^H[1-6]$/.test(el.tagName)) ||
         /:\s*$/.test(text) ||
         /^(\d+|[IVX]+|[a-zđ])[.)]\s+\S/i.test(text);
-      const keep = (el: Element | null, text: string): boolean =>
-        !isNoise(text) && (text.length >= 30 || (text.length >= 3 && isHeading(el, text)));
 
-      const mainEl = doc.querySelector('article') ||
-        doc.querySelector('[role="main"]') ||
-        doc.querySelector('.detail-content') ||
-        doc.querySelector('.post-content') ||
-        doc.querySelector('.article-content') ||
-        doc.querySelector('.entry-content') ||
-        doc.querySelector('.content') ||
+      const isMetadataLine = (text: string): boolean =>
+        /^(?:original\s+publication\s+date|publication\s*date|reviewed\s*\/\s*revised|date\s*revised|last\s*(?:updated|reviewed|modified)|published|updated|revised|reviewed|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật|tác\s*giả|author|authors|written\s+by|prepared\s+by|cơ\s*quan)\b/i.test(text) &&
+        text.length >= 8 &&
+        text.length <= 240;
+
+      const keep = (el: Element | null, text: string): boolean =>
+        !isNoise(text) &&
+        (text.length >= 30 ||
+          (text.length >= 3 && isHeading(el, text)) ||
+          isMetadataLine(text));
+
+      const candidates = [
+        doc.querySelector('article'),
+        doc.querySelector('[role="main"], main'),
+        doc.querySelector('.detail-content'),
+        doc.querySelector('.post-content'),
+        doc.querySelector('.article-content'),
+        doc.querySelector('.entry-content'),
+        doc.querySelector('.content'),
+      ];
+      const mainEl =
+        candidates.find((el) => el && extractTextWithSpacing(el).length >= 150) ||
         doc.body;
 
       if (!mainEl) return '';
 
       const lines: string[] = [];
       const seen = new Set<string>();
-      const push = (t: string) => {
-        const norm = t.replace(/\s+/g, ' ').trim();
+      const push = (t: string, allowMultiline = false) => {
+        const norm = allowMultiline
+          ? t.split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim()).filter(Boolean).join('\n')
+          : t.replace(/\s+/g, ' ').trim();
         if (!norm || seen.has(norm)) return; // footer lặp 2 lần, li lồng p...
         seen.add(norm);
         lines.push(norm);
       };
 
-      // Tiêu đề bài và ngày đăng thường nằm ngoài <article>: giữ lại để AI điền metadata
-      const titleText = (doc.querySelector('h1')?.textContent || '').trim();
       if (titleText && !isNoise(titleText)) push(titleText);
-      const dateEl = doc.querySelector('time, .date, .post-date, .publish-date, .detail-time');
-      const dateText = (dateEl?.getAttribute('datetime') || dateEl?.textContent || '').trim();
-      if (dateText && dateText.length <= 80) push(`Ngày đăng: ${dateText}`);
+      if (siteOrg && siteOrg.length <= 120 && !isNoise(siteOrg)) push(`Cơ quan: ${siteOrg}`);
+      if (authorNames.length > 0) {
+        push(`Tác giả: ${Array.from(new Set(authorNames)).slice(0, 5).join(', ')}`);
+      }
+      if (dateText && dateText.length <= 100) push(`Ngày đăng: ${dateText}`);
+      if (updatedDateText && updatedDateText.length <= 100 && updatedDateText !== dateText) {
+        push(`Ngày cập nhật: ${updatedDateText}`);
+      }
 
-      const blocks = mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+      // Gom các gạch đầu dòng ngắn (12-119 ký tự) thành khối để Core API không loại bỏ khi < 40 ký tự
+      let pendingListLines: string[] = [];
+      const flushListBuffer = () => {
+        if (pendingListLines.length === 0) return;
+        push(pendingListLines.join('\n'), true);
+        pendingListLines = [];
+      };
+
+      const blocks = mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, table, dt, dd');
       if (blocks.length > 0) {
         blocks.forEach((b) => {
-          const t = (b.textContent || '').trim();
-          if (keep(b, t)) push(t);
+          // Bỏ qua các thẻ lồng bên trong <table> để tránh lặp chữ
+          if (b.tagName !== 'TABLE' && b.closest('table')) return;
+
+          if (b.tagName === 'TABLE') {
+            flushListBuffer();
+            const rows = Array.from(b.querySelectorAll('tr'));
+            if (rows.length === 0) return;
+            const headers = Array.from(rows[0].querySelectorAll('th')).map((th) => extractTextWithSpacing(th));
+            const dataRows = headers.length > 0 ? rows.slice(1) : rows;
+            const formattedRows: string[] = [];
+
+            dataRows.forEach((tr) => {
+              const cells = Array.from(tr.querySelectorAll('th, td')).map((cell) => extractTextWithSpacing(cell));
+              if (cells.every((c) => !c)) return;
+              if (headers.length > 0 && cells.length === headers.length) {
+                const pairs = cells
+                  .map((val, idx) => (headers[idx] ? `${headers[idx]}: ${val || '-'}` : val))
+                  .filter(Boolean);
+                if (pairs.length > 0) formattedRows.push(pairs.join(' | '));
+              } else {
+                const nonEmpty = cells.filter(Boolean);
+                if (nonEmpty.length > 0) formattedRows.push(nonEmpty.join(' | '));
+              }
+            });
+
+            if (formattedRows.length > 0) {
+              let chunk = '';
+              formattedRows.forEach((rowStr) => {
+                const candidate = chunk ? `${chunk}\n${rowStr}` : rowStr;
+                if (candidate.length > 1200 && chunk) {
+                  push(chunk, true);
+                  chunk = rowStr;
+                } else {
+                  chunk = candidate;
+                }
+              });
+              if (chunk) push(chunk, true);
+            }
+            return;
+          }
+
+          const t = extractTextWithSpacing(b);
+          if (!t || isNoise(t)) return;
+
+          if (b.tagName === 'LI') {
+            if (b.closest('.related, .related-publications, .keywords, .tags, .toc, #toc')) return;
+            const onlyLink =
+              b.children.length === 1 &&
+              b.firstElementChild?.tagName === 'A' &&
+              t === extractTextWithSpacing(b.firstElementChild);
+            if (onlyLink && t.length < 60 && !/[.!?]/.test(t)) return;
+            if (t.length < 12) return;
+
+            if (t.length < 120) {
+              const bulletLine = `• ${t.replace(/\n+/g, ' ')}`;
+              const projectedLen = pendingListLines.join('\n').length + bulletLine.length + 1;
+              if (projectedLen > 1000) flushListBuffer();
+              pendingListLines.push(bulletLine);
+            } else {
+              flushListBuffer();
+              push(t, t.includes('\n'));
+            }
+            return;
+          }
+
+          flushListBuffer();
+
+          if (/^H[2-6]$/.test(b.tagName)) {
+            const headingText = t.replace(/\n+/g, ' ').trim();
+            if (/^(authors?|keywords?|references?|tác giả|từ khóa|tài liệu tham khảo):?$/i.test(headingText)) {
+              return;
+            }
+            const formattedHeading = /[:.!?]$/.test(headingText) ? headingText : `${headingText}:`;
+            push(formattedHeading);
+            return;
+          }
+
+          if (b.tagName === 'DT') {
+            const dtText = t.replace(/\n+/g, ' ').trim();
+            if (b.closest('p, li, blockquote')) return;
+            push(/[:.!?]$/.test(dtText) ? dtText : `${dtText}:`);
+            return;
+          }
+
+          if (b.tagName === 'DD') {
+            if (b.closest('p, li, blockquote')) return;
+            if (t.length >= 15 || isMetadataLine(t)) push(t, t.includes('\n'));
+            return;
+          }
+
+          if (keep(b, t)) push(t, t.includes('\n'));
         });
+        flushListBuffer();
       } else {
         (mainEl.textContent || '').split(/\r?\n/).forEach((r) => {
-          const t = r.trim();
+          const t = r.replace(/\s+/g, ' ').trim();
           if (keep(null, t)) push(t);
         });
       }
@@ -468,10 +1207,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const resetArticleState = () => {
     setIngestionResult(null);
     setSelectedParagraphs({});
+    setDismissedAiFields({});
+    setActiveAiPopoverField(null);
+    setIsMetaCardCollapsed(false);
     // Đang sửa bài đã lưu: giữ thông tin bài, chỉ bỏ kết quả tách đoạn
     if (editUrl) return;
     setIngestTitle('');
     setIngestOrg('');
+    setIngestAuthor('');
+    setIngestPublishedDate('');
+    setIngestUpdatedDate('');
     setIngestDate('');
     if (classFromAi) {
       setIngestClass('');
@@ -493,8 +1238,105 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  const handleCrawlArticleFromUrl = async () => {
+    const targetUrl = (editUrl || ingestUrl).trim();
+    if (!targetUrl) {
+      toast.error('Vui lòng nhập đường dẫn URL bài viết ở mục 1 trước khi bấm Crawl!');
+      return;
+    }
+    if (!isSafeHttpUrl(targetUrl)) {
+      toast.error('Đường dẫn bài viết phải là URL hợp lệ (http:// hoặc https://)');
+      return;
+    }
+
+    try {
+      setCrawlingUrl(true);
+      resetArticleState();
+
+      let html = '';
+      let lastError: unknown = null;
+      let coreRejected = false;
+
+      // Tầng 1: Gọi Core API /knowledge/fetch-url (có kiểm tra chống SSRF)
+      try {
+        const res = await apiClient.post<{ url: string; html: string }>(
+          '/knowledge/fetch-url',
+          { url: targetUrl },
+          { timeout: 15000 }
+        );
+        if (res.data?.html) {
+          html = res.data.html;
+        }
+      } catch (err) {
+        lastError = err;
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        // Nếu Core API chủ động từ chối (400/401/403/422), không bỏ qua kiểm tra của Core
+        if (status && [400, 401, 403, 422].includes(status)) {
+          coreRejected = true;
+        }
+      }
+
+      // Tầng 2: Chỉ fallback sang Vite Dev Middleware khi đang chạy dev và Core chưa sẵn sàng (404/lỗi mạng)
+      if (!html && import.meta.env.DEV && !coreRejected) {
+        try {
+          const devRes = await fetch(`/__dev/fetch-url?url=${encodeURIComponent(targetUrl)}`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          const ct = devRes.headers.get('content-type') || '';
+          if (devRes.ok && ct.includes('application/json')) {
+            const devData = (await devRes.json()) as { html?: string };
+            if (devData?.html) {
+              html = devData.html;
+            }
+          } else if (!devRes.ok && ct.includes('application/json')) {
+            const errBody = (await devRes.json()) as { detail?: string };
+            if (errBody?.detail) {
+              lastError = new Error(errBody.detail);
+            }
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!html) {
+        toast.error(
+          lastError
+            ? `Không crawl được từ URL (${getErrorMessage(lastError)}). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.`
+            : 'Trang web không cho phép tải tự động. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.'
+        );
+        return;
+      }
+
+      let cleaned = cleanArticleTextFromHtml(html);
+      if (!cleaned || cleaned.length < 80) {
+        const fallbackDoc = new DOMParser().parseFromString(html, 'text/html');
+        cleaned = (fallbackDoc.body?.textContent || '').replace(/[ \t]+/g, ' ').trim();
+      }
+
+      if (!cleaned || cleaned.length < 40) {
+        toast.error('Không trích xuất được văn bản từ trang web này (trang có thể render bằng JS). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.');
+        return;
+      }
+
+      setIngestText(cleaned.slice(0, 50000));
+      toast.success('Đã crawl và làm sạch nội dung từ URL! Hãy kiểm tra và bấm nút Tách đoạn bên dưới.');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setCrawlingUrl(false);
+    }
+  };
+
   // ==================== SỬA BÀI ĐÃ LƯU ====================
   const loadArticleForEdit = async (url: string, keepForm = false) => {
+    if (!isSafeHttpUrl(url)) {
+      toast.error('Đường dẫn bài viết không hợp lệ (chỉ hỗ trợ http:// hoặc https://).');
+      setEditUrl(null);
+      setEditRows([]);
+      return;
+    }
+
     try {
       setEditLoading(true);
       const res = await apiClient.get<{ source_url: string; sources: KnowledgeSourceItem[] }>(
@@ -504,22 +1346,61 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       const rows = res.data.sources || [];
       setEditRows(rows);
       setSummaryDrafts(Object.fromEntries(rows.filter((r) => !r.isVerbatim).map((r) => [r.id, r.evidenceText])));
-      setEditUrl(url);
+      const canonicalUrl = isSafeHttpUrl(res.data.source_url) ? res.data.source_url.trim() : url.trim();
+      setEditUrl(canonicalUrl);
       const first = rows[0];
       if (first) {
-        const date = first.publishedDate && first.publishedDate !== 'Không ghi ngày' ? first.publishedDate : '';
-        setEditOriginalMeta({ modelClass: first.modelClass, title: first.sourceTitle, org: first.organization, date });
+        const rawOrg = first.organization || '';
+        let parsedOrg = rawOrg;
+        let parsedAuthor = '';
+        const authorMatch = rawOrg.match(/^(.*?)\s*\((?:Tác giả|Author):\s*(.*?)\)$/i);
+        if (authorMatch) {
+          parsedOrg = authorMatch[1].trim();
+          parsedAuthor = authorMatch[2].trim();
+        } else if (rawOrg.startsWith('Tác giả:')) {
+          parsedOrg = '';
+          parsedAuthor = rawOrg.replace('Tác giả:', '').trim();
+        }
+
+        const rawDate = first.publishedDate && first.publishedDate !== 'Không ghi ngày' ? first.publishedDate : '';
+        let parsedPubDate = rawDate;
+        let parsedUpDate = '';
+        const dateMatch = rawDate.match(/^(.*?)\s*\((?:Cập nhật|Updated)?[:\s]*(.*?)\)$/i);
+        if (dateMatch) {
+          parsedPubDate = dateMatch[1].trim();
+          parsedUpDate = dateMatch[2].trim();
+        }
+
+        setEditOriginalMeta({
+          plantName: first.plantName || '',
+          diseaseName: first.diseaseName || '',
+          modelClass: first.modelClass,
+          title: first.sourceTitle,
+          org: parsedOrg,
+          author: parsedAuthor,
+          pubDate: parsedPubDate,
+          upDate: parsedUpDate,
+          date: rawDate,
+        });
+
+        const distinctClasses = Array.from(new Set(rows.map((r) => r.modelClass).filter(Boolean)));
+        setArticleTopics(distinctClasses.length > 0 ? distinctClasses : [first.modelClass]);
+
         if (!keepForm) {
-          setIngestUrl(res.data.source_url || url);
+          setIngestUrl(canonicalUrl);
           setIngestClass(first.modelClass);
           setSelectedPlant(first.plantName);
           setClassFromAi(false);
           setIngestTitle(first.sourceTitle);
-          setIngestOrg(first.organization);
-          setIngestDate(date);
+          setIngestOrg(parsedOrg);
+          setIngestAuthor(parsedAuthor);
+          setIngestPublishedDate(parsedPubDate);
+          setIngestUpdatedDate(parsedUpDate);
+          setIngestDate(rawDate);
           setIngestText('');
           setIngestionResult(null);
           setSelectedParagraphs({});
+          setEditSubTab('approved');
         }
       }
     } catch (err) {
@@ -549,11 +1430,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     setIngestText('');
     setIngestTitle('');
     setIngestOrg('');
+    setIngestAuthor('');
+    setIngestPublishedDate('');
+    setIngestUpdatedDate('');
     setIngestDate('');
     setIngestClass('');
     setSelectedPlant('');
     setIngestionResult(null);
     setSelectedParagraphs({});
+    setEditSubTab('approved');
+    setShowMetaEditPanel(false);
     if (clearParam) navigate('/admin/ingest', { replace: true });
   };
 
@@ -561,23 +1447,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     ingestClass !== editOriginalMeta.modelClass ||
     ingestTitle.trim() !== editOriginalMeta.title ||
     ingestOrg.trim() !== editOriginalMeta.org ||
-    ingestDate.trim() !== editOriginalMeta.date
+    ingestAuthor.trim() !== editOriginalMeta.author ||
+    ingestPublishedDate.trim() !== editOriginalMeta.pubDate ||
+    ingestUpdatedDate.trim() !== editOriginalMeta.upDate
   );
 
   const saveEditedArticleMeta = async (silent = false): Promise<boolean> => {
     if (!editUrl) return true;
-    if (!ingestClass) {
-      toast.error('Chọn Loài cây và Bệnh hại trước khi lưu.');
+    if (articleTopics.length === 0 && !ingestClass) {
+      toast.error('Chọn ít nhất một Chuyên mục / Bệnh hại cho bài viết trước khi lưu.');
       return false;
     }
     try {
       setEditSaving(true);
+      const combinedOrg = buildCombinedOrg(ingestOrg, ingestAuthor);
+      const combinedDate = buildCombinedDate(ingestPublishedDate, ingestUpdatedDate);
       const res = await apiClient.patch('/knowledge/sources/by-url', {
         source_url: editUrl,
-        model_class: ingestClass,
+        // Nếu bài viết có nhiều chuyên đề, không truyền model_class để giữ nguyên mã lớp riêng biệt của từng đoạn
+        model_class: articleTopics.length === 1 ? articleTopics[0] : undefined,
         source_title: ingestTitle.trim(),
-        organization: ingestOrg.trim(),
-        published_date: ingestDate.trim(),
+        organization: combinedOrg,
+        published_date: combinedDate,
       });
       if (!silent) {
         toast.success(`Đã lưu thông tin bài cho ${res.data.updated_count} đoạn. Các đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.`);
@@ -592,14 +1483,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
-  const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string }) => {
+  // Duyệt hoặc bỏ duyệt trực tiếp từng đoạn trích
+  const handleToggleApproveSingleSource = async (sourceId: string, currentStatus: boolean) => {
+    try {
+      const nextStatus = !currentStatus;
+      await apiClient.patch(`/knowledge/sources/${sourceId}/approve`, {
+        is_approved: nextStatus,
+        reviewer_notes: nextStatus ? 'Admin phê duyệt qua màn hình chi tiết bài viết' : 'Admin bỏ duyệt',
+      });
+      toast.success(nextStatus ? 'Đã duyệt đoạn trích này.' : 'Đã bỏ duyệt đoạn trích này.');
+      setEditRows((prev) => prev.map((r) => (r.id === sourceId ? { ...r, isManualApproved: nextStatus } : r)));
+      setSources((prev) => prev.map((r) => (r.id === sourceId ? { ...r, isManualApproved: nextStatus } : r)));
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  // Xóa trực tiếp 1 đoạn trích trong bài đã lưu
+  const handleDeleteSingleSource = async (sourceId: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa đoạn trích này khỏi bài viết?')) return;
+    try {
+      await apiClient.delete(`/knowledge/sources/${sourceId}`);
+      toast.success('Đã xóa đoạn trích.');
+      setEditRows((prev) => prev.filter((r) => r.id !== sourceId));
+      setSources((prev) => prev.filter((r) => r.id !== sourceId));
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  const updateSavedUnit = async (row: KnowledgeSourceItem, body: { unit_type?: string; evidence_text?: string; model_class?: string }) => {
     try {
       setEditSaving(true);
       const res = await apiClient.patch(`/knowledge/sources/${row.id}`, body);
       if (res.data.reindex_status !== 'skipped') {
-        toast.success('Đã lưu đoạn. Đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.');
+        toast.success('Đã lưu thay đổi cho đoạn trích.');
       }
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -635,25 +1556,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         article_text: ingestText.trim(),
       }, { timeout: 45000 });
 
-      setIngestionResult(res.data);
+      // Kết hợp bóc tách theo Key từ văn bản (Publication date, Reviewed/Revised, Authors, Cơ quan...) với gợi ý từ AI
+      const keyMeta = extractKeyMetadataFromText(ingestText, editUrl || ingestUrl);
+      const rawMeta = res.data.suggested_metadata;
+      const aiOrg = parseCombinedOrg(rawMeta?.organization);
+      const aiDate = parseCombinedDate(rawMeta?.published_date);
 
-      // Điền metadata do AI gợi ý nếu có (không có thì để trống cho Admin nhập).
-      // Đang sửa bài đã lưu thì giữ thông tin bài hiện có, không để AI ghi đè.
+      const resolvedTitle = rawMeta?.source_title?.trim() || '';
+      const resolvedOrg = keyMeta.organization || aiOrg.org;
+      const resolvedAuthor = keyMeta.author || aiOrg.author;
+      const resolvedPubDate = keyMeta.publishedDate || aiDate.pubDate;
+      const resolvedUpDate = keyMeta.updatedDate || aiDate.upDate;
+
+      const combinedSuggestedOrg = buildCombinedOrg(resolvedOrg, resolvedAuthor);
+      const combinedSuggestedDate = buildCombinedDate(resolvedPubDate, resolvedUpDate);
+      const aiSuggestedClass = rawMeta?.model_class || null;
+
+      const mergedMeta: SuggestedMetadata | null =
+        rawMeta || resolvedOrg || resolvedAuthor || resolvedPubDate || resolvedUpDate
+          ? {
+              model_class: aiSuggestedClass,
+              source_title: resolvedTitle || null,
+              organization: combinedSuggestedOrg || null,
+              published_date: combinedSuggestedDate || null,
+            }
+          : null;
+
+      setIngestionResult({
+        ...res.data,
+        suggested_metadata: mergedMeta,
+      });
+      setDismissedAiFields({});
+      setActiveAiPopoverField(null);
+      setIsMetaCardCollapsed(false);
+
+      if (aiSuggestedClass) {
+        setArticleTopics((prev) => (prev.includes(aiSuggestedClass) ? prev : [...prev, aiSuggestedClass]));
+      }
+
+      // Đang sửa bài đã lưu thì giữ thông tin đã lưu (hiển thị diff cho Admin duyệt),
+      // đồng thời tự điền nếu ô Tác giả hoặc Ngày cập nhật hiện đang để trống.
       if (editUrl) {
-        // giữ nguyên
-      } else if (!res.data.suggested_metadata) {
+        setDismissMetaDiff(false);
+        if (!ingestAuthor.trim() && resolvedAuthor) {
+          setIngestAuthor(resolvedAuthor);
+        }
+        if (!ingestUpdatedDate.trim() && resolvedUpDate) {
+          setIngestUpdatedDate(resolvedUpDate);
+        }
+      } else if (!mergedMeta) {
         setIngestTitle('');
         setIngestOrg('');
+        setIngestAuthor('');
+        setIngestPublishedDate('');
+        setIngestUpdatedDate('');
         setIngestDate('');
       } else {
-        const meta = res.data.suggested_metadata;
-        setIngestTitle(meta.source_title || '');
-        setIngestOrg(meta.organization || '');
-        setIngestDate(meta.published_date || '');
-        if (meta.model_class) {
-          if (meta.model_class !== ingestClass) setClassFromAi(true);
-          setIngestClass(meta.model_class);
-          const found = diseases.find((d) => d.classCode === meta.model_class);
+        setIngestTitle(resolvedTitle);
+        setIngestOrg(resolvedOrg);
+        setIngestAuthor(resolvedAuthor);
+        setIngestPublishedDate(resolvedPubDate);
+        setIngestUpdatedDate(resolvedUpDate);
+        if (aiSuggestedClass) {
+          if (aiSuggestedClass !== ingestClass) setClassFromAi(true);
+          setIngestClass(aiSuggestedClass);
+          const found = diseases.find((d) => d.classCode === aiSuggestedClass);
           if (found) {
             setSelectedPlant(found.plantName);
           }
@@ -661,12 +1628,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }
 
       // Khởi tạo state chọn đoạn: MẶC ĐỊNH KHÔNG TICK ĐOẠN NÀO ĐỂ ADMIN ĐỌC VÀ CHỦ ĐỘNG DUYỆT (Mục 10)
-      const initialMap: Record<string, { selected: boolean; unitType: string }> = {};
+      const defaultClassForNewParas = aiSuggestedClass || (articleTopics[0] || ingestClass);
+      const initialMap: Record<string, { selected: boolean; unitType: string; diseaseClass?: string }> = {};
 
       res.data.paragraphs.forEach((p) => {
         initialMap[p.id] = {
           selected: false,
           unitType: p.suggested_unit_type || 'SYMPTOMS',
+          diseaseClass: defaultClassForNewParas,
         };
       });
 
@@ -739,53 +1708,81 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     };
   };
 
+  const computeSplitParts = (text: string, cutIndices: number[]): string[] => {
+    const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
+    const matches = text.match(regex);
+    const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [text];
+    if (sents.length <= 1 || cutIndices.length === 0) {
+      return [text];
+    }
+    const sortedCuts = [...new Set(cutIndices)].filter((idx) => idx >= 0 && idx < sents.length - 1).sort((a, b) => a - b);
+    if (sortedCuts.length === 0) return [text];
+
+    const parts: string[] = [];
+    let currentPartSents: string[] = [];
+
+    for (let i = 0; i < sents.length; i++) {
+      currentPartSents.push(sents[i]);
+      if (sortedCuts.includes(i) || i === sents.length - 1) {
+        parts.push(currentPartSents.join(' ').trim());
+        currentPartSents = [];
+      }
+    }
+    return parts.filter(Boolean);
+  };
+
   const handleOpenSplitModal = (para: ParagraphItem) => {
     setSplitTargetPara(para);
     const { part1, part2 } = autoSplitText(para.text);
     setSplitPart1(part1);
     setSplitPart2(part2);
+
+    const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
+    const matches = para.text.match(regex);
+    const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [para.text];
+
+    let bestIdx = 0;
+    let accumulated = '';
+    for (let i = 0; i < sents.length - 1; i++) {
+      accumulated = (accumulated ? accumulated + ' ' : '') + sents[i];
+      if (accumulated.trim().length <= part1.length) {
+        bestIdx = i;
+      }
+    }
+    setSelectedCutIndex(bestIdx);
+    setSelectedCutIndices(sents.length > 1 ? [bestIdx] : []);
     setSplitModalOpen(true);
   };
 
   const handleConfirmSplit = () => {
     if (!splitTargetPara || !ingestionResult) return;
-    const p1 = splitPart1.trim();
-    const p2 = splitPart2.trim();
-    if (p1.length < 30 || p2.length < 30) {
-      toast.error('Mỗi đoạn sau khi tách phải có ít nhất 30 ký tự.');
+    const parts = computeSplitParts(splitTargetPara.text, selectedCutIndices);
+    if (parts.length < 2) {
+      toast.error('Vui lòng chọn ít nhất 1 mốc ngắt câu để chia đoạn.');
       return;
     }
-    if (p1.length > 800 || p2.length > 800) {
-      toast.error('Mỗi đoạn sau khi tách không được vượt quá 800 ký tự.');
+
+    const hasInvalid = parts.some((p) => p.length < 30 || p.length > 1500);
+    if (hasInvalid) {
+      toast.error('Mỗi đoạn con sau khi chia phải có từ 30 đến 1.500 ký tự.');
       return;
     }
 
     const baseId = splitTargetPara.id;
-    const id1 = `${baseId}_1`;
-    const id2 = `${baseId}_2`;
-
-    const mentions1 = (splitTargetPara.mentions || []).filter((m) =>
-      p1.toLowerCase().includes(m.text.toLowerCase())
-    );
-    const mentions2 = (splitTargetPara.mentions || []).filter((m) =>
-      p2.toLowerCase().includes(m.text.toLowerCase())
-    );
-
-    const newPara1: ParagraphItem = {
-      id: id1,
-      text: p1,
-      suggested_unit_type: splitTargetPara.suggested_unit_type,
-      mentions: mentions1,
-    };
-    const newPara2: ParagraphItem = {
-      id: id2,
-      text: p2,
-      suggested_unit_type: splitTargetPara.suggested_unit_type,
-      mentions: mentions2,
-    };
+    const newParas: ParagraphItem[] = parts.map((partText, idx) => {
+      const partMentions = (splitTargetPara.mentions || []).filter((m) =>
+        partText.toLowerCase().includes(m.text.toLowerCase())
+      );
+      return {
+        id: `${baseId}_${idx + 1}`,
+        text: partText,
+        suggested_unit_type: splitTargetPara.suggested_unit_type,
+        mentions: partMentions,
+      };
+    });
 
     const updatedParagraphs = ingestionResult.paragraphs.flatMap((p) =>
-      p.id === baseId ? [newPara1, newPara2] : [p]
+      p.id === baseId ? newParas : [p]
     );
 
     setIngestionResult({
@@ -795,21 +1792,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
     setSelectedParagraphs((prev) => {
       const next = { ...prev };
+      const currentClass = prev[baseId]?.diseaseClass || ingestClass;
       delete next[baseId];
-      next[id1] = {
-        selected: false,
-        unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
-      };
-      next[id2] = {
-        selected: false,
-        unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
-      };
+      newParas.forEach((np) => {
+        next[np.id] = {
+          selected: false,
+          unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
+          diseaseClass: currentClass,
+        };
+      });
       return next;
     });
 
     setSplitModalOpen(false);
     setSplitTargetPara(null);
-    toast.success(`Đã tách đoạn ${baseId} thành 2 đoạn ${id1} và ${id2} hợp lệ (mỗi đoạn ≤ 800 ký tự).`);
+    setSelectedCutIndices([]);
+    toast.success(`Đã chia đoạn ${baseId} thành ${newParas.length} đoạn hợp lệ (mỗi đoạn ≤ 1.500 ký tự).`);
+  };
+
+  const handleSelectAllAiSuggested = () => {
+    if (!ingestionResult) return;
+
+    let availableSlots = 20 - existingVerbatimCount;
+    if (availableSlots <= 0) {
+      toast.error(`Bài viết đã có ${existingVerbatimCount} đoạn lưu trữ, đã đạt giới hạn tối đa 20 đoạn.`);
+      return;
+    }
+
+    let newlySelectedCount = 0;
+    setSelectedParagraphs((prev) => {
+      const next = { ...prev };
+      for (const para of ingestionResult.paragraphs) {
+        const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+        const isTooLong = para.text.length > 1500;
+        const isAiSuggested = !!para.suggested_unit_type;
+
+        if (isAiSuggested && !isSaved && !isTooLong) {
+          if (!next[para.id]?.selected) {
+            if (newlySelectedCount < availableSlots) {
+              next[para.id] = {
+                ...(next[para.id] || {}),
+                selected: true,
+                unitType: para.suggested_unit_type || 'SYMPTOMS',
+                diseaseClass: next[para.id]?.diseaseClass || ingestClass,
+              };
+              newlySelectedCount++;
+            }
+          }
+        }
+      }
+      return next;
+    });
+
+    if (newlySelectedCount > 0) {
+      toast.success(`Đã tự động tick chọn ${newlySelectedCount} đoạn theo gợi ý của AI.`);
+    } else {
+      toast.info('Không có thêm đoạn AI gợi ý hợp lệ nào để chọn.');
+    }
   };
 
   const handleRemoveMention = (paraId: string, mentionIndex: number) => {
@@ -892,6 +1931,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           unit_type: val.unitType,
           custom_text: p?.text,
           mentions: p?.mentions || [],
+          model_class: val.diseaseClass || ingestClass,
         };
       });
 
@@ -900,10 +1940,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return;
     }
 
-    if (selections.length + existingVerbatimCount > 8) {
+    if (selections.length + existingVerbatimCount > 20) {
       toast.error(existingVerbatimCount > 0
-        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 8 đoạn (TASK-15).`
-        : 'Mỗi bài viết chỉ được trích dẫn tối đa 8 đoạn nguyên văn (TASK-15).');
+        ? `Bài này đã lưu ${existingVerbatimCount} đoạn nguyên văn; mỗi bài tối đa 20 đoạn (mở rộng phục vụ đồ án).`
+        : 'Mỗi bài viết được trích dẫn tối đa 20 đoạn nguyên văn (mở rộng phục vụ đồ án).');
       return;
     }
 
@@ -915,10 +1955,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       }, 0);
 
     const articleLen = ingestionResult.article_length || ingestText.length || 1;
-    const allowedQuota = Math.max(1200, Math.floor(articleLen * 0.3));
+    const allowedQuota = Math.max(2500, Math.floor(articleLen * 0.60));
 
     if (currentSelectedChars + existingVerbatimChars > allowedQuota) {
-      toast.error(`Tổng số ký tự các đoạn đã chọn (${currentSelectedChars.toLocaleString('vi-VN')}) vượt quá giới hạn trích dẫn hợp lý (${allowedQuota.toLocaleString('vi-VN')} ký tự, tối đa 30% bài theo TASK-15).`);
+      toast.error(`Tổng số ký tự các đoạn đã chọn (${currentSelectedChars.toLocaleString('vi-VN')}) vượt quá giới hạn trích dẫn hợp lý (${allowedQuota.toLocaleString('vi-VN')} ký tự, tối đa 60% bài theo cấu hình mở rộng đồ án).`);
       return;
     }
 
@@ -927,25 +1967,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
     try {
       setCommitting(true);
+      const combinedOrg = buildCombinedOrg(ingestOrg, ingestAuthor) || 'Trung tâm Khuyến nông';
+      const combinedDate = buildCombinedDate(ingestPublishedDate, ingestUpdatedDate) || 'Không ghi ngày';
+
       const res = await apiClient.post(`/knowledge/ingestions/${ingestionResult.ingestion_id}/commit`, {
         model_class: ingestClass,
         source_title: ingestTitle.trim() || 'Bài báo khuyến nông',
-        organization: ingestOrg.trim() || 'Trung tâm Khuyến nông',
-        published_date: ingestDate.trim() || 'Không ghi ngày',
+        organization: combinedOrg,
+        published_date: combinedDate,
         selections,
         reviewer_notes: commitNotes.trim(),
       });
 
-      const reindexText = res.data.reindex_status === 'accepted' ? 'Đang đồng bộ vector nền' : (res.data.reindex_status === 'failed' ? 'Lỗi kết nối đồng bộ' : res.data.reindex_status);
+      const syncStatusText = res.data.reindex_status === 'accepted'
+        ? 'Đang đồng bộ vào bộ nhớ AI Lavi'
+        : (res.data.reindex_status === 'failed' ? 'Lỗi kết nối đồng bộ' : res.data.reindex_status);
       toast.success(
-        `Đã lưu và duyệt ${res.data.created_source_ids?.length || selections.length} đoạn nguyên văn vào CSDL (${reindexText}).`
+        `Đã lưu và duyệt ${res.data.created_source_ids?.length || selections.length} đoạn nguyên văn vào CSDL (${syncStatusText}).`
       );
 
       if (editUrl) {
-        // Ở lại chế độ sửa, nạp lại danh sách đoạn đã lưu
+        // Ở lại chế độ sửa, nạp lại danh sách đoạn đã lưu và chuyển sang Tab 1
         setIngestionResult(null);
         setSelectedParagraphs({});
         setIngestText('');
+        setEditSubTab('approved');
         await loadArticleForEdit(editUrl, true);
         return;
       }
@@ -969,10 +2015,125 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       return acc + (p?.text.length || 0);
     }, 0);
   const articleLength = ingestionResult?.article_length || ingestText.length || 1;
-  const allowedCharsQuota = Math.max(1200, Math.floor(articleLength * 0.3));
-  // Hạn mức 8 đoạn / 30% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
+  const allowedCharsQuota = Math.max(2500, Math.floor(articleLength * 0.60));
+  // Hạn mức 20 đoạn / 60% tính cộng dồn với các đoạn nguyên văn đã lưu của cùng URL (Core cũng kiểm tra)
   const countWithSaved = countSelected + existingVerbatimCount;
   const charsWithSaved = totalSelectedChars + existingVerbatimChars;
+
+  // Hiển thị đoạn văn với highlight cụm từ khi click hoặc hover vào thẻ tag
+  const renderParagraphWithHighlight = (paraId: string, text: string) => {
+    if (!highlightedMention || highlightedMention.paraId !== paraId || !highlightedMention.text.trim()) {
+      return text;
+    }
+    const term = highlightedMention.text.trim();
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    if (parts.length === 1) return text;
+
+    return (
+      <>
+        {parts.map((part, i) =>
+          part.toLowerCase() === term.toLowerCase() ? (
+            <mark
+              key={i}
+              className="bg-amber-300 text-stone-900 font-bold px-1 py-0.5 rounded shadow-xs"
+              title={`Cụm từ trích xuất: "${term}"`}
+            >
+              {part}
+            </mark>
+          ) : (
+            part
+          )
+        )}
+      </>
+    );
+  };
+
+  // Quản lý danh sách các chuyên mục / bệnh hại trong bài viết (thay thế dropdown đơn)
+  const renderArticleTopicsSelector = () => (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="font-semibold text-foreground text-xs">
+          Các chuyên mục / bệnh hại trong bài viết *
+        </label>
+        <span className="text-[11px] text-muted-foreground font-normal">
+          {articleTopics.length} chuyên đề
+        </span>
+      </div>
+
+      {/* Danh sách các tags/chips chuyên đề của bài */}
+      <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-muted/40 border border-border min-h-[36px]">
+        {articleTopics.length === 0 ? (
+          <span className="text-xs text-muted-foreground italic">Chưa có chuyên mục nào. Hãy chọn bên dưới để thêm vào bài.</span>
+        ) : (
+          articleTopics.map((topicCode) => {
+            const found = diseases.find((d) => d.classCode === topicCode);
+            const isHealthy = isHealthyTopic(found?.commonNameVi || '', topicCode);
+            const label = isHealthy ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)' : (found?.commonNameVi || topicCode);
+            return (
+              <span
+                key={topicCode}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border shadow-2xs ${
+                  isHealthy
+                    ? 'bg-sky-50 text-sky-900 border-sky-300'
+                    : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                }`}
+              >
+                <span>{label}</span>
+                {articleTopics.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setArticleTopics((prev) => prev.filter((t) => t !== topicCode))}
+                    className="opacity-60 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                    title="Bỏ chuyên đề này khỏi bài viết"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </span>
+            );
+          })
+        )}
+      </div>
+
+      {/* Thanh chọn nhanh bệnh có sẵn của loài cây để thêm vào bài */}
+      <div className="flex items-center gap-1.5">
+        <select
+          value={selectedTopicToAdd}
+          onChange={(e) => setSelectedTopicToAdd(e.target.value)}
+          className="flex-1 px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+        >
+          <option value="">-- Chọn chuyên mục / bệnh hại có sẵn để thêm --</option>
+          {filteredDiseasesByPlant
+            .filter((d) => !articleTopics.includes(d.classCode))
+            .map((d) => (
+              <option key={d.classCode} value={d.classCode}>
+                {isHealthyTopic(d.commonNameVi, d.classCode)
+                  ? '🌱 Chăm sóc & Phòng ngừa (Cây khỏe mạnh)'
+                  : d.commonNameVi}
+              </option>
+            ))}
+        </select>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!selectedTopicToAdd}
+          onClick={() => {
+            if (selectedTopicToAdd && !articleTopics.includes(selectedTopicToAdd)) {
+              setArticleTopics((prev) => [...prev, selectedTopicToAdd]);
+              setSelectedTopicToAdd('');
+            }
+          }}
+          className="h-8 text-xs font-semibold gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Thêm vào bài</span>
+        </Button>
+      </div>
+    </div>
+  );
 
   // ==================== TAB 2 LOGIC ====================
   const fetchSources = async () => {
@@ -999,10 +2160,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         prev.map((s) => (s.id === id ? { ...s, isManualApproved: !currentApproved } : s))
       );
 
+      const syncStatus = res.data.reindex_status === 'accepted' ? 'Đang đồng bộ vào bộ nhớ AI Lavi' : res.data.reindex_status;
       toast.success(
         !currentApproved
-          ? `Đã duyệt bài viết. Reindex: ${res.data.reindex_status}`
-          : `Đã bỏ duyệt bài viết. Reindex: ${res.data.reindex_status}`
+          ? `Đã duyệt đoạn tri thức. (${syncStatus})`
+          : `Đã bỏ duyệt đoạn tri thức. (${syncStatus})`
       );
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -1020,6 +2182,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.success('Đã xóa đoạn tri thức. Lavi sẽ không dùng đoạn này nữa.');
       setDeleteTarget(null);
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1198,6 +2361,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       );
       setDeleteArticleTarget(null);
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1216,6 +2380,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setSelectedSourceIds([]);
       setDeleteBatchModalOpen(false);
       if (editUrl) await loadArticleForEdit(editUrl, true);
+      setShowMetaEditPanel(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -1683,10 +2848,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-border">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            {SECTION_COPY[activeTab]?.title ?? 'Quản trị'}
+            {(editParam || editUrl) && activeTab === 'ingestion'
+              ? 'Chi tiết bài viết tri thức'
+              : (SECTION_COPY[activeTab]?.title ?? 'Quản trị')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {SECTION_COPY[activeTab]?.description}
+            {(editParam || editUrl) && activeTab === 'ingestion'
+              ? 'Kiểm tra thông tin bài báo, các đoạn trích dẫn và duyệt nội dung đưa vào trợ lý AI Lavi.'
+              : SECTION_COPY[activeTab]?.description}
           </p>
         </div>
 
@@ -1695,9 +2864,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           size="sm"
           onClick={checkReindexStatus}
           className="gap-2 shrink-0 bg-card border-border hover:bg-muted"
+          title="Kiểm tra trạng thái nạp dữ liệu tri thức vào bộ nhớ AI Lavi"
         >
           <Database className="w-4 h-4 text-emerald-700" />
-          <span>Trạng thái Reindex</span>
+          <span>Đồng bộ tri thức</span>
         </Button>
       </div>
 
@@ -1708,759 +2878,1314 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
         {/* TAB 1: NHẬP BÀI BÁO NGUYÊN VĂN (HITL INGESTION) */}
         {/* ========================================================================================= */}
         <TabsContent value="ingestion" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Cột trái: Form nhập bài */}
-            <div className="lg:col-span-5 space-y-6">
-              <Card className="border-border bg-card shadow-xs">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base font-bold flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-emerald-700" />
-                    <span>Dán văn bản bài báo khuyến nông</span>
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Server không tự tải URL để chống SSRF. Admin copy văn bản từ bài báo/PDF dán vào đây (hỗ trợ Ctrl+A cả trang).
-                  </CardDescription>
-                </CardHeader>
-
-                <CardContent>
-                  <form onSubmit={handleParseArticle} className="space-y-4 text-xs">
-                    <div>
-                      <label className="font-semibold text-foreground block mb-1">
-                        1. Đường dẫn URL bài viết gốc *
-                      </label>
-                      <Input
-                        type="url"
-                        placeholder="https://khuyennongvn.gov.vn/..."
-                        value={ingestUrl}
-                        onChange={(e) => {
-                          setIngestUrl(e.target.value);
-                          if (ingestionResult) resetArticleState();
-                        }}
-                        readOnly={!!editUrl}
-                        title={editUrl ? 'Đang sửa bài đã lưu: URL cố định. Bấm "Thoát sửa" để nhập bài mới.' : undefined}
-                        required
-                        className="text-xs"
-                      />
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-[11px] text-muted-foreground">
-                          {ingestUrl ? 'Đã liên kết nguồn' : 'Dán link trang báo khuyến nông'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewImagePlant(selectedPlant);
-                            setNewImageClass(ingestClass);
-                            setNewImageSourceUrl(ingestUrl);
-                            setNewImageCredit(ingestOrg || 'Trung tâm Khuyến nông');
-                            setAddImageModalOpen(true);
-                          }}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
-                        >
-                          <ImageIcon className="w-3.5 h-3.5" />
-                          <span>Thêm ảnh triệu chứng từ bài này</span>
-                        </button>
-                      </div>
+          {(editParam || editUrl) ? (
+            (editLoading && editRows.length === 0) ? (
+              /* Loading Skeleton sạch sẽ khi click xem chi tiết bài viết, loại bỏ hoàn toàn hiện tượng giật trang */
+              <div className="space-y-4 animate-pulse">
+                <div className="p-4 bg-card border border-border rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-6 w-36 bg-muted rounded-full" />
+                      <div className="h-6 w-24 bg-muted rounded-full" />
                     </div>
+                    <div className="h-8 w-28 bg-muted rounded-md" />
+                  </div>
+                  <div className="h-6 w-3/4 bg-muted rounded" />
+                  <div className="h-4 w-1/2 bg-muted rounded" />
+                </div>
+                <div className="p-10 bg-card border border-border rounded-xl flex flex-col items-center justify-center text-center space-y-3">
+                  <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin" />
+                  <div className="text-sm font-semibold text-foreground">
+                    Đang tải chi tiết bài viết từ kho tri thức...
+                  </div>
+                  <div className="text-xs text-muted-foreground max-w-md truncate">
+                    {editParam || editUrl}
+                  </div>
+                </div>
+              </div>
+            ) : (
+            /* ========================================================================= */
+            /* CHẾ ĐỘ XEM & SỬA BÀI VIẾT ĐÃ LƯU: GIAO DIỆN 2 TAB ĐẶT NGAY TRÊN CÙNG */
+            /* ========================================================================= */
+            <div className="space-y-4">
+              <Tabs value={editSubTab} onValueChange={(v) => setEditSubTab(v as 'approved' | 'reparse')} className="space-y-4">
+                {/* 2 Tabs nằm ở trên cùng để tách biệt hoàn toàn 2 công việc: Xem/Sửa chi tiết vs Nạp thêm dữ liệu */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-1 border-b border-border/70">
+                  <TabsList className="grid grid-cols-2 max-w-md bg-muted/60 p-1">
+                    <TabsTrigger value="approved" className="gap-2 text-xs py-1.5 font-semibold">
+                      <BookOpen className="w-4 h-4 text-emerald-700" />
+                      <span>1. Xem &amp; Sửa chi tiết ({editRows.length} đoạn)</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="reparse" className="gap-2 text-xs py-1.5 font-semibold">
+                      <Sparkles className="w-4 h-4 text-emerald-700" />
+                      <span>2. Nạp thêm dữ liệu bài báo</span>
+                    </TabsTrigger>
+                  </TabsList>
 
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="font-semibold text-foreground">
-                          2. Dán toàn văn bài báo *
-                        </label>
-                        <span className="text-[10px] text-muted-foreground">
-                          {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
-                        </span>
-                      </div>
-                      <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
-                        <span>
-                          <strong>Mẹo dán cả trang:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang báo rồi dán vào ô dưới. Hệ thống sẽ tự lọc bỏ menu, quảng cáo và hotline rác!
-                        </span>
-                      </div>
-                      <Textarea
-                        rows={11}
-                        placeholder="Dán toàn bộ nội dung bài báo vào đây. Hệ thống sẽ tự lọc thẻ rác HTML, tách thành các đoạn P1, P2... và gọi AI trích xuất tiêu đề, phân loại bệnh."
-                        value={ingestText}
-                        onChange={(e) => {
-                          setIngestText(e.target.value);
-                          if (ingestionResult) resetArticleState();
-                        }}
-                        onPaste={handlePasteArticleText}
-                        required
-                        maxLength={50000}
-                        className="text-xs font-mono resize-y"
-                      />
-                    </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      exitEditMode(true);
+                      navigate('/admin/knowledge');
+                    }}
+                    className="h-8 text-xs gap-1.5 font-medium shrink-0 self-start sm:self-auto hover:bg-muted"
+                    title="Quay lại bảng Kiểm duyệt tri thức"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Quay lại danh sách</span>
+                  </Button>
+                </div>
 
-                    {/* Cây trồng & Bệnh hại mục tiêu (Tùy chọn) */}
-                    <div className="p-3 bg-muted/30 rounded-lg border border-border space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="font-semibold text-foreground block">
-                          3. Đối tượng Cây trồng &amp; Bệnh hại (Tùy chọn)
-                        </label>
-                        <span className="text-[10px] text-muted-foreground italic">
-                          Có thể để trống để AI tự đoán
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[11px] text-muted-foreground block mb-1">
-                            Loài cây:
-                          </label>
-                          <select
-                            value={selectedPlant}
-                            onChange={(e) => handlePlantChange(e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs focus:ring-1 focus:ring-ring"
-                          >
-                            <option value="">-- Để AI tự nhận diện --</option>
-                            {uniquePlants.map((plant) => (
-                              <option key={plant} value={plant}>
-                                {plant}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                {/* ========================================================================= */}
+                {/* TAB 1: XEM & SỬA CHI TIẾT BÀI VIẾT + CÁC ĐOẠN ĐÃ DUYỆT */}
+                {/* ========================================================================= */}
+                <TabsContent value="approved" className="space-y-4">
+              {/* Header bài viết: Gọn gàng, tối giản như báo cáo */}
+              <div className="p-4 bg-card border border-border rounded-xl shadow-xs space-y-3">
+                {/* Dòng tiêu đề bài viết kết hợp nút Sửa và nút Mở link bài gốc tối giản */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1">
+                  <h2 className="text-base sm:text-lg font-bold text-foreground leading-snug line-clamp-2" title={editOriginalMeta.title || ingestTitle || editUrl || ''}>
+                    {editOriginalMeta.title || ingestTitle || 'Bài viết chưa có tiêu đề'}
+                  </h2>
 
-                        <div>
-                          <label className="text-[11px] text-muted-foreground block mb-1">
-                            Tên bệnh mục tiêu:
-                          </label>
-                          <select
-                            value={ingestClass}
-                            onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs focus:ring-1 focus:ring-ring"
-                          >
-                            <option value="">-- Để AI tự nhận diện --</option>
-                            {filteredDiseasesByPlant.map((d) => (
-                              <option key={d.classCode} value={d.classCode}>
-                                {d.commonNameVi}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
+                  <div className="flex items-center gap-2 shrink-0">
                     <Button
-                      type="submit"
-                      disabled={ingesting}
-                      className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-10"
+                      type="button"
+                      variant={showMetaEditPanel ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setShowMetaEditPanel(!showMetaEditPanel)}
+                      className={`h-7 px-2.5 text-xs gap-1 font-medium ${showMetaEditPanel ? 'bg-emerald-700 text-white' : ''}`}
+                      title="Chỉnh sửa tiêu đề, cơ quan hoặc ngày xuất bản của bài báo"
                     >
-                      {ingesting ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Đang bóc tách &amp; Gọi AI phân tích...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          <span>Tách đoạn &amp; AI Tự Điền Thông Tin</span>
-                        </>
-                      )}
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin'}</span>
                     </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </div>
 
-            {/* Cột phải: Danh sách đoạn trích và chọn commit */}
-            <div className="lg:col-span-7 space-y-4">
-              {/* BƯỚC 2A: THÔNG TIN BÀI BÁO (AI đề xuất, hoặc bài đã lưu khi đang sửa) */}
-              {(ingestionResult || editUrl) && (
-                <Card className="border-border bg-card shadow-xs">
-                  <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
-                    <div className="flex items-center justify-between gap-2">
-                      <CardTitle className="text-xs font-bold flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-emerald-700" />
-                        <span>Thông tin bài viết &amp; Phân loại</span>
-                      </CardTitle>
-                      {editUrl ? (
-                        <Badge variant="outline" className="text-blue-800 border-blue-300 bg-blue-50 text-[10px]">
-                          Đang sửa bài đã lưu
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]">
-                          AI đề xuất, vui lòng kiểm tra lại
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-3 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="font-semibold text-foreground block mb-1">
-                          Loài cây trồng *
-                        </label>
-                        <select
-                          value={selectedPlant}
-                          onChange={(e) => handlePlantChange(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                        >
-                          {uniquePlants.map((plant) => (
-                            <option key={plant} value={plant}>
-                              {plant}
-                            </option>
+                    {isSafeHttpUrl(editUrl || ingestUrl) && (
+                      <a
+                        href={(editUrl || ingestUrl)!.trim()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors shadow-2xs"
+                        title="Mở trực tiếp trang web bài báo gốc trong tab mới"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Mở link bài gốc</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dòng 3: Thông tin định dạng text sạch sẽ như báo cáo, tránh rườm rà khung hộp */}
+                <div className="text-xs text-muted-foreground space-y-1.5 pt-0.5">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span>
+                      <strong className="text-foreground">Loài cây:</strong>{' '}
+                      <span className="font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {editOriginalMeta.plantName || selectedPlant || 'Chưa chọn'}
+                      </span>
+                    </span>
+
+                    {articleDistinctTopics.length > 0 && (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          <strong className="text-foreground">Chủ đề trong bài:</strong>
+                          {articleDistinctTopics.map((t, idx) => (
+                            <span
+                              key={idx}
+                              className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
+                                t.isHealthy
+                                  ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}
+                            >
+                              {t.label}
+                            </span>
                           ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="font-semibold text-foreground block mb-1">
-                          Bệnh hại mục tiêu *
-                        </label>
-                        <select
-                          value={ingestClass}
-                          onChange={(e) => { setIngestClass(e.target.value); setClassFromAi(false); }}
-                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                        >
-                          {filteredDiseasesByPlant.map((d) => (
-                            <option key={d.classCode} value={d.classCode}>
-                              {d.commonNameVi}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="font-semibold text-foreground block mb-1">
-                        Tiêu đề bài viết trích dẫn *
-                      </label>
-                      <Input
-                        type="text"
-                        value={ingestTitle}
-                        onChange={(e) => setIngestTitle(e.target.value)}
-                        placeholder="Tiêu đề bài viết..."
-                        className="text-xs bg-background"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      <div className="sm:col-span-2">
-                        <label className="font-semibold text-foreground block mb-1">
-                          Cơ quan / Tác giả *
-                        </label>
-                        <Input
-                          type="text"
-                          value={ingestOrg}
-                          onChange={(e) => setIngestOrg(e.target.value)}
-                          placeholder="Trung tâm Khuyến nông..."
-                          className="text-xs bg-background"
-                        />
-                      </div>
-                      <div>
-                        <label className="font-semibold text-foreground block mb-1">
-                          Năm xuất bản
-                        </label>
-                        <Input
-                          type="text"
-                          value={ingestDate}
-                          onChange={(e) => setIngestDate(e.target.value)}
-                          placeholder="2024"
-                          className="text-xs bg-background"
-                        />
-                      </div>
-                    </div>
-                    {editUrl && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                        <span className="text-[11px] text-muted-foreground">
-                          Áp cho cả {editRows.length} đoạn của bài. Lưu xong các đoạn chuyển về "Chờ duyệt".
                         </span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                    {editOriginalMeta.org ? (
+                      <span>
+                        <strong className="text-foreground">Cơ quan:</strong> {editOriginalMeta.org}
+                      </span>
+                    ) : null}
+
+                    {editOriginalMeta.author ? (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span>
+                          <strong className="text-foreground">Tác giả:</strong> {editOriginalMeta.author}
+                        </span>
+                      </>
+                    ) : null}
+
+                    {editOriginalMeta.pubDate ? (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span>
+                          <strong className="text-foreground">Ngày đăng:</strong> {editOriginalMeta.pubDate}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+
+                  {isSafeHttpUrl(editUrl || ingestUrl) && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 pt-0.5">
+                      <span className="font-medium text-foreground">URL:</span>
+                      <a
+                        href={(editUrl || ingestUrl)!.trim()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-muted-foreground hover:text-emerald-700 hover:underline truncate max-w-xl"
+                        title={(editUrl || ingestUrl)!.trim()}
+                      >
+                        {(editUrl || ingestUrl)!.trim()}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Bảng chỉnh sửa thông tin: Chỉ hiển thị khi Admin nhấn "Sửa thông tin" */}
+                  {showMetaEditPanel && (
+                    <Card className="border-emerald-300 bg-card shadow-sm animate-in fade-in duration-200">
+                      <CardHeader className="py-2.5 px-4 border-b border-border bg-emerald-50/60">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-xs font-bold flex items-center gap-2 text-emerald-950">
+                            <Edit3 className="w-4 h-4 text-emerald-700" />
+                            <span>Chỉnh sửa thông tin bài viết &amp; Nguồn gốc</span>
+                          </CardTitle>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowMetaEditPanel(false)}
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                            title="Đóng form chỉnh sửa"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-4 space-y-3 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Loài cây trồng *
+                            </label>
+                            <select
+                              value={selectedPlant}
+                              onChange={(e) => handlePlantChange(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                            >
+                              <option value="">-- Chọn loài cây --</option>
+                              {uniquePlants.map((plant) => (
+                                <option key={plant} value={plant}>
+                                  {plant}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="sm:col-span-2">
+                            {renderArticleTopicsSelector()}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Tiêu đề bài viết trích dẫn *
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestTitle}
+                            onChange={(e) => setIngestTitle(e.target.value)}
+                            placeholder="Tiêu đề bài viết..."
+                            className="text-xs bg-background"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Cơ quan / Viện nghiên cứu / Tạp chí *
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestOrg}
+                              onChange={(e) => setIngestOrg(e.target.value)}
+                              placeholder="Trung tâm Khuyến nông Quốc gia, Viện BVTV..."
+                              className="text-xs bg-background"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Tác giả / Nhóm nghiên cứu
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestAuthor}
+                              onChange={(e) => setIngestAuthor(e.target.value)}
+                              placeholder="(Để trống nếu không rõ tác giả)"
+                              className="text-xs bg-background"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Ngày đăng / xuất bản
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestPublishedDate}
+                              onChange={(e) => setIngestPublishedDate(e.target.value)}
+                              placeholder="03/01/2024 hoặc 2024"
+                              className="text-xs bg-background"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-semibold text-foreground block mb-1">
+                              Ngày cập nhật (nếu có)
+                            </label>
+                            <Input
+                              type="text"
+                              value={ingestUpdatedDate}
+                              onChange={(e) => setIngestUpdatedDate(e.target.value)}
+                              placeholder="(Để trống nếu không có)"
+                              className="text-xs bg-background"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+                          <span className="text-[11px] text-muted-foreground">
+                            Lưu thông tin sẽ cập nhật đồng bộ tiêu đề, tác giả, ngày xuất bản cho {editRows.length} đoạn trích.
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowMetaEditPanel(false)}
+                              className="h-8 text-xs"
+                            >
+                              Đóng
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={!editMetaDirty || editSaving || !ingestClass}
+                              onClick={() => saveEditedArticleMeta()}
+                              className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                            >
+                              {editSaving ? 'Đang lưu...' : 'Lưu thay đổi thông tin bài'}
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+
+                  {/* Cảnh báo kiểm tra trùng lặp đoạn trích */}
+                  {(() => {
+                    const duplicates = findDuplicateChunks(editRows);
+                    if (duplicates.length === 0) return null;
+                    return (
+                      <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs space-y-1.5 shadow-xs">
+                        <div className="font-bold flex items-center gap-2 text-amber-950">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Cảnh báo: Phát hiện {duplicates.length} cặp đoạn trích có nội dung trùng lặp / tương đồng cao!</span>
+                        </div>
+                        <div className="space-y-1 pl-6 text-[11px] text-amber-800">
+                          {duplicates.map((d, dIdx) => (
+                            <div key={dIdx}>
+                              • <strong>Đoạn #{d.indexA}</strong> và <strong>Đoạn #{d.indexB}</strong> có độ tương đồng ~{d.similarity}%. Bạn có thể bấm nút <em>"Xóa đoạn"</em> ở đoạn trùng thừa để tối ưu bộ nhớ AI Lavi.
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Card chứa danh sách các đoạn trích & trạng thái duyệt toàn bộ */}
+                  <Card className="border-border bg-card shadow-xs">
+                    <CardHeader className="py-2.5 px-4 border-b border-border bg-muted/20">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Layers className="w-4 h-4 text-emerald-700" />
+                          <span className="text-xs font-bold text-foreground">
+                            Các đoạn trích đã lưu ({editRows.length})
+                          </span>
+
+                          {/* Trạng thái duyệt của các đoạn trích đặt ngay tại card đoạn trích */}
+                          {editRows.length > 0 && (
+                            editRows.every((r) => r.isManualApproved) ? (
+                              <Badge className="bg-emerald-700 text-white text-[11px] gap-1 font-semibold py-0.5 px-2">
+                                <Check className="w-3 h-3" />
+                                Đã duyệt toàn bộ ({editRows.length}/{editRows.length})
+                              </Badge>
+                            ) : editRows.filter((r) => r.isManualApproved).length === 0 ? (
+                              <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[11px] gap-1 font-semibold py-0.5 px-2">
+                                <Clock className="w-3 h-3" />
+                                Chờ duyệt (0/{editRows.length})
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-blue-50 text-blue-800 border-blue-300 text-[11px] gap-1 font-semibold py-0.5 px-2">
+                                Duyệt một phần ({editRows.filter((r) => r.isManualApproved).length}/{editRows.length})
+                              </Badge>
+                            )
+                          )}
+
+                          <span className="text-[11px] text-muted-foreground">
+                            • Nguyên văn: {existingVerbatimCount}/20 đoạn ({existingVerbatimChars.toLocaleString('vi-VN')} ký tự)
+                          </span>
+                        </div>
+
                         <Button
                           type="button"
                           size="sm"
-                          disabled={!editMetaDirty || editSaving || !ingestClass}
-                          onClick={() => saveEditedArticleMeta()}
-                          className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white"
+                          variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
+                          onClick={handleApproveAllInEdit}
+                          className={`h-7 px-3 text-xs font-semibold gap-1.5 ${
+                            editRows.every((r) => r.isManualApproved)
+                              ? 'text-muted-foreground hover:text-destructive'
+                              : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                          }`}
+                          title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
                         >
-                          {editSaving ? 'Đang lưu...' : 'Lưu thông tin bài'}
+                          <Check className="w-3.5 h-3.5" />
+                          <span>
+                            {editRows.every((r) => r.isManualApproved)
+                              ? 'Bỏ duyệt toàn bộ bài'
+                              : `Duyệt toàn bộ (${editRows.length})`}
+                          </span>
                         </Button>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {editUrl && (
-                <Card className="border-border bg-card shadow-xs">
-                  <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <CardTitle className="text-xs font-bold flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-emerald-700" />
-                        <span>Các đoạn đã lưu của bài ({editRows.length})</span>
-                      </CardTitle>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-muted-foreground">
-                          Nguyên văn: {existingVerbatimCount}/8 đoạn, {existingVerbatimChars.toLocaleString('vi-VN')} ký tự
-                        </span>
-                        <Button type="button" size="sm" variant="outline" onClick={() => exitEditMode()} className="h-7 text-xs">
-                          Thoát sửa
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-2.5 text-xs max-h-[420px] overflow-y-auto">
-                    {editLoading && editRows.length === 0 ? (
-                      <p className="text-muted-foreground">Đang tải bài đã lưu...</p>
-                    ) : (
-                      editRows.map((row) => (
-                        <div key={row.id} className="p-3 rounded-lg border border-border bg-background space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
-                                {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
-                              </Badge>
-                              {row.isManualApproved ? (
-                                <Badge className="bg-emerald-700 text-white text-[10px]">Đã duyệt</Badge>
-                              ) : (
-                                <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]">Chờ duyệt</Badge>
-                              )}
-                              <span className="text-[11px] text-muted-foreground">{row.evidenceText.length} ký tự</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              {row.isVerbatim && (
+                    </CardHeader>
+                    <CardContent className="p-4 space-y-3 text-xs">
+                      {editLoading && editRows.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-6">Đang tải danh sách đoạn đã lưu...</p>
+                      ) : editRows.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-6">Bài viết chưa có đoạn trích nào. Hãy chuyển sang Tab 2 để nạp đoạn.</p>
+                      ) : (
+                        editRows.map((row, rIdx) => (
+                          <div key={row.id} className="p-3.5 rounded-xl border border-border bg-background space-y-2.5 shadow-2xs hover:border-emerald-200 transition-colors">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-emerald-800 font-mono text-xs">Đoạn #{rIdx + 1}</span>
+                                <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
+                                  {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
+                                </Badge>
                                 <select
-                                  value={(row.unitType || 'SYMPTOMS').toUpperCase()}
-                                  disabled={editSaving}
-                                  onChange={(e) => updateSavedUnit(row, { unit_type: e.target.value })}
-                                  className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium"
-                                  aria-label="Loại nội dung"
+                                  value={row.modelClass}
+                                  onChange={(e) => updateSavedUnit(row, { model_class: e.target.value })}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border bg-background cursor-pointer ${
+                                    isHealthyTopic(row.diseaseName, row.modelClass)
+                                      ? 'text-sky-900 border-sky-300 bg-sky-50/50'
+                                      : 'text-emerald-900 border-emerald-300 bg-emerald-50/50'
+                                  }`}
+                                  title="Bấm để đổi chuyên đề / bệnh hại cho đoạn trích này"
                                 >
-                                  <option value="SYMPTOMS">Triệu chứng</option>
-                                  <option value="CAUSE_CONDITIONS">Nguyên nhân</option>
-                                  <option value="PREVENTION">Phòng ngừa</option>
-                                  <option value="TREATMENT">Điều trị</option>
+                                  {filteredDiseasesByPlant.map((d) => (
+                                    <option key={d.classCode} value={d.classCode}>
+                                      {isHealthyTopic(d.commonNameVi, d.classCode)
+                                        ? '🌱 Chăm sóc cây khỏe mạnh'
+                                        : d.commonNameVi}
+                                    </option>
+                                  ))}
                                 </select>
-                              )}
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setDeleteTarget(row)}
-                                className="h-7 px-2 text-muted-foreground hover:text-destructive"
-                                title="Xoá đoạn này"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                          {row.isVerbatim ? (
-                            <p className="text-foreground/90 leading-relaxed whitespace-pre-line">{row.evidenceText}</p>
-                          ) : (
-                            <div className="space-y-1.5">
-                              <Textarea
-                                rows={4}
-                                value={summaryDrafts[row.id] ?? row.evidenceText}
-                                onChange={(e) => setSummaryDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                                maxLength={4000}
-                                className="text-xs"
-                              />
-                              <div className="flex justify-end">
+                                <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border border-border">
+                                  {row.unitType || 'SYMPTOMS'}
+                                </span>
+                                {row.isManualApproved ? (
+                                  <Badge className="bg-emerald-700 text-white text-[10px] gap-1">
+                                    <Check className="w-3 h-3" />
+                                    <span>Đã duyệt</span>
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    <span>Chờ duyệt</span>
+                                  </Badge>
+                                )}
+                                <span className="text-[11px] text-muted-foreground">{row.evidenceText.length} ký tự</span>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="outline"
-                                  disabled={editSaving || (summaryDrafts[row.id] ?? row.evidenceText).trim() === row.evidenceText.trim()}
-                                  onClick={() => updateSavedUnit(row, { evidence_text: summaryDrafts[row.id] })}
-                                  className="h-7 text-xs"
+                                  variant={row.isManualApproved ? 'outline' : 'default'}
+                                  onClick={() => handleToggleApproveSingleSource(row.id, row.isManualApproved)}
+                                  className={`h-7 px-2.5 text-xs font-semibold ${row.isManualApproved ? 'text-muted-foreground hover:text-destructive' : 'bg-emerald-700 hover:bg-emerald-800 text-white'}`}
                                 >
-                                  Lưu tóm tắt
+                                  {row.isManualApproved ? 'Bỏ duyệt' : 'Duyệt đoạn này'}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteSingleSource(row.id)}
+                                  className="h-7 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive gap-1"
+                                  title="Xóa đoạn này khỏi bài viết"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Xóa</span>
                                 </Button>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      ))
-                    )}
-                    <p className="text-[11px] text-muted-foreground pt-1">
-                      Đoạn nguyên văn không sửa chữ được (phải đúng lời bài báo), chỉ đổi loại hoặc xoá. Muốn thêm đoạn nguyên văn:
-                      dán lại bài vào ô 2 bên trái rồi bấm <strong>Tách đoạn</strong>; đoạn đã lưu sẽ hiện nhãn "Đã lưu".
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
 
-              {!ingestionResult ? (editUrl ? null : (
-                <div className="p-12 text-center bg-card border border-border rounded-xl h-full flex flex-col items-center justify-center space-y-3">
-                  <FileText className="w-12 h-12 text-muted-foreground/30" />
-                  <h3 className="text-base font-bold text-foreground">Chưa có dữ liệu bài báo</h3>
-                  <p className="text-xs text-muted-foreground max-w-sm">
-                    Dán URL và nội dung bài báo ở cột bên trái rồi bấm <strong>"Tách đoạn &amp; AI Tự Điền Thông Tin"</strong> để bắt đầu trích dẫn nguyên văn.
-                  </p>
-                </div>
-              )) : (
-                <div className="space-y-4">
-                  {/* BƯỚC 2B: DANH SÁCH ĐOẠN TRÍCH NGUYÊN VĂN */}
-                  <Card className="border-border bg-card shadow-xs flex flex-col">
-                    <CardHeader className="pb-3 border-b border-border">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
+                            <p className="text-xs text-foreground/90 italic pl-3 border-l-2 border-emerald-500/60 leading-relaxed">
+                              "{renderParagraphWithHighlight(row.id, row.evidenceText)}"
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* ========================================================================= */}
+                {/* TAB 2: NẠP THÊM DỮ LIỆU BÀI BÁO (GIAO DIỆN CHUẨN NHẬP BÀI BÁO ĐẦY ĐỦ CHỨC NĂNG) */}
+                {/* ========================================================================= */}
+                <TabsContent value="reparse" className="space-y-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* Cột trái: Form nhập bài báo (URL + Tip Ctrl+A + Dán toàn văn + Nút Bóc tách) */}
+                    <div className="lg:col-span-5 space-y-4">
+                      <Card className="border-border bg-card shadow-xs">
+                        <CardHeader className="pb-3">
                           <CardTitle className="text-base font-bold flex items-center gap-2">
-                            <span>Đoạn văn bản trích dẫn ({ingestionResult.paragraphs.length} đoạn)</span>
-                            {ingestionResult.ai_suggestion_available ? (
-                              <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
-                                AI đã gợi ý nhãn
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-amber-700 border-amber-300 text-[10px]">
-                                Tự gán nhãn
-                              </Badge>
-                            )}
+                            <Sparkles className="w-4 h-4 text-emerald-700" />
+                            <span>Dán lại văn bản để bóc tách thêm</span>
                           </CardTitle>
-                          <CardDescription className="text-xs mt-0.5">
-                            Quy tắc trích dẫn hợp lý: <strong>Tối đa 8 đoạn nguyên văn</strong> (≤ 800 ký tự/đoạn, tổng ≤ 30% bài). Tick = Duyệt.
+                          <CardDescription className="text-xs">
+                            Hệ thống sẽ bóc tách các đoạn mới và tự động lọc bỏ những đoạn đã lưu ở Tab 1 để tránh trùng lặp.
                           </CardDescription>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            variant="secondary"
-                            className={countWithSaved > 8 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
-                          >
-                            Đoạn: {countWithSaved} / 8
-                          </Badge>
-                          <Badge
-                            variant="secondary"
-                            className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
-                          >
-                            <span title="Giới hạn = 30% độ dài bài, tối thiểu 1.200 ký tự">
-                              Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((charsWithSaved / allowedCharsQuota) * 100).toFixed(0)}%)
-                            </span>
-                          </Badge>
-                        </div>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent className="p-4 flex-1 overflow-y-auto max-h-[500px] space-y-3">
-                      {/* Danh sách các đoạn liên quan */}
-                      {ingestionResult.paragraphs
-                        .filter((p) => !ingestionResult.ai_suggestion_available || p.suggested_unit_type !== null)
-                        .map((para) => {
-                          const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-                          const isTooLong = para.text.length > 800;
-                          const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
-                          // Dòng tiêu đề/ngày đăng (< 40 ký tự, không phải đoạn tách) chỉ để AI đọc thông tin bài
-                          const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
-
-                          return (
-                            <div
-                              key={para.id}
-                              className={`p-3.5 rounded-lg border transition-colors ${state.selected
-                                  ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
-                                  : 'bg-card border-border hover:bg-muted/40'
-                                }`}
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
-                                  <input
-                                    type="checkbox"
-                                    checked={state.selected}
-                                    disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
-                                    onChange={(e) => {
-                                      setSelectedParagraphs((prev) => ({
-                                        ...prev,
-                                        [para.id]: {
-                                          ...state,
-                                          selected: e.target.checked,
-                                        },
-                                      }));
-                                    }}
-                                    className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
-                                  />
-                                  <span className="text-emerald-800 font-mono">{para.id}</span>
-                                  <span className="text-muted-foreground font-normal text-[11px]">
-                                    ({para.text.length} ký tự)
-                                  </span>
-                                  {isSaved && (
-                                    <Badge variant="outline" className="text-[10px] h-5 border-emerald-300 text-emerald-800 bg-emerald-50">
-                                      Đã lưu
-                                    </Badge>
-                                  )}
-                                  {isTooLong && (
-                                    <Badge variant="destructive" className="text-[10px] h-5">
-                                      Vượt quá 800 ký tự
-                                    </Badge>
-                                  )}
-                                </label>
-
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleOpenSplitModal(para)}
-                                    className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
-                                        ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
-                                        : 'border-border text-muted-foreground hover:text-foreground'
-                                      }`}
-                                    title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
+                        </CardHeader>
+                        <CardContent>
+                          <form onSubmit={handleParseArticle} className="space-y-4 text-xs">
+                            <div>
+                              <label className="font-semibold text-foreground block mb-1">
+                                1. Đường dẫn URL bài viết gốc *
+                              </label>
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  type="url"
+                                  value={editUrl || ingestUrl}
+                                  readOnly
+                                  className="text-xs flex-1 bg-muted/40 cursor-default"
+                                />
+                                {isSafeHttpUrl(editUrl || ingestUrl) && (
+                                  <a
+                                    href={(editUrl || ingestUrl)!.trim()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center justify-center h-8 px-2.5 border border-border rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground text-xs shrink-0 transition-colors"
+                                    title="Mở link bài viết trong tab mới để copy văn bản"
                                   >
-                                    <Scissors className="w-3 h-3" />
-                                    <span>Tách đoạn</span>
-                                  </Button>
-
-                                  <select
-                                    value={state.unitType}
-                                    disabled={!state.selected}
-                                    onChange={(e) => {
-                                      setSelectedParagraphs((prev) => ({
-                                        ...prev,
-                                        [para.id]: {
-                                          ...state,
-                                          unitType: e.target.value,
-                                        },
-                                      }));
-                                    }}
-                                    className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
-                                  >
-                                    <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
-                                    <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
-                                    <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
-                                    <option value="TREATMENT">Điều trị (TREATMENT)</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
-                                "{para.text}"
-                              </p>
-
-                              {/* Thẻ vật tư/hoạt chất/biện pháp: xem, đổi loại, xóa, hoặc thêm mới */}
-                              <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất:</span>
-                                  {(para.mentions || []).map((m, mIdx) => (
-                                    <span
-                                      key={mIdx}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${m.kind === 'CHEMICAL'
-                                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                          : m.kind === 'BIOLOGICAL'
-                                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                            : m.kind === 'SUPPLY'
-                                              ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                                              : 'bg-purple-100 text-purple-800 border border-purple-300'
-                                        }`}
-                                    >
-                                      <span>{m.text}</span>
-                                      <select
-                                        value={m.kind}
-                                        onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
-                                        className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0"
-                                        title="Đổi phân loại vật tư"
-                                      >
-                                        <option value="CHEMICAL">Hóa học</option>
-                                        <option value="BIOLOGICAL">Sinh học</option>
-                                        <option value="SUPPLY">Vật tư</option>
-                                        <option value="PRACTICE">Canh tác</option>
-                                      </select>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoveMention(para.id, mIdx)}
-                                        className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
-                                        title="Xóa thẻ này"
-                                      >
-                                        <X className="w-2.5 h-2.5" />
-                                      </button>
-                                    </span>
-                                  ))}
-
-                                  {addingMentionParaId !== para.id && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setAddingMentionParaId(para.id);
-                                        setNewMentionText('');
-                                        setNewMentionKind('CHEMICAL');
-                                      }}
-                                      className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
-                                      title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
-                                    >
-                                      <Plus className="w-2.5 h-2.5" />
-                                      <span>Thêm cụm từ</span>
-                                    </button>
-                                  )}
-                                </div>
-
-                                {addingMentionParaId === para.id && (
-                                  <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
-                                    <Input
-                                      type="text"
-                                      value={newMentionText}
-                                      onChange={(e) => setNewMentionText(e.target.value)}
-                                      placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
-                                      className="h-7 text-[11px] bg-background w-56"
-                                      autoFocus
-                                    />
-                                    <select
-                                      value={newMentionKind}
-                                      onChange={(e) => setNewMentionKind(e.target.value)}
-                                      className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
-                                    >
-                                      <option value="CHEMICAL">Hóa học</option>
-                                      <option value="BIOLOGICAL">Sinh học</option>
-                                      <option value="SUPPLY">Vật tư canh tác</option>
-                                      <option value="PRACTICE">Biện pháp canh tác</option>
-                                    </select>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      onClick={() => handleAddMention(para.id)}
-                                      className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white"
-                                    >
-                                      Thêm
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => setAddingMentionParaId(null)}
-                                      className="h-7 text-[11px] px-2 text-muted-foreground"
-                                    >
-                                      Hủy
-                                    </Button>
-                                  </div>
+                                    <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+                                  </a>
                                 )}
                               </div>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-[11px] text-muted-foreground">
+                                  Đang nạp thêm cho bài viết này
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNewImagePlant(selectedPlant);
+                                    setNewImageClass(ingestClass);
+                                    setNewImageSourceUrl(editUrl || ingestUrl);
+                                    setNewImageCredit(ingestOrg || 'Trung tâm Khuyến nông');
+                                    setAddImageModalOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                                >
+                                  <ImageIcon className="w-3.5 h-3.5" />
+                                  <span>Thêm ảnh triệu chứng từ bài này</span>
+                                </button>
+                              </div>
                             </div>
-                          );
-                        })}
 
-                      {/* Nhóm đoạn AI gắn nhãn null (Đoạn không liên quan/rác) - Mặc định thu gọn theo Section 3.1 */}
-                      {ingestionResult.ai_suggestion_available && ingestionResult.paragraphs.some((p) => p.suggested_unit_type === null) && (
-                        <div className="pt-2 border-t border-border">
-                          <button
-                            type="button"
-                            onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
-                            className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
-                          >
-                            <span className="flex items-center gap-1.5">
-                              {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                              <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
-                            </span>
-                            <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
-                          </button>
+                            <div>
+                              <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1">
+                                <label className="font-semibold text-foreground">
+                                  2. Dán toàn văn bài báo *
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={handleCrawlArticleFromUrl}
+                                    disabled={crawlingUrl || !(editUrl || ingestUrl).trim()}
+                                    className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    title="Tải nhanh nội dung từ URL ở mục 1 (nếu trang chặn bot thì copy tay)"
+                                  >
+                                    {crawlingUrl ? (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                        <span>Đang crawl...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Globe className="w-3 h-3" />
+                                        <span>Crawl nội dung từ URL</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
+                                <span>
+                                  <strong>Mẹo copy bài gốc:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang bài gốc rồi dán vào ô dưới, hoặc bấm <strong>Crawl nội dung từ URL</strong>. Hệ thống sẽ tự lọc bỏ menu, quảng cáo rác!
+                                </span>
+                              </div>
+                              <Textarea
+                                rows={11}
+                                placeholder="Dán văn bản bài báo vào đây để bóc tách đoạn mới hoặc tái trích xuất..."
+                                value={ingestText}
+                                onChange={(e) => setIngestText(e.target.value)}
+                                onPaste={handlePasteArticleText}
+                                required
+                                maxLength={50000}
+                                className="text-xs font-mono resize-y"
+                              />
+                            </div>
 
-                          {showNoiseParagraphs && (
-                            <div className="mt-2 space-y-2 pl-2">
-                              {ingestionResult.paragraphs
-                                .filter((p) => p.suggested_unit_type === null)
-                                .map((para) => {
-                                  const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-                                  const isTooLong = para.text.length > 800;
-                                  const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
-                                  // Dòng tiêu đề/ngày đăng (< 40 ký tự, không phải đoạn tách) chỉ để AI đọc thông tin bài
-                                  const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+                            <Button
+                              type="submit"
+                              disabled={ingesting}
+                              className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-10"
+                            >
+                              {ingesting ? (
+                                <>
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                  <span>Đang bóc tách &amp; Phân tích văn bản...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-4 h-4" />
+                                  <span>Tách đoạn &amp; Phân tích dữ liệu mới</span>
+                                </>
+                              )}
+                            </Button>
+                          </form>
+                        </CardContent>
+                      </Card>
+                    </div>
 
-                                  return (
-                                    <div
-                                      key={para.id}
-                                      className={`p-3 rounded-lg border transition-colors opacity-80 hover:opacity-100 ${state.selected
-                                          ? 'bg-emerald-50/70 border-emerald-300'
-                                          : 'bg-card border-border'
-                                        }`}
-                                    >
-                                      <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                                        <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
-                                          <input
-                                            type="checkbox"
-                                            checked={state.selected}
-                                            disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 8)}
-                                            onChange={(e) => {
-                                              setSelectedParagraphs((prev) => ({
-                                                ...prev,
-                                                [para.id]: {
-                                                  ...state,
-                                                  selected: e.target.checked,
-                                                },
-                                              }));
-                                            }}
-                                            className="w-4 h-4 rounded text-emerald-700"
-                                          />
-                                          <span className="text-muted-foreground font-mono">{para.id}</span>
-                                          <span className="text-muted-foreground font-normal text-[10px]">
-                                            ({para.text.length} ký tự)
-                                          </span>
-                                          {isTooLong && (
-                                            <Badge variant="destructive" className="text-[10px] h-5">
-                                              Vượt quá 800 ký tự
-                                            </Badge>
-                                          )}
-                                        </label>
+                    {/* Cột phải: Thông tin bài viết & Danh sách đoạn trích mới (Bỏ hẳn banner so sánh rời rạc) */}
+                    <div className="lg:col-span-7 space-y-4">
+                      {!ingestionResult ? (
+                        <div className="p-12 text-center bg-card border border-border rounded-xl h-full flex flex-col items-center justify-center space-y-3">
+                          <FileText className="w-12 h-12 text-muted-foreground/30" />
+                          <h3 className="text-base font-bold text-foreground">Chưa có văn bản bóc tách</h3>
+                          <p className="text-xs text-muted-foreground max-w-sm">
+                            Dán nội dung vào ô bên trái rồi bấm <strong>"Tách đoạn &amp; Phân tích dữ liệu mới"</strong> để AI bóc tách các đoạn mới và đề xuất thông tin bài viết.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Card 1: Thông tin bài viết & Phân loại: Lấp lánh từng ô, nhấp mở popover Áp dụng/Bỏ qua, hỗ trợ thu gọn */}
+                          {(() => {
+                            const meta = ingestionResult.suggested_metadata;
+                            const hasTitleDiff = !!meta?.source_title && meta.source_title.trim() !== ingestTitle.trim() && !dismissedAiFields['title'];
+                            const hasOrgDiff = !!meta?.organization && meta.organization.trim() !== buildCombinedOrg(ingestOrg, ingestAuthor) && !dismissedAiFields['org'];
+                            const hasDateDiff = !!meta?.published_date && meta.published_date.trim() !== buildCombinedDate(ingestPublishedDate, ingestUpdatedDate) && !dismissedAiFields['date'];
+                            const pendingDiffCount = (hasTitleDiff ? 1 : 0) + (hasOrgDiff ? 1 : 0) + (hasDateDiff ? 1 : 0);
 
-                                        <div className="flex items-center gap-2">
+                            return (
+                              <Card className="border-border bg-card shadow-xs transition-all">
+                                <CardHeader className="py-2.5 px-4 border-b border-border bg-muted/20">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <FileText className="w-4 h-4 text-emerald-700" />
+                                      <CardTitle className="text-xs font-bold text-foreground">
+                                        Thông tin bài viết &amp; Phân loại
+                                      </CardTitle>
+                                      {pendingDiffCount > 0 && (
+                                        <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] gap-1 animate-pulse">
+                                          <Sparkles className="w-3 h-3 text-amber-600" />
+                                          {pendingDiffCount} ô có AI đề xuất
+                                        </Badge>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5">
+                                      {pendingDiffCount > 0 && (
+                                        <>
                                           <Button
                                             type="button"
                                             size="sm"
-                                            variant="outline"
-                                            onClick={() => handleOpenSplitModal(para)}
-                                            className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
-                                                ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
-                                                : 'border-border text-muted-foreground hover:text-foreground'
-                                              }`}
-                                            title={isTooLong ? 'Đoạn quá 800 ký tự - bấm để tách đôi' : 'Tách đoạn này thành 2 đoạn nhỏ'}
-                                          >
-                                            <Scissors className="w-3 h-3" />
-                                            <span>Tách đoạn</span>
-                                          </Button>
-
-                                          <select
-                                            value={state.unitType}
-                                            disabled={!state.selected}
-                                            onChange={(e) => {
-                                              setSelectedParagraphs((prev) => ({
-                                                ...prev,
-                                                [para.id]: {
-                                                  ...state,
-                                                  unitType: e.target.value,
-                                                },
-                                              }));
+                                            variant="ghost"
+                                            onClick={() => {
+                                              setDismissedAiFields(prev => ({ ...prev, title: true, org: true, date: true }));
+                                              setActiveAiPopoverField(null);
+                                              toast.info('Đã bỏ qua các đề xuất của AI.');
                                             }}
-                                            className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
+                                            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                            title="Bỏ qua tất cả các gợi ý của AI và giữ nguyên dữ liệu hiện tại"
                                           >
-                                            <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
-                                            <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
-                                            <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
-                                            <option value="TREATMENT">Điều trị (TREATMENT)</option>
-                                          </select>
+                                            Bỏ qua tất cả
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => {
+                                              if (meta?.source_title) setIngestTitle(meta.source_title);
+                                              if (meta?.organization) {
+                                                const parsedOrg = parseCombinedOrg(meta.organization);
+                                                setIngestOrg(parsedOrg.org);
+                                                if (parsedOrg.author) setIngestAuthor(parsedOrg.author);
+                                              }
+                                              if (meta?.published_date) {
+                                                const parsedDate = parseCombinedDate(meta.published_date);
+                                                if (parsedDate.pubDate) setIngestPublishedDate(parsedDate.pubDate);
+                                                if (parsedDate.upDate) setIngestUpdatedDate(parsedDate.upDate);
+                                              }
+                                              setDismissedAiFields(prev => ({ ...prev, title: true, org: true, date: true }));
+                                              setActiveAiPopoverField(null);
+                                              setIsMetaCardCollapsed(true);
+                                              toast.success('Đã áp dụng toàn bộ đề xuất của AI và thu gọn form!');
+                                            }}
+                                            className="h-6 px-2 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1"
+                                            title="Áp dụng toàn bộ gợi ý AI vào form và tự động thu gọn"
+                                          >
+                                            <Check className="w-3 h-3" />
+                                            Áp dụng tất cả
+                                          </Button>
+                                        </>
+                                      )}
+
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setIsMetaCardCollapsed(!isMetaCardCollapsed)}
+                                        className="h-6 px-2 text-[10px] gap-1 border-border text-muted-foreground hover:text-foreground"
+                                        title={isMetaCardCollapsed ? 'Mở rộng form thông tin bài viết' : 'Thu gọn form để tập trung xem các đoạn trích'}
+                                      >
+                                        {isMetaCardCollapsed ? (
+                                          <>
+                                            <ChevronDown className="w-3 h-3" />
+                                            <span>Mở rộng form</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <ChevronUp className="w-3 h-3" />
+                                            <span>Thu gọn</span>
+                                          </>
+                                        )}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+
+                                {isMetaCardCollapsed ? (
+                                  /* Chế độ thu gọn: Chỉ 1 hàng tóm tắt cực kỳ tinh gọn, không chiếm diện tích */
+                                  <div className="p-3 bg-muted/15 flex flex-wrap items-center justify-between gap-2 text-xs border-b border-border/40">
+                                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-muted-foreground text-[11px]">
+                                      <span>
+                                        <strong className="text-foreground">Cây:</strong>{' '}
+                                        <span className="text-emerald-800 font-semibold">{selectedPlant || 'Chưa chọn'}</span>
+                                      </span>
+                                      <span>•</span>
+                                      <span>
+                                        <strong className="text-foreground">Chuyên đề:</strong>{' '}
+                                        <span className="text-emerald-800 font-semibold">
+                                          {articleTopics.map(code => {
+                                            const f = diseases.find(d => d.classCode === code);
+                                            return isHealthyTopic(f?.commonNameVi || '', code) ? 'Cây khỏe' : (f?.commonNameVi || code);
+                                          }).join(', ') || 'Chưa chọn'}
+                                        </span>
+                                      </span>
+                                      <span>•</span>
+                                      <span className="max-w-[260px] truncate" title={ingestTitle}>
+                                        <strong className="text-foreground">Tiêu đề:</strong>{' '}
+                                        <span className="text-foreground font-medium">{ingestTitle || '(Chưa có)'}</span>
+                                      </span>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsMetaCardCollapsed(false)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>Mở ra chỉnh sửa</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  /* Chế độ mở rộng: Các ô input sạch sẽ, ô có AI đề xuất sẽ có viền lấp lánh nhẹ và popover */
+                                  <CardContent className="p-4 space-y-3 text-xs">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      <div>
+                                        <label className="font-semibold text-foreground block mb-1">
+                                          Loài cây trồng *
+                                        </label>
+                                        <select
+                                          value={selectedPlant}
+                                          onChange={(e) => handlePlantChange(e.target.value)}
+                                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                                        >
+                                          <option value="">-- Chọn loài cây --</option>
+                                          {uniquePlants.map((plant) => (
+                                            <option key={plant} value={plant}>
+                                              {plant}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div className="sm:col-span-2">
+                                        {renderArticleTopicsSelector()}
+                                      </div>
+                                    </div>
+
+                                    {/* Tiêu đề bài viết trích dẫn */}
+                                    <div className="relative">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <label className="font-semibold text-foreground">
+                                          Tiêu đề bài viết trích dẫn *
+                                        </label>
+                                        {hasTitleDiff && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'title' ? null : 'title')}
+                                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5 animate-pulse cursor-pointer shadow-2xs transition-colors"
+                                            title="Nhấp để xem gợi ý AI"
+                                          >
+                                            <Sparkles className="w-3 h-3 text-amber-600 animate-spin-slow" />
+                                            <span>AI có gợi ý</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                      <div className="relative">
+                                        <Input
+                                          type="text"
+                                          value={ingestTitle}
+                                          onChange={(e) => setIngestTitle(e.target.value)}
+                                          onClick={() => {
+                                            if (hasTitleDiff) setActiveAiPopoverField('title');
+                                          }}
+                                          placeholder="Tiêu đề bài viết..."
+                                          className={`text-xs bg-background transition-all ${
+                                            hasTitleDiff
+                                              ? 'ring-2 ring-amber-400/80 border-amber-400 bg-amber-50/20 pr-8 shadow-xs'
+                                              : ''
+                                          }`}
+                                        />
+                                        {hasTitleDiff && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'title' ? null : 'title')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-800 transition-transform active:scale-95"
+                                            title="Nhấp để xem gợi ý AI"
+                                          >
+                                            <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                          </button>
+                                        )}
+
+                                        {/* Popover nổi lên khi nhấp vào ô hoặc nút lấp lánh */}
+                                        {hasTitleDiff && activeAiPopoverField === 'title' && (
+                                          <div className="absolute z-30 top-full left-0 right-0 sm:right-auto sm:min-w-[340px] mt-1.5 p-3 bg-card border-2 border-amber-300 rounded-xl shadow-xl text-xs space-y-2 animate-in fade-in zoom-in-95">
+                                            <div className="flex items-start gap-2">
+                                              <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                              <div className="min-w-0 flex-1">
+                                                <span className="text-[11px] font-bold text-amber-950 block">AI đọc được từ bài báo:</span>
+                                                <p className="text-xs font-semibold text-foreground mt-0.5 bg-muted/40 p-1.5 rounded border border-border/60 break-words">
+                                                  "{meta?.source_title}"
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-border/60">
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                  setDismissedAiFields(prev => ({ ...prev, title: true }));
+                                                  setActiveAiPopoverField(null);
+                                                }}
+                                                className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                              >
+                                                Bỏ qua
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={() => {
+                                                  setIngestTitle(meta!.source_title!);
+                                                  setDismissedAiFields(prev => ({ ...prev, title: true }));
+                                                  setActiveAiPopoverField(null);
+                                                  toast.success('Đã áp dụng tiêu đề AI đề xuất!');
+                                                }}
+                                                className="h-6 px-2.5 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                              >
+                                                Áp dụng
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Cơ quan & Tác giả */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      <div className="relative">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <label className="font-semibold text-foreground">
+                                            Cơ quan / Viện nghiên cứu *
+                                          </label>
+                                          {hasOrgDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'org' ? null : 'org')}
+                                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5 animate-pulse cursor-pointer shadow-2xs transition-colors"
+                                              title="Nhấp để xem gợi ý AI"
+                                            >
+                                              <Sparkles className="w-3 h-3 text-amber-600 animate-spin-slow" />
+                                              <span>AI có gợi ý</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                        <div className="relative">
+                                          <Input
+                                            type="text"
+                                            value={ingestOrg}
+                                            onChange={(e) => setIngestOrg(e.target.value)}
+                                            onClick={() => {
+                                              if (hasOrgDiff) setActiveAiPopoverField('org');
+                                            }}
+                                            placeholder="Trung tâm Khuyến nông..."
+                                            className={`text-xs bg-background transition-all ${
+                                              hasOrgDiff
+                                                ? 'ring-2 ring-amber-400/80 border-amber-400 bg-amber-50/20 pr-8 shadow-xs'
+                                                : ''
+                                            }`}
+                                          />
+                                          {hasOrgDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'org' ? null : 'org')}
+                                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-800 transition-transform active:scale-95"
+                                              title="Nhấp để xem gợi ý AI"
+                                            >
+                                              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                            </button>
+                                          )}
+
+                                          {/* Popover nổi cho Cơ quan / Tác giả */}
+                                          {hasOrgDiff && activeAiPopoverField === 'org' && (
+                                            <div className="absolute z-30 top-full left-0 right-0 sm:right-auto sm:min-w-[340px] mt-1.5 p-3 bg-card border-2 border-amber-300 rounded-xl shadow-xl text-xs space-y-2 animate-in fade-in zoom-in-95">
+                                              <div className="flex items-start gap-2">
+                                                <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                                <div className="min-w-0 flex-1">
+                                                  <span className="text-[11px] font-bold text-amber-950 block">AI đọc được từ bài báo:</span>
+                                                  <p className="text-xs font-semibold text-foreground mt-0.5 bg-muted/40 p-1.5 rounded border border-border/60 break-words">
+                                                    "{meta?.organization}"
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-border/60">
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => {
+                                                    setDismissedAiFields(prev => ({ ...prev, org: true }));
+                                                    setActiveAiPopoverField(null);
+                                                  }}
+                                                  className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                                >
+                                                  Bỏ qua
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  onClick={() => {
+                                                    const parsedOrg = parseCombinedOrg(meta?.organization);
+                                                    setIngestOrg(parsedOrg.org);
+                                                    if (parsedOrg.author) setIngestAuthor(parsedOrg.author);
+                                                    setDismissedAiFields(prev => ({ ...prev, org: true }));
+                                                    setActiveAiPopoverField(null);
+                                                    toast.success('Đã áp dụng cơ quan/tác giả AI đề xuất!');
+                                                  }}
+                                                  className="h-6 px-2.5 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                                >
+                                                  Áp dụng
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
 
-                                      <p className="text-xs text-muted-foreground italic pl-6 leading-relaxed">
-                                        "{para.text}"
-                                      </p>
+                                      <div>
+                                        <label className="font-semibold text-foreground block mb-1">
+                                          Tác giả / Nhóm nghiên cứu
+                                        </label>
+                                        <Input
+                                          type="text"
+                                          value={ingestAuthor}
+                                          onChange={(e) => setIngestAuthor(e.target.value)}
+                                          placeholder="(Để trống nếu không rõ tác giả)"
+                                          className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
+                                        />
+                                      </div>
+                                    </div>
 
-                                      {/* Thẻ vật tư/hoạt chất/biện pháp */}
-                                      <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                          <span className="text-[10px] text-muted-foreground font-medium">Vật tư / Hoạt chất:</span>
-                                          {(para.mentions || []).map((m, mIdx) => (
-                                            <span
-                                              key={mIdx}
-                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border"
+                                    {/* Ngày đăng & Ngày cập nhật */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      <div className="relative">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <label className="font-semibold text-foreground">
+                                            Ngày đăng / xuất bản
+                                          </label>
+                                          {hasDateDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'date' ? null : 'date')}
+                                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5 animate-pulse cursor-pointer shadow-2xs transition-colors"
+                                              title="Nhấp để xem gợi ý AI"
                                             >
-                                              <span>{m.text}</span>
-                                              <select
-                                                value={m.kind}
-                                                onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
-                                                className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0"
-                                                title="Đổi phân loại vật tư"
-                                              >
-                                                <option value="CHEMICAL">Hóa học</option>
-                                                <option value="BIOLOGICAL">Sinh học</option>
-                                                <option value="SUPPLY">Vật tư</option>
-                                                <option value="PRACTICE">Canh tác</option>
-                                              </select>
-                                              <button
-                                                type="button"
-                                                onClick={() => handleRemoveMention(para.id, mIdx)}
-                                                className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
-                                                title="Xóa thẻ này"
-                                              >
-                                                <X className="w-2.5 h-2.5" />
-                                              </button>
-                                            </span>
-                                          ))}
+                                              <Sparkles className="w-3 h-3 text-amber-600 animate-spin-slow" />
+                                              <span>AI có gợi ý</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                        <div className="relative">
+                                          <Input
+                                            type="text"
+                                            value={ingestPublishedDate}
+                                            onChange={(e) => setIngestPublishedDate(e.target.value)}
+                                            onClick={() => {
+                                              if (hasDateDiff) setActiveAiPopoverField('date');
+                                            }}
+                                            placeholder="03/01/2024"
+                                            className={`text-xs bg-background transition-all ${
+                                              hasDateDiff
+                                                ? 'ring-2 ring-amber-400/80 border-amber-400 bg-amber-50/20 pr-8 shadow-xs'
+                                                : ''
+                                            }`}
+                                          />
+                                          {hasDateDiff && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveAiPopoverField(activeAiPopoverField === 'date' ? null : 'date')}
+                                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-800 transition-transform active:scale-95"
+                                              title="Nhấp để xem gợi ý AI"
+                                            >
+                                              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                            </button>
+                                          )}
 
-                                          {addingMentionParaId !== para.id && (
+                                          {/* Popover nổi cho Ngày đăng */}
+                                          {hasDateDiff && activeAiPopoverField === 'date' && (
+                                            <div className="absolute z-30 top-full left-0 right-0 sm:right-auto sm:min-w-[340px] mt-1.5 p-3 bg-card border-2 border-amber-300 rounded-xl shadow-xl text-xs space-y-2 animate-in fade-in zoom-in-95">
+                                              <div className="flex items-start gap-2">
+                                                <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                                <div className="min-w-0 flex-1">
+                                                  <span className="text-[11px] font-bold text-amber-950 block">AI đọc được từ bài báo:</span>
+                                                  <p className="text-xs font-semibold text-foreground mt-0.5 bg-muted/40 p-1.5 rounded border border-border/60 break-words">
+                                                    "{meta?.published_date}"
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-border/60">
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={() => {
+                                                    setDismissedAiFields(prev => ({ ...prev, date: true }));
+                                                    setActiveAiPopoverField(null);
+                                                  }}
+                                                  className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                                >
+                                                  Bỏ qua
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  onClick={() => {
+                                                    const parsedDate = parseCombinedDate(meta?.published_date);
+                                                    if (parsedDate.pubDate) setIngestPublishedDate(parsedDate.pubDate);
+                                                    if (parsedDate.upDate) setIngestUpdatedDate(parsedDate.upDate);
+                                                    setDismissedAiFields(prev => ({ ...prev, date: true }));
+                                                    setActiveAiPopoverField(null);
+                                                    toast.success('Đã áp dụng ngày xuất bản & cập nhật AI đề xuất!');
+                                                  }}
+                                                  className="h-6 px-2.5 text-[10px] bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                                >
+                                                  Áp dụng
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div>
+                                        <label className="font-semibold text-foreground block mb-1">
+                                          Ngày cập nhật (nếu có)
+                                        </label>
+                                        <Input
+                                          type="text"
+                                          value={ingestUpdatedDate}
+                                          onChange={(e) => setIngestUpdatedDate(e.target.value)}
+                                          placeholder="(Để trống nếu không có)"
+                                          className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
+                                        />
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                )}
+                              </Card>
+                            );
+                          })()}
+
+                          {/* Card 2: Danh sách các đoạn trích mới (Đã tự động loại bỏ các đoạn đã lưu ở Tab 1) */}
+                          {(() => {
+                            const newParagraphs = ingestionResult.paragraphs.filter(
+                              (p) => !savedVerbatimTexts.has(collapseWs(p.text))
+                            );
+
+                            if (newParagraphs.length === 0) {
+                              return (
+                                <div className="p-6 text-center bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs space-y-2">
+                                  <CheckCircle2 className="w-8 h-8 text-emerald-700 mx-auto" />
+                                  <div className="font-bold text-sm">Tất cả các đoạn trích đã được lưu trong CSDL!</div>
+                                  <p className="text-[11px] text-emerald-700 max-w-sm mx-auto">
+                                    Không tìm thấy đoạn trích mới nào so với các đoạn đã lưu ở Tab 1. Bạn có thể quay lại Tab 1 để xem và duyệt các đoạn này.
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <Card className="border-border bg-card shadow-xs">
+                                <CardHeader className="pb-3 border-b border-border">
+                                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                    <div>
+                                      <CardTitle className="text-xs font-bold flex items-center gap-2">
+                                        <span>Đoạn trích mới ({newParagraphs.length} đoạn chưa lưu)</span>
+                                        {ingestionResult.ai_suggestion_available ? (
+                                          <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                                            AI đã gợi ý nhãn
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="text-amber-700 border-amber-300 text-[10px]">
+                                            Tự gán nhãn
+                                          </Badge>
+                                        )}
+                                      </CardTitle>
+                                      <CardDescription className="text-xs mt-0.5">
+                                        Tick chọn các đoạn cần nạp thêm vào bài viết này (tối đa 20 đoạn nguyên văn/bài).
+                                      </CardDescription>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleSelectAllAiSuggested}
+                                        className="h-6 text-[10px] gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
+                                        title="Tự động tick chọn tất cả các đoạn trích theo gợi ý của AI"
+                                      >
+                                        <Sparkles className="w-3 h-3 text-emerald-700" />
+                                        <span>Chọn tất cả đoạn AI gợi ý</span>
+                                      </Button>
+                                      <Badge variant="secondary" className="bg-muted text-foreground text-[11px]">
+                                        Đoạn: {countWithSaved} / 20
+                                      </Badge>
+                                      <Badge
+                                        variant="secondary"
+                                        className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                                      >
+                                        <span title="Giới hạn = 60% độ dài bài, tối thiểu 2.500 ký tự">
+                                          Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({Math.min(100, Math.round((charsWithSaved / allowedCharsQuota) * 100))}%)
+                                        </span>
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+                                <CardContent className="p-4 space-y-3 max-h-[480px] overflow-y-auto">
+                                  {newParagraphs.map((para) => {
+                                    const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                    const isTooLong = para.text.length > 1500;
+
+                                    return (
+                                      <div
+                                        key={para.id}
+                                        className={`p-3.5 rounded-lg border transition-colors ${state.selected
+                                            ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
+                                            : 'bg-card border-border hover:bg-muted/40'
+                                          }`}
+                                      >
+                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                          <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                                            <input
+                                              type="checkbox"
+                                              checked={state.selected}
+                                              disabled={isTooLong || (!state.selected && countWithSaved >= 20)}
+                                              onChange={(e) => {
+                                                setSelectedParagraphs((prev) => ({
+                                                  ...prev,
+                                                  [para.id]: {
+                                                    ...state,
+                                                    selected: e.target.checked,
+                                                  },
+                                                }));
+                                              }}
+                                              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
+                                            />
+                                            <span className="text-emerald-800 font-mono">{para.id}</span>
+                                            <span className="text-muted-foreground font-normal text-[11px]">
+                                              ({para.text.length} ký tự)
+                                            </span>
+                                            {isTooLong && (
+                                              <Badge variant="destructive" className="text-[10px] h-5">
+                                                Vượt quá 1.500 ký tự
+                                              </Badge>
+                                            )}
+                                          </label>
+
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => handleOpenSplitModal(para)}
+                                              className="h-6 text-[10px] gap-1 px-2 border-border text-muted-foreground hover:text-foreground"
+                                            >
+                                              <Scissors className="w-3 h-3" />
+                                              <span>Tách đoạn</span>
+                                            </Button>
+
+                                            <select
+                                              value={state.unitType}
+                                              disabled={!state.selected}
+                                              onChange={(e) => {
+                                                setSelectedParagraphs((prev) => ({
+                                                  ...prev,
+                                                  [para.id]: {
+                                                    ...state,
+                                                    unitType: e.target.value,
+                                                  },
+                                                }));
+                                              }}
+                                              className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
+                                            >
+                                              <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
+                                              <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
+                                              <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
+                                              <option value="TREATMENT">Điều trị (TREATMENT)</option>
+                                            </select>
+
+                                            <select
+                                              value={state.diseaseClass || ingestClass}
+                                              disabled={!state.selected}
+                                              onChange={(e) => {
+                                                setSelectedParagraphs((prev) => ({
+                                                  ...prev,
+                                                  [para.id]: {
+                                                    ...state,
+                                                    diseaseClass: e.target.value,
+                                                  },
+                                                }));
+                                              }}
+                                              className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50 max-w-[160px] truncate"
+                                              title="Chuyên đề / Bệnh hại cho đoạn trích này"
+                                            >
+                                              {filteredDiseasesByPlant.map((d) => (
+                                                <option key={d.classCode} value={d.classCode}>
+                                                  {isHealthyTopic(d.commonNameVi, d.classCode)
+                                                    ? '🌱 Chăm sóc & Phòng ngừa'
+                                                    : d.commonNameVi}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        </div>
+
+                                        <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
+                                          "{renderParagraphWithHighlight(para.id, para.text)}"
+                                        </p>
+
+                                        {/* Thẻ vật tư/hoạt chất/biện pháp: xem, highlight, dịch nghĩa tiếng Việt */}
+                                        <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                                              <span>Vật tư / Hoạt chất:</span>
+                                              <span className="text-[9px] text-muted-foreground/80 cursor-help" title="Cụm từ trích xuất để AI Lavi gợi ý thuốc trong kho vật tư và đối soát kiến thức">(?)</span>
+                                            </span>
+                                            {(para.mentions || []).map((m, mIdx) => {
+                                              const translation = getAgriTranslation(m.text);
+                                              const isHighlighted = highlightedMention?.paraId === para.id && highlightedMention.text.toLowerCase() === m.text.toLowerCase();
+                                              return (
+                                                <span
+                                                  key={mIdx}
+                                                  onMouseEnter={() => setHighlightedMention({ paraId: para.id, text: m.text })}
+                                                  onMouseLeave={() => setHighlightedMention(null)}
+                                                  onClick={() => setHighlightedMention((prev) => (prev?.paraId === para.id && prev?.text.toLowerCase() === m.text.toLowerCase() ? null : { paraId: para.id, text: m.text }))}
+                                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${
+                                                    isHighlighted ? 'ring-2 ring-amber-400 shadow-xs ' : ''
+                                                  }${
+                                                    m.kind === 'CHEMICAL'
+                                                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                                      : m.kind === 'BIOLOGICAL'
+                                                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                                        : m.kind === 'SUPPLY'
+                                                          ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                                          : 'bg-purple-100 text-purple-900 border border-purple-300'
+                                                  }`}
+                                                  title={translation ? `Thuật ngữ: "${m.text}"\nNghĩa tiếng Việt: ${translation}\n(Bấm để highlight từ này trong văn bản)` : `Bấm để highlight "${m.text}" trong đoạn văn`}
+                                                >
+                                                  <span>{m.text}</span>
+                                                  {translation && (
+                                                    <span className="text-[9px] opacity-80 font-normal italic">
+                                                      ({translation})
+                                                    </span>
+                                                  )}
+                                                  <select
+                                                    value={m.kind}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                                    className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0 ml-0.5"
+                                                    title="Đổi phân loại vật tư"
+                                                  >
+                                                    <option value="CHEMICAL">Hóa học</option>
+                                                    <option value="BIOLOGICAL">Sinh học</option>
+                                                    <option value="SUPPLY">Vật tư</option>
+                                                    <option value="PRACTICE">Canh tác</option>
+                                                  </select>
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleRemoveMention(para.id, mIdx);
+                                                    }}
+                                                    className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                                    title="Xóa thẻ này"
+                                                  >
+                                                    <X className="w-2.5 h-2.5" />
+                                                  </button>
+                                                </span>
+                                              );
+                                            })}
                                             <button
                                               type="button"
                                               onClick={() => {
@@ -2468,105 +4193,982 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                                 setNewMentionText('');
                                                 setNewMentionKind('CHEMICAL');
                                               }}
-                                              className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
-                                              title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
+                                              className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-semibold hover:underline"
                                             >
-                                              <Plus className="w-2.5 h-2.5" />
+                                              <Plus className="w-3 h-3" />
                                               <span>Thêm cụm từ</span>
                                             </button>
-                                          )}
-                                        </div>
-
-                                        {addingMentionParaId === para.id && (
-                                          <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
-                                            <Input
-                                              type="text"
-                                              value={newMentionText}
-                                              onChange={(e) => setNewMentionText(e.target.value)}
-                                              placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
-                                              className="h-7 text-[11px] bg-background w-56"
-                                              autoFocus
-                                            />
-                                            <select
-                                              value={newMentionKind}
-                                              onChange={(e) => setNewMentionKind(e.target.value)}
-                                              className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
-                                            >
-                                              <option value="CHEMICAL">Hóa học</option>
-                                              <option value="BIOLOGICAL">Sinh học</option>
-                                              <option value="SUPPLY">Vật tư canh tác</option>
-                                              <option value="PRACTICE">Biện pháp canh tác</option>
-                                            </select>
-                                            <Button
-                                              type="button"
-                                              size="sm"
-                                              onClick={() => handleAddMention(para.id)}
-                                              className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white"
-                                            >
-                                              Thêm
-                                            </Button>
-                                            <Button
-                                              type="button"
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() => setAddingMentionParaId(null)}
-                                              className="h-7 text-[11px] px-2 text-muted-foreground"
-                                            >
-                                              Hủy
-                                            </Button>
                                           </div>
-                                        )}
+                                        </div>
                                       </div>
+                                    );
+                                  })}
+
+                                  {/* Khối các đoạn trích mà AI coi là nhiễu / không chọn */}
+                                  {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length > 0 && (
+                                    <div className="pt-2 border-t border-border">
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
+                                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
+                                      >
+                                        <span className="flex items-center gap-1.5">
+                                          {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                          <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
+                                        </span>
+                                        <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
+                                      </button>
+
+                                      {showNoiseParagraphs && (
+                                        <div className="mt-2 space-y-2 pl-2">
+                                          {ingestionResult.paragraphs
+                                            .filter((p) => p.suggested_unit_type === null)
+                                            .map((para) => {
+                                              const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                              const isTooLong = para.text.length > 1500;
+                                              const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                                              const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                                              return (
+                                                <div
+                                                  key={para.id}
+                                                  className="p-2.5 rounded-lg border border-dashed border-border/80 bg-muted/10 opacity-75 hover:opacity-100"
+                                                >
+                                                  <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                                                    <label className="flex items-center gap-2 cursor-pointer text-xs">
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={state.selected}
+                                                        disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: {
+                                                              ...state,
+                                                              selected: e.target.checked,
+                                                            },
+                                                          }));
+                                                        }}
+                                                        className="w-3.5 h-3.5 rounded text-emerald-700"
+                                                      />
+                                                      <span className="font-mono text-[11px] text-muted-foreground">{para.id}</span>
+                                                      <span className="text-[10px] text-muted-foreground">({para.text.length} ký tự)</span>
+                                                      {isSaved && <Badge variant="outline" className="text-[9px] bg-muted">Đã lưu</Badge>}
+                                                    </label>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <select
+                                                        value={state.unitType}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, unitType: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded"
+                                                      >
+                                                        <option value="SYMPTOMS">Triệu chứng</option>
+                                                        <option value="CAUSE_CONDITIONS">Nguyên nhân</option>
+                                                        <option value="PREVENTION">Phòng ngừa</option>
+                                                        <option value="TREATMENT">Điều trị</option>
+                                                      </select>
+                                                      <select
+                                                        value={state.diseaseClass || ingestClass}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, diseaseClass: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded max-w-[130px] truncate"
+                                                      >
+                                                        {filteredDiseasesByPlant.map((d) => (
+                                                          <option key={d.classCode} value={d.classCode}>
+                                                            {isHealthyTopic(d.commonNameVi, d.classCode)
+                                                              ? '🌱 Chăm sóc & Phòng ngừa'
+                                                              : d.commonNameVi}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                  </div>
+                                                  <p className="text-[11px] text-muted-foreground italic pl-5 line-clamp-2">
+                                                    "{para.text}"
+                                                  </p>
+                                                </div>
+                                              );
+                                            })}
+                                        </div>
+                                      )}
                                     </div>
-                                  );
-                                })}
-                            </div>
+                                  )}
+
+                                  <div className="pt-3 border-t border-border flex items-center justify-between">
+                                    <span className="text-xs text-muted-foreground">
+                                      Đã chọn <strong>{countSelected}</strong> đoạn mới cần lưu.
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      onClick={handleCommitParagraphs}
+                                      disabled={committing || countSelected === 0 || countWithSaved > 20}
+                                      className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-9 text-xs px-4"
+                                    >
+                                      {committing ? 'Đang lưu...' : `Lưu & Duyệt ${countSelected} đoạn mới`}
+                                    </Button>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            );
+                          })()}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+            )
+          ) : (
+            /* ========================================================================= */
+            /* CHẾ ĐỘ NHẬP BÀI BÁO MỚI (HITL INGESTION) */
+            /* ========================================================================= */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Cột trái: Form nhập bài */}
+              <div className="lg:col-span-5 space-y-6">
+                <Card className="border-border bg-card shadow-xs">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-bold flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-emerald-700" />
+                      <span>Dán văn bản bài báo khuyến nông</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Server không tự tải URL để chống SSRF. Admin copy văn bản từ bài báo/PDF dán vào đây (hỗ trợ Ctrl+A cả trang).
+                    </CardDescription>
+                  </CardHeader>
+
+                  <CardContent>
+                    <form onSubmit={handleParseArticle} className="space-y-4 text-xs">
+                      <div>
+                        <label className="font-semibold text-foreground block mb-1">
+                          1. Đường dẫn URL bài viết gốc *
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="url"
+                            placeholder="https://khuyennongvn.gov.vn/..."
+                            value={ingestUrl}
+                            onChange={(e) => {
+                              setIngestUrl(e.target.value);
+                              if (ingestionResult) resetArticleState();
+                            }}
+                            required
+                            className="text-xs flex-1"
+                          />
+                          {isSafeHttpUrl(ingestUrl) && (
+                            <a
+                              href={ingestUrl.trim()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center h-8 px-2.5 border border-border rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground text-xs shrink-0 transition-colors"
+                              title="Mở link bài viết trong tab mới"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+                            </a>
                           )}
                         </div>
-                      )}
-                    </CardContent>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {ingestUrl ? 'Đã liên kết nguồn' : 'Dán link trang báo khuyến nông'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewImagePlant(selectedPlant);
+                              setNewImageClass(ingestClass);
+                              setNewImageSourceUrl(ingestUrl);
+                              setNewImageCredit(ingestOrg || 'Trung tâm Khuyến nông');
+                              setAddImageModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                          >
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span>Thêm ảnh triệu chứng từ bài này</span>
+                          </button>
+                        </div>
+                      </div>
 
-                    <div className="p-4 border-t border-border bg-muted/20 space-y-3">
-                      <Input
-                        type="text"
-                        placeholder="Ghi chú người duyệt (ví dụ: Đã đối chiếu thông tư Cục BVTV)"
-                        value={commitNotes}
-                        onChange={(e) => setCommitNotes(e.target.value)}
-                        className="text-xs bg-background"
-                      />
+                      <div>
+                        <div className="flex flex-wrap justify-between items-center gap-1.5 mb-1">
+                          <label className="font-semibold text-foreground">
+                            2. Dán toàn văn bài báo *
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCrawlArticleFromUrl}
+                              disabled={crawlingUrl || !(editUrl || ingestUrl).trim()}
+                              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              title="Tải nhanh nội dung từ URL ở mục 1 (nếu trang chặn bot thì copy tay)"
+                            >
+                              {crawlingUrl ? (
+                                <>
+                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                  <span>Đang crawl...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Globe className="w-3 h-3" />
+                                  <span>Crawl nội dung từ URL</span>
+                                </>
+                              )}
+                            </button>
+                            <span className="text-[10px] text-muted-foreground">
+                              {ingestText.length.toLocaleString('vi-VN')} / 50.000 ký tự
+                            </span>
+                          </div>
+                        </div>
+                        <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
+                          <span>
+                            <strong>Mẹo dán cả trang:</strong> Nhấn <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd> trên trang báo rồi dán vào ô dưới, hoặc bấm <strong>Crawl nội dung từ URL</strong>. Hệ thống sẽ tự lọc bỏ menu, quảng cáo và hotline rác!
+                          </span>
+                        </div>
+                        <Textarea
+                          rows={11}
+                          placeholder="Dán toàn bộ nội dung bài báo vào đây. Hệ thống sẽ tự lọc thẻ rác HTML, tách thành các đoạn P1, P2... và gọi AI trích xuất tiêu đề, phân loại bệnh."
+                          value={ingestText}
+                          onChange={(e) => {
+                            setIngestText(e.target.value);
+                            if (ingestionResult) resetArticleState();
+                          }}
+                          onPaste={handlePasteArticleText}
+                          required
+                          maxLength={50000}
+                          className="text-xs font-mono resize-y"
+                        />
+                      </div>
 
-                      {charsWithSaved > allowedCharsQuota && (
-                        <p className="text-xs text-destructive font-medium">
-                          {existingVerbatimChars > 0 ? `Đã lưu ${existingVerbatimChars.toLocaleString('vi-VN')} + chọn thêm ` : 'Đã chọn '}{totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
-                          (30% bài, tối thiểu 1.200). Bỏ bớt đoạn để lưu được.
-                        </p>
-                      )}
-                      {!ingestClass && (
-                        <p className="text-xs text-destructive font-medium">Chọn Loài cây và Bệnh hại mục tiêu ở trên trước khi lưu.</p>
-                      )}
                       <Button
-                        onClick={handleCommitParagraphs}
-                        disabled={committing || editSaving || countSelected === 0 || countWithSaved > 8 || charsWithSaved > allowedCharsQuota || !ingestClass}
-                        className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
+                        type="submit"
+                        disabled={ingesting}
+                        className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-10"
                       >
-                        {committing ? (
+                        {ingesting ? (
                           <>
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Đang ghi CSDL &amp; Kích hoạt Reindex...</span>
+                            <span>Đang bóc tách &amp; Gọi AI phân tích...</span>
                           </>
                         ) : (
                           <>
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>Duyệt &amp; Lưu {countSelected} Đoạn Nguyên Văn (Kích hoạt Reindex)</span>
+                            <Sparkles className="w-4 h-4" />
+                            <span>Tách đoạn &amp; AI Tự Điền Thông Tin</span>
                           </>
                         )}
                       </Button>
-                    </div>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Cột phải: Thông tin & Danh sách đoạn trích mới */}
+              <div className="lg:col-span-7 space-y-4">
+                {ingestionResult && (
+                  <Card className="border-border bg-card shadow-xs">
+                    <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-xs font-bold flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-emerald-700" />
+                          <span>Thông tin bài viết &amp; Phân loại</span>
+                        </CardTitle>
+                        <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]">
+                          AI đề xuất, vui lòng kiểm tra lại
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4 space-y-3 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Loài cây trồng *
+                          </label>
+                          <select
+                            value={selectedPlant}
+                            onChange={(e) => handlePlantChange(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                          >
+                            <option value="">-- Chọn loài cây --</option>
+                            {uniquePlants.map((plant) => (
+                              <option key={plant} value={plant}>
+                                {plant}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="sm:col-span-2">
+                          {renderArticleTopicsSelector()}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="font-semibold text-foreground block mb-1">
+                          Tiêu đề bài viết trích dẫn *
+                        </label>
+                        <Input
+                          type="text"
+                          value={ingestTitle}
+                          onChange={(e) => setIngestTitle(e.target.value)}
+                          placeholder="Tiêu đề bài viết..."
+                          className="text-xs bg-background"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Cơ quan / Viện nghiên cứu *
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestOrg}
+                            onChange={(e) => setIngestOrg(e.target.value)}
+                            placeholder="Trung tâm Khuyến nông..."
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Tác giả / Nhóm nghiên cứu
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestAuthor}
+                            onChange={(e) => setIngestAuthor(e.target.value)}
+                            placeholder="(Để trống nếu không rõ tác giả)"
+                            className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Ngày đăng / xuất bản
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestPublishedDate}
+                            onChange={(e) => setIngestPublishedDate(e.target.value)}
+                            placeholder="03/01/2024"
+                            className="text-xs bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-semibold text-foreground block mb-1">
+                            Ngày cập nhật (nếu có)
+                          </label>
+                          <Input
+                            type="text"
+                            value={ingestUpdatedDate}
+                            onChange={(e) => setIngestUpdatedDate(e.target.value)}
+                            placeholder="(Để trống nếu không có)"
+                            className="text-xs bg-background placeholder:text-muted-foreground/35 placeholder:italic"
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
                   </Card>
-                </div>
-              )}
+                )}
+
+                {!ingestionResult ? (
+                  <div className="p-12 text-center bg-card border border-border rounded-xl h-full flex flex-col items-center justify-center space-y-3">
+                    <FileText className="w-12 h-12 text-muted-foreground/30" />
+                    <h3 className="text-base font-bold text-foreground">Chưa có dữ liệu bài báo</h3>
+                    <p className="text-xs text-muted-foreground max-w-sm">
+                      Dán URL và nội dung bài báo ở cột bên trái rồi bấm <strong>"Tách đoạn &amp; AI Tự Điền Thông Tin"</strong> để bắt đầu trích dẫn nguyên văn.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* BƯỚC 2B: DANH SÁCH ĐOẠN TRÍCH NGUYÊN VĂN */}
+                    <Card className="border-border bg-card shadow-xs flex flex-col">
+                      <CardHeader className="pb-3 border-b border-border">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div>
+                            <CardTitle className="text-base font-bold flex items-center gap-2">
+                              <span>Đoạn văn bản trích dẫn ({ingestionResult.paragraphs.length} đoạn)</span>
+                              {ingestionResult.ai_suggestion_available ? (
+                                <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px]">
+                                  AI đã gợi ý nhãn
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-amber-700 border-amber-300 text-[10px]">
+                                  Tự gán nhãn
+                                </Badge>
+                              )}
+                            </CardTitle>
+                            <CardDescription className="text-xs mt-0.5">
+                              Quy tắc trích dẫn hợp lý: <strong>Tối đa 20 đoạn nguyên văn</strong> (≤ 1.500 ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
+                            </CardDescription>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={handleSelectAllAiSuggested}
+                              className="h-6 text-[10px] gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-300 font-semibold"
+                              title="Tự động tick chọn tất cả các đoạn trích theo gợi ý của AI"
+                            >
+                              <Sparkles className="w-3 h-3 text-emerald-700" />
+                              <span>Chọn tất cả đoạn AI gợi ý</span>
+                            </Button>
+                            <Badge
+                              variant="secondary"
+                              className={countWithSaved > 20 ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                            >
+                              Đoạn: {countWithSaved} / 20
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className={charsWithSaved > allowedCharsQuota ? 'bg-destructive text-white' : 'bg-muted text-foreground text-[11px]'}
+                            >
+                              <span title="Giới hạn = 60% độ dài bài, tối thiểu 2.500 ký tự">
+                                Ký tự: {charsWithSaved.toLocaleString('vi-VN')} / {allowedCharsQuota.toLocaleString('vi-VN')} ({((charsWithSaved / allowedCharsQuota) * 100).toFixed(0)}%)
+                              </span>
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardHeader>
+
+                      <CardContent className="p-4 flex-1 overflow-y-auto max-h-[500px] space-y-3">
+                        {/* Danh sách các đoạn liên quan */}
+                        {ingestionResult.paragraphs
+                          .filter((p) => !ingestionResult.ai_suggestion_available || p.suggested_unit_type !== null)
+                          .map((para) => {
+                            const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                            const isTooLong = para.text.length > 1500;
+                            const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                            const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                            return (
+                              <div
+                                key={para.id}
+                                className={`p-3.5 rounded-lg border transition-colors ${state.selected
+                                    ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
+                                    : 'bg-card border-border hover:bg-muted/40'
+                                  }`}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                  <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                                    <input
+                                      type="checkbox"
+                                      checked={state.selected}
+                                      disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+                                      onChange={(e) => {
+                                        setSelectedParagraphs((prev) => ({
+                                          ...prev,
+                                          [para.id]: {
+                                            ...state,
+                                            selected: e.target.checked,
+                                          },
+                                        }));
+                                      }}
+                                      className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
+                                    />
+                                    <span className="text-emerald-800 font-mono">{para.id}</span>
+                                    <span className="text-muted-foreground font-normal text-[11px]">
+                                      ({para.text.length} ký tự)
+                                    </span>
+                                    {isSaved && (
+                                      <Badge variant="outline" className="text-[10px] h-5 border-emerald-300 text-emerald-800 bg-emerald-50">
+                                        Đã lưu
+                                      </Badge>
+                                    )}
+                                    {isTooLong && (
+                                      <Badge variant="destructive" className="text-[10px] h-5">
+                                        Vượt quá 1.500 ký tự
+                                      </Badge>
+                                    )}
+                                  </label>
+
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleOpenSplitModal(para)}
+                                      className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
+                                          ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
+                                          : 'border-border text-muted-foreground hover:text-foreground'
+                                        }`}
+                                      title={isTooLong ? 'Đoạn quá 1.500 ký tự - bấm để tách' : 'Tách đoạn này thành 2 đoạn nhỏ'}
+                                    >
+                                      <Scissors className="w-3 h-3" />
+                                      <span>Tách đoạn</span>
+                                    </Button>
+
+                                    <select
+                                      value={state.unitType}
+                                      disabled={!state.selected}
+                                      onChange={(e) => {
+                                        setSelectedParagraphs((prev) => ({
+                                          ...prev,
+                                          [para.id]: {
+                                            ...state,
+                                            unitType: e.target.value,
+                                          },
+                                        }));
+                                      }}
+                                      className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50"
+                                    >
+                                      <option value="SYMPTOMS">Triệu chứng (SYMPTOMS)</option>
+                                      <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
+                                      <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
+                                      <option value="TREATMENT">Điều trị (TREATMENT)</option>
+                                    </select>
+
+                                    <select
+                                      value={state.diseaseClass || ingestClass}
+                                      disabled={!state.selected}
+                                      onChange={(e) => {
+                                        setSelectedParagraphs((prev) => ({
+                                          ...prev,
+                                          [para.id]: {
+                                            ...state,
+                                            diseaseClass: e.target.value,
+                                          },
+                                        }));
+                                      }}
+                                      className="px-2 py-1 text-[11px] bg-background border border-border rounded font-medium disabled:opacity-50 max-w-[160px] truncate"
+                                      title="Chuyên đề / Bệnh hại cho đoạn trích này"
+                                    >
+                                      {filteredDiseasesByPlant.map((d) => (
+                                        <option key={d.classCode} value={d.classCode}>
+                                          {isHealthyTopic(d.commonNameVi, d.classCode)
+                                            ? '🌱 Chăm sóc & Phòng ngừa'
+                                            : d.commonNameVi}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
+                                  "{renderParagraphWithHighlight(para.id, para.text)}"
+                                </p>
+
+                                {/* Thẻ vật tư/hoạt chất/biện pháp: xem, highlight, dịch nghĩa tiếng Việt */}
+                                <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                                      <span>Vật tư / Hoạt chất:</span>
+                                      <span className="text-[9px] text-muted-foreground/80 cursor-help" title="Cụm từ trích xuất để AI Lavi gợi ý thuốc trong kho vật tư và đối soát kiến thức">(?)</span>
+                                    </span>
+                                    {(para.mentions || []).map((m, mIdx) => {
+                                      const translation = getAgriTranslation(m.text);
+                                      const isHighlighted = highlightedMention?.paraId === para.id && highlightedMention.text.toLowerCase() === m.text.toLowerCase();
+                                      return (
+                                        <span
+                                          key={mIdx}
+                                          onMouseEnter={() => setHighlightedMention({ paraId: para.id, text: m.text })}
+                                          onMouseLeave={() => setHighlightedMention(null)}
+                                          onClick={() => setHighlightedMention((prev) => (prev?.paraId === para.id && prev?.text.toLowerCase() === m.text.toLowerCase() ? null : { paraId: para.id, text: m.text }))}
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${
+                                            isHighlighted ? 'ring-2 ring-amber-400 shadow-xs ' : ''
+                                          }${
+                                            m.kind === 'CHEMICAL'
+                                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                              : m.kind === 'BIOLOGICAL'
+                                                ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                                : m.kind === 'SUPPLY'
+                                                  ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                                  : 'bg-purple-100 text-purple-900 border border-purple-300'
+                                          }`}
+                                          title={translation ? `Thuật ngữ: "${m.text}"\nNghĩa tiếng Việt: ${translation}\n(Bấm để highlight từ này trong văn bản)` : `Bấm để highlight "${m.text}" trong đoạn văn`}
+                                        >
+                                          <span>{m.text}</span>
+                                          {translation && (
+                                            <span className="text-[9px] opacity-80 font-normal italic">
+                                              ({translation})
+                                            </span>
+                                          )}
+                                          <select
+                                            value={m.kind}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                            className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0 ml-0.5"
+                                            title="Đổi phân loại vật tư"
+                                          >
+                                            <option value="CHEMICAL">Hóa học</option>
+                                            <option value="BIOLOGICAL">Sinh học</option>
+                                            <option value="SUPPLY">Vật tư</option>
+                                            <option value="PRACTICE">Canh tác</option>
+                                          </select>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRemoveMention(para.id, mIdx);
+                                            }}
+                                            className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                            title="Xóa thẻ này"
+                                          >
+                                            <X className="w-2.5 h-2.5" />
+                                          </button>
+                                        </span>
+                                      );
+                                    })}
+
+                                    {addingMentionParaId !== para.id && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAddingMentionParaId(para.id);
+                                          setNewMentionText('');
+                                          setNewMentionKind('CHEMICAL');
+                                        }}
+                                        className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-medium px-1.5 py-0.5 border border-dashed border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
+                                        title="Bấm để thêm cụm từ nguyên văn trong đoạn này"
+                                      >
+                                        <Plus className="w-2.5 h-2.5" />
+                                        <span>Thêm cụm từ</span>
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {addingMentionParaId === para.id && (
+                                    <div className="flex flex-wrap items-center gap-1.5 p-2 bg-muted/40 border border-border rounded-md text-xs">
+                                      <Input
+                                        type="text"
+                                        value={newMentionText}
+                                        onChange={(e) => setNewMentionText(e.target.value)}
+                                        placeholder="Nhập cụm từ nguyên văn có trong đoạn..."
+                                        className="h-7 text-[11px] bg-background w-56"
+                                        autoFocus
+                                      />
+                                      <select
+                                        value={newMentionKind}
+                                        onChange={(e) => setNewMentionKind(e.target.value)}
+                                        className="h-7 px-2 text-[11px] bg-background border border-border rounded font-medium"
+                                      >
+                                        <option value="CHEMICAL">Hóa học</option>
+                                        <option value="BIOLOGICAL">Sinh học</option>
+                                        <option value="SUPPLY">Vật tư canh tác</option>
+                                        <option value="PRACTICE">Biện pháp canh tác</option>
+                                      </select>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => handleAddMention(para.id)}
+                                        className="h-7 text-[11px] px-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                                      >
+                                        Thêm
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => setAddingMentionParaId(null)}
+                                        className="h-7 text-[11px] px-2 text-muted-foreground"
+                                      >
+                                        Hủy
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                        {/* Nhóm đoạn AI gắn nhãn null (Đoạn không liên quan/rác) */}
+                        {ingestionResult.ai_suggestion_available && ingestionResult.paragraphs.some((p) => p.suggested_unit_type === null) && (
+                          <div className="pt-2 border-t border-border">
+                            <button
+                              type="button"
+                              onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
+                              className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
+                              </span>
+                              <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
+                            </button>
+
+                            {showNoiseParagraphs && (
+                              <div className="mt-2 space-y-2 pl-2">
+                                {ingestionResult.paragraphs
+                                  .filter((p) => p.suggested_unit_type === null)
+                                  .map((para) => {
+                                    const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                    const isTooLong = para.text.length > 1500;
+                                    const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                                    const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                                    return (
+                                      <div
+                                        key={para.id}
+                                        className={`p-3 rounded-lg border transition-colors opacity-80 hover:opacity-100 ${state.selected
+                                            ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs'
+                                            : 'bg-card border-border hover:bg-muted/40'
+                                          }`}
+                                      >
+                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                          <label className="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                                            <input
+                                              type="checkbox"
+                                              checked={state.selected}
+                                              disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+                                              onChange={(e) => {
+                                                setSelectedParagraphs((prev) => ({
+                                                  ...prev,
+                                                  [para.id]: {
+                                                    ...state,
+                                                    selected: e.target.checked,
+                                                  },
+                                                }));
+                                              }}
+                                              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
+                                            />
+                                            <span className="text-emerald-800 font-mono">{para.id}</span>
+                                            <span className="text-muted-foreground font-normal text-[11px]">
+                                              ({para.text.length} ký tự)
+                                            </span>
+                                          </label>
+                                        </div>
+
+                                        <p className="text-xs text-foreground/90 italic pl-6 leading-relaxed">
+                                          "{renderParagraphWithHighlight(para.id, para.text)}"
+                                        </p>
+
+                                        {/* Thẻ vật tư/hoạt chất/biện pháp: xem, highlight, dịch nghĩa tiếng Việt */}
+                                        <div className="pl-6 mt-2 pt-2 border-t border-border/40 space-y-2">
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                                              <span>Vật tư / Hoạt chất:</span>
+                                              <span className="text-[9px] text-muted-foreground/80 cursor-help" title="Cụm từ trích xuất để AI Lavi gợi ý thuốc trong kho vật tư và đối soát kiến thức">(?)</span>
+                                            </span>
+                                            {(para.mentions || []).map((m, mIdx) => {
+                                              const translation = getAgriTranslation(m.text);
+                                              const isHighlighted = highlightedMention?.paraId === para.id && highlightedMention.text.toLowerCase() === m.text.toLowerCase();
+                                              return (
+                                                <span
+                                                  key={mIdx}
+                                                  onMouseEnter={() => setHighlightedMention({ paraId: para.id, text: m.text })}
+                                                  onMouseLeave={() => setHighlightedMention(null)}
+                                                  onClick={() => setHighlightedMention((prev) => (prev?.paraId === para.id && prev?.text.toLowerCase() === m.text.toLowerCase() ? null : { paraId: para.id, text: m.text }))}
+                                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${
+                                                    isHighlighted ? 'ring-2 ring-amber-400 shadow-xs ' : ''
+                                                  }${
+                                                    m.kind === 'CHEMICAL'
+                                                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                                      : m.kind === 'BIOLOGICAL'
+                                                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                                        : m.kind === 'SUPPLY'
+                                                          ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                                          : 'bg-purple-100 text-purple-900 border border-purple-300'
+                                                  }`}
+                                                  title={translation ? `Thuật ngữ: "${m.text}"\nNghĩa tiếng Việt: ${translation}\n(Bấm để highlight từ này trong văn bản)` : `Bấm để highlight "${m.text}" trong đoạn văn`}
+                                                >
+                                                  <span>{m.text}</span>
+                                                  {translation && (
+                                                    <span className="text-[9px] opacity-80 font-normal italic">
+                                                      ({translation})
+                                                    </span>
+                                                  )}
+                                                  <select
+                                                    value={m.kind}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => handleChangeMentionKind(para.id, mIdx, e.target.value)}
+                                                    className="bg-transparent border-none text-[9px] cursor-pointer font-semibold opacity-75 hover:opacity-100 focus:ring-0 p-0 ml-0.5"
+                                                    title="Đổi phân loại vật tư"
+                                                  >
+                                                    <option value="CHEMICAL">Hóa học</option>
+                                                    <option value="BIOLOGICAL">Sinh học</option>
+                                                    <option value="SUPPLY">Vật tư</option>
+                                                    <option value="PRACTICE">Canh tác</option>
+                                                  </select>
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleRemoveMention(para.id, mIdx);
+                                                    }}
+                                                    className="opacity-50 hover:opacity-100 hover:text-destructive transition-opacity ml-0.5"
+                                                    title="Xóa thẻ này"
+                                                  >
+                                                    <X className="w-2.5 h-2.5" />
+                                                  </button>
+                                                </span>
+                                              );
+                                            })}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAddingMentionParaId(para.id);
+                                                setNewMentionText('');
+                                                setNewMentionKind('CHEMICAL');
+                                              }}
+                                              className="inline-flex items-center gap-1 text-[10px] text-emerald-700 hover:text-emerald-800 font-semibold hover:underline"
+                                            >
+                                              <Plus className="w-3 h-3" />
+                                              <span>Thêm cụm từ</span>
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+
+                                  {/* Khối các đoạn trích mà AI coi là nhiễu / không chọn */}
+                                  {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length > 0 && (
+                                    <div className="pt-2 border-t border-border">
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowNoiseParagraphs(!showNoiseParagraphs)}
+                                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-muted/30 hover:bg-muted/50 border border-border text-xs text-muted-foreground font-medium"
+                                      >
+                                        <span className="flex items-center gap-1.5">
+                                          {showNoiseParagraphs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                          <span>Đoạn AI không chọn: {ingestionResult.paragraphs.filter((p) => p.suggested_unit_type === null).length} đoạn (vẫn tick để lưu được)</span>
+                                        </span>
+                                        <span className="text-[11px]">{showNoiseParagraphs ? 'Thu gọn' : 'Bấm để mở xem'}</span>
+                                      </button>
+
+                                      {showNoiseParagraphs && (
+                                        <div className="mt-2 space-y-2 pl-2">
+                                          {ingestionResult.paragraphs
+                                            .filter((p) => p.suggested_unit_type === null)
+                                            .map((para) => {
+                                              const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
+                                              const isTooLong = para.text.length > 1500;
+                                              const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
+                                              const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
+
+                                              return (
+                                                <div
+                                                  key={para.id}
+                                                  className="p-2.5 rounded-lg border border-dashed border-border/80 bg-muted/10 opacity-75 hover:opacity-100"
+                                                >
+                                                  <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                                                    <label className="flex items-center gap-2 cursor-pointer text-xs">
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={state.selected}
+                                                        disabled={isTooLong || isSaved || isHeaderLine || (!state.selected && countWithSaved >= 20)}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: {
+                                                              ...state,
+                                                              selected: e.target.checked,
+                                                            },
+                                                          }));
+                                                        }}
+                                                        className="w-3.5 h-3.5 rounded text-emerald-700"
+                                                      />
+                                                      <span className="font-mono text-[11px] text-muted-foreground">{para.id}</span>
+                                                      <span className="text-[10px] text-muted-foreground">({para.text.length} ký tự)</span>
+                                                      {isSaved && <Badge variant="outline" className="text-[9px] bg-muted">Đã lưu</Badge>}
+                                                    </label>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <select
+                                                        value={state.unitType}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, unitType: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded"
+                                                      >
+                                                        <option value="SYMPTOMS">Triệu chứng</option>
+                                                        <option value="CAUSE_CONDITIONS">Nguyên nhân</option>
+                                                        <option value="PREVENTION">Phòng ngừa</option>
+                                                        <option value="TREATMENT">Điều trị</option>
+                                                      </select>
+                                                      <select
+                                                        value={state.diseaseClass || ingestClass}
+                                                        disabled={!state.selected}
+                                                        onChange={(e) => {
+                                                          setSelectedParagraphs((prev) => ({
+                                                            ...prev,
+                                                            [para.id]: { ...state, diseaseClass: e.target.value },
+                                                          }));
+                                                        }}
+                                                        className="px-1.5 py-0.5 text-[10px] bg-background border border-border rounded max-w-[130px] truncate"
+                                                      >
+                                                        {filteredDiseasesByPlant.map((d) => (
+                                                          <option key={d.classCode} value={d.classCode}>
+                                                            {isHealthyTopic(d.commonNameVi, d.classCode)
+                                                              ? '🌱 Chăm sóc & Phòng ngừa'
+                                                              : d.commonNameVi}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                  </div>
+                                                  <p className="text-[11px] text-muted-foreground italic pl-5 line-clamp-2">
+                                                    "{para.text}"
+                                                  </p>
+                                                </div>
+                                              );
+                                            })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+
+                      <div className="p-4 border-t border-border bg-muted/20 space-y-3">
+                        <Input
+                          type="text"
+                          placeholder="Ghi chú người duyệt (ví dụ: Đã đối chiếu thông tư Cục BVTV)"
+                          value={commitNotes}
+                          onChange={(e) => setCommitNotes(e.target.value)}
+                          className="text-xs bg-background"
+                        />
+
+                        {charsWithSaved > allowedCharsQuota && (
+                          <p className="text-xs text-destructive font-medium">
+                            {existingVerbatimChars > 0 ? `Đã lưu ${existingVerbatimChars.toLocaleString('vi-VN')} + chọn thêm ` : 'Đã chọn '}{totalSelectedChars.toLocaleString('vi-VN')} ký tự, vượt giới hạn trích dẫn {allowedCharsQuota.toLocaleString('vi-VN')} ký tự
+                            (60% bài, tối thiểu 2.500). Bỏ bớt đoạn để lưu được.
+                          </p>
+                        )}
+                        {!ingestClass && (
+                          <p className="text-xs text-destructive font-medium">Chọn Loài cây và Bệnh hại mục tiêu ở trên trước khi lưu.</p>
+                        )}
+                        <Button
+                          onClick={handleCommitParagraphs}
+                          disabled={committing || editSaving || countSelected === 0 || countWithSaved > 20 || charsWithSaved > allowedCharsQuota || !ingestClass}
+                          className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold h-11"
+                        >
+                          {committing ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <span>Đang ghi CSDL &amp; Đồng bộ tri thức AI...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Duyệt &amp; Lưu {countSelected} Đoạn Nguyên Văn (Đồng bộ tri thức)</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </Card>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </TabsContent>
 
         {/* ========================================================================================= */}
@@ -2777,40 +5379,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   />
                                 </td>
                                 <td className="p-3 max-w-[280px]">
-                                  <div className="flex items-start gap-2">
+                                  <div className="min-w-0">
                                     <button
                                       type="button"
-                                      onClick={() => toggleExpandArticle(group.key)}
-                                      className="text-muted-foreground hover:text-emerald-700 mt-0.5 p-0.5 rounded hover:bg-muted transition-colors shrink-0 cursor-pointer"
-                                      title={isExpanded ? 'Thu gọn' : 'Bấm xem chi tiết các đoạn'}
+                                      onClick={() => navigate(`/admin/ingest?edit=${encodeURIComponent(group.sourceUrl)}`)}
+                                      className="font-bold text-foreground text-left line-clamp-1 hover:text-emerald-700 hover:underline block cursor-pointer"
+                                      title="Mở chi tiết bài viết"
                                     >
-                                      {isExpanded ? (
-                                        <ChevronDown className="w-4 h-4 text-emerald-700" />
-                                      ) : (
-                                        <ChevronRight className="w-4 h-4" />
-                                      )}
+                                      {group.sourceTitle}
                                     </button>
-                                    <div className="min-w-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleExpandArticle(group.key)}
-                                        className="font-bold text-foreground text-left line-clamp-1 hover:text-emerald-700 hover:underline block cursor-pointer"
-                                      >
-                                        {group.sourceTitle}
-                                      </button>
-                                      <div className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
-                                        {group.organization}
-                                      </div>
-                                      <a
-                                        href={group.sourceUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-[10px] text-emerald-700 hover:underline inline-flex items-center gap-0.5 mt-0.5"
-                                      >
-                                        <span>Xem bài gốc</span>
-                                        <ExternalLink className="w-2.5 h-2.5" />
-                                      </a>
+                                    <div className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
+                                      {group.organization}
                                     </div>
+                                    <a
+                                      href={group.sourceUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] text-emerald-700 hover:underline inline-flex items-center gap-0.5 mt-0.5"
+                                    >
+                                      <span>Xem bài gốc</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
                                   </div>
                                 </td>
                                 <td className="p-3 whitespace-nowrap">
@@ -2829,20 +5418,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                   </div>
                                 </td>
                                 <td className="p-3 text-center whitespace-nowrap">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => toggleExpandArticle(group.key)}
-                                    className="h-7 px-2.5 text-xs gap-1.5 border-border bg-card hover:bg-muted text-foreground"
-                                  >
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-foreground text-xs font-medium border border-border/60">
                                     <Layers className="w-3.5 h-3.5 text-emerald-700" />
-                                    <span>{group.totalCount} đoạn trích</span>
-                                    {isExpanded ? (
-                                      <ChevronUp className="w-3 h-3 text-muted-foreground" />
-                                    ) : (
-                                      <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                                    )}
-                                  </Button>
+                                    <span>{group.totalCount} đoạn</span>
+                                  </span>
                                 </td>
                                 <td className="p-3 text-center whitespace-nowrap">
                                   {isAllApproved ? (
@@ -2867,51 +5446,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                     </Badge>
                                   )}
                                 </td>
-                                <td className="p-3 text-right whitespace-nowrap">
+                                <td className="p-3 text-right whitespace-nowrap space-x-1.5">
                                   <Button
                                     size="sm"
-                                    variant={isAllApproved ? 'outline' : 'default'}
-                                    disabled={batchActionLoading}
-                                    onClick={() => handleToggleApproveArticle(group)}
-                                    className={`h-7 px-2.5 text-xs ${isAllApproved
-                                        ? 'text-muted-foreground hover:text-destructive'
-                                        : 'bg-emerald-700 hover:bg-emerald-800 text-white font-semibold'
-                                      }`}
-                                  >
-                                    {isAllApproved ? 'Bỏ duyệt cả bài' : 'Duyệt cả bài'}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => toggleExpandArticle(group.key)}
-                                    className="ml-1 h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                  >
-                                    {isExpanded ? 'Thu gọn' : 'Xem chi tiết'}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
+                                    variant="default"
                                     onClick={() => navigate(`/admin/ingest?edit=${encodeURIComponent(group.sourceUrl)}`)}
-                                    className="ml-1 h-7 px-2.5 text-xs"
-                                    title="Mở bài ở trang Nhập bài báo để sửa thông tin, đổi loại đoạn, thêm đoạn nguyên văn"
+                                    className="h-7 px-3 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1.5"
+                                    title="Mở bài viết để xem thông tin, duyệt từng đoạn, hoặc nạp thêm đoạn mới"
                                   >
-                                    Sửa bài
+                                    <ExternalLink className="w-3 h-3" />
+                                    <span>Mở bài viết</span>
                                   </Button>
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     onClick={() => setDeleteArticleTarget(group)}
-                                    className="ml-1 h-7 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
-                                    title="Xóa toàn bộ các đoạn của bài viết này"
+                                    className="h-7 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
+                                    title="Xóa toàn bộ các đoạn của bài viết này khỏi kho tri thức"
                                   >
                                     <Trash2 className="w-3 h-3" />
-                                    <span>Xóa cả bài</span>
+                                    <span>Xóa bài</span>
                                   </Button>
                                 </td>
                               </tr>
 
-                              {/* Dòng mở rộng chi tiết các đoạn */}
-                              {isExpanded && (
+                              {/* Dòng mở rộng đã được thay thế bằng màn hình chi tiết bài viết tập trung */}
+                              {false && (
                                 <tr className="bg-muted/20 border-b border-border/80">
                                   <td colSpan={6} className="p-3 sm:p-4 pl-6 sm:pl-12">
                                     <div className="space-y-2.5 rounded-xl border border-border/70 bg-card p-3 sm:p-3.5 shadow-2xs">
@@ -3726,10 +6286,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     className="h-9 px-2.5 bg-background border border-border rounded-lg text-xs"
                   >
                     <option value="ALL">Tất cả trạng thái</option>
-                    <option value="PENDING">Chờ xử lý (Pending)</option>
-                    <option value="LINKED">Đã gắn SP có sẵn (Linked)</option>
-                    <option value="ADDED">Đã tạo SP mới (Added)</option>
-                    <option value="DISMISSED">Đã bỏ qua (Dismissed)</option>
                     <option value="PENDING">Chờ xử lý</option>
                     <option value="LINKED">Đã gắn SP có sẵn</option>
                     <option value="ADDED">Đã tạo SP mới</option>
@@ -3742,10 +6298,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     className="h-9 px-2.5 bg-background border border-border rounded-lg text-xs"
                   >
                     <option value="ALL">Tất cả loại vật tư</option>
-                    <option value="CHEMICAL">Thuốc hóa học (CHEMICAL)</option>
-                    <option value="BIOLOGICAL">Chế phẩm sinh học (BIOLOGICAL)</option>
-                    <option value="SUPPLY">Vật tư canh tác (SUPPLY)</option>
-                    <option value="PRACTICE">Biện pháp canh tác (PRACTICE)</option>
                     <option value="CHEMICAL">Thuốc BVTV hóa học</option>
                     <option value="BIOLOGICAL">Chế phẩm sinh học BVTV</option>
                     <option value="SUPPLY">Vật tư canh tác</option>
@@ -4750,82 +7302,145 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   </Dialog>
 
                   {/* ========================================================================================= */}
-                  {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (> 800 KÝ TỰ HOẶC THEO Ý ADMIN) */}
+                  {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (AN TOÀN NGUYÊN VĂN THEO LUẬT SHTT) */}
                   {/* ========================================================================================= */}
                   <Dialog open={splitModalOpen} onOpenChange={setSplitModalOpen}>
-                    <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle className="text-base font-bold flex items-center gap-2">
                           <Scissors className="w-4 h-4 text-emerald-700" />
-                          <span>Tách đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
+                          <span>Chia đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
                         </DialogTitle>
                         <DialogDescription className="text-xs">
-                          Quy định trích dẫn HITL yêu cầu mỗi đoạn tối đa 800 ký tự. Hệ thống đã tự động tìm dấu câu kết thúc gần điểm giữa nhất để tách thành 2 đoạn nguyên văn hợp lệ.
+                          Mỗi đoạn tối đa 1.500 ký tự. Bạn có thể nhấp chuột vào biểu tượng ✂️ sau bất kỳ câu nào để đặt một hoặc nhiều mốc cắt, chia thành nhiều đoạn nhỏ tùy ý.
                         </DialogDescription>
                       </DialogHeader>
 
-                      {splitTargetPara && (
-                        <div className="space-y-4 py-2 text-xs">
-                          <div className="flex items-center justify-between text-[11px] bg-muted/50 p-2.5 rounded-lg border border-border">
-                            <span>Độ dài đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự</span>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                const res = autoSplitText(splitTargetPara.text);
-                                setSplitPart1(res.part1);
-                                setSplitPart2(res.part2);
-                                toast.info('Đã tự động tính toán lại vị trí tách theo dấu câu.');
-                              }}
-                              className="h-6 text-[10px] gap-1 px-2"
-                            >
-                              <RefreshCw className="w-2.5 h-2.5" />
-                              Tách tự động theo câu
-                            </Button>
-                          </div>
+                      {splitTargetPara && (() => {
+                        const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
+                        const matches = splitTargetPara.text.match(regex);
+                        const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [splitTargetPara.text];
+                        const parts = computeSplitParts(splitTargetPara.text, selectedCutIndices);
+                        const hasInvalidPart = parts.some(p => p.length < 30 || p.length > 1500);
 
-                          {/* Đoạn 1 */}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                                <span>Đoạn 1 ({splitTargetPara.id}_1)</span>
-                              </label>
-                              <span className={`text-[11px] font-mono font-medium ${splitPart1.trim().length > 800 || splitPart1.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
-                                }`}>
-                                {splitPart1.trim().length} / 800 ký tự {splitPart1.trim().length > 800 ? '(Vượt quá 800)' : splitPart1.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                        return (
+                          <div className="space-y-4 py-2 text-xs">
+                            <div className="p-2.5 bg-blue-50 border border-blue-200 rounded text-blue-900 text-[11px] flex items-start gap-1.5">
+                              <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                              <span>
+                                <strong>Bảo vệ bản quyền nguyên văn:</strong> Nhấp vào nút <strong>[✂️ Đặt mốc cắt]</strong> sau câu mong muốn để chia đoạn. Nhấp lại để hủy mốc. Các đoạn con sẽ giữ 100% câu chữ nguyên gốc.
                               </span>
                             </div>
-                            <Textarea
-                              value={splitPart1}
-                              onChange={(e) => setSplitPart1(e.target.value)}
-                              rows={4}
-                              className="text-xs bg-background leading-relaxed"
-                              placeholder="Nội dung nửa đầu..."
-                            />
-                          </div>
 
-                          {/* Đoạn 2 */}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <label className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                                <span>Đoạn 2 ({splitTargetPara.id}_2)</span>
-                              </label>
-                              <span className={`text-[11px] font-mono font-medium ${splitPart2.trim().length > 800 || splitPart2.trim().length < 30 ? 'text-destructive font-bold' : 'text-emerald-700'
-                                }`}>
-                                {splitPart2.trim().length} / 800 ký tự {splitPart2.trim().length > 800 ? '(Vượt quá 800)' : splitPart2.trim().length < 30 ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
-                              </span>
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-muted/40 p-2.5 rounded-lg border border-border">
+                              <div>
+                                <span>Đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự ({sents.length} câu)</span>
+                                <span className="mx-2 text-muted-foreground/40">•</span>
+                                <span className="font-semibold text-emerald-800">
+                                  Đang chọn chia thành {parts.length} đoạn ({selectedCutIndices.length} mốc cắt)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setSelectedCutIndices([])}
+                                  disabled={selectedCutIndices.length === 0}
+                                  className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
+                                >
+                                  Xóa các mốc
+                                </Button>
+                              </div>
                             </div>
-                            <Textarea
-                              value={splitPart2}
-                              onChange={(e) => setSplitPart2(e.target.value)}
-                              rows={4}
-                              className="text-xs bg-background leading-relaxed"
-                              placeholder="Nội dung nửa sau..."
-                            />
+
+                            {/* Danh sách câu với các nút mốc cắt tương tác */}
+                            {sents.length > 1 && (
+                              <div className="p-3 bg-muted/20 rounded-lg border border-border space-y-2">
+                                <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                                  <span>Văn bản và các điểm ngắt câu:</span>
+                                  <span className="text-[11px] text-muted-foreground font-normal">Nhấp vào mốc để bật/tắt điểm chia</span>
+                                </div>
+                                <div className="space-y-2 max-h-56 overflow-y-auto p-3 bg-background rounded border border-border/70 text-xs leading-relaxed font-sans">
+                                  {sents.map((sent, idx) => {
+                                    const isCutAfterThis = selectedCutIndices.includes(idx);
+                                    const cutOrder = selectedCutIndices.indexOf(idx) + 1;
+                                    const isLast = idx === sents.length - 1;
+
+                                    return (
+                                      <React.Fragment key={idx}>
+                                        <span className={isCutAfterThis ? 'text-emerald-950 font-medium bg-emerald-50/60 px-1 py-0.5 rounded' : 'text-foreground'}>
+                                          {sent}{' '}
+                                        </span>
+                                        {!isLast && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedCutIndices(prev => {
+                                                if (prev.includes(idx)) {
+                                                  return prev.filter(x => x !== idx).sort((a, b) => a - b);
+                                                } else {
+                                                  return [...prev, idx].sort((a, b) => a - b);
+                                                }
+                                              });
+                                            }}
+                                            className={`inline-flex items-center gap-1 mx-1 my-0.5 px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                                              isCutAfterThis
+                                                ? 'bg-emerald-700 text-white shadow-xs scale-105'
+                                                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
+                                            }`}
+                                            title={isCutAfterThis ? 'Bấm để hủy mốc cắt này' : 'Bấm để ngắt câu tại đây'}
+                                          >
+                                            <Scissors className="w-2.5 h-2.5" />
+                                            <span>{isCutAfterThis ? `Mốc #${cutOrder}` : 'Cắt tại đây'}</span>
+                                          </button>
+                                        )}
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Danh sách các đoạn con sẽ được tạo ra (Preview) */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                                <span>Xem trước {parts.length} đoạn con sau khi chia:</span>
+                                {hasInvalidPart && (
+                                  <span className="text-destructive text-[11px] font-normal">
+                                    Có đoạn con vượt quá 1.500 ký tự hoặc quá ngắn (&lt; 30 ký tự)
+                                  </span>
+                                )}
+                              </div>
+                              <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {parts.map((partText, pIdx) => {
+                                  const len = partText.length;
+                                  const isTooLong = len > 1500;
+                                  const isTooShort = len < 30;
+
+                                  return (
+                                    <div key={pIdx} className="p-2.5 bg-background rounded-lg border border-border space-y-1">
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-bold text-emerald-800 text-xs">
+                                          Đoạn #{pIdx + 1} ({splitTargetPara.id}_{pIdx + 1})
+                                        </span>
+                                        <span className={`text-[11px] font-mono font-medium ${
+                                          isTooLong || isTooShort ? 'text-destructive font-bold' : 'text-emerald-700'
+                                        }`}>
+                                          {len} / 1.500 ký tự {isTooLong ? '(Quá dài > 1500)' : isTooShort ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs text-foreground/80 italic leading-relaxed line-clamp-3 select-all bg-muted/30 p-2 rounded">
+                                        "{partText}"
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       <DialogFooter className="flex items-center justify-end gap-2">
                         <Button size="sm" variant="outline" onClick={() => setSplitModalOpen(false)}>
@@ -4835,33 +7450,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                           size="sm"
                           onClick={handleConfirmSplit}
                           disabled={
-                            !splitPart1.trim() ||
-                            !splitPart2.trim() ||
-                            splitPart1.trim().length > 800 ||
-                            splitPart2.trim().length > 800 ||
-                            splitPart1.trim().length < 30 ||
-                            splitPart2.trim().length < 30
+                            !splitTargetPara ||
+                            selectedCutIndices.length === 0 ||
+                            computeSplitParts(splitTargetPara.text, selectedCutIndices).some(p => p.length < 30 || p.length > 1500)
                           }
-                          className="bg-emerald-700 hover:bg-emerald-800 text-white"
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
                         >
-                          Xác nhận tách thành 2 đoạn
+                          Xác nhận chia thành {selectedCutIndices.length + 1} đoạn
                         </Button>
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
 
                   {/* ========================================================================================= */}
-                  {/* DIALOG TRẠNG THÁI REINDEX RAG (AGENT SERVICE) */}
+                  {/* DIALOG TRẠNG THÁI ĐỒNG BỘ TRI THỨC VÀO TRỢ LÝ AI LAVI */}
                   {/* ========================================================================================= */}
                   <Dialog open={reindexStatusOpen} onOpenChange={setReindexStatusOpen}>
                     <DialogContent className="sm:max-w-lg">
                       <DialogHeader>
                         <DialogTitle className="text-base font-bold flex items-center gap-2">
                           <Database className="w-4 h-4 text-emerald-700" />
-                          <span>Trạng thái Đồng bộ Tri thức (RAG Reindex)</span>
+                          <span>Đồng bộ tri thức vào Trợ lý AI Lavi</span>
                         </DialogTitle>
                         <DialogDescription className="text-xs">
-                          Đồng bộ dữ liệu vector sang Agent Service để Trợ lý Lavi truy xuất khi tư vấn nông vụ.
+                          Bộ nhớ của trợ lý AI Lavi được lập chỉ mục vector (Semantic Search) và từ khóa (BM25) từ các đoạn bài báo khuyến nông đã duyệt. Bấm "Làm mới trạng thái" để kiểm tra xem dữ liệu mới nhất đã được nạp đầy đủ vào bộ nhớ AI hay chưa.
                         </DialogDescription>
                       </DialogHeader>
 

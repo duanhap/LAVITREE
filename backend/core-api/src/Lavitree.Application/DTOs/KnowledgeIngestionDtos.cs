@@ -103,12 +103,15 @@ public class CommitSelectionDto
     [JsonPropertyName("unit_type")]
     public string UnitType { get; set; } = string.Empty;
 
-    [MaxLength(800, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 800 ký tự.")]
+    [MaxLength(1500, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 1500 ký tự.")]
     [JsonPropertyName("custom_text")]
     public string? CustomText { get; set; }
 
     [JsonPropertyName("mentions")]
     public List<MentionDto>? Mentions { get; set; }
+
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
 }
 
 public class CommitIngestionRequestDto
@@ -129,7 +132,7 @@ public class CommitIngestionRequestDto
 
     [Required(ErrorMessage = "Danh sách đoạn trích không được để trống.")]
     [MinLength(1, ErrorMessage = "Cần chọn ít nhất 1 đoạn trích dẫn.")]
-    [MaxLength(8, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 8 đoạn nguyên văn.")]
+    [MaxLength(20, ErrorMessage = "Mỗi bài chỉ được trích dẫn tối đa 20 đoạn nguyên văn.")]
     [JsonPropertyName("selections")]
     public List<CommitSelectionDto> Selections { get; set; } = new();
 
@@ -184,11 +187,14 @@ public class UpdateArticleRequestDto
     public string? PublishedDate { get; set; }
 }
 
-// Sửa một đoạn đã lưu: đoạn nguyên văn chỉ đổi loại nội dung; đoạn tóm tắt được sửa chữ.
+// Sửa một đoạn đã lưu: đoạn nguyên văn chỉ đổi loại nội dung hoặc chuyên mục; đoạn tóm tắt được sửa chữ.
 public class UpdateSourceUnitRequestDto
 {
     [JsonPropertyName("unit_type")]
     public string? UnitType { get; set; }
+
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
 
     [MaxLength(4000, ErrorMessage = "Đoạn tóm tắt không được vượt quá 4.000 ký tự.")]
     [JsonPropertyName("evidence_text")]
@@ -386,4 +392,21 @@ public class AgentReindexRequest
 
     [JsonPropertyName("action")]
     public string Action { get; set; } = "approve"; // approve | unapprove | delete | manual
+}
+
+public class FetchUrlRequestDto
+{
+    [Required(ErrorMessage = "Vui lòng nhập đường dẫn URL bài viết.")]
+    [Url(ErrorMessage = "Đường dẫn bài viết phải là URL hợp lệ (http:// hoặc https://).")]
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+}
+
+public class FetchUrlResponseDto
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("html")]
+    public string Html { get; set; } = string.Empty;
 }
