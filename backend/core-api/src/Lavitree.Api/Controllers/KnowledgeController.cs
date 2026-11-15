@@ -1119,18 +1119,25 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = "Văn bản bài báo không được vượt quá 50.000 ký tự." });
         }
 
-        // Tách article_text thành các đoạn theo dòng trống (\n\s*\n)
-        var rawParagraphs = Regex.Split(dto.ArticleText, @"\r?\n\s*\r?\n");
+        // Gom tiêu đề mục, câu dẫn kết thúc bằng dấu ':' hoặc '?' và các ý con cùng mục trước khi tách đoạn
+        var coalescedText = CoalesceArticleParagraphs(dto.ArticleText);
+        // Tách article_text đã gom thành các đoạn theo dòng trống (\n\s*\n)
+        var rawParagraphs = Regex.Split(coalescedText, @"\r?\n\s*\r?\n");
         var validParagraphs = new List<ParagraphDto>();
         int pIndex = 1;
 
         // Tiêu đề mục ngắn ("Biện pháp hóa học:", "4. Biện pháp quản lý", "Disease Cycle") được ghép vào đoạn ngay sau
-        // để không mất ngữ cảnh; dòng ngắn khác (menu, tiêu đề trang) vẫn bị bỏ như trước
+        // để không mất ngữ cảnh; dòng ngắn và dòng siêu dữ liệu đơn thuần (< 240 ký tự) không đẩy vào danh sách đoạn
+        // vì BuildArticleMetaContext(dto.ArticleText) đã gửi ngữ cảnh đầu/cuối bài qua META_CONTEXT cho Agent Service.
         string? pendingHeading = null;
         foreach (var raw in rawParagraphs)
         {
             var cleaned = Regex.Replace(raw.Trim(), @"[ \t]+", " ");
             if (cleaned.Length == 0 || IsContactOrAdNoise(cleaned)) continue;
+            if (Regex.IsMatch(cleaned, @"^#\s+\S") && !cleaned.Contains('\n') && !Regex.IsMatch(cleaned, @"[.!?]$") && cleaned.Length < 180)
+            {
+                continue;
+            }
 
             if (cleaned.Length < 40)
             {
@@ -1138,18 +1145,24 @@ public class KnowledgeController : ControllerBase
                 {
                     pendingHeading = cleaned;
                 }
-                else if ((validParagraphs.Count < 6 || MetadataKeyLineRegex.IsMatch(cleaned)) && cleaned.Length >= 10)
-                {
-                    // Phần đầu bài hoặc dòng metadata tường minh (Publication date, Reviewed/Revised...): giữ để AI điền metadata
-                    validParagraphs.Add(new ParagraphDto { Id = $"P{pIndex++}", Text = cleaned, SuggestedUnitType = null });
-                }
+                continue;
+            }
+            if (IsStandaloneMetadataBlock(cleaned))
+            {
                 continue;
             }
             if (pendingHeading != null)
             {
-                cleaned = pendingHeading.EndsWith(':') || pendingHeading.EndsWith('.') || pendingHeading.EndsWith('!') || pendingHeading.EndsWith('?')
-                    ? $"{pendingHeading} {cleaned}"
-                    : $"{pendingHeading}: {cleaned}";
+                if (Regex.IsMatch(pendingHeading, @"^#{2,6}\s+"))
+                {
+                    cleaned = $"{pendingHeading}\n{cleaned}";
+                }
+                else
+                {
+                    cleaned = pendingHeading.EndsWith(':') || pendingHeading.EndsWith('.') || pendingHeading.EndsWith('!') || pendingHeading.EndsWith('?')
+                        ? $"{pendingHeading} {cleaned}"
+                        : $"{pendingHeading}: {cleaned}";
+                }
                 pendingHeading = null;
             }
 
@@ -1974,18 +1987,197 @@ public class KnowledgeController : ControllerBase
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex SectionHeadingRegex = new(@"(:\s*$)|(^(\d+|[IVX]+|[a-zđ])[.)]\s+\S)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex CommonHeadingWordsRegex = new(
-        @"^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|chu\s+trình\s+bệnh|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+quản\s+lý|phòng\s+ngừa|điều\s+trị|hoạt\s+chất\s+khuyến\s+cáo)$",
+        @"^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|điều\s+kiện\s+phát\s+sinh|vòng\s+đời|tác\s+hại|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+phòng\s+ngừa|biện\s+pháp\s+quản\s+lý|cách\s+trị|phòng\s+ngừa|điều\s+trị|hoạt\s+chất\s+khuyến\s+cáo)$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex MetadataKeyLineRegex = new(
         @"^(?:original\s+publication\s+date|originally\s+published|first\s+published|publication\s*date|reviewed\s*\/\s*revised|revised\s*\/\s*reviewed|date\s*revised|last\s*(?:updated|reviewed|modified)|published(?:\s*(?:date|on|in))?|updated(?:\s*(?:on|in))?|revised(?:\s*(?:on|in))?|reviewed(?:\s*(?:on|in))?|authors?|written\s+by|prepared\s+by|cơ\s*quan|tác\s*giả|ngày\s*(?:đăng|xuất\s*bản|cập\s*nhật)|cập\s*nhật)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex HeadingStarterExclusionRegex = new(
+        @"^(đây là|đó là|biện pháp này|cách này|khi |nếu |dù |mặc dù |ngoài ra|tuy nhiên|do đó|vì vậy|trong bài|dưới đây là)(?=\s|$)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex RoleLineRegex = new(
+        @"\b(professor|specialist|director|researcher|research\s+(?:specialist|assistant|associate|technician)|extension\s+(?:specialist|agent|educator)|scientist|technician|entomology|plant\s+pathology|pathology|horticulture|agronomy|lecturer)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PromoLinkRegex = new(
+        @"^[•\-*]?\s*(website|trang\s*chủ|fanpage|youtube|shopee|lazada|tiktok|hệ\s*thống\s*cửa\s*hàng)\s*:",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static bool IsContactOrAdNoise(string text) =>
         text.Length <= 300 && ContactKeywordRegex.IsMatch(text) &&
         (PhoneRegex.IsMatch(text) || text.Length <= 120);
 
-    private static bool IsSectionHeading(string text) =>
-        text.Length >= 3 && (SectionHeadingRegex.IsMatch(text) || CommonHeadingWordsRegex.IsMatch(text.Trim()));
+    private static string StripMarkdownInline(string text) =>
+        Regex.Replace(text.Trim(), @"^(?:#{1,6}|[•\-*+])\s+", "").Replace("**", "").Trim();
+
+    private static bool IsStandaloneMetadataBlock(string text)
+    {
+        var trimmed = Regex.Replace(text.Trim(), @"^(?:[#>*\-•+]+\s*)+", "").Replace("**", "").Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Contains('\n') || trimmed.Length > 240) return false;
+        return MetadataKeyLineRegex.IsMatch(trimmed)
+            && (trimmed.Contains(':') || Regex.IsMatch(trimmed, @"\b\d{4}\b"));
+    }
+
+    private static bool IsTitleHeaderBlock(string text, int idx)
+    {
+        var trimmed = text.Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Contains('\n') || IsStandaloneMetadataBlock(trimmed)) return false;
+        if (Regex.IsMatch(trimmed, @"^#\s+\S")) return true;
+        return idx == 0 && !Regex.IsMatch(trimmed, @"^#{2,6}\s+") && trimmed.Length < 140 && !Regex.IsMatch(trimmed, @"[.!?;]$");
+    }
+
+    private static bool IsSectionHeading(string text)
+    {
+        var trimmed = text.Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Contains('\n') || IsStandaloneMetadataBlock(trimmed) || Regex.IsMatch(trimmed, @"^#\s+\S"))
+        {
+            return false;
+        }
+        if (Regex.IsMatch(trimmed, @"^#{2,6}\s+\S"))
+        {
+            return trimmed.Length <= 120;
+        }
+
+        var plain = StripMarkdownInline(trimmed);
+        if (plain.Length < 3 || plain.Length > 90 || HeadingStarterExclusionRegex.IsMatch(plain)) return false;
+
+        var withoutTrailingColon = plain.TrimEnd();
+        var endsWithColon = withoutTrailingColon.EndsWith(':')
+            && !withoutTrailingColon[..^1].Contains(':')
+            && !Regex.IsMatch(plain, @"\.\s+\S");
+        var numberedHeading = Regex.IsMatch(plain, @"^(\d+(\.\d+)*|[IVX]+|[a-zđ])[.)]\s+\S", RegexOptions.IgnoreCase)
+            && !plain.EndsWith('.');
+        return endsWithColon || numberedHeading || CommonHeadingWordsRegex.IsMatch(plain);
+    }
+
+    private static bool IsSubItemBlock(string b)
+    {
+        var trimmed = b.Trim();
+        if (string.IsNullOrEmpty(trimmed) || Regex.IsMatch(trimmed, @"^#{1,6}\s+")) return false;
+        if (Regex.IsMatch(trimmed, @"^[•\-*+]\s+\S")) return true;
+        if (trimmed.Length <= 265 && Regex.IsMatch(trimmed, @"^(?:[•\-*+]\s*)?(?:\*\*)?(?:\d+[.)]\s*)?[^:.\n!?*]{2,60}(?:\*\*)?:\s*(?:\*\*)?\s*\S"))
+        {
+            return true;
+        }
+        return trimmed.Length <= 340 && Regex.IsMatch(trimmed, @"^(?:[•\-*+]\s*)?(?:\*\*)?[^\n?*]{6,120}\?(?:\*\*)?\s*\n?\s*\S");
+    }
+
+    private static string FormatSubItemMarkdown(string b)
+    {
+        var trimmed = b.Trim();
+        if (trimmed.Contains('\n') || Regex.IsMatch(trimmed, @"^#{1,6}\s+")) return trimmed;
+        if (trimmed.StartsWith("• ")) return $"- {trimmed[2..]}";
+        if (Regex.IsMatch(trimmed, @"^([-*+]\s+|\d+[.)]\s+)")) return trimmed;
+        if (trimmed.Length <= 265 && !trimmed.Contains("**"))
+        {
+            var m = Regex.Match(trimmed, @"^([^:.\n!?*]{2,60}):\s+(\S[\s\S]*)$");
+            if (m.Success)
+            {
+                return $"- **{m.Groups[1].Value.Trim()}:** {m.Groups[2].Value.Trim()}";
+            }
+        }
+        return trimmed;
+    }
+
+    private static bool IsIncompleteLeadIn(string text)
+    {
+        var plain = text.Replace("**", "").Trim();
+        return (Regex.IsMatch(plain, @":\s*$") && plain.Length <= 380)
+            || (!plain.Contains('\n') && Regex.IsMatch(plain, @"\?\s*$") && plain.Length <= 120);
+    }
+
+    private static string CoalesceArticleParagraphs(string rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText)) return string.Empty;
+        const int maxGroupChars = 1300;
+        var rawBlocks = Regex.Split(rawText, @"\r?\n\s*\r?\n")
+            .Select(s => Regex.Replace(s.Trim(), @"[ \t]+", " "))
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToList();
+
+        var output = new List<string>();
+        var pendingHeading = string.Empty;
+        var currentGroup = string.Empty;
+        var currentHasSubItems = false;
+
+        void Flush()
+        {
+            if (!string.IsNullOrEmpty(currentGroup))
+            {
+                output.Add(currentGroup);
+                currentGroup = string.Empty;
+                currentHasSubItems = false;
+            }
+        }
+
+        for (int idx = 0; idx < rawBlocks.Count; idx++)
+        {
+            var rawBlock = rawBlocks[idx];
+            var plain = StripMarkdownInline(rawBlock);
+            var isRole = !plain.Contains('\n') && plain.Length <= 120 && !Regex.IsMatch(plain, @"[.!?;]$") && RoleLineRegex.IsMatch(plain);
+            var isStray = PromoLinkRegex.IsMatch(plain)
+                || (idx > 0 && !rawBlock.Contains('\n') && plain.Length < 90 && !IsStandaloneMetadataBlock(rawBlock) && !IsSectionHeading(rawBlock) && !IsSubItemBlock(rawBlock) && !isRole && !Regex.IsMatch(plain, @"[.!?:;]"));
+            if (isStray) continue;
+
+            if (IsStandaloneMetadataBlock(rawBlock) || IsTitleHeaderBlock(rawBlock, idx))
+            {
+                pendingHeading = string.Empty;
+                Flush();
+                output.Add(rawBlock);
+                continue;
+            }
+
+            if (IsSectionHeading(rawBlock))
+            {
+                Flush();
+                var prefixMatch = Regex.Match(rawBlock.Trim(), @"^(#{2,6})\s+");
+                var prefix = prefixMatch.Success ? prefixMatch.Groups[1].Value : "##";
+                var headingBody = Regex.Replace(rawBlock.Trim(), @"^#{2,6}\s+", "").Replace("**", "").Trim();
+                if (!string.IsNullOrEmpty(pendingHeading))
+                {
+                    var prevClean = Regex.Replace(pendingHeading, @"^#{2,6}\s+", "").TrimEnd(':').Trim();
+                    var curClean = headingBody.TrimEnd(':').Trim();
+                    pendingHeading = $"## {prevClean} - {curClean}:";
+                }
+                else
+                {
+                    pendingHeading = $"{prefix} {headingBody}";
+                }
+                continue;
+            }
+
+            var b = FormatSubItemMarkdown(rawBlock);
+
+            if (!string.IsNullOrEmpty(pendingHeading))
+            {
+                currentGroup = $"{pendingHeading}\n{b}";
+                currentHasSubItems = IsSubItemBlock(b);
+                pendingHeading = string.Empty;
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(currentGroup))
+            {
+                var startsWithHeading = Regex.IsMatch(b, @"^#{1,6}\s+");
+                var sub = IsSubItemBlock(b);
+                var shouldMerge = !startsWithHeading && (IsIncompleteLeadIn(currentGroup)
+                    || (sub && (currentGroup.Length <= 500 || currentHasSubItems))
+                    || (currentGroup.Length < 200 && b.Length < 200));
+                if (shouldMerge && currentGroup.Length + 1 + b.Length <= maxGroupChars)
+                {
+                    currentGroup = $"{currentGroup}\n{b}";
+                    if (sub) currentHasSubItems = true;
+                    continue;
+                }
+                Flush();
+            }
+
+            currentGroup = b;
+            currentHasSubItems = IsSubItemBlock(b);
+        }
+        Flush();
+
+        return string.Join("\n\n", output);
+    }
 
     private static bool IsPrivateOrReservedIp(IPAddress ip)
     {
