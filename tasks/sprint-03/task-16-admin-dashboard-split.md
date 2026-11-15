@@ -81,7 +81,7 @@ Tên file và cách chia hook có thể đổi khi bắt tay làm; ghi lại tha
 | B0 (✓ Đã xong) | Chuyển interface sang `features/admin/types.ts`, hàm tiện ích không dùng React sang `features/admin/lib/` | `tsc` & `npm run build` pass (2008 modules); script kiểm tra `extractKeyMetadataFromText` 7/7 test cases pass |
 | B1 (✓ Đã xong) | Tách **Ảnh triệu chứng** → `AdminImagesPage` (state, handler, 3 Dialog ảnh) | `npm run build` pass (2012 modules, chunk `AdminImagesPage` 24.24 kB); `AdminDashboard` giảm 896 dòng; hỗ trợ query param pre-fill |
 | B2 (✓ Đã xong) | Tách **Chuyển chuyên gia** → `AdminEscalationsPage` | `npm run build` pass (2013 modules, chunk `AdminEscalationsPage` 6.32 kB); xem danh sách ca khám, viết phác đồ điều trị, cập nhật chuyên gia |
-| B3 | Tách **Vật tư** → `AdminInventoryPage` (sửa/tạo thuốc, gắn gợi ý, xem bằng chứng) | Tạo và sửa sản phẩm, gắn hoặc bỏ qua gợi ý |
+| B3 (✓ Đã xong) | Tách **Kho vật tư & thuốc** → `AdminInventoryPage` (kho thuốc, gợi ý vật tư, modal sửa/tạo SP, xem bằng chứng) | `npm run build` pass (2015 modules, chunk `AdminInventoryPage` 63.75 kB); `AdminDashboard` giảm 2.674 dòng; quản lý thuốc BVTV, duyệt gợi ý |
 | B4 | Tách **Duyệt tri thức** → `AdminKnowledgePage` | Duyệt, bỏ duyệt, xóa bài; nút "Sửa bài" vẫn mở `/admin/ingest?edit=` |
 | B5 | Tách **Nhập bài báo** → `AdminIngestPage`; khung soạn bài thành `ArticleEditor` | Dán bài, tách đoạn, AI tự điền, lưu; chế độ `?edit=`; tab "đã duyệt" và "dán lại" |
 | B6 | Xóa `AdminDashboard.tsx`, cập nhật `router.tsx` và tài liệu | `npm run build`; mở lần lượt cả 7 đường dẫn `/admin/*` |
