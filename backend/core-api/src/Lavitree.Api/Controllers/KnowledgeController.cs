@@ -1694,7 +1694,9 @@ public class KnowledgeController : ControllerBase
         }
 
         await _dbContext.SaveChangesAsync();
-        await TriggerReindexAsync(items.First().Id.ToString(), "batch_delete");
+        // Agent chỉ nhận action approve/unapprove/delete/manual (Literal trong app/main.py);
+        // "batch_delete" bị 422 → không reindex → Lavi vẫn trích đoạn đã xóa. Agent rebuild toàn bộ nên dùng "delete".
+        await TriggerReindexAsync(items.First().Id.ToString(), "delete");
 
         return Ok(new { message = $"Đã xóa thành công {items.Count} đoạn tri thức.", deleted_count = items.Count });
     }
