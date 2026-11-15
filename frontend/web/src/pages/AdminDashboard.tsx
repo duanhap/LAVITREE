@@ -736,6 +736,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [ingestSourceScope, setIngestSourceScope] = useState<'Việt Nam' | 'Quốc tế'>('Việt Nam');
   const [ingestText, setIngestText] = useState<string>('');
   const [articleEditorMode, setArticleEditorMode] = useState<'preview' | 'code'>('preview');
+  // Mẹo dán bài: thu gọn mặc định, bấm nút "Mẹo" trong khung soạn thảo để mở/đóng.
+  const [showPasteTip, setShowPasteTip] = useState(false);
   const [ingesting, setIngesting] = useState<boolean>(false);
   const [crawlingUrl, setCrawlingUrl] = useState<boolean>(false);
   const [ingestionResult, setIngestionResult] = useState<IngestionResponse | null>(null);
@@ -2860,6 +2862,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const renderArticleEditorSection = ({ isReparseTab = false }: { isReparseTab?: boolean } = {}) => {
     const hasText = ingestText.trim().length > 0;
     const showingPreview = articleEditorMode === 'preview' && hasText;
+    const pasteTipToggle = (
+      <button
+        type="button"
+        onClick={() => setShowPasteTip((v) => !v)}
+        aria-expanded={showPasteTip}
+        title={showPasteTip ? 'Ẩn mẹo dán bài' : 'Xem mẹo dán bài'}
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold transition-colors ${
+          showPasteTip
+            ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+            : 'bg-white/90 border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+        }`}
+      >
+        <Sparkles className="w-3 h-3" />
+        <span>Mẹo</span>
+      </button>
+    );
 
     return (
       <div>
@@ -2928,16 +2946,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
           </div>
         </div>
 
+        {showPasteTip && (
         <div className="p-2 mb-2 rounded bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-[11px] flex items-start gap-1.5">
           <Sparkles className="w-3.5 h-3.5 mt-0.5 text-emerald-700 shrink-0" />
-          <span>
+          <span className="flex-1">
             <strong>{isReparseTab ? 'Mẹo copy bài gốc:' : 'Mẹo dán cả trang:'}</strong> Nhấn{' '}
             <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+A</kbd> rồi{' '}
             <kbd className="px-1 py-0.5 bg-white border border-emerald-300 rounded font-mono">Ctrl+C</kbd>{' '}
             {isReparseTab ? 'trên trang bài gốc rồi dán vào đây, hoặc bấm' : 'trên trang báo rồi dán vào ô dưới, hoặc bấm'}{' '}
             <strong>Crawl từ URL</strong>. Hệ thống tự lọc rác và chuyển sang <strong>Markdown sạch</strong> (mặc định mở Xem định dạng; bấm <strong>Code Markdown</strong> để sửa tay).
           </span>
+          <button
+            type="button"
+            onClick={() => setShowPasteTip(false)}
+            className="shrink-0 text-emerald-700 hover:text-emerald-900"
+            aria-label="Thu gọn mẹo"
+            title="Thu gọn mẹo"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
         </div>
+        )}
 
         {showingPreview ? (
           <div className="rounded-md border border-emerald-200 bg-background overflow-hidden shadow-2xs">
@@ -2947,6 +2976,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                 <span>Bản xem trước định dạng (tiêu đề, chữ đậm, gạch đầu dòng)</span>
               </span>
               <div className="flex items-center gap-2 shrink-0">
+                {pasteTipToggle}
                 <button
                   type="button"
                   onClick={() => setArticleEditorMode('code')}
@@ -2977,7 +3007,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
             </div>
           </div>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 relative">
+            <div className="absolute top-1.5 right-4 z-10">{pasteTipToggle}</div>
             <Textarea
               rows={12}
               placeholder={
@@ -2993,7 +3024,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
               onPaste={handlePasteArticleText}
               required
               maxLength={50000}
-              className="text-xs font-mono resize-y leading-relaxed"
+              className="text-xs font-mono resize-y leading-relaxed pr-16"
             />
             {hasText && (
               <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-muted-foreground">
