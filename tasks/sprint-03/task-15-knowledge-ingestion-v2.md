@@ -677,3 +677,18 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
     - Nút `Chỉ chọn P đoạn chưa duyệt` và `Chỉ chọn A đoạn đã duyệt`.
   - **Mở khóa quota Tab 2**: Sau khi xóa chọn lọc hoặc xóa đoạn chưa duyệt, `editRows` giảm $\rightarrow$ `existingVerbatimCount` giảm $\rightarrow$ Tab 2 tự động mở thêm slot khả dụng cho Admin tick nạp đoạn mới.
 - **Kiểm chứng**: Core API `dotnet build` (`0` lỗi), Frontend `npm run build` (`2002 modules transformed`, `0` lỗi).
+
+### 13.18 Mở rộng tạm thời hạn mức trích dẫn lên sàn 20.000 ký tự & 90% phục vụ phát triển nhanh (`TASK-15-R24`, 15/11/2026)
+
+- **Yêu cầu**: Nâng trần hạn mức ký tự trích dẫn tạm thời lên sàn 20.000 ký tự để nhóm dev thoải mái nạp các bài báo dài mà không bị chặn bởi quota ký tự (~4.000 ký tự trước đó). Việc siết lại hạn mức theo luật bản quyền thương mại đã được ghi rõ trong task TODO để xử lý sau khi hoàn thiện toàn bộ các chức năng khác của hệ thống.
+- **Thay đổi thực hiện**:
+  - `backend/core-api/src/Lavitree.Api/Controllers/KnowledgeController.cs`:
+    - `INGEST_MIN_QUOTA_FLOOR`: Nâng mặc định từ `2.500` lên `20.000` (trần tối đa `50.000`).
+    - `INGEST_MAX_RATIO_PERCENT`: Nâng mặc định từ `60%` lên `90%`.
+    - `INGEST_MAX_CHUNK_CHARS`: Nâng mặc định từ `1.500` lên `3.000` (trần tối đa `10.000`).
+  - `frontend/web/src/pages/AdminDashboard.tsx`:
+    - Đồng bộ công thức: `allowedCharsQuota = Math.max(20000, Math.floor(articleLength * 0.90))`.
+    - Cập nhật cả `allowedQuota` trong hàm kiểm tra trước khi gửi `handleCommitParagraphs`.
+  - `tasks/TODO.md`:
+    - Cập nhật mục `TODO Hậu Đồ Án (Commercial Release Hardening)` ghi rõ nhiệm vụ siết lại: `INGEST_MAX_CHUNKS` (từ 30 về 8–20 đoạn), `INGEST_MIN_QUOTA_FLOOR` (từ 20.000 về 2.500–4.000 ký tự), và `INGEST_MAX_RATIO_PERCENT` (từ 90% về 30–60%).
+- **Kiểm chứng**: Core API `dotnet build` thành công (`0` lỗi, `8.26s`), Frontend `npm run build` thành công (`2002 modules transformed`, `0` lỗi, `3.73s`).
