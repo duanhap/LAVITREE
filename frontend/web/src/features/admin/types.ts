@@ -142,3 +142,4 @@ export type AdminTabKey = 'ingestion' | 'curation' | 'images' | 'inventory' | 'e
 export interface AdminDashboardProps {
   defaultTab?: AdminTabKey;
 }
+

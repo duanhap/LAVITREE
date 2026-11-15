@@ -38,3 +38,4 @@ export const getAgriTranslation = (text: string): string | null => {
   }
   return null;
 };
+

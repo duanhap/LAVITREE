@@ -9,3 +9,4 @@ export const isSafeHttpUrl = (url?: string | null): boolean => {
     return false;
   }
 };
+

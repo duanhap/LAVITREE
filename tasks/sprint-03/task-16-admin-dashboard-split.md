@@ -1,7 +1,7 @@
 # TASK-16: Tách `AdminDashboard.tsx` thành các trang Admin riêng
 * **Sprint**: Sprint 3
 * **Phân hệ**: frontend/web (Admin)
-* **Trạng thái**: `[/] IN PROGRESS` (Đã xong B0)
+* **Trạng thái**: `[/] IN PROGRESS` (Đã xong B0, B1)
 * **Người phụ trách**: Trưởng nhóm (làm cùng Claude Code)
 * **Độ ưu tiên**: P2 - Nên làm trước khi thêm tính năng Admin mới
 * **Tạo ngày**: 15/11/2026
@@ -79,7 +79,7 @@ Tên file và cách chia hook có thể đổi khi bắt tay làm; ghi lại tha
 | Bước | Nội dung | Kiểm tra |
 |---|---|---|
 | B0 (✓ Đã xong) | Chuyển interface sang `features/admin/types.ts`, hàm tiện ích không dùng React sang `features/admin/lib/` | `tsc` & `npm run build` pass (2008 modules); script kiểm tra `extractKeyMetadataFromText` 7/7 test cases pass |
-| B1 | Tách **Ảnh triệu chứng** → `AdminImagesPage` (state, handler, 3 Dialog ảnh) | Xem danh sách, thêm, xóa, phóng to ảnh |
+| B1 (✓ Đã xong) | Tách **Ảnh triệu chứng** → `AdminImagesPage` (state, handler, 3 Dialog ảnh) | `npm run build` pass (2012 modules, chunk `AdminImagesPage` 24.24 kB); `AdminDashboard` giảm 896 dòng; hỗ trợ query param pre-fill |
 | B2 | Tách **Chuyển chuyên gia** → `AdminEscalationsPage` | Xem ca, trả lời hoặc đóng ca |
 | B3 | Tách **Vật tư** → `AdminInventoryPage` (sửa/tạo thuốc, gắn gợi ý, xem bằng chứng) | Tạo và sửa sản phẩm, gắn hoặc bỏ qua gợi ý |
 | B4 | Tách **Duyệt tri thức** → `AdminKnowledgePage` | Duyệt, bỏ duyệt, xóa bài; nút "Sửa bài" vẫn mở `/admin/ingest?edit=` |
