@@ -19,6 +19,7 @@ import { RegisterPage } from '@/pages/RegisterPage';
 const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
 const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
 const AdminImagesPage = React.lazy(() => import('@/pages/admin/AdminImagesPage'));
+const AdminKnowledgePage = React.lazy(() => import('@/pages/admin/AdminKnowledgePage'));
 const AdminEscalationsPage = React.lazy(() => import('@/pages/admin/AdminEscalationsPage'));
 const AdminInventoryPage = React.lazy(() => import('@/pages/admin/AdminInventoryPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
@@ -167,7 +168,7 @@ export const AppRouter: React.FC = () => {
           path="/admin/knowledge"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
-              <AdminDashboard defaultTab="curation" />
+              <AdminKnowledgePage />
             </Suspense>
           }
         />
