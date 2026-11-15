@@ -492,7 +492,9 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
     }
 
     // Nhận diện tác giả đứng cạnh ngày đăng khi copy thủ công (Dòng 1: "My Trần", Dòng 2: "Th 2 11/08/2025")
-    if (!result.author && i < 8 && i + 1 < lines.length) {
+    // Bỏ dòng 0 (thường là tiêu đề bài) và chỉ nhận dòng giống TÊN NGƯỜI: 2-5 từ, mỗi từ viết hoa chữ cái đầu,
+    // không có chữ số → tránh nhận nhầm tiêu đề ngắn "Kỹ thuật trồng dưa lưới" + dòng ngày trần thành tác giả.
+    if (!result.author && i > 0 && i < 8 && i + 1 < lines.length) {
       const nextLine = lines[i + 1];
       const nextDate = extractDateFromSegment(nextLine);
       if (nextDate && nextLine.length <= 35) {
@@ -501,6 +503,7 @@ const extractKeyMetadataFromText = (text: string, sourceUrl?: string) => {
           candidate.length >= 2 &&
           candidate.length <= 40 &&
           !/[.!?:;,]$/.test(candidate) &&
+          /^\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*){1,4}$/u.test(candidate) &&
           !candidate.startsWith('#') &&
           !/^(?:trang\s*chủ|tin\s*tức|bài\s*viết|chuyên\s*mục|hướng\s*dẫn|nguyên\s*nhân|triệu\s*chứng|điều\s*trị|phòng\s*ngừa|nông\s*nghiệp)\b/i.test(candidate);
         if (isCandidateName) {
