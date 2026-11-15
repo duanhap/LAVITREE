@@ -17,7 +17,6 @@ import { RegisterPage } from '@/pages/RegisterPage';
 
 // Lazy Loaded Pages (BUG-27: Tối ưu bundle size cho mạng đồng ruộng & Admin portal)
 const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
-const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
 const AdminIngestPage = React.lazy(() => import('@/pages/admin/AdminIngestPage'));
 const AdminImagesPage = React.lazy(() => import('@/pages/admin/AdminImagesPage'));
 const AdminKnowledgePage = React.lazy(() => import('@/pages/admin/AdminKnowledgePage'));

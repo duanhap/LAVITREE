@@ -30,7 +30,6 @@ import type {
   KnowledgeImageItem,
   GroupedArticle,
   DuplicatePair,
-  AdminDashboardProps,
 } from '@/features/admin/types';
 export type { KnowledgeImageItem, GroupedArticle };
 import {
