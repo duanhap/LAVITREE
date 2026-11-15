@@ -359,6 +359,9 @@ public class CreateProductRequestDto
     [JsonPropertyName("active_ingredient")]
     public string? ActiveIngredient { get; set; }
 
+    [JsonPropertyName("image_url")]
+    public string? ImageUrl { get; set; }
+
     [Required]
     [JsonPropertyName("medicine_type")]
     public string MedicineType { get; set; } = "Hóa học"; // "Hóa học" | "Sinh học" | "Vật tư canh tác"

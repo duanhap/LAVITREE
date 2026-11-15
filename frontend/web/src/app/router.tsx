@@ -17,7 +17,11 @@ import { RegisterPage } from '@/pages/RegisterPage';
 
 // Lazy Loaded Pages (BUG-27: Tối ưu bundle size cho mạng đồng ruộng & Admin portal)
 const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
-const AdminDashboard = React.lazy(() => import('@/pages/AdminDashboard'));
+const AdminIngestPage = React.lazy(() => import('@/pages/admin/AdminIngestPage'));
+const AdminImagesPage = React.lazy(() => import('@/pages/admin/AdminImagesPage'));
+const AdminKnowledgePage = React.lazy(() => import('@/pages/admin/AdminKnowledgePage'));
+const AdminEscalationsPage = React.lazy(() => import('@/pages/admin/AdminEscalationsPage'));
+const AdminInventoryPage = React.lazy(() => import('@/pages/admin/AdminInventoryPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
 const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollectorPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
@@ -156,7 +160,7 @@ export const AppRouter: React.FC = () => {
           path="/admin/ingest"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
-              <AdminDashboard defaultTab="ingestion" />
+              <AdminIngestPage />
             </Suspense>
           }
         />
@@ -164,7 +168,7 @@ export const AppRouter: React.FC = () => {
           path="/admin/knowledge"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
-              <AdminDashboard defaultTab="curation" />
+              <AdminKnowledgePage />
             </Suspense>
           }
         />
@@ -172,7 +176,7 @@ export const AppRouter: React.FC = () => {
           path="/admin/images"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
-              <AdminDashboard defaultTab="images" />
+              <AdminImagesPage />
             </Suspense>
           }
         />
@@ -188,7 +192,7 @@ export const AppRouter: React.FC = () => {
           path="/admin/escalations"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
-              <AdminDashboard defaultTab="escalations" />
+              <AdminEscalationsPage />
             </Suspense>
           }
         />
@@ -196,7 +200,7 @@ export const AppRouter: React.FC = () => {
           path="/admin/inventory"
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
-              <AdminDashboard defaultTab="inventory" />
+              <AdminInventoryPage />
             </Suspense>
           }
         />

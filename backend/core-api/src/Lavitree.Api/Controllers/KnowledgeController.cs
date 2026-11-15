@@ -1694,7 +1694,9 @@ public class KnowledgeController : ControllerBase
         }
 
         await _dbContext.SaveChangesAsync();
-        await TriggerReindexAsync(items.First().Id.ToString(), "batch_delete");
+        // Agent chỉ nhận action approve/unapprove/delete/manual (Literal trong app/main.py);
+        // "batch_delete" bị 422 → không reindex → Lavi vẫn trích đoạn đã xóa. Agent rebuild toàn bộ nên dùng "delete".
+        await TriggerReindexAsync(items.First().Id.ToString(), "delete");
 
         return Ok(new { message = $"Đã xóa thành công {items.Count} đoạn tri thức.", deleted_count = items.Count });
     }
@@ -2709,29 +2711,46 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = $"Sản phẩm '{product.Name}' chứa hoạt chất cấm, không được gắn vào bệnh." });
         }
 
-        suggestion.Status = "LINKED";
-        suggestion.ProductId = product.Id;
-        suggestion.ResolvedAt = DateTime.UtcNow;
+        // Tự động gắn kết cho tất cả các bản ghi có cùng mention_text đang chờ xử lý
+        var targetMention = suggestion.MentionText.Trim().ToLower();
+        var sameSuggestions = await _dbContext.ProductSuggestions
+            .Where(ps => !ps.IsDeleted && ps.Status == "PENDING" && ps.MentionText.Trim().ToLower() == targetMention)
+            .ToListAsync(cancellationToken);
 
-        // Tự động liên kết vào DiseaseProducts nếu bệnh đã có trong bảng Diseases
-        var disease = await _dbContext.Diseases
-            .FirstOrDefaultAsync(d => d.ClassCode == suggestion.ModelClass, cancellationToken);
-        if (disease != null)
+        if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
         {
-            var exists = await _dbContext.DiseaseProducts
-                .AnyAsync(dp => dp.DiseaseId == disease.Id && dp.ProductId == product.Id, cancellationToken);
-            if (!exists)
+            sameSuggestions.Add(suggestion);
+        }
+
+        foreach (var s in sameSuggestions)
+        {
+            s.Status = "LINKED";
+            s.ProductId = product.Id;
+            s.ResolvedAt = DateTime.UtcNow;
+
+            // Tự động liên kết vào DiseaseProducts nếu bệnh đã có trong bảng Diseases
+            if (!string.IsNullOrWhiteSpace(s.ModelClass))
             {
-                _dbContext.DiseaseProducts.Add(new DiseaseProduct
+                var disease = await _dbContext.Diseases
+                    .FirstOrDefaultAsync(d => d.ClassCode == s.ModelClass, cancellationToken);
+                if (disease != null)
                 {
-                    DiseaseId = disease.Id,
-                    ProductId = product.Id
-                });
+                    var exists = await _dbContext.DiseaseProducts
+                        .AnyAsync(dp => dp.DiseaseId == disease.Id && dp.ProductId == product.Id, cancellationToken);
+                    if (!exists)
+                    {
+                        _dbContext.DiseaseProducts.Add(new DiseaseProduct
+                        {
+                            DiseaseId = disease.Id,
+                            ProductId = product.Id
+                        });
+                    }
+                }
             }
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        return Ok(new { message = $"Đã gắn gợi ý '{suggestion.MentionText}' với sản phẩm '{product.Name}' thành công." });
+        return Ok(new { message = $"Đã gắn gợi ý '{suggestion.MentionText}' (áp dụng cho {sameSuggestions.Count} đoạn) với sản phẩm '{product.Name}' thành công." });
     }
 
     // 6.3. POST /api/v1/knowledge/product-suggestions/{id}/dismiss
@@ -2753,10 +2772,24 @@ public class KnowledgeController : ControllerBase
             return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
         }
 
-        suggestion.Status = "DISMISSED";
-        suggestion.ResolvedAt = DateTime.UtcNow;
+        // Tự động bỏ qua cho tất cả các bản ghi có cùng mention_text đang chờ xử lý
+        var targetMention = suggestion.MentionText.Trim().ToLower();
+        var sameSuggestions = await _dbContext.ProductSuggestions
+            .Where(ps => !ps.IsDeleted && ps.Status == "PENDING" && ps.MentionText.Trim().ToLower() == targetMention)
+            .ToListAsync(cancellationToken);
+
+        if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
+        {
+            sameSuggestions.Add(suggestion);
+        }
+
+        foreach (var s in sameSuggestions)
+        {
+            s.Status = "DISMISSED";
+            s.ResolvedAt = DateTime.UtcNow;
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        return Ok(new { message = $"Đã bỏ qua gợi ý '{suggestion.MentionText}'." });
+        return Ok(new { message = $"Đã bỏ qua gợi ý '{suggestion.MentionText}' (áp dụng cho {sameSuggestions.Count} đoạn)." });
     }
 }

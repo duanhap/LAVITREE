@@ -135,3 +135,8 @@
   - Trạng thái: `[/] IN PROGRESS`
   - Đầu ra: Pha 1: dán cả trang và tự lọc rác, AI tự điền thông tin bài trong cùng lần gọi gán nhãn, nới giới hạn trích theo tỉ lệ bài (tạm thời mở rộng tối đa 30 đoạn nguyên văn, sàn tối thiểu 20.000 ký tự và tỷ lệ ≤ 90% bài để nạp nhanh phục vụ giai đoạn phát triển; cần siết lại về mức chuẩn thương mại 8–20 đoạn và 2.500–4.000 ký tự trước release). Pha 2: ảnh triệu chứng có ghi nguồn, hiện ở Sổ tay. Pha 3: gợi ý vật tư từ đoạn trích, Admin tự nhập PHI/nguồn, trạng thái `NOT_SOLD`, vật tư canh tác, chốt chặn thuốc cấm tạm thời. Pha 4: quản lý thuốc cấm, đoạn SUMMARY có duyệt. Chi tiết: `tasks/sprint-03/task-15-knowledge-ingestion-v2.md`.
   - **TODO Hậu Đồ Án (Commercial Release Hardening)**: Siết lại `INGEST_MAX_CHUNKS` từ 30 về 8–20 đoạn, đưa sàn `INGEST_MIN_QUOTA_FLOOR` từ 20.000 về 2.500–4.000 ký tự, và giảm `INGEST_MAX_RATIO_PERCENT` từ 90% về 30–60% để chuẩn hóa quy tắc trích dẫn thương mại theo Điều 25 Luật SHTT.
+
+- [x] **TASK-16: Tách `AdminDashboard.tsx` thành các trang Admin riêng**
+  - Trách nhiệm: **Trưởng nhóm** (làm cùng Claude Code)
+  - Trạng thái: `[x] DONE`
+  - Đầu ra: File 10.082 dòng đang phục vụ 5 trang (`/admin/ingest`, `/admin/knowledge`, `/admin/images`, `/admin/inventory`, `/admin/escalations`) được tách thành 5 file trang riêng; hàm tiện ích sang `features/admin/lib/`; khung soạn bài thành component dùng chung. Refactor thuần, không đổi giao diện/chức năng/API; mỗi trang một commit, đi từ trang đơn giản (Ảnh, Chuyển chuyên gia) đến Nhập bài báo. Chi tiết: `tasks/sprint-03/task-16-admin-dashboard-split.md`.
