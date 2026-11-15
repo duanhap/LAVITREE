@@ -389,6 +389,10 @@ public class CreateProductRequestDto
     [JsonPropertyName("target_disease_code")]
     public string? TargetDiseaseCode { get; set; }
 
+    /// <summary>Nhiều bệnh hại mục tiêu (ClassCode); gộp chung với target_disease_code.</summary>
+    [JsonPropertyName("target_diseases")]
+    public List<string>? TargetDiseases { get; set; }
+
     [JsonPropertyName("suggestion_id")]
     public int? SuggestionId { get; set; }
 

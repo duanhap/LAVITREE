@@ -16,6 +16,7 @@ import {
   Code2,
   Copy,
   ImageOff,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -71,8 +72,8 @@ export const AdminInventoryPage: React.FC = () => {
   const [medicines, setMedicines] = useState<MedicineItem[]>([]);
   const [loadingMedicines, setLoadingMedicines] = useState<boolean>(false);
   const [medSearch, setMedSearch] = useState<string>('');
-  const [editingMed, setEditingMed] = useState<MedicineItem | null>(null);
-  const [medSaving, setMedSaving] = useState<boolean>(false);
+  // Sửa sản phẩm dùng chung modal Tạo sản phẩm: editingMedId != null = đang sửa sản phẩm có id này
+  const [editingMedId, setEditingMedId] = useState<number | null>(null);
 
   // Gợi ý vật tư từ bài báo (Task-15 Phase 3)
   const [suggestions, setSuggestions] = useState<ProductSuggestionItem[]>([]);
@@ -101,7 +102,7 @@ export const AdminInventoryPage: React.FC = () => {
   const [newMedSourceUrl, setNewMedSourceUrl] = useState<string>('');
   const [newMedImageUrl, setNewMedImageUrl] = useState<string>('');
   const [newMedDescription, setNewMedDescription] = useState<string>('');
-  const [newMedTargetDisease, setNewMedTargetDisease] = useState<string>('Tomato___Late_blight');
+  const [newMedTargetDiseases, setNewMedTargetDiseases] = useState<string[]>([]);
   const [newMedIsAllowed, setNewMedIsAllowed] = useState<boolean>(false);
   const [creatingMed, setCreatingMed] = useState<boolean>(false);
   const [showDevMode, setShowDevMode] = useState<boolean>(false);
@@ -154,51 +155,38 @@ export const AdminInventoryPage: React.FC = () => {
     }
   };
 
-  const handleSaveMedicineEdit = async () => {
-    if (!editingMed) return;
+  // Mô tả sản phẩm được lưu gộp vào dosage_instruction dạng "Mô tả: <mô tả>\n<liều dùng>" (xem submit) → tách lại khi sửa
+  const splitDescriptionFromDosage = (text: string): { description: string; dosage: string } => {
+    const t = (text || '').replace(/\r\n/g, '\n');
+    if (!t.startsWith('Mô tả:')) return { description: '', dosage: t.trim() };
+    const body = t.slice('Mô tả:'.length).trim();
+    const lastNl = body.lastIndexOf('\n');
+    if (lastNl === -1) return { description: body, dosage: '' };
+    return { description: body.slice(0, lastNl).trim(), dosage: body.slice(lastNl + 1).trim() };
+  };
 
-    if (!editingMed.name.trim()) {
-      toast.error('Vui lòng nhập tên sản phẩm.');
-      return;
-    }
-
-    const isSupply = editingMed.medicine_type === 'Vật tư canh tác';
-    if (isIngredientBanned(editingMed.name) || (!isSupply && isIngredientBanned(editingMed.active_ingredient))) {
-      toast.error('Tên hoặc hoạt chất thuộc danh mục thuốc BVTV cấm sử dụng tại Việt Nam.');
-      return;
-    }
-
-    if (!isSupply && (editingMed.phi_days === null || editingMed.phi_days === undefined)) {
-      toast.error('Thuốc hóa học/sinh học bắt buộc có thời gian cách ly (PHI).');
-      return;
-    }
-
-    try {
-      setMedSaving(true);
-      const res = await apiClient.patch(`/medicines/${editingMed.id}`, {
-        name: editingMed.name.trim(),
-        active_ingredient: isSupply ? null : (editingMed.active_ingredient?.trim() || null),
-        dosage_instruction: editingMed.dosage_instruction?.trim() || (isSupply ? 'Sử dụng theo hướng dẫn kỹ thuật' : 'Pha theo hướng dẫn trên bao bì'),
-        phi_days: isSupply ? null : editingMed.phi_days,
-        price: editingMed.availability === 'NOT_SOLD' ? 0 : (Number(editingMed.price) || 0),
-        stock_quantity: editingMed.availability === 'NOT_SOLD' ? 0 : (Number(editingMed.stock_quantity) || 0),
-        is_allowed: editingMed.is_allowed,
-        availability: editingMed.availability,
-        info_source_url: editingMed.info_source_url,
-        medicine_type: editingMed.medicine_type,
-      });
-
-      setMedicines((prev) =>
-        prev.map((m) => (m.id === editingMed.id ? { ...m, ...res.data } : m))
-      );
-
-      setEditingMed(null);
-      toast.success(`Đã cập nhật thông tin sản phẩm '${res.data.name}'.`);
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    } finally {
-      setMedSaving(false);
-    }
+  const handleOpenEditMedModal = (med: MedicineItem) => {
+    const { description, dosage } = splitDescriptionFromDosage(med.dosage_instruction);
+    setShowDevMode(false);
+    setDevGeminiInput('');
+    setDescPreviewMode(false);
+    setFromSuggestion(null);
+    setEditingMedId(med.id);
+    setNewMedName(med.name || '');
+    setNewMedType(med.medicine_type || 'Hóa học');
+    setNewMedActiveIngredient(med.active_ingredient || '');
+    setNewMedPhi(med.phi_days ?? '');
+    setNewMedAvailability(med.availability || 'IN_STOCK');
+    setNewMedSourceUrl(med.info_source_url || '');
+    setNewMedImageUrl(med.image_url || '');
+    setMedImageFailed(false);
+    setNewMedDescription(description);
+    setNewMedTargetDiseases(med.target_diseases || []);
+    setNewMedPrice(Number(med.price) || 0);
+    setNewMedStock(Number(med.stock_quantity) || 0);
+    setNewMedDosage(dosage);
+    setNewMedIsAllowed(!!med.is_allowed);
+    setCreateMedModalOpen(true);
   };
 
   const filteredMedicines = medicines.filter((m) => {
@@ -271,6 +259,7 @@ export const AdminInventoryPage: React.FC = () => {
   };
 
   const handleOpenCreateMedModal = (sug?: ProductSuggestionItem) => {
+    setEditingMedId(null);
     setShowDevMode(false);
     setDevGeminiInput('');
 
@@ -292,7 +281,7 @@ export const AdminInventoryPage: React.FC = () => {
       setNewMedImageUrl('');
       setMedImageFailed(false);
       setNewMedDescription('');
-      setNewMedTargetDisease(isSupplyOrPractice ? '' : (sug.model_class || ''));
+      setNewMedTargetDiseases(isSupplyOrPractice || !sug.model_class ? [] : [sug.model_class]);
       setNewMedPrice(0);
       setNewMedStock(0);
       setNewMedDosage(
@@ -312,7 +301,7 @@ export const AdminInventoryPage: React.FC = () => {
       setNewMedImageUrl('');
       setMedImageFailed(false);
       setNewMedDescription('');
-      setNewMedTargetDisease('');
+      setNewMedTargetDiseases([]);
       setNewMedPrice(50000);
       setNewMedStock(50);
       setNewMedDosage('Pha theo hướng dẫn trên bao bì');
@@ -408,10 +397,10 @@ Lưu ý quan trọng:
       if (data.target_disease_code !== undefined) {
         const rawCode = String(data.target_disease_code || '').trim();
         if (!rawCode || rawCode.toUpperCase() === 'NONE' || rawCode.toLowerCase().includes('không chỉ định')) {
-          setNewMedTargetDisease('');
+          setNewMedTargetDiseases([]);
         } else {
           const matched = diseases.find((d) => d.classCode.toLowerCase() === rawCode.toLowerCase());
-          setNewMedTargetDisease(matched ? matched.classCode : '');
+          setNewMedTargetDiseases(matched ? [matched.classCode] : []);
         }
       }
       toast.success('Đã áp dụng toàn bộ thông số từ Gemini thành công!');
@@ -454,6 +443,28 @@ Lưu ý quan trọng:
         .filter(Boolean)
         .join('\n');
 
+      if (editingMedId !== null) {
+        const res = await apiClient.patch(`/medicines/${editingMedId}`, {
+          name: newMedName.trim(),
+          medicine_type: newMedType,
+          active_ingredient: isSupply ? '' : newMedActiveIngredient.trim(),
+          price: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedPrice) || 0),
+          dosage_instruction: combinedDosage || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
+          phi_days: isSupply ? null : Number(newMedPhi),
+          stock_quantity: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedStock) || 0),
+          availability: newMedAvailability,
+          info_source_url: newMedSourceUrl.trim(),
+          image_url: newMedImageUrl.trim(),
+          target_diseases: newMedTargetDiseases,
+          is_allowed: newMedIsAllowed,
+        });
+        setMedicines((prev) => prev.map((m) => (m.id === editingMedId ? { ...m, ...res.data } : m)));
+        toast.success(`Đã cập nhật sản phẩm "${res.data.name}".`);
+        setCreateMedModalOpen(false);
+        setEditingMedId(null);
+        return;
+      }
+
       const payload: any = {
         name: newMedName.trim(),
         medicine_type: newMedType,
@@ -465,7 +476,7 @@ Lưu ý quan trọng:
         availability: newMedAvailability,
         info_source_url: newMedSourceUrl.trim() || undefined,
         image_url: newMedImageUrl.trim() || undefined,
-        target_disease_code: newMedTargetDisease || undefined,
+        target_diseases: newMedTargetDiseases,
         is_allowed: newMedIsAllowed,
         suggestion_id: fromSuggestion ? fromSuggestion.id : undefined,
       };
@@ -756,7 +767,7 @@ Lưu ý quan trọng:
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => setEditingMed(med)}
+                              onClick={() => handleOpenEditMedModal(med)}
                               className="h-7 text-xs text-primary"
                             >
                               Sửa thông số
@@ -1266,228 +1277,6 @@ Lưu ý quan trọng:
       </div>
 
       {/* ========================================================================================= */}
-      {/* DIALOG SỬA THÔNG SỐ THUỐC BVTV & VẬT TƯ */}
-      {/* ========================================================================================= */}
-      <Dialog open={!!editingMed} onOpenChange={() => setEditingMed(null)}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">
-              Chỉnh sửa sản phẩm: {editingMed?.name}
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Cập nhật thông tin chi tiết, giá bán, số ngày cách ly (PHI), tình trạng bán và hướng dẫn sử dụng.
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingMed && (
-            <div className="space-y-3 py-2 text-xs">
-              {isIngredientBanned(editingMed.active_ingredient || editingMed.name) && (
-                <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div>
-                    <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên hoặc hoạt chất của sản phẩm nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể kích hoạt trạng thái lưu hành.
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="font-semibold block mb-1">Tên thuốc / Tên sản phẩm *</label>
-                <Input
-                  type="text"
-                  value={editingMed.name}
-                  onChange={(e) => setEditingMed({ ...editingMed, name: e.target.value })}
-                  className="text-xs"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
-                  <select
-                    value={editingMed.medicine_type || 'Hóa học'}
-                    onChange={(e) => {
-                      const t = e.target.value;
-                      setEditingMed({
-                        ...editingMed,
-                        medicine_type: t,
-                        phi_days: t === 'Vật tư canh tác' ? null : editingMed.phi_days,
-                        active_ingredient: t === 'Vật tư canh tác' ? '' : editingMed.active_ingredient,
-                        dosage_instruction:
-                          t === 'Vật tư canh tác' && editingMed.dosage_instruction === 'Pha theo hướng dẫn trên bao bì'
-                            ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
-                            : editingMed.dosage_instruction,
-                      });
-                    }}
-                    className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                  >
-                    <option value="Hóa học">Thuốc BVTV hóa học</option>
-                    <option value="Sinh học">Chế phẩm sinh học BVTV</option>
-                    <option value="Vật tư canh tác">Vật tư canh tác (lưới, bẫy, bạt phủ...)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-semibold block mb-1">Tình trạng kinh doanh *</label>
-                  <select
-                    value={editingMed.availability || 'IN_STOCK'}
-                    onChange={(e) =>
-                      setEditingMed({ ...editingMed, availability: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                  >
-                    <option value="IN_STOCK">Đang bán (cho phép đặt mua)</option>
-                    <option value="OUT_OF_STOCK">Tạm hết hàng (tạm ẩn nút mua)</option>
-                    <option value="NOT_SOLD">Cửa hàng không bán (chỉ tư vấn kỹ thuật)</option>
-                  </select>
-                </div>
-              </div>
-
-              {editingMed.medicine_type !== 'Vật tư canh tác' ? (
-                <div>
-                  <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
-                  <Input
-                    type="text"
-                    value={editingMed.active_ingredient || ''}
-                    onChange={(e) =>
-                      setEditingMed({ ...editingMed, active_ingredient: e.target.value })
-                    }
-                    placeholder="Ví dụ: Metalaxyl-M, Mancozeb..."
-                    className="text-xs"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="font-semibold block mb-1 text-muted-foreground">Hoạt chất chính</label>
-                  <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground flex items-center">
-                    Không áp dụng cho vật tư canh tác
-                  </div>
-                </div>
-              )}
-
-              {editingMed.availability !== 'NOT_SOLD' ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
-                    <Input
-                      type="number"
-                      value={editingMed.price}
-                      onChange={(e) =>
-                        setEditingMed({ ...editingMed, price: parseFloat(e.target.value) || 0 })
-                      }
-                      className="text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
-                    <Input
-                      type="number"
-                      value={editingMed.stock_quantity}
-                      onChange={(e) =>
-                        setEditingMed({ ...editingMed, stock_quantity: parseInt(e.target.value, 10) || 0 })
-                      }
-                      className="text-xs"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs">
-                  Sản phẩm ở chế độ "Cửa hàng không bán": Giá bán và Tồn kho được mặc định là 0. Sản phẩm chỉ hiển thị để tư vấn kỹ thuật nông vụ.
-                </div>
-              )}
-
-              <div>
-                <label className="font-semibold block mb-1">
-                  Thời gian cách ly PHI (ngày)
-                  {editingMed.medicine_type === 'Vật tư canh tác' ? (
-                    <span className="font-normal text-muted-foreground ml-1">(Không áp dụng cho vật tư canh tác)</span>
-                  ) : (
-                    <span className="text-destructive ml-0.5">*</span>
-                  )}
-                </label>
-                <Input
-                  type="number"
-                  disabled={editingMed.medicine_type === 'Vật tư canh tác'}
-                  placeholder={editingMed.medicine_type === 'Vật tư canh tác' ? 'Không áp dụng' : 'Ví dụ: 7'}
-                  value={editingMed.phi_days ?? ''}
-                  onChange={(e) =>
-                    setEditingMed({
-                      ...editingMed,
-                      phi_days: e.target.value === '' ? null : parseInt(e.target.value, 10),
-                    })
-                  }
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
-                <Input
-                  type="text"
-                  value={editingMed.dosage_instruction || ''}
-                  onChange={(e) =>
-                    setEditingMed({ ...editingMed, dosage_instruction: e.target.value })
-                  }
-                  placeholder={
-                    editingMed.medicine_type === 'Vật tư canh tác'
-                      ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
-                      : 'Pha theo hướng dẫn trên bao bì'
-                  }
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">
-                  URL nguồn tra cứu PHI/liều (nhãn, trang nhà sản xuất)
-                  {editingMed.medicine_type === 'Vật tư canh tác' ? ' (tùy chọn)' : ' *'}
-                </label>
-                <Input
-                  type="url"
-                  placeholder="https://khuyennongvn.gov.vn/..."
-                  value={editingMed.info_source_url || ''}
-                  onChange={(e) =>
-                    setEditingMed({ ...editingMed, info_source_url: e.target.value })
-                  }
-                  className="text-xs"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  disabled={isIngredientBanned(editingMed.active_ingredient) || isIngredientBanned(editingMed.name)}
-                  checked={editingMed.is_allowed && !isIngredientBanned(editingMed.active_ingredient) && !isIngredientBanned(editingMed.name)}
-                  onChange={(e) => setEditingMed({ ...editingMed, is_allowed: e.target.checked })}
-                  className="w-4 h-4 rounded text-emerald-700"
-                />
-                <span className="font-semibold text-xs">
-                  {editingMed.medicine_type === 'Vật tư canh tác'
-                    ? 'Cho phép sử dụng trong tư vấn canh tác (Lavi được gợi ý cho nông dân)'
-                    : 'Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)'}
-                </span>
-              </label>
-
-              <DialogFooter className="gap-2 sm:gap-0 pt-2">
-                <Button variant="outline" size="sm" onClick={() => setEditingMed(null)}>
-                  Hủy
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={medSaving}
-                  onClick={handleSaveMedicineEdit}
-                  className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
-                >
-                  {medSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
       {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
       {/* ========================================================================================= */}
       <Dialog open={!!linkingSuggestion} onOpenChange={() => setLinkingSuggestion(null)}>
@@ -1753,14 +1542,28 @@ Lưu ý quan trọng:
       {/* ========================================================================================= */}
       {/* DIALOG THÊM THUỐC / VẬT TƯ MỚI (TASK-15 PHASE 3 - GIAO DIỆN TINH GỌN & CHẾ ĐỘ DEV </>) */}
       {/* ========================================================================================= */}
-      <Dialog open={createMedModalOpen} onOpenChange={setCreateMedModalOpen}>
+      <Dialog
+        open={createMedModalOpen}
+        onOpenChange={(open) => {
+          setCreateMedModalOpen(open);
+          if (!open) setEditingMedId(null);
+        }}
+      >
         <DialogContent className="sm:max-w-3xl lg:max-w-4xl w-[94vw] max-w-4xl max-h-[92vh] overflow-y-auto p-5 sm:p-6">
           <DialogHeader className="shrink-0 pb-2 border-b border-border">
             <div className="flex items-center justify-between gap-2 pr-8">
               <DialogTitle className="text-base font-bold flex items-center gap-2">
-                <Plus className="w-4 h-4 text-emerald-700" />
+                {editingMedId !== null ? (
+                  <Pencil className="w-4 h-4 text-emerald-700" />
+                ) : (
+                  <Plus className="w-4 h-4 text-emerald-700" />
+                )}
                 <span>
-                  {fromSuggestion ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"` : 'Thêm thuốc / Vật tư mới'}
+                  {editingMedId !== null
+                    ? `Chỉnh sửa sản phẩm: ${newMedName || ''}`
+                    : fromSuggestion
+                      ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"`
+                      : 'Thêm thuốc / Vật tư mới'}
                 </span>
               </DialogTitle>
 
@@ -1782,7 +1585,9 @@ Lưu ý quan trọng:
             </div>
 
             <DialogDescription className="text-xs mt-1">
-              {fromSuggestion
+              {editingMedId !== null
+                ? 'Cập nhật đầy đủ thông tin sản phẩm: link nguồn, ảnh, mô tả, bệnh hại, giá, tồn kho, PHI và trạng thái lưu hành.'
+                : fromSuggestion
                 ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
                 : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
             </DialogDescription>
@@ -2109,17 +1914,48 @@ Lưu ý quan trọng:
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold block mb-1">Bệnh hại mục tiêu</label>
+                  {newMedTargetDiseases.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-1.5">
+                      {newMedTargetDiseases.map((code) => {
+                        const d = diseases.find((x) => x.classCode === code);
+                        return (
+                          <span
+                            key={code}
+                            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-900 dark:text-emerald-200"
+                          >
+                            <span>{d ? `${d.plantName} – ${d.commonNameVi}` : code}</span>
+                            <button
+                              type="button"
+                              onClick={() => setNewMedTargetDiseases((prev) => prev.filter((c) => c !== code))}
+                              className="rounded-full p-0.5 hover:bg-emerald-200/60 dark:hover:bg-emerald-800/60"
+                              aria-label="Bỏ bệnh hại này"
+                              title="Bỏ bệnh hại này"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                   <select
-                    value={newMedTargetDisease}
-                    onChange={(e) => setNewMedTargetDisease(e.target.value)}
+                    value=""
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      if (code) setNewMedTargetDiseases((prev) => (prev.includes(code) ? prev : [...prev, code]));
+                    }}
                     className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
                   >
-                    <option value="">-- Không chỉ định (áp dụng chung) --</option>
-                    {diseases.map((d) => (
-                      <option key={d.classCode} value={d.classCode}>
-                        {d.plantName} – {d.commonNameVi}
-                      </option>
-                    ))}
+                    <option value="">
+                      {newMedTargetDiseases.length === 0 ? '-- Không chỉ định (áp dụng chung) --' : '+ Thêm bệnh hại khác...'}
+                    </option>
+                    {diseases
+                      .filter((d) => !newMedTargetDiseases.includes(d.classCode))
+                      .map((d) => (
+                        <option key={d.classCode} value={d.classCode}>
+                          {d.plantName} – {d.commonNameVi}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -2226,11 +2062,13 @@ Lưu ý quan trọng:
               </label>
 
               <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
+                <Button type="button" variant="outline" size="sm" onClick={() => { setCreateMedModalOpen(false); setEditingMedId(null); }} disabled={creatingMed}>
                   Hủy
                 </Button>
                 <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
-                  {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
+                  {editingMedId !== null
+                    ? (creatingMed ? 'Đang lưu...' : 'Lưu thay đổi')
+                    : (creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm')}
                 </Button>
               </DialogFooter>
             </form>

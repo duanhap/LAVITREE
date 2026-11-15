@@ -59,6 +59,8 @@ export interface MedicineItem {
   stock_quantity: number;
   availability?: string; // IN_STOCK | OUT_OF_STOCK | NOT_SOLD
   info_source_url?: string;
+  image_url?: string;
+  target_diseases?: string[]; // ClassCode các bệnh hại gắn với sản phẩm
 }
 
 export interface ProductSuggestionItem {
