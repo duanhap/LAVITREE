@@ -12,8 +12,8 @@ import {
   FileText, ShieldCheck, CheckCircle2, AlertCircle, RefreshCw,
   ExternalLink, Search, Filter, Layers, Database, Package,
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Code2, Trash2,
-  ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon,
-  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3, Globe
+  ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon, ImageOff,
+  Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3, Globe, Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -834,7 +834,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [newImageMode, setNewImageMode] = useState<'FILE' | 'URL'>('URL');
   const [newImageUrl, setNewImageUrl] = useState<string>('');
   const [newImageFile, setNewImageFile] = useState<File | null>(null);
+  const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
   const [newImageFilePreview, setNewImageFilePreview] = useState<string | null>(null);
+  const [newImageFilePreviews, setNewImageFilePreviews] = useState<string[]>([]);
   const [newImageCaption, setNewImageCaption] = useState<string>('');
   const [newImagePlantPart, setNewImagePlantPart] = useState<string>('LEAF');
   const [newImageCredit, setNewImageCredit] = useState<string>('');
@@ -878,9 +880,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
   const [newMedStock, setNewMedStock] = useState<number>(50);
   const [newMedAvailability, setNewMedAvailability] = useState<string>('IN_STOCK');
   const [newMedSourceUrl, setNewMedSourceUrl] = useState<string>('');
+  const [newMedImageUrl, setNewMedImageUrl] = useState<string>('');
+  const [newMedDescription, setNewMedDescription] = useState<string>('');
   const [newMedTargetDisease, setNewMedTargetDisease] = useState<string>('Tomato___Late_blight');
   const [newMedIsAllowed, setNewMedIsAllowed] = useState<boolean>(false);
   const [creatingMed, setCreatingMed] = useState<boolean>(false);
+  const [loadingAiProductExtract, setLoadingAiProductExtract] = useState<boolean>(false);
+  const [crawledProductSource, setCrawledProductSource] = useState<{
+    url: string;
+    title: string;
+    markdown: string;
+    candidateImages: string[];
+    sections: Array<{ id: string; type: string; title: string; content: string; fieldKey?: string }>;
+  } | null>(null);
+  const [crawledSourceViewMode, setCrawledSourceViewMode] = useState<'rich' | 'code'>('rich');
+  const [activeInspectorField, setActiveInspectorField] = useState<string | null>(null);
+  const [showRawInspector, setShowRawInspector] = useState<boolean>(false);
+  const [showDevMode, setShowDevMode] = useState<boolean>(false);
+  const [devGeminiInput, setDevGeminiInput] = useState<string>('');
+  const [medImageFailed, setMedImageFailed] = useState<boolean>(false);
+
+  // Chế độ hiển thị Gợi ý vật tư: 'grouped' (Gộp theo tên vật tư chống trùng lặp) vs 'all' (Từng dòng)
+  const [suggestionsViewMode, setSuggestionsViewMode] = useState<'grouped' | 'all'>('grouped');
+  interface EvidenceModalGroup {
+    mentionText: string;
+    kind: string;
+    count: number;
+    items: ProductSuggestionItem[];
+    status: string;
+    plantName: string;
+    diseaseName: string;
+    productName?: string | null;
+  }
+  const [viewingEvidenceGroup, setViewingEvidenceGroup] = useState<EvidenceModalGroup | null>(null);
+  const [activeEvidenceTabIdx, setActiveEvidenceTabIdx] = useState<number>(0);
+  const [descPreviewMode, setDescPreviewMode] = useState<boolean>(false);
 
   // ==================== TAB 4: CA CHUYÊN GIA ====================
   const [escalations, setEscalations] = useState<EscalationItem[]>([]);
@@ -3927,8 +3961,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       await apiClient.post(`/knowledge/product-suggestions/${linkingSuggestion.id}/link`, {
         product_id: Number(selectedLinkMedId),
       });
-      toast.success('Đã gắn sản phẩm với bệnh của gợi ý này.');
-      await fetchSuggestions();
+      const med = medicines.find((m) => m.id === selectedLinkMedId);
+      toast.success(`Đã gắn gợi ý "${linkingSuggestion.mention_text}" với sản phẩm "${med?.name || ''}"!`);
+      const norm = linkingSuggestion.mention_text.trim().toLowerCase();
+      setSuggestions((prev) =>
+        prev.map((s) =>
+          s.mention_text.trim().toLowerCase() === norm
+            ? { ...s, status: 'LINKED', product_id: Number(selectedLinkMedId), product_name: med?.name, resolved_at: new Date().toISOString() }
+            : s
+        )
+      );
       setLinkingSuggestion(null);
       setSelectedLinkMedId('');
     } catch (err) {
@@ -3938,37 +3980,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
-  const handleDismissSuggestion = async (suggestionId: number) => {
+  const handleDismissSuggestion = async (suggestionId: number, isPractice = false) => {
     try {
+      const target = suggestions.find((s) => s.id === suggestionId);
       await apiClient.post(`/knowledge/product-suggestions/${suggestionId}/dismiss`);
-      toast.success('Đã bỏ qua gợi ý vật tư này.');
-      setSuggestions((prev) =>
-        prev.map((s) => (s.id === suggestionId ? { ...s, status: 'DISMISSED', resolved_at: new Date().toISOString() } : s))
-      );
+      if (isPractice) {
+        toast.success(target ? `Đã ghi nhận biện pháp kỹ thuật "${target.mention_text}" vào sổ tay.` : 'Đã ghi nhận biện pháp canh tác.');
+      } else {
+        toast.success(target ? `Đã bỏ qua gợi ý "${target.mention_text}".` : 'Đã bỏ qua gợi ý vật tư này.');
+      }
+      if (target) {
+        const norm = target.mention_text.trim().toLowerCase();
+        setSuggestions((prev) =>
+          prev.map((s) => (s.mention_text.trim().toLowerCase() === norm ? { ...s, status: 'DISMISSED', resolved_at: new Date().toISOString() } : s))
+        );
+      } else {
+        await fetchSuggestions();
+      }
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   };
 
   const handleOpenCreateMedModal = (sug?: ProductSuggestionItem) => {
+    // Reset dữ liệu bộ soi tài liệu gốc (Raw Inspector) và Chế độ Dev
+    setCrawledProductSource(null);
+    setCrawledSourceViewMode('rich');
+    setActiveInspectorField(null);
+    setShowRawInspector(false);
+    setShowDevMode(false);
+    setDevGeminiInput('');
+
     if (sug) {
       setFromSuggestion(sug);
       setNewMedName(sug.mention_text);
+      const isSupplyOrPractice = sug.kind === 'SUPPLY' || sug.kind === 'PRACTICE' || /vôi|bẫy|lưới|bạt|phân/i.test(sug.mention_text);
       const mappedType =
         sug.kind === 'BIOLOGICAL'
           ? 'Sinh học'
-          : sug.kind === 'SUPPLY' || sug.kind === 'PRACTICE'
+          : isSupplyOrPractice
             ? 'Vật tư canh tác'
             : 'Hóa học';
       setNewMedType(mappedType);
       setNewMedActiveIngredient(sug.kind === 'CHEMICAL' || sug.kind === 'BIOLOGICAL' ? sug.mention_text : '');
-      // TASK-15 5.3: không điền sẵn PHI; Admin tự tra nhãn thuốc rồi nhập
-      setNewMedPhi('');
+      // PHI mặc định: Hóa học 7 ngày, Sinh học / Vật tư 0 ngày
+      setNewMedPhi(mappedType === 'Hóa học' ? 7 : 0);
       // Gợi ý từ bài báo thường là thứ cửa hàng chưa bán: mặc định "Không bán", tồn 0
       setNewMedAvailability('NOT_SOLD');
-      // Link nguồn là nơi tra PHI/liều (nhãn, nhà sản xuất), không phải bài báo
       setNewMedSourceUrl('');
-      setNewMedTargetDisease(sug.model_class || 'Tomato___Late_blight');
+      setNewMedImageUrl('');
+      setMedImageFailed(false);
+      setNewMedDescription('');
+      // Vật tư canh tác / cải tạo đất chung không gắn cứng vào 1 bệnh cụ thể -> để trống (Không chỉ định)
+      setNewMedTargetDisease(isSupplyOrPractice ? '' : (sug.model_class || ''));
       setNewMedPrice(0);
       setNewMedStock(0);
       setNewMedDosage(
@@ -3982,16 +4046,519 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       setNewMedName('');
       setNewMedType('Hóa học');
       setNewMedActiveIngredient('');
-      setNewMedPhi('');
+      setNewMedPhi(7);
       setNewMedAvailability('IN_STOCK');
       setNewMedSourceUrl('');
-      setNewMedTargetDisease('Tomato___Late_blight');
+      setNewMedImageUrl('');
+      setMedImageFailed(false);
+      setNewMedDescription('');
+      setNewMedTargetDisease('');
       setNewMedPrice(50000);
       setNewMedStock(50);
       setNewMedDosage('Pha theo hướng dẫn trên bao bì');
       setNewMedIsAllowed(false);
     }
     setCreateMedModalOpen(true);
+  };
+
+  // Cuộn mượt và kích hoạt viền nổi bật phần tài liệu tương ứng bên cột Raw Inspector
+  const scrollToInspectorSection = (fieldKey: string) => {
+    setActiveInspectorField(fieldKey);
+    if (!crawledProductSource || !showRawInspector) return;
+    setTimeout(() => {
+      const el = document.getElementById(`inspector-section-${fieldKey}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 60);
+  };
+
+  // Chế độ Dev: Tạo và sao chép Prompt mẫu cho Gemini Web
+  const handleCopyGeminiPrompt = () => {
+    const url = newMedSourceUrl.trim();
+    if (!url) {
+      toast.error('Vui lòng dán Link trang sản phẩm / nhãn thuốc (URL) trước khi sao chép prompt!');
+      return;
+    }
+
+    const prompt = `Bạn là chuyên gia phân loại vật tư nông nghiệp & thuốc bảo vệ thực vật của dự án LAVITREE.
+Hãy đọc thông tin về sản phẩm/vật tư từ liên kết sau:
+URL: ${url}
+${newMedName ? `Tên gợi ý ban đầu: ${newMedName}` : ''}
+
+Hãy trích xuất và phân tích thật đầy đủ, chuyên sâu và trả về ĐÚNG cấu trúc JSON sau (chỉ trả về duy nhất khối markdown json, không kèm văn bản dẫn dắt ngoài):
+\`\`\`json
+{
+  "name": "Tên sản phẩm chuẩn, ngắn gọn (ví dụ: Vôi bột nông nghiệp, Ridomil Gold 68WG; loại bỏ các câu hỏi blog 'là gì', 'tác dụng')",
+  "medicine_type": "Vật tư canh tác" | "Sinh học" | "Hóa học",
+  "active_ingredient": "Hoạt chất chính hoặc công thức hóa học (VD: CaO (Canxi oxit), Mancozeb... Nếu là dụng cụ vật tư thông thường thì để rỗng '')",
+  "description": "Mô tả chuẩn hóa nông nghiệp, bố cục 4 phần mạch lạc rõ đẹp (khoảng 150 - 300 từ):\\n• Bản chất & Phân loại: (Sản phẩm là gì, nguồn gốc, công thức hoặc dạng tồn tại...)\\n• Công dụng nông nghiệp: (Hạ phèn, nâng pH đất, khử trùng tiêu diệt mầm bệnh nấm khuẩn trong đất, kích rễ, giải độc hữu cơ...)\\n• Phạm vi & Cây trồng: (Dùng cho đất trồng rau màu, cây ăn quả, xử lý hố trồng, chuồng trại...)\\n• Hướng dẫn & Lưu ý khi dùng: (Bón lúc làm đất/đầu vụ, tuyệt đối không trộn chung với phân đạm để tránh thất thoát đạm, mang găng tay và đồ bảo hộ)",
+  "image_url": "URL ảnh chụp sản phẩm thực tế từ bài viết (link https://..., nếu không có link ảnh trực tiếp thì để rỗng '')",
+  "dosage_instruction": "Liều lượng sử dụng và cách bón/pha thực tế (ví dụ: Bón 20 - 50kg/sào tùy độ chua của đất)",
+  "phi_days": 0,
+  "price": 0,
+  "target_disease_code": "NONE"
+}
+\`\`\`
+Lưu ý quan trọng:
+- Trường description: BẮT BUỘC dùng dấu chấm đầu dòng • rõ ràng cho từng mục, mỗi mục xuống dòng cách biệt, tuyệt đối không viết thành một đoạn văn xuôi dài dính chùm.
+- Với trường target_disease_code: Nếu là vật tư cải tạo đất chung (như vôi bột, phân bón, bạt phủ, bẫy dính...) hoặc phòng trừ diện rộng, BẮT BUỘC để là "NONE" (Không chỉ định). Chỉ điền mã bệnh khi là thuốc đặc trị riêng cho 1 bệnh cụ thể.
+- Trường phi_days: Nếu là Vật tư canh tác hoặc Chế phẩm sinh học thì để 0 ngày.`;
+
+    navigator.clipboard.writeText(prompt);
+    toast.success('Đã sao chép Prompt cho Gemini! Hãy dán vào Gemini Web rồi copy kết quả JSON dán vào ô bên dưới.');
+  };
+
+  // Chế độ Dev: Nạp JSON từ Gemini vào các trường của Form
+  const handleApplyGeminiJson = () => {
+    if (!devGeminiInput.trim()) {
+      toast.error('Vui lòng dán đoạn JSON từ Gemini vào ô trước khi bấm áp dụng!');
+      return;
+    }
+    try {
+      let cleanJson = devGeminiInput.trim();
+      const match = cleanJson.match(/\{[\s\S]*\}/);
+      if (match) {
+        cleanJson = match[0];
+      }
+      const data = JSON.parse(cleanJson);
+      if (data.name) setNewMedName(String(data.name).trim());
+      if (data.medicine_type) {
+        const t = String(data.medicine_type).trim();
+        if (t === 'Sinh học' || t === 'Vật tư canh tác' || t === 'Hóa học') {
+          setNewMedType(t);
+        }
+      }
+      if (data.active_ingredient !== undefined) {
+        setNewMedActiveIngredient(String(data.active_ingredient || '').trim());
+      }
+      if (data.description) setNewMedDescription(String(data.description).trim());
+      if (data.image_url) {
+        let rawImg = String(data.image_url).trim();
+        const urlMatch = rawImg.match(/https?:\/\/[^\s"')]+/);
+        if (urlMatch) {
+          rawImg = urlMatch[0];
+        }
+        if (isSafeHttpUrl(rawImg) || /^https?:\/\//i.test(rawImg)) {
+          setNewMedImageUrl(rawImg);
+          setMedImageFailed(false);
+        }
+      }
+      if (data.dosage_instruction) setNewMedDosage(String(data.dosage_instruction).trim());
+      if (data.phi_days !== undefined) {
+        const p = parseInt(String(data.phi_days), 10);
+        setNewMedPhi(isNaN(p) ? '' : p);
+      }
+      if (data.price !== undefined) {
+        const pr = parseFloat(String(data.price));
+        if (!isNaN(pr) && pr >= 0) {
+          setNewMedPrice(pr);
+          if (pr > 0) {
+            setNewMedAvailability('IN_STOCK');
+            setNewMedStock(100);
+          }
+        }
+      }
+      if (data.target_disease_code !== undefined) {
+        const rawCode = String(data.target_disease_code || '').trim();
+        if (!rawCode || rawCode.toUpperCase() === 'NONE' || rawCode.toLowerCase().includes('không chỉ định')) {
+          setNewMedTargetDisease('');
+        } else {
+          const matched = diseases.find((d) => d.classCode.toLowerCase() === rawCode.toLowerCase());
+          setNewMedTargetDisease(matched ? matched.classCode : '');
+        }
+      }
+      toast.success('Đã áp dụng toàn bộ thông số từ Gemini thành công!');
+      setDevGeminiInput('');
+    } catch {
+      toast.error('Không thể đọc dữ liệu JSON. Vui lòng kiểm tra lại cấu trúc JSON được dán.');
+    }
+  };
+
+  // Tự động thu thập và bóc tách thông tin sản phẩm từ URL (AI/DOM Microdata Crawler)
+  const handleAiAutofillProductFromUrl = async () => {
+    const targetUrl = newMedSourceUrl.trim();
+    if (!targetUrl) {
+      toast.error('Vui lòng dán link trang sản phẩm (http:// hoặc https://) trước khi bấm AI đọc!');
+      return;
+    }
+    if (!isSafeHttpUrl(targetUrl)) {
+      toast.error('Đường dẫn sản phẩm phải là URL hợp lệ (http:// hoặc https://)');
+      return;
+    }
+
+    try {
+      setLoadingAiProductExtract(true);
+
+      let html = '';
+      let lastError: unknown = null;
+      let coreRejected = false;
+
+      // Tầng 1: Gọi Core API /knowledge/fetch-url chống SSRF
+      try {
+        const res = await apiClient.post<{ url: string; html: string }>(
+          '/knowledge/fetch-url',
+          { url: targetUrl },
+          { timeout: 15000 }
+        );
+        if (res.data?.html) {
+          html = res.data.html;
+        }
+      } catch (err) {
+        lastError = err;
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status && [400, 401, 403, 422].includes(status)) {
+          coreRejected = true;
+        }
+      }
+
+      // Tầng 2: Fallback sang Vite Dev Middleware khi dev
+      if (!html && import.meta.env.DEV && !coreRejected) {
+        try {
+          const devRes = await fetch(`/__dev/fetch-url?url=${encodeURIComponent(targetUrl)}`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          const ct = devRes.headers.get('content-type') || '';
+          if (devRes.ok && ct.includes('application/json')) {
+            const devData = (await devRes.json()) as { html?: string };
+            if (devData?.html) {
+              html = devData.html;
+            }
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!html) {
+        throw lastError || new Error('Không thể tải nội dung từ đường dẫn này.');
+      }
+
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+
+      // 1. Thu thập danh sách ảnh ứng viên (Candidate Images: og:image, twitter, ld+json, thẻ img)
+      // Lọc bỏ ảnh cờ quốc kỳ, ngôn ngữ, icon, logo, nút chia sẻ, avatar, hotline
+      const candidateImages: string[] = [];
+      const addCandidateImg = (imgUrl: string | null | undefined) => {
+        if (!imgUrl) return;
+        try {
+          const resolved = new URL(imgUrl, targetUrl).href;
+          const isJunkImg = /(flag|quoc-ky|lang|language|cờ|icon|logo|avatar|banner|share|fb|zalo|hotline|payment|header|footer|vietnam|united-states|japan)/i.test(resolved);
+          if (
+            isSafeHttpUrl(resolved) &&
+            !resolved.match(/\.(svg|ico|gif)(\?.*)?$/i) &&
+            !isJunkImg &&
+            !candidateImages.includes(resolved)
+          ) {
+            candidateImages.push(resolved);
+          }
+        } catch {}
+      };
+
+      const ogImg = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
+                    doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
+                    doc.querySelector('link[rel="image_src"]')?.getAttribute('href');
+      if (ogImg) addCandidateImg(ogImg);
+
+      // Quét thêm ảnh từ thẻ img trong nội dung bài (bỏ qua cờ / icon)
+      const contentImages = doc.querySelectorAll('article img, main img, .content img, .detail img, .post-content img, .news-detail img, img');
+      contentImages.forEach((img) => {
+        const alt = (img.getAttribute('alt') || '').toLowerCase();
+        const cls = (img.className || '').toLowerCase();
+        if (/(flag|cờ|lang|language|icon|logo|avatar)/i.test(alt + ' ' + cls)) return;
+        const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-original');
+        if (src && !src.startsWith('data:') && candidateImages.length < 8) {
+          addCandidateImg(src);
+        }
+      });
+
+      // 2. Trích xuất tên sản phẩm và dọn dẹp các mẫu giật tít blog câu hỏi (SEO Clickbait)
+      const rawTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+                       doc.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
+                       doc.querySelector('h1')?.textContent?.trim() ||
+                       doc.title?.trim() || '';
+
+      let cleanName = rawTitle;
+      // Dọn dẹp các cụm "Là gì? Tác dụng, giá cả & cách sử dụng hiệu quả..."
+      cleanName = cleanName
+        .replace(/\s*(?:là\s*gì|ở\s*đâu|mua\s*ở\s*đâu|tác\s*dụng|công\s*dụng|giá\s*cả|cách\s*dùng|cách\s*sử\s*dụng|hướng\s*dẫn|chi\s*tiết|tổng\s*hợp|hiệu\s*quả).*$/i, '')
+        .replace(/\s*[?？!！].*$/, '')
+        .replace(/\s*[-|–]\s*(Shopee|Tiki|Lazada|Sendo|Vietchem|Nông Nghiệp Phố|Thế Giới Cây Giống|Cổng TTĐT|VTNN).*/i, '')
+        .replace(/\s*\|\s*.*$/, '')
+        .trim();
+
+      // Nếu tên bị rỗng hoặc quá dài sau khi lọc, ưu tiên tên từ gợi ý ban đầu
+      if (!cleanName || cleanName.length > 50) {
+        if (fromSuggestion?.mention_text) {
+          cleanName = fromSuggestion.mention_text.charAt(0).toUpperCase() + fromSuggestion.mention_text.slice(1);
+        } else {
+          cleanName = rawTitle.slice(0, 60).trim();
+        }
+      }
+
+      // 3. Quét JSON-LD để lấy thêm chi tiết schema Product (nếu trang là trang bán hàng TMĐT)
+      let extractedPrice = 0;
+      let ldJsonDesc = '';
+      const jsonLdScripts = doc.querySelectorAll('script[type="application/ld+json"]');
+      jsonLdScripts.forEach((script) => {
+        try {
+          const raw = JSON.parse(script.textContent || '{}');
+          const items = Array.isArray(raw) ? raw : [raw];
+          items.forEach((item: any) => {
+            if (item?.['@type'] === 'Product' || item?.name) {
+              if (item.image) {
+                if (typeof item.image === 'string') addCandidateImg(item.image);
+                else if (Array.isArray(item.image)) {
+                  item.image.forEach((im: any) => addCandidateImg(typeof im === 'string' ? im : im?.url));
+                } else if (item.image.url) addCandidateImg(item.image.url);
+              }
+              if (!ldJsonDesc && item.description) {
+                ldJsonDesc = String(item.description).trim().slice(0, 500);
+              }
+              if (item.offers) {
+                const offers = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+                const p = parseFloat(offers?.price || offers?.lowPrice || '0');
+                if (p > 0) extractedPrice = p;
+              }
+            }
+          });
+        } catch {}
+      });
+
+      // 4. Trích xuất mô tả sản phẩm: Ưu tiên đoạn nói về công dụng nông nghiệp / khử trùng / cải tạo đất
+      const bodyText = doc.body?.textContent || '';
+      const allParagraphs = Array.from(doc.querySelectorAll('article p, main p, .content p, .post-content p, .detail p, p'))
+        .map((p) => p.textContent?.trim() || '')
+        .filter((t) => t.length >= 35 && t.length <= 400);
+
+      const agroDescParagraph = allParagraphs.find((t) =>
+        /nông\s*nghiệp|khử\s*trùng|cải\s*tạo\s*đất|hạ\s*phèn|nâng\s*ph|diệt\s*khuẩn|nấm\s*bệnh|chuồng\s*trại/i.test(t)
+      );
+
+      const ogDesc = doc.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+                     doc.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+
+      let cleanDesc = '';
+      if (agroDescParagraph) {
+        cleanDesc = agroDescParagraph;
+      } else if (ldJsonDesc) {
+        cleanDesc = ldJsonDesc;
+      } else if (ogDesc) {
+        // Dọn dẹp câu hỏi đầu câu nếu có ("Vôi bột là gì? ...")
+        cleanDesc = ogDesc.replace(/^[^?]*\?\s*/, '').trim().slice(0, 500);
+      }
+
+      // 5. Bóc tách hoạt chất / công thức hóa học
+      let extractedActive = '';
+      const chemicalFormulaMatch = bodyText.match(/\b(CaO|Ca\(OH\)2|CaCO3)\b/i);
+      const activeMatch = bodyText.match(/(?:hoạt\s*chất|thành\s*phần|công\s*thức\s*hóa\s*học)\s*[:：\-]\s*([^\n\r<.,;]+)/i);
+
+      if (chemicalFormulaMatch) {
+        const formula = chemicalFormulaMatch[1].toUpperCase();
+        extractedActive = formula === 'CAO' ? 'CaO (Canxi oxit)' : formula;
+      } else if (activeMatch && activeMatch[1]?.trim()) {
+        extractedActive = activeMatch[1].trim();
+      }
+
+      // 6. Liều lượng & Cách dùng
+      let extractedDosage = '';
+      const dosageMatch = bodyText.match(/(?:liều\s*lượng|hướng\s*dẫn\s*sử\s*dụng|cách\s*dùng|cách\s*sử\s*dụng)\s*[:：\-]\s*([^\n\r<.]+)/i) ||
+                          bodyText.match(/(bón\s+\d+[^.\n]+|pha\s+\d+[^.\n]+)/i);
+      if (dosageMatch && dosageMatch[1]?.trim()) {
+        extractedDosage = dosageMatch[1].trim();
+      }
+
+      // 7. PHI (Cách ly)
+      let extractedPhi: number | null = null;
+      const phiMatch = bodyText.match(/(?:cách\s*ly|thời\s*gian\s*cách\s*ly)\s*[:：\-]?\s*(\d+)\s*ngày/i);
+      if (phiMatch && phiMatch[1]) {
+        extractedPhi = parseInt(phiMatch[1], 10);
+      }
+
+      // 8. Phân loại thông minh (Ưu tiên Vật tư canh tác trước để không bị nhầm khi bài viết nhắc từ "sinh học")
+      let extractedType: 'Hóa học' | 'Sinh học' | 'Vật tư canh tác' | null = null;
+      const lowerFull = (cleanName + ' ' + targetUrl + ' ' + bodyText).toLowerCase();
+
+      const isVatTuKeywords = /vôi\s*bột|vôi\s*nông\s*nghiệp|vôi\s*tôi|đá\s*vôi|bẫy\s*dính|bẫy\s*vàng|pheromone|lưới\s*chắn|lưới\s*mùng|màng\s*phủ|bạt\s*phủ|kéo\s*cắt|phân\s*chuồng|phân\s*trùn|phân\s*hữu\s*cơ|phân\s*bón|khay\s*ươm|giá\s*thể|tro\s*trấu|xơ\s*dừa/i;
+
+      if (
+        isVatTuKeywords.test(lowerFull) ||
+        (fromSuggestion && (fromSuggestion.kind === 'PHYSICAL' || /vôi|bẫy|lưới|bạt|phân/i.test(fromSuggestion.mention_text)))
+      ) {
+        extractedType = 'Vật tư canh tác';
+      } else if (
+        /trichoderma|bacillus|nấm\s*đối\s*kháng|chế\s*phẩm\s*sinh\s*học|chế\s*phẩm\s*vi\s*sinh|em\s*gốc|vi\s*sinh\s*vật|thảo\s*mộc|tinh\s*dầu\s*neem/i.test(lowerFull) ||
+        fromSuggestion?.kind === 'BIO'
+      ) {
+        extractedType = 'Sinh học';
+      } else if (
+        /thuốc\s*trừ|hóa\s*học|thuốc\s*bvtv|hoạt\s*chất|metalaxyl|mancozeb|difenoconazole|propineb|azoxystrobin|hexaconazole/i.test(lowerFull) ||
+        fromSuggestion?.kind === 'CHEMICAL'
+      ) {
+        extractedType = 'Hóa học';
+      } else {
+        extractedType = fromSuggestion?.kind === 'PHYSICAL' ? 'Vật tư canh tác' : (fromSuggestion?.kind === 'BIO' ? 'Sinh học' : 'Hóa học');
+      }
+
+      // 9. Giá bán tham khảo
+      if (extractedPrice === 0) {
+        const priceMatch = bodyText.match(/(\d{1,3}(?:[.,]\d{3})+)\s*(?:đ|vnđ|vnd)/i);
+        if (priceMatch) {
+          const num = parseFloat(priceMatch[1].replace(/[.,]/g, ''));
+          if (num > 1000 && num < 10000000) {
+            extractedPrice = num;
+          }
+        }
+      }
+
+      // 10. Đổ dữ liệu vào Form
+      if (cleanName) setNewMedName(cleanName);
+      if (candidateImages.length > 0) setNewMedImageUrl(candidateImages[0]);
+      if (cleanDesc) setNewMedDescription(cleanDesc);
+      if (extractedActive && extractedType !== 'Vật tư canh tác') {
+        setNewMedActiveIngredient(extractedActive);
+      } else if (extractedType === 'Vật tư canh tác') {
+        setNewMedActiveIngredient('');
+      }
+      if (extractedDosage) setNewMedDosage(extractedDosage);
+      if (extractedType) {
+        setNewMedType(extractedType);
+        if (extractedType === 'Vật tư canh tác') {
+          setNewMedPhi('');
+          if (!extractedDosage) {
+            setNewMedDosage('Bón 20 - 50kg/sào (hoặc theo độ chua pH của đất và hướng dẫn canh tác)');
+          }
+        } else if (extractedType === 'Sinh học') {
+          setNewMedPhi(0);
+        } else if (extractedPhi !== null) {
+          setNewMedPhi(extractedPhi);
+        }
+      }
+      if (extractedPrice > 0) {
+        setNewMedPrice(extractedPrice);
+        setNewMedAvailability('IN_STOCK');
+        setNewMedStock(100);
+      }
+
+      // 11. Xây dựng cấu trúc tài liệu nguồn cho cột Raw Inspector
+      const sections: Array<{ id: string; type: string; title: string; content: string; fieldKey?: string }> = [];
+
+      sections.push({
+        id: 'sec-title',
+        fieldKey: 'title',
+        type: 'title',
+        title: 'Tiêu đề trang & Tên nhận diện',
+        content: `• Tiêu đề trang gốc: ${rawTitle || 'Không xác định'}\n• Tên đề xuất sau khi tinh gọn: ${cleanName}`,
+      });
+
+      if (candidateImages.length > 0) {
+        sections.push({
+          id: 'sec-image',
+          fieldKey: 'image',
+          type: 'image',
+          title: `Hình ảnh tìm thấy (${candidateImages.length} ảnh ứng viên)`,
+          content: candidateImages.join('\n'),
+        });
+      }
+
+      if (cleanDesc) {
+        sections.push({
+          id: 'sec-description',
+          fieldKey: 'description',
+          type: 'description',
+          title: 'Mô tả & Công dụng nông nghiệp',
+          content: cleanDesc,
+        });
+      }
+
+      if (extractedType) {
+        sections.push({
+          id: 'sec-category',
+          fieldKey: 'category',
+          type: 'category',
+          title: 'Phân loại đề xuất',
+          content: `Phân loại: ${extractedType} ${
+            extractedType === 'Vật tư canh tác' ? '(Nhận diện: Vật tư/cải tạo đất thực địa)' : ''
+          }`,
+        });
+      }
+
+      if (extractedActive) {
+        sections.push({
+          id: 'sec-active',
+          fieldKey: 'active',
+          type: 'active',
+          title: 'Thành phần / Công thức hóa học',
+          content: extractedActive,
+        });
+      }
+
+      if (extractedDosage) {
+        sections.push({
+          id: 'sec-dosage',
+          fieldKey: 'dosage',
+          type: 'dosage',
+          title: 'Liều lượng & Cách sử dụng',
+          content: extractedDosage,
+        });
+      }
+
+      if (extractedPhi !== null) {
+        sections.push({
+          id: 'sec-phi',
+          fieldKey: 'phi',
+          type: 'phi',
+          title: 'Thời gian cách ly PHI',
+          content: `${extractedPhi} ngày`,
+        });
+      }
+
+      if (extractedPrice > 0) {
+        sections.push({
+          id: 'sec-price',
+          fieldKey: 'price',
+          type: 'price',
+          title: 'Giá bán tham khảo',
+          content: `${extractedPrice.toLocaleString('vi-VN')} VNĐ`,
+        });
+      }
+
+      // Trích xuất các đoạn văn bản chính từ bài viết
+      const bodySnippet = allParagraphs.slice(0, 10).join('\n\n') || bodyText.replace(/\s+/g, ' ').trim().slice(0, 1500);
+      sections.push({
+        id: 'sec-raw-body',
+        type: 'body',
+        title: 'Đoạn trích nội dung chính từ bài viết',
+        content: bodySnippet,
+      });
+
+      // Tạo chuỗi Markdown nguyên bản
+      const markdownRepresentation = `# ${rawTitle || cleanName}
+**Nguồn bài viết:** ${targetUrl}
+**Tên trích xuất:** ${cleanName}
+**Phân loại:** ${extractedType || 'Chưa rõ'}
+${extractedActive ? `**Thành phần/Hoạt chất:** ${extractedActive}\n` : ''}${extractedPrice > 0 ? `**Giá bán:** ${extractedPrice.toLocaleString('vi-VN')} đ\n` : ''}${extractedDosage ? `**Liều dùng:** ${extractedDosage}\n` : ''}
+## Mô tả / Công dụng
+${cleanDesc || 'Không có mô tả'}
+
+## Đoạn trích từ bài viết
+${bodySnippet}
+`;
+
+      setCrawledProductSource({
+        url: targetUrl,
+        title: rawTitle || cleanName,
+        markdown: markdownRepresentation,
+        candidateImages: candidateImages.slice(0, 4),
+        sections,
+      });
+
+      toast.success(`AI đã trích xuất thành công ${candidateImages.length} ảnh và thông số sản phẩm!`);
+    } catch (err) {
+      toast.error(getErrorMessage(err) || 'Không thể tự động trích xuất từ URL này. Vui lòng kiểm tra lại link.');
+    } finally {
+      setLoadingAiProductExtract(false);
+    }
   };
 
   const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
@@ -4005,27 +4572,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.error('Tên hoặc hoạt chất thuộc danh mục thuốc BVTV cấm sử dụng tại Việt Nam.');
       return;
     }
-    if (!isSupply && newMedPhi === '') {
-      toast.error('Thuốc hóa học/sinh học bắt buộc nhập thời gian cách ly (PHI) theo nhãn.');
+    if (newMedType === 'Hóa học' && newMedPhi === '') {
+      toast.error('Thuốc hóa học bắt buộc nhập thời gian cách ly (PHI) theo nhãn (hoặc mặc định 7 ngày).');
       return;
     }
-    if (!isSupply && !/^https?:\/\//i.test(newMedSourceUrl.trim())) {
-      toast.error('Thuốc bắt buộc có link nguồn nơi bạn tra PHI và liều (nhãn, trang nhà sản xuất).');
+    if (newMedSourceUrl.trim() && !/^https?:\/\//i.test(newMedSourceUrl.trim())) {
+      toast.error('Link nguồn phải bắt đầu bằng http:// hoặc https://.');
       return;
     }
 
     try {
       setCreatingMed(true);
+      const combinedDosage = [
+        newMedDescription.trim() ? `Mô tả: ${newMedDescription.trim()}` : '',
+        newMedDosage.trim() || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
+      ]
+        .filter(Boolean)
+        .join('\n');
+
       const payload: any = {
         name: newMedName.trim(),
         medicine_type: newMedType,
         active_ingredient: isSupply ? null : newMedActiveIngredient.trim() || undefined,
         price: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedPrice) || 0),
-        dosage_instruction: newMedDosage.trim() || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
-        phi_days: isSupply ? null : (newMedPhi === '' ? null : Number(newMedPhi)),
+        dosage_instruction: combinedDosage || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
+        phi_days: isSupply ? null : (newMedPhi === '' ? (newMedType === 'Hóa học' ? 7 : 0) : Number(newMedPhi)),
         stock_quantity: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedStock) || 0),
         availability: newMedAvailability,
         info_source_url: newMedSourceUrl.trim() || undefined,
+        image_url: newMedImageUrl.trim() || undefined,
         target_disease_code: newMedTargetDisease || undefined,
         is_allowed: newMedIsAllowed,
         suggestion_id: fromSuggestion ? fromSuggestion.id : undefined,
@@ -4045,6 +4620,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  // Dọn dẹp ký tự Markdown thô cho đoạn trích hiển thị
+  const cleanEvidencePreview = (text: string): string => {
+    if (!text) return '';
+    return text
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/^[*\-+•]\s+/gm, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  interface GroupedSuggestion {
+    groupKey: string;
+    mentionText: string;
+    kind: string;
+    plantName: string;
+    diseaseName: string;
+    modelClass: string;
+    items: ProductSuggestionItem[];
+    primaryItem: ProductSuggestionItem;
+    count: number;
+    status: 'PENDING' | 'LINKED' | 'ADDED' | 'DISMISSED';
+    productName?: string;
+    productId?: number;
+  }
+
   const pendingSuggestionsCount = suggestions.filter((s) => s.status === 'PENDING').length;
 
   const filteredSuggestions = suggestions.filter((s) => {
@@ -4060,6 +4662,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
     return true;
   });
+
+  // Gom nhóm danh sách gợi ý theo (tên vật tư + loại) để tránh 42 dòng trùng lặp
+  const groupedSuggestions = React.useMemo(() => {
+    const map = new Map<string, GroupedSuggestion>();
+    filteredSuggestions.forEach((s) => {
+      const key = `${(s.mention_text || '').trim().toLowerCase()}__${s.kind}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.items.push(s);
+        existing.count += 1;
+        if (s.status === 'PENDING') existing.status = 'PENDING';
+        if (!existing.productName && s.product_name) {
+          existing.productName = s.product_name;
+          existing.productId = s.product_id;
+        }
+      } else {
+        map.set(key, {
+          groupKey: key,
+          mentionText: s.mention_text,
+          kind: s.kind,
+          plantName: s.plant_name,
+          diseaseName: s.disease_name,
+          modelClass: s.model_class,
+          items: [s],
+          primaryItem: s,
+          count: 1,
+          status: s.status as any,
+          productName: s.product_name,
+          productId: s.product_id,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [filteredSuggestions]);
 
   // ==================== TAB 4 LOGIC ====================
   const fetchEscalations = async () => {
@@ -4154,21 +4790,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
     }
   };
 
+  const parsedImageUrls = React.useMemo(() => {
+    if (!newImageUrl.trim()) return [];
+    return newImageUrl
+      .split(/[\n,;]+/)
+      .map((u) => u.trim())
+      .filter((u) => /^https?:\/\//i.test(u));
+  }, [newImageUrl]);
+
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
-      if (!validTypes.includes(file.type)) {
-        toast.error('Chỉ hỗ trợ tệp ảnh JPG, PNG hoặc WEBP.');
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error('Dung lượng ảnh tối đa là 10MB.');
-        return;
-      }
-      setNewImageFile(file);
-      setNewImageFilePreview(URL.createObjectURL(file));
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0) return;
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const validFiles = files.filter((file) => validTypes.includes(file.type) && file.size <= 10 * 1024 * 1024);
+    if (validFiles.length < files.length) {
+      toast.warning('Một số tệp không phải JPG, PNG, WEBP hoặc dung lượng > 10MB đã bị bỏ qua.');
     }
+    if (validFiles.length === 0) {
+      toast.error('Không có tệp ảnh hợp lệ nào được chọn.');
+      return;
+    }
+    setNewImageFiles(validFiles);
+    setNewImageFile(validFiles[0]);
+    const previews = validFiles.map((f) => URL.createObjectURL(f));
+    setNewImageFilePreviews(previews);
+    setNewImageFilePreview(previews[0]);
   };
 
   const handleCreateKnowledgeImage = async (e: React.FormEvent) => {
@@ -4181,17 +4827,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
       toast.error('URL bài viết gốc phải bắt đầu bằng http:// hoặc https://');
       return;
     }
-    if (newImageMode === 'URL') {
-      if (!newImageUrl || !newImageUrl.startsWith('https://')) {
-        toast.error('URL ảnh trực tiếp phải là link https:// an toàn.');
-        return;
-      }
-    } else {
-      if (!newImageFile) {
-        toast.error('Vui lòng chọn tệp ảnh từ thiết bị để tải lên.');
-        return;
-      }
-    }
     if (!newImageCaption.trim()) {
       toast.error('Vui lòng nhập mô tả / chú thích triệu chứng.');
       return;
@@ -4203,36 +4838,84 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
     setSubmittingImage(true);
     try {
-      const formData = new FormData();
-      formData.append('ModelClass', newImageClass);
-      formData.append('SourceUrl', newImageSourceUrl.trim());
-      formData.append('Caption', newImageCaption.trim());
-      formData.append('PlantPart', newImagePlantPart);
-      formData.append('Credit', newImageCredit.trim());
-      if (newImageLicenseNote.trim()) {
-        formData.append('LicenseNote', newImageLicenseNote.trim());
-      }
-      formData.append('IsManualApproved', newImageAutoApprove ? 'true' : 'false');
+      const createdImages: KnowledgeImageItem[] = [];
+      let successCount = 0;
 
       if (newImageMode === 'URL') {
-        formData.append('ImageUrl', newImageUrl.trim());
-      } else if (newImageFile) {
-        formData.append('File', newImageFile);
+        const urlsToProcess = parsedImageUrls.length > 0 ? parsedImageUrls : (newImageUrl.trim() ? [newImageUrl.trim()] : []);
+        if (urlsToProcess.length === 0) {
+          toast.error('Vui lòng nhập ít nhất 1 URL ảnh trực tiếp https://.');
+          setSubmittingImage(false);
+          return;
+        }
+
+        for (const url of urlsToProcess) {
+          try {
+            const formData = new FormData();
+            formData.append('ModelClass', newImageClass);
+            formData.append('SourceUrl', newImageSourceUrl.trim());
+            formData.append('Caption', newImageCaption.trim());
+            formData.append('PlantPart', newImagePlantPart);
+            formData.append('Credit', newImageCredit.trim());
+            if (newImageLicenseNote.trim()) formData.append('LicenseNote', newImageLicenseNote.trim());
+            formData.append('IsManualApproved', newImageAutoApprove ? 'true' : 'false');
+            formData.append('ImageUrl', url);
+
+            const res = await apiClient.post<KnowledgeImageItem>('/knowledge/images', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            createdImages.push(res.data);
+            successCount++;
+          } catch (err) {
+            console.error('Lỗi lưu ảnh URL:', url, err);
+          }
+        }
+      } else {
+        const filesToProcess = newImageFiles.length > 0 ? newImageFiles : (newImageFile ? [newImageFile] : []);
+        if (filesToProcess.length === 0) {
+          toast.error('Vui lòng chọn ít nhất 1 tệp ảnh từ thiết bị để tải lên.');
+          setSubmittingImage(false);
+          return;
+        }
+
+        for (const f of filesToProcess) {
+          try {
+            const formData = new FormData();
+            formData.append('ModelClass', newImageClass);
+            formData.append('SourceUrl', newImageSourceUrl.trim());
+            formData.append('Caption', newImageCaption.trim());
+            formData.append('PlantPart', newImagePlantPart);
+            formData.append('Credit', newImageCredit.trim());
+            if (newImageLicenseNote.trim()) formData.append('LicenseNote', newImageLicenseNote.trim());
+            formData.append('IsManualApproved', newImageAutoApprove ? 'true' : 'false');
+            formData.append('File', f);
+
+            const res = await apiClient.post<KnowledgeImageItem>('/knowledge/images', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            createdImages.push(res.data);
+            successCount++;
+          } catch (err) {
+            console.error('Lỗi tải tệp ảnh:', f.name, err);
+          }
+        }
       }
 
-      const res = await apiClient.post<KnowledgeImageItem>('/knowledge/images', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      if (successCount > 0) {
+        toast.success(`Đã thêm thành công ${successCount} ảnh triệu chứng!`);
+        setKnowledgeImages((prev) => [...createdImages, ...prev]);
+        setAddImageModalOpen(false);
 
-      toast.success('Đã thêm ảnh triệu chứng thành công!');
-      setKnowledgeImages((prev) => [res.data, ...prev]);
-      setAddImageModalOpen(false);
-
-      // Reset form
-      setNewImageUrl('');
-      setNewImageFile(null);
-      setNewImageFilePreview(null);
-      setNewImageCaption('');
+        // Reset form
+        setNewImageUrl('');
+        setNewImageFile(null);
+        setNewImageFiles([]);
+        setNewImageFilePreview(null);
+        setNewImageFilePreviews([]);
+        setNewImageCaption('');
+      } else {
+        toast.error('Không thể lưu ảnh nào. Vui lòng kiểm tra lại URL hoặc tệp ảnh.');
+      }
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -6921,6 +7604,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     <option value="SUPPLY">Vật tư canh tác</option>
                     <option value="PRACTICE">Biện pháp canh tác</option>
                   </select>
+
+                  <div className="inline-flex rounded-lg border border-border p-0.5 bg-background shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSuggestionsViewMode('grouped')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                        suggestionsViewMode === 'grouped'
+                          ? 'bg-primary text-white shadow-2xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Gộp theo tên ({groupedSuggestions.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSuggestionsViewMode('all')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                        suggestionsViewMode === 'all'
+                          ? 'bg-primary text-white shadow-2xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Tất cả đoạn ({filteredSuggestions.length})
+                    </button>
+                  </div>
                 </div>
 
                 <Button
@@ -6940,13 +7648,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                   <table className="w-full text-xs text-left">
                     <thead className="bg-muted/50 border-b border-border text-muted-foreground font-semibold">
                       <tr>
-                        <th className="p-3">Vật tư / Hoạt chất trích xuất</th>
-                        <th className="p-3">Phân loại</th>
-                        <th className="p-3">Cây – Bệnh mục tiêu</th>
-                        <th className="p-3">Đoạn trích bằng chứng</th>
-                        <th className="p-3 text-center">Trạng thái</th>
-                        <th className="p-3 text-center">Sản phẩm liên kết</th>
-                        <th className="p-3 text-right">Thao tác Admin</th>
+                        <th className="p-3 w-[150px] min-w-[130px]">Vật tư / Hoạt chất</th>
+                        <th className="p-3 w-[90px] whitespace-nowrap">Phân loại</th>
+                        <th className="p-3 w-[150px] min-w-[130px] max-w-[170px]">Cây – Bệnh mục tiêu</th>
+                        <th className="p-3 w-[240px] min-w-[190px] max-w-[260px]">Đoạn trích bằng chứng</th>
+                        <th className="p-3 w-[90px] text-center whitespace-nowrap">Trạng thái</th>
+                        <th className="p-3 w-[120px] text-center">Sản phẩm liên kết</th>
+                        <th className="p-3 w-[160px] text-right whitespace-nowrap sticky right-0 bg-muted/95 backdrop-blur-xs z-10">Thao tác Admin</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
@@ -6956,23 +7664,223 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                             Đang tải danh sách gợi ý vật tư...
                           </td>
                         </tr>
-                      ) : filteredSuggestions.length === 0 ? (
+                      ) : (suggestionsViewMode === 'grouped' ? groupedSuggestions.length === 0 : filteredSuggestions.length === 0) ? (
                         <tr>
                           <td colSpan={7} className="p-8 text-center text-muted-foreground">
                             Không tìm thấy gợi ý vật tư nào.
                           </td>
                         </tr>
+                      ) : suggestionsViewMode === 'grouped' ? (
+                        groupedSuggestions.map((group) => {
+                          const isBanned = isIngredientBanned(group.mentionText);
+                          const primary = group.primaryItem;
+                          const cleanPreview = cleanEvidencePreview(primary.evidence_text);
+                          const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(
+                            `${group.mentionText} nông nghiệp ${group.kind === 'CHEMICAL' ? 'thuốc BVTV' : group.kind === 'BIOLOGICAL' ? 'chế phẩm' : 'vật tư'}`
+                          )}`;
+
+                          return (
+                            <tr key={group.groupKey} className="hover:bg-muted/30 transition-colors">
+                              <td className="p-3 font-medium w-[150px] min-w-[130px] align-top">
+                                <div className="font-bold text-foreground flex items-center gap-1.5 flex-wrap">
+                                  <span>{group.mentionText}</span>
+                                  {isBanned && (
+                                    <Badge variant="destructive" className="text-[9px] h-4 px-1">
+                                      Cấm (TT 75)
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-normal">
+                                    Xuất hiện ở {group.count} đoạn trích
+                                  </Badge>
+                                </div>
+                              </td>
+
+                              <td className="p-3 w-[90px] whitespace-nowrap align-top">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    group.kind === 'CHEMICAL'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300'
+                                      : group.kind === 'BIOLOGICAL'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                        : group.kind === 'SUPPLY'
+                                          ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300'
+                                          : 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/30 dark:text-purple-300'
+                                  }
+                                >
+                                  {group.kind === 'CHEMICAL'
+                                    ? 'Hóa học'
+                                    : group.kind === 'BIOLOGICAL'
+                                      ? 'Sinh học'
+                                      : group.kind === 'SUPPLY'
+                                        ? 'Vật tư canh tác'
+                                        : 'Biện pháp'}
+                                </Badge>
+                              </td>
+
+                              <td className="p-3 w-[150px] min-w-[130px] max-w-[170px] align-top">
+                                <div className="space-y-0.5">
+                                  <div className="font-bold text-foreground text-xs flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                                    <span className="truncate">{group.plantName}</span>
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground leading-snug line-clamp-2" title={group.diseaseName}>
+                                    {group.diseaseName}
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
+                                <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                                  "{cleanPreview}"
+                                </p>
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setViewingEvidenceGroup({
+                                        mentionText: group.mentionText,
+                                        kind: group.kind,
+                                        count: group.count,
+                                        items: group.items,
+                                        status: group.status,
+                                        plantName: group.plantName,
+                                        diseaseName: group.diseaseName,
+                                        productName: group.productName,
+                                      });
+                                      setActiveEvidenceTabIdx(0);
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
+                                    title="Nhấn để xem toàn bộ 2-4 đoạn trích và thông tin bài báo"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>Xem chi tiết đoạn trích ({group.count})</span>
+                                  </button>
+                                  {primary.source_url && (
+                                    <a
+                                      href={primary.source_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary hover:underline max-w-[180px] truncate"
+                                      title={primary.source_title || 'Bài viết gốc'}
+                                    >
+                                      <span className="truncate">{primary.source_title || 'Bài viết gốc'}</span>
+                                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                                    </a>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="p-3 w-[90px] text-center whitespace-nowrap align-top">
+                                {group.status === 'PENDING' ? (
+                                  <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
+                                    Chờ xử lý ({group.count})
+                                  </Badge>
+                                ) : group.status === 'LINKED' ? (
+                                  <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px]">
+                                    Đã gắn SP
+                                  </Badge>
+                                ) : group.status === 'ADDED' ? (
+                                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
+                                    Đã tạo SP
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
+                                    Đã bỏ qua
+                                  </Badge>
+                                )}
+                              </td>
+
+                              <td className="p-3 w-[120px] text-center align-top">
+                                {group.productName && group.status === 'PENDING' ? (
+                                  <span className="text-amber-700 dark:text-amber-400 text-[11px]" title="Cùng hoạt chất với sản phẩm trong kho. Bấm Gắn SP để xác nhận.">
+                                    Khớp hoạt chất: <b>{group.productName}</b>
+                                  </span>
+                                ) : group.productName ? (
+                                  <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="truncate">{group.productName}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground italic text-[11px]">—</span>
+                                )}
+                              </td>
+
+                              <td className="p-3 w-[160px] text-right whitespace-nowrap align-top sticky right-0 bg-background/95 backdrop-blur-xs shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.06)] z-10">
+                                {group.status === 'PENDING' ? (
+                                  <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleOpenCreateMedModal(primary)}
+                                      className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
+                                      title={group.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>{group.kind === 'PRACTICE' ? 'Tạo vật tư' : 'Tạo SP'}</span>
+                                    </Button>
+
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setLinkingSuggestion(primary);
+                                        setSelectedLinkMedId(primary.product_id ?? '');
+                                      }}
+                                      className="h-7 px-2 border-border text-[11px] font-medium"
+                                      title="Liên kết với sản phẩm đã có sẵn trong kho"
+                                    >
+                                      <LinkIcon className="w-3 h-3 mr-1" />
+                                      <span>Gắn SP</span>
+                                    </Button>
+
+                                    {group.kind === 'PRACTICE' && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleDismissSuggestion(primary.id, true)}
+                                        className="h-7 px-2 border-purple-200 text-purple-700 dark:text-purple-300 hover:bg-purple-50 text-[11px]"
+                                        title="Đã lưu biện pháp vào sổ tay kỹ thuật nông vụ"
+                                      >
+                                        <Check className="w-3 h-3 mr-1" />
+                                        <span>Ghi nhận</span>
+                                      </Button>
+                                    )}
+
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleDismissSuggestion(primary.id)}
+                                      className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                      title={`Bỏ qua cả ${group.count} gợi ý này`}
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground">Đã xử lý ({group.count})</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
                       ) : (
                         filteredSuggestions.map((sug) => {
                           const isBanned = isIngredientBanned(sug.mention_text);
+                          const cleanPreview = cleanEvidencePreview(sug.evidence_text);
+                          const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(
+                            `${sug.mention_text} nông nghiệp ${sug.kind === 'CHEMICAL' ? 'thuốc BVTV' : sug.kind === 'BIOLOGICAL' ? 'chế phẩm' : 'vật tư'}`
+                          )}`;
+
                           return (
                             <tr key={sug.id} className="hover:bg-muted/30 transition-colors">
-                              <td className="p-3 font-medium">
-                                <div className="font-bold text-foreground flex items-center gap-1.5">
+                              <td className="p-3 font-medium w-[150px] min-w-[130px] align-top">
+                                <div className="font-bold text-foreground flex items-center gap-1.5 flex-wrap">
                                   <span>{sug.mention_text}</span>
                                   {isBanned && (
                                     <Badge variant="destructive" className="text-[9px] h-4 px-1">
-                                      Hoạt chất cấm (TT 75/2025)
+                                      Cấm (TT 75)
                                     </Badge>
                                   )}
                                 </div>
@@ -6981,17 +7889,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 </div>
                               </td>
 
-                              <td className="p-3 whitespace-nowrap">
+                              <td className="p-3 w-[90px] whitespace-nowrap align-top">
                                 <Badge
                                   variant="outline"
                                   className={
                                     sug.kind === 'CHEMICAL'
-                                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300'
                                       : sug.kind === 'BIOLOGICAL'
-                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300'
                                         : sug.kind === 'SUPPLY'
-                                          ? 'bg-blue-50 text-blue-800 border-blue-300'
-                                          : 'bg-purple-50 text-purple-800 border-purple-300'
+                                          ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300'
+                                          : 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/30 dark:text-purple-300'
                                   }
                                 >
                                   {sug.kind === 'CHEMICAL'
@@ -7004,117 +7912,157 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                                 </Badge>
                               </td>
 
-                              <td className="p-3 whitespace-nowrap">
-                                <span className="font-medium text-foreground">{sug.plant_name}</span>
-                                <span className="text-muted-foreground"> – {sug.disease_name}</span>
+                              <td className="p-3 w-[150px] min-w-[130px] max-w-[170px] align-top">
+                                <div className="space-y-0.5">
+                                  <div className="font-bold text-foreground text-xs flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                                    <span className="truncate">{sug.plant_name}</span>
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground leading-snug line-clamp-2" title={sug.disease_name}>
+                                    {sug.disease_name}
+                                  </div>
+                                </div>
                               </td>
 
-                              <td className="p-3 min-w-[280px] max-w-lg">
-                                <p className="text-[11px] text-muted-foreground italic line-clamp-3 leading-relaxed" title={sug.evidence_text}>
-                                  "{sug.evidence_text}"
+                              <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
+                                <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                                  "{cleanPreview}"
                                 </p>
-                                {sug.source_url && (
-                                  <a
-                                    href={sug.source_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline mt-0.5"
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setViewingEvidenceGroup({
+                                        mentionText: sug.mention_text,
+                                        kind: sug.kind,
+                                        count: 1,
+                                        items: [sug],
+                                        status: sug.status,
+                                        plantName: sug.plant_name,
+                                        diseaseName: sug.disease_name,
+                                        productName: sug.product_name,
+                                      });
+                                      setActiveEvidenceTabIdx(0);
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
+                                    title="Nhấn để xem toàn bộ nội dung đoạn trích và thông tin bài báo"
                                   >
-                                    <span>{sug.source_title || 'Xem bài viết gốc'}</span>
-                                    <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
+                                    <Eye className="w-3 h-3" />
+                                    <span>Xem toàn văn</span>
+                                  </button>
+                                  {sug.source_url && (
+                                    <a
+                                      href={sug.source_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary hover:underline max-w-[180px] truncate"
+                                      title={sug.source_title || 'Xem bài viết gốc'}
+                                    >
+                                      <span className="truncate">{sug.source_title || 'Xem bài viết gốc'}</span>
+                                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                                    </a>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="p-3 w-[90px] text-center whitespace-nowrap align-top">
+                                {sug.status === 'PENDING' ? (
+                                  <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
+                                    Chờ xử lý
+                                  </Badge>
+                                ) : sug.status === 'LINKED' ? (
+                                  <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px]">
+                                    Đã gắn SP
+                                  </Badge>
+                                ) : sug.status === 'ADDED' ? (
+                                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
+                                    Đã tạo SP
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
+                                    Đã bỏ qua
+                                  </Badge>
                                 )}
                               </td>
 
-                                  <td className="p-3 text-center whitespace-nowrap">
-                                    {sug.status === 'PENDING' ? (
-                                      <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
-                                        Chờ xử lý
-                                      </Badge>
-                                    ) : sug.status === 'LINKED' ? (
-                                      <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px]">
-                                        Đã gắn SP
-                                      </Badge>
-                                    ) : sug.status === 'ADDED' ? (
-                                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
-                                        Đã tạo SP
-                                      </Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
-                                        Đã bỏ qua
-                                      </Badge>
+                              <td className="p-3 w-[120px] text-center align-top">
+                                {sug.product_name && sug.status === 'PENDING' ? (
+                                  <span className="text-amber-700 dark:text-amber-400 text-[11px]" title="Cùng hoạt chất với sản phẩm trong kho. Bấm Gắn SP để xác nhận.">
+                                    Khớp hoạt chất: <b>{sug.product_name}</b>
+                                  </span>
+                                ) : sug.product_name ? (
+                                  <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="truncate">{sug.product_name}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground italic text-[11px]">—</span>
+                                )}
+                              </td>
+
+                              <td className="p-3 w-[160px] text-right whitespace-nowrap align-top sticky right-0 bg-background/95 backdrop-blur-xs shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.06)] z-10">
+                                {sug.status === 'PENDING' ? (
+                                  <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleOpenCreateMedModal(sug)}
+                                      className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
+                                      title={sug.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>{sug.kind === 'PRACTICE' ? 'Tạo vật tư' : 'Tạo SP'}</span>
+                                    </Button>
+
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setLinkingSuggestion(sug);
+                                        setSelectedLinkMedId(sug.product_id ?? '');
+                                      }}
+                                      className="h-7 px-2 border-border text-[11px] font-medium"
+                                      title="Liên kết với sản phẩm đã có sẵn trong kho"
+                                    >
+                                      <LinkIcon className="w-3 h-3 mr-1" />
+                                      <span>Gắn SP</span>
+                                    </Button>
+
+                                    {sug.kind === 'PRACTICE' && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleDismissSuggestion(sug.id, true)}
+                                        className="h-7 px-2 border-purple-200 text-purple-700 dark:text-purple-300 hover:bg-purple-50 text-[11px]"
+                                        title="Đã lưu biện pháp vào sổ tay kỹ thuật nông vụ"
+                                      >
+                                        <Check className="w-3 h-3 mr-1" />
+                                        <span>Ghi nhận</span>
+                                      </Button>
                                     )}
-                                  </td>
 
-                                  <td className="p-3 text-center whitespace-nowrap">
-                                    {sug.product_name && sug.status === 'PENDING' ? (
-                                      <span className="text-amber-700 dark:text-amber-400 text-[11px]" title="Cùng hoạt chất với sản phẩm trong kho. Bấm Gắn SP để xác nhận.">
-                                        Khớp hoạt chất: <b>{sug.product_name}</b>
-                                      </span>
-                                    ) : sug.product_name ? (
-                                      <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                        <span>{sug.product_name}</span>
-                                      </span>
-                                    ) : (
-                                      <span className="text-muted-foreground italic text-[11px]">—</span>
-                                    )}
-                                  </td>
-
-                                  <td className="p-3 text-right whitespace-nowrap">
-                                    {sug.status === 'PENDING' ? (
-                                      <div className="flex items-center justify-end gap-1.5">
-                                        {sug.kind !== 'PRACTICE' && (
-                                          <Button
-                                            size="sm"
-                                            onClick={() => handleOpenCreateMedModal(sug)}
-                                            className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
-                                            title="Tạo sản phẩm mới prefilled từ gợi ý"
-                                          >
-                                            <Plus className="w-3 h-3" />
-                                            <span>Tạo SP</span>
-                                          </Button>
-                                        )}
-
-                                        {sug.kind !== 'PRACTICE' && (
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => {
-                                              setLinkingSuggestion(sug);
-                                              setSelectedLinkMedId(sug.product_id ?? '');
-                                            }}
-                                            className="h-7 px-2 border-border text-[11px] font-medium"
-                                            title="Liên kết với sản phẩm đã có sẵn trong kho"
-                                          >
-                                            <LinkIcon className="w-3 h-3 mr-1" />
-                                            <span>Gắn SP</span>
-                                          </Button>
-                                        )}
-
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => handleDismissSuggestion(sug.id)}
-                                          className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
-                                          title="Bỏ qua gợi ý này"
-                                        >
-                                          <X className="w-3.5 h-3.5" />
-                                        </Button>
-                                      </div>
-                                    ) : (
-                                      <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
-                                    )}
-                                  </td>
-                                </tr>
-                                );
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleDismissSuggestion(sug.id)}
+                                      className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                      title="Bỏ qua gợi ý này"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
                         })
                       )}
-                              </tbody>
-                            </table>
+                    </tbody>
+                  </table>
                 </div>
-                  </Card>
-                </div>
+              </Card>
+            </div>
           )}
               </TabsContent>
 
@@ -7518,226 +8466,732 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
               </Dialog>
 
               {/* ========================================================================================= */}
-              {/* DIALOG THÊM THUỐC / VẬT TƯ MỚI (TASK-15 PHASE 3) */}
+              {/* DIALOG XEM TOÀN VĂN ĐOẠN TRÍCH BẰNG CHỨNG (MULTI-TABS & THAO TÁC TRÊN ĐẦU) */}
+              {/* ========================================================================================= */}
+              <Dialog open={!!viewingEvidenceGroup} onOpenChange={() => setViewingEvidenceGroup(null)}>
+                <DialogContent className="sm:max-w-2xl lg:max-w-3xl w-[92vw] max-h-[88vh] overflow-y-auto p-5 sm:p-6">
+                  <DialogHeader className="pb-2 border-b border-border">
+                    <div className="flex items-center justify-between gap-2 pr-8">
+                      <DialogTitle className="text-base font-bold flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-emerald-700" />
+                        <span>Đoạn trích bằng chứng: "{viewingEvidenceGroup?.mentionText}"</span>
+                      </DialogTitle>
+                      <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300">
+                        {viewingEvidenceGroup?.count || 1} đoạn trích
+                      </Badge>
+                    </div>
+                    <DialogDescription className="text-xs mt-1">
+                      Chi tiết ngữ cảnh đoạn văn trong bài báo được AI trích xuất để làm căn cứ gợi ý vật tư và phòng trừ bệnh hại.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  {viewingEvidenceGroup && (
+                    <div className="space-y-3 py-2 text-xs">
+                      {/* 1. KHỐI TẠO SẢN PHẨM HOẶC GẮN SP CHUNG Ở NGAY TRÊN ĐẦU */}
+                      <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-wrap items-center justify-between gap-2.5">
+                        <div>
+                          <div className="font-bold text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <span>Thao tác nhanh cho gợi ý: <strong>{viewingEvidenceGroup.mentionText}</strong></span>
+                          </div>
+                          <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
+                            Áp dụng tạo hoặc gắn cho toàn bộ {viewingEvidenceGroup.count} đoạn trích bằng chứng
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              const itm = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
+                              setViewingEvidenceGroup(null);
+                              handleOpenCreateMedModal(itm);
+                            }}
+                            className="h-7 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs gap-1 shadow-2xs"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>{viewingEvidenceGroup.kind === 'PRACTICE' ? 'Tạo vật tư canh tác' : 'Tạo sản phẩm'}</span>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const itm = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
+                              setViewingEvidenceGroup(null);
+                              setLinkingSuggestion(itm);
+                              setSelectedLinkMedId(itm.product_id ?? '');
+                            }}
+                            className="h-7 px-2.5 text-xs font-semibold bg-background border-emerald-300 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100/50"
+                          >
+                            <LinkIcon className="w-3 h-3 mr-1" />
+                            <span>Gắn vào SP có sẵn</span>
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* 2. HÀNG TABS CHUYỂN ĐỔI 2-4 ĐOẠN TRÍCH */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2 border-b border-border pb-1">
+                          <span className="text-xs font-semibold text-foreground">
+                            Danh sách các đoạn văn xuất hiện ({viewingEvidenceGroup.count} đoạn):
+                          </span>
+                          {viewingEvidenceGroup.items.length > 1 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              Bấm từng tab để đọc ngữ cảnh &amp; bệnh mục tiêu riêng
+                            </span>
+                          )}
+                        </div>
+
+                        {viewingEvidenceGroup.items.length > 1 && (
+                          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                            {viewingEvidenceGroup.items.map((item, idx) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setActiveEvidenceTabIdx(idx)}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${
+                                  activeEvidenceTabIdx === idx
+                                    ? 'bg-emerald-700 text-white shadow-xs'
+                                    : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
+                                }`}
+                              >
+                                <span>Đoạn #{idx + 1}</span>
+                                <span className="text-[10px] opacity-80 max-w-[130px] truncate">
+                                  ({item.plant_name} - {item.disease_name})
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 3. CHI TIẾT ĐOẠN TRÍCH ĐANG CHỌN */}
+                        {(() => {
+                          const currentItem = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
+                          if (!currentItem) return null;
+                          return (
+                            <div className="space-y-2.5 pt-1">
+                              {/* THÔNG TIN NGỮ CẢNH CỦA RIÊNG ĐOẠN NÀY */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-secondary/30 border border-border text-xs">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Badge variant="outline" className="text-xs font-medium bg-background">
+                                    {currentItem.plant_name} – {currentItem.disease_name}
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      viewingEvidenceGroup.kind === 'CHEMICAL'
+                                        ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                        : viewingEvidenceGroup.kind === 'BIOLOGICAL'
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                          : viewingEvidenceGroup.kind === 'SUPPLY'
+                                            ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                            : 'bg-purple-50 text-purple-800 border-purple-300'
+                                    }
+                                  >
+                                    {viewingEvidenceGroup.kind === 'CHEMICAL'
+                                      ? 'Thuốc BVTV hóa học'
+                                      : viewingEvidenceGroup.kind === 'BIOLOGICAL'
+                                        ? 'Chế phẩm sinh học'
+                                        : viewingEvidenceGroup.kind === 'SUPPLY'
+                                          ? 'Vật tư canh tác'
+                                          : 'Biện pháp canh tác'}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setViewingEvidenceGroup(null);
+                                      handleOpenCreateMedModal(currentItem);
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold hover:underline"
+                                    title="Tạo sản phẩm lấy mã bệnh của riêng đoạn này"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Tạo SP từ đoạn này</span>
+                                  </button>
+                                  <span className="text-muted-foreground">•</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setViewingEvidenceGroup(null);
+                                      setLinkingSuggestion(currentItem);
+                                      setSelectedLinkMedId(currentItem.product_id ?? '');
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 font-semibold hover:underline"
+                                    title="Gắn sản phẩm cho riêng đoạn này"
+                                  >
+                                    <LinkIcon className="w-3 h-3" />
+                                    <span>Gắn SP đoạn này</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* VĂN BẢN ĐOẠN TRÍCH NGUYÊN VĂN */}
+                              <div className="p-3.5 bg-muted/30 rounded-xl border border-border space-y-1.5">
+                                <div className="text-[11px] font-semibold text-muted-foreground flex items-center justify-between">
+                                  <span>Nội dung đoạn văn trích xuất (Đoạn #{activeEvidenceTabIdx + 1}/{viewingEvidenceGroup.count}):</span>
+                                  <span className="font-mono text-[10px]">{currentItem.evidence_text.length} ký tự</span>
+                                </div>
+                                <div className="text-xs leading-relaxed text-foreground whitespace-pre-line p-3 bg-background rounded-lg border border-border">
+                                  {cleanEvidencePreview(currentItem.evidence_text)}
+                                </div>
+                              </div>
+
+                              {/* NGUỒN BÀI BÁO KHOA HỌC */}
+                              {currentItem.source_url && (
+                                <div className="p-2.5 bg-secondary/30 rounded-lg border border-border text-[11px] flex items-center justify-between">
+                                  <span className="text-muted-foreground truncate">
+                                    Nguồn: <strong>{currentItem.source_title || 'Bài viết gốc'}</strong>
+                                  </span>
+                                  <a
+                                    href={currentItem.source_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-primary hover:underline shrink-0 ml-2 font-medium"
+                                  >
+                                    <span>Mở bài viết</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+
+                  <DialogFooter className="gap-2 sm:gap-0 pt-2">
+                    <Button variant="outline" size="sm" onClick={() => setViewingEvidenceGroup(null)}>
+                      Đóng
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* ========================================================================================= */}
+              {/* DIALOG THÊM THUỐC / VẬT TƯ MỚI (TASK-15 PHASE 3 - GIAO DIỆN TINH GỌN & CHẾ ĐỘ DEV </>) */}
               {/* ========================================================================================= */}
               <Dialog open={createMedModalOpen} onOpenChange={setCreateMedModalOpen}>
-                <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle className="text-base font-bold flex items-center gap-2">
-                      <Plus className="w-4 h-4 text-emerald-700" />
-                      <span>
-                        {fromSuggestion ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"` : 'Thêm thuốc / Vật tư mới'}
-                      </span>
-                    </DialogTitle>
-                    <DialogDescription className="text-xs">
+                <DialogContent className="sm:max-w-3xl lg:max-w-4xl w-[94vw] max-w-4xl max-h-[92vh] overflow-y-auto p-5 sm:p-6">
+                  <DialogHeader className="shrink-0 pb-2 border-b border-border">
+                    <div className="flex items-center justify-between gap-2 pr-8">
+                      <DialogTitle className="text-base font-bold flex items-center gap-2">
+                        <Plus className="w-4 h-4 text-emerald-700" />
+                        <span>
+                          {fromSuggestion ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"` : 'Thêm thuốc / Vật tư mới'}
+                        </span>
+                      </DialogTitle>
+
+                      {/* NÚT CHẾ ĐỘ DEV </> TINH GỌN (1 BIỂU TƯỢNG DUY NHẤT, CÁCH XA NÚT X ĐÓNG DIALOG) */}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowDevMode((v) => !v)}
+                        className={`h-7 w-7 p-0 font-mono font-bold transition-colors flex items-center justify-center shrink-0 ${
+                          showDevMode
+                            ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-400 shadow-xs'
+                            : 'bg-background hover:bg-blue-50 text-blue-700 dark:text-blue-400 border-border'
+                        }`}
+                        title="Chế độ Dev: Prompt Gemini & Nạp JSON"
+                      >
+                        <Code2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+
+                    <DialogDescription className="text-xs mt-1">
                       {fromSuggestion
-                        ? 'Chỉ tên và hoạt chất lấy từ bài báo. PHI, giá, tồn kho và link nguồn bạn tự tra trên nhãn thuốc rồi nhập. Sau khi lưu, gợi ý được đánh dấu đã thêm.'
+                        ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
                         : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
                     </DialogDescription>
                   </DialogHeader>
 
-                  <form onSubmit={handleCreateMedicineSubmit} className="space-y-3 py-2 text-xs">
-                    {isIngredientBanned(newMedActiveIngredient || newMedName) && (
-                      <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                        <div>
-                          <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên hoặc hoạt chất "{newMedActiveIngredient || newMedName}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể bật lưu hành sản phẩm này.
+                  {/* NẾU MỞ CHẾ ĐỘ DEV: HIỂN THỊ KHUNG SAO CHÉP PROMPT VÀ DÁN JSON TỪ GEMINI */}
+                  {showDevMode && (
+                    <div className="p-3 my-2 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 dark:text-blue-300">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                          <span>Chế độ Dev: Tận dụng Gemini Web xịn (Prompt mẫu &amp; Nạp JSON)</span>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCopyGeminiPrompt}
+                          className="h-7 px-2 text-[11px] bg-background font-semibold text-blue-700 dark:text-blue-300 border-blue-300 hover:bg-blue-100/50 gap-1"
+                          title="Sao chép toàn bộ prompt mẫu vào bộ nhớ tạm để dán vào Gemini Web"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>📋 Sao chép Prompt cho Gemini</span>
+                        </Button>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        1. Dán Link sản phẩm bên dưới $\rightarrow$ Bấm <strong>Sao chép Prompt</strong> rồi dán vào Gemini Web (Gemini Advanced).<br />
+                        2. Copy đoạn JSON kết quả Gemini trả về rồi dán vào ô bên dưới $\rightarrow$ Bấm <strong>Điền form từ Gemini</strong>.
+                      </p>
+                      <div className="space-y-1.5">
+                        <Textarea
+                          value={devGeminiInput}
+                          onChange={(e) => setDevGeminiInput(e.target.value)}
+                          placeholder='Dán đoạn JSON hoặc kết quả từ Gemini vào đây... Ví dụ: {"name": "Vôi bột nông nghiệp", "medicine_type": "Vật tư canh tác", ...}'
+                          rows={3}
+                          className="text-xs font-mono bg-background"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={handleApplyGeminiJson}
+                            disabled={!devGeminiInput.trim()}
+                            className="h-7 px-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] gap-1"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>⚡ Điền form từ Gemini</span>
+                          </Button>
                         </div>
                       </div>
-                    )}
-
-                    <div>
-                      <label className="font-semibold block mb-1">Tên thuốc / Tên sản phẩm *</label>
-                      <Input
-                        type="text"
-                        placeholder="Ví dụ: Bẫy dính màu vàng Pheromone, Ridomil Gold 68WG..."
-                        value={newMedName}
-                        onChange={(e) => setNewMedName(e.target.value)}
-                        required
-                        className="text-xs"
-                      />
                     </div>
+                  )}
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
-                        <select
-                          value={newMedType}
-                          onChange={(e) => {
-                            const t = e.target.value;
-                            setNewMedType(t);
-                            if (t === 'Vật tư canh tác') {
-                              setNewMedPhi('');
-                              setNewMedActiveIngredient('');
-                              if (newMedDosage === 'Pha theo hướng dẫn trên bao bì') {
-                                setNewMedDosage('Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất');
-                              }
-                            } else if (newMedDosage === 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất') {
-                              setNewMedDosage('Pha theo hướng dẫn trên bao bì');
-                            }
-                          }}
-                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                        >
-                          <option value="Hóa học">Thuốc BVTV hóa học</option>
-                          <option value="Sinh học">Chế phẩm sinh học BVTV</option>
-                          <option value="Vật tư canh tác">Vật tư canh tác (lưới, bẫy, bạt phủ...)</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="font-semibold block mb-1">Tình trạng kinh doanh *</label>
-                        <select
-                          value={newMedAvailability}
-                          onChange={(e) => setNewMedAvailability(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                        >
-                          <option value="IN_STOCK">Đang bán (cho phép đặt mua)</option>
-                          <option value="OUT_OF_STOCK">Tạm hết hàng (tạm ẩn nút mua)</option>
-                          <option value="NOT_SOLD">Cửa hàng không bán (chỉ tư vấn kỹ thuật)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="font-semibold block mb-1">Bệnh hại mục tiêu</label>
-                        <select
-                          value={newMedTargetDisease}
-                          onChange={(e) => setNewMedTargetDisease(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                        >
-                          <option value="">-- Không chỉ định --</option>
-                          {diseases.map((d) => (
-                            <option key={d.classCode} value={d.classCode}>
-                              {d.plantName} – {d.commonNameVi}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {newMedType !== 'Vật tư canh tác' ? (
-                        <div>
-                          <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
-                          <Input
-                            type="text"
-                            placeholder="Ví dụ: Metalaxyl-M, Mancozeb..."
-                            value={newMedActiveIngredient}
-                            onChange={(e) => setNewMedActiveIngredient(e.target.value)}
-                            className="text-xs"
-                          />
-                        </div>
-                      ) : (
-                        <div>
-                          <label className="font-semibold block mb-1 text-muted-foreground">Hoạt chất chính</label>
-                          <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground flex items-center">
-                            Không áp dụng cho vật tư canh tác
+                  <div className="space-y-3 pt-2">
+                    <form onSubmit={handleCreateMedicineSubmit} className="space-y-3 text-xs">
+                      {isIngredientBanned(newMedActiveIngredient || newMedName) && (
+                        <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                          <div>
+                            <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên hoặc hoạt chất "{newMedActiveIngredient || newMedName}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể bật lưu hành sản phẩm này.
                           </div>
                         </div>
                       )}
-                    </div>
 
-                    {newMedAvailability !== 'NOT_SOLD' ? (
+                      {/* 1. KHỐI LINK TRANG SẢN PHẨM / NHÃN THUỐC (URL) */}
+                      <div className="p-3 bg-secondary/30 rounded-xl border border-border space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <label className="font-semibold block text-xs">
+                            Link trang sản phẩm / nhãn thuốc (URL)
+                          </label>
+                          {newMedName.trim() && (
+                            <a
+                              href={`https://www.google.com/search?q=${encodeURIComponent(
+                                `${newMedName} ${newMedActiveIngredient || ''} nông nghiệp liều dùng`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                              title="Mở Google tìm kiếm trang web bán hoặc nhãn sản phẩm"
+                            >
+                              <Search className="w-3 h-3" />
+                              <span>Tra Google tìm link</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </div>
+                        <Input
+                          type="url"
+                          placeholder="Dán link sản phẩm (Vietchem, Shopee, VTNN, nhãn thuốc)..."
+                          value={newMedSourceUrl}
+                          onChange={(e) => setNewMedSourceUrl(e.target.value)}
+                          className="text-xs bg-background w-full"
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          Dán link bài viết hoặc trang sản phẩm để hỗ trợ đối chiếu thông tin và lấy link ảnh sản phẩm.
+                        </p>
+                      </div>
+
+                      {/* 2. CÁC TRƯỜNG THÔNG TIN SẢN PHẨM */}
+                      <div>
+                        <label className="font-semibold block mb-1">Tên thuốc / Tên sản phẩm *</label>
+                        <Input
+                          type="text"
+                          placeholder="Ví dụ: Vôi bột nông nghiệp, Ridomil Gold 68WG..."
+                          value={newMedName}
+                          onChange={(e) => setNewMedName(e.target.value)}
+                          required
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="font-semibold block mb-1">Ảnh sản phẩm (URL tùy chọn)</label>
+                        <Input
+                          type="url"
+                          placeholder="https://example.com/san-pham-thuoc.jpg"
+                          value={newMedImageUrl}
+                          onChange={(e) => {
+                            setNewMedImageUrl(e.target.value.trim());
+                            setMedImageFailed(false);
+                          }}
+                          className="text-xs"
+                        />
+
+                        {/* GỢI Ý ẢNH TỪ BÀI BÁO (NẾU ĐÃ CÀO/TRÍCH XUẤT) */}
+                        {crawledProductSource?.candidateImages && crawledProductSource.candidateImages.length > 0 && (
+                          <div className="mt-2 p-2 rounded-lg bg-secondary/30 border border-border space-y-1.5">
+                            <span className="text-[10px] font-medium text-muted-foreground block">
+                              Ảnh trích xuất từ bài viết (bấm vào để chọn làm ảnh sản phẩm):
+                            </span>
+                            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                              {crawledProductSource.candidateImages.map((imgUrl, idx) => (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => {
+                                    setNewMedImageUrl(imgUrl);
+                                    setMedImageFailed(false);
+                                  }}
+                                  className={`relative w-12 h-12 rounded-md border p-0.5 overflow-hidden shrink-0 transition-all ${
+                                    newMedImageUrl === imgUrl
+                                      ? 'border-emerald-600 ring-2 ring-emerald-500/30'
+                                      : 'border-border hover:border-emerald-400 bg-background'
+                                  }`}
+                                  title={`Chọn ảnh #${idx + 1}`}
+                                >
+                                  <img
+                                    src={imgUrl}
+                                    alt={`Gợi ý #${idx + 1}`}
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover rounded-xs"
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* XEM TRƯỚC ẢNH SẢN PHẨM ĐÃ CHỌN (KHÔNG BỊ CHẶN REFERRER & CÓ TRẠNG THÁI LỖI RÕ RÀNG) */}
+                        {newMedImageUrl.trim() && (newMedImageUrl.startsWith('http://') || newMedImageUrl.startsWith('https://')) && (
+                          <div className="mt-2 flex items-center justify-between gap-3 p-2.5 rounded-lg border border-border bg-muted/20">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              {medImageFailed ? (
+                                <div className="w-14 h-14 rounded-md border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20 flex flex-col items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                                  <ImageOff className="w-5 h-5" />
+                                  <span className="text-[9px] mt-0.5 font-medium">Lỗi tải ảnh</span>
+                                </div>
+                              ) : (
+                                <img
+                                  src={newMedImageUrl}
+                                  alt="Ảnh sản phẩm đã chọn"
+                                  referrerPolicy="no-referrer"
+                                  className="w-14 h-14 object-cover rounded-md border border-border bg-background shrink-0 shadow-xs"
+                                  onError={() => setMedImageFailed(true)}
+                                  onLoad={() => setMedImageFailed(false)}
+                                />
+                              )}
+                              <div className="text-[11px] min-w-0 flex-1">
+                                <div className="font-semibold text-foreground flex items-center gap-1">
+                                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Ảnh sản phẩm (sẽ lưu vào CSDL)</span>
+                                </div>
+                                <p className="truncate text-muted-foreground text-[10px] max-w-md" title={newMedImageUrl}>
+                                  {newMedImageUrl}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <a
+                                    href={newMedImageUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+                                  >
+                                    <span>Mở xem ảnh gốc</span>
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                  {medImageFailed && (
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                                      (Trang nguồn chặn nhúng ngoài, link vẫn được lưu)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setNewMedImageUrl('');
+                                setMedImageFailed(false);
+                              }}
+                              className="h-7 px-2 text-muted-foreground hover:text-destructive text-xs shrink-0"
+                              title="Gỡ ảnh"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1.5 flex-wrap gap-1">
+                          <div className="flex items-center gap-2">
+                            <label className="font-semibold">Mô tả sản phẩm / Đặc tính kỹ thuật (tùy chọn)</label>
+                            <div className="inline-flex rounded-md border border-border p-0.5 bg-muted/40">
+                              <button
+                                type="button"
+                                onClick={() => setDescPreviewMode(false)}
+                                className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
+                                  !descPreviewMode
+                                    ? 'bg-background text-foreground shadow-2xs font-semibold'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                ✏️ Soạn thảo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDescPreviewMode(true)}
+                                className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
+                                  descPreviewMode
+                                    ? 'bg-background text-foreground shadow-2xs font-semibold'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                👁️ Định dạng đẹp
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                            {!descPreviewMode && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const bullet = '• ';
+                                  setNewMedDescription((prev) => (prev ? `${prev.trimEnd()}\n${bullet}` : bullet));
+                                }}
+                                className="text-emerald-700 dark:text-emerald-400 hover:underline font-medium"
+                              >
+                                + Thêm mục •
+                              </button>
+                            )}
+                            <span>{newMedDescription.length}/1000</span>
+                          </div>
+                        </div>
+
+                        {!descPreviewMode ? (
+                          <Textarea
+                            placeholder="• Bản chất & Phân loại: ...&#10;• Công dụng nông nghiệp: ...&#10;• Phạm vi & Cây trồng: ...&#10;• Hướng dẫn & Lưu ý khi dùng: ..."
+                            value={newMedDescription}
+                            onChange={(e) => setNewMedDescription(e.target.value)}
+                            rows={5}
+                            maxLength={1000}
+                            className="text-xs leading-relaxed font-sans"
+                          />
+                        ) : (
+                          <div className="p-3 bg-secondary/30 rounded-lg border border-border text-xs leading-relaxed min-h-[110px] space-y-1.5">
+                            {newMedDescription.trim() ? (
+                              newMedDescription.split('\n').map((line, idx) => {
+                                const trim = line.trim();
+                                if (!trim) return null;
+                                if (trim.startsWith('•') || trim.startsWith('-') || trim.startsWith('*') || /^\d+\./.test(trim)) {
+                                  const content = trim.replace(/^([•\-*]|\d+\.)\s*/, '');
+                                  const colonIdx = content.indexOf(':');
+                                  return (
+                                    <div key={idx} className="flex items-start gap-2 text-foreground">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 mt-1.5 shrink-0" />
+                                      <div className="flex-1">
+                                        {colonIdx > -1 ? (
+                                          <>
+                                            <strong className="text-emerald-800 dark:text-emerald-300">
+                                              {content.slice(0, colonIdx + 1)}
+                                            </strong>{' '}
+                                            <span>{content.slice(colonIdx + 1).trim()}</span>
+                                          </>
+                                        ) : (
+                                          <span>{content}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <p key={idx} className="text-foreground">
+                                    {trim}
+                                  </p>
+                                );
+                              })
+                            ) : (
+                              <span className="text-muted-foreground italic text-xs">
+                                Chưa có mô tả sản phẩm. Bấm "Soạn thảo" để nhập hoặc dùng Chế độ Dev &lt;/&gt; để AI tự điền.
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
-                          <Input
-                            type="number"
-                            value={newMedPrice}
-                            onChange={(e) => setNewMedPrice(parseFloat(e.target.value) || 0)}
-                            required
-                            className="text-xs"
-                          />
+                          <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
+                          <select
+                            value={newMedType}
+                            onChange={(e) => {
+                              const t = e.target.value;
+                              setNewMedType(t);
+                              if (t === 'Vật tư canh tác') {
+                                setNewMedPhi('');
+                                setNewMedActiveIngredient('');
+                                if (newMedDosage === 'Pha theo hướng dẫn trên bao bì') {
+                                  setNewMedDosage('Bón 20 - 50kg/sào (hoặc theo hướng dẫn canh tác)');
+                                }
+                              } else if (newMedDosage.includes('Bón 20 - 50kg')) {
+                                setNewMedDosage('Pha theo hướng dẫn trên bao bì');
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                          >
+                            <option value="Hóa học">Thuốc BVTV hóa học</option>
+                            <option value="Sinh học">Chế phẩm sinh học BVTV</option>
+                            <option value="Vật tư canh tác">Vật tư canh tác (vôi, bẫy, lưới, bạt...)</option>
+                          </select>
                         </div>
 
                         <div>
-                          <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
-                          <Input
-                            type="number"
-                            value={newMedStock}
-                            onChange={(e) => setNewMedStock(parseInt(e.target.value, 10) || 0)}
-                            required
-                            className="text-xs"
-                          />
+                          <label className="font-semibold block mb-1">Tình trạng kinh doanh *</label>
+                          <select
+                            value={newMedAvailability}
+                            onChange={(e) => setNewMedAvailability(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                          >
+                            <option value="IN_STOCK">Đang bán (cho phép đặt mua)</option>
+                            <option value="OUT_OF_STOCK">Tạm hết hàng (tạm ẩn nút mua)</option>
+                            <option value="NOT_SOLD">Cửa hàng không bán (chỉ tư vấn kỹ thuật)</option>
+                          </select>
                         </div>
                       </div>
-                    ) : (
-                      <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs">
-                        Sản phẩm ở chế độ "Cửa hàng không bán": Giá bán và Tồn kho được mặc định là 0. Sản phẩm chỉ hiển thị để tư vấn kỹ thuật nông vụ.
-                      </div>
-                    )}
 
-                    <div>
-                      <label className="font-semibold block mb-1">
-                        Thời gian cách ly PHI (ngày)
-                        {newMedType === 'Vật tư canh tác' ? (
-                          <span className="font-normal text-muted-foreground ml-1">(Không áp dụng cho vật tư canh tác)</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="font-semibold block mb-1">Bệnh hại mục tiêu</label>
+                          <select
+                            value={newMedTargetDisease}
+                            onChange={(e) => setNewMedTargetDisease(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
+                          >
+                            <option value="">-- Không chỉ định (áp dụng chung) --</option>
+                            {diseases.map((d) => (
+                              <option key={d.classCode} value={d.classCode}>
+                                {d.plantName} – {d.commonNameVi}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {newMedType !== 'Vật tư canh tác' ? (
+                          <div>
+                            <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
+                            <Input
+                              type="text"
+                              placeholder="Ví dụ: Metalaxyl-M, Mancozeb..."
+                              value={newMedActiveIngredient}
+                              onChange={(e) => setNewMedActiveIngredient(e.target.value)}
+                              className="text-xs"
+                            />
+                          </div>
                         ) : (
-                          <span className="text-destructive ml-0.5">*</span>
+                          <div>
+                            <label className="font-semibold block mb-1 text-muted-foreground">Hoạt chất chính</label>
+                            <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground flex items-center">
+                              Không áp dụng cho vật tư canh tác
+                            </div>
+                          </div>
                         )}
+                      </div>
+
+                      {newMedAvailability !== 'NOT_SOLD' ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="font-semibold block mb-1">Giá bán (VNĐ)</label>
+                            <Input
+                              type="number"
+                              value={newMedPrice}
+                              onChange={(e) => setNewMedPrice(parseFloat(e.target.value) || 0)}
+                              className="text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="font-semibold block mb-1">Số lượng tồn kho</label>
+                            <Input
+                              type="number"
+                              value={newMedStock}
+                              onChange={(e) => setNewMedStock(parseInt(e.target.value, 10) || 0)}
+                              className="text-xs"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs">
+                          Sản phẩm ở chế độ "Cửa hàng không bán": Giá bán và Tồn kho được mặc định là 0. Sản phẩm chỉ hiển thị để tư vấn kỹ thuật nông vụ.
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="font-semibold block mb-1">
+                          Thời gian cách ly PHI (ngày)
+                          {newMedType === 'Vật tư canh tác' ? (
+                            <span className="font-normal text-muted-foreground ml-1">(Không áp dụng)</span>
+                          ) : newMedType === 'Sinh học' ? (
+                            <span className="font-normal text-muted-foreground ml-1">(Mặc định 0 ngày)</span>
+                          ) : (
+                            <span className="font-normal text-muted-foreground ml-1">(Mặc định 7 ngày nếu để trống)</span>
+                          )}
+                        </label>
+                        <Input
+                          type="number"
+                          disabled={newMedType === 'Vật tư canh tác'}
+                          placeholder={
+                            newMedType === 'Vật tư canh tác'
+                              ? 'Không áp dụng'
+                              : newMedType === 'Sinh học'
+                                ? '0 (An toàn, sinh học)'
+                                : '7 (Xem trên nhãn thuốc)'
+                          }
+                          value={newMedPhi}
+                          onChange={(e) => setNewMedPhi(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
+                        <Input
+                          type="text"
+                          value={newMedDosage}
+                          onChange={(e) => setNewMedDosage(e.target.value)}
+                          placeholder={
+                            newMedType === 'Vật tư canh tác'
+                              ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
+                              : 'Pha theo hướng dẫn trên bao bì'
+                          }
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          disabled={isIngredientBanned(newMedActiveIngredient) || isIngredientBanned(newMedName)}
+                          checked={newMedIsAllowed && !isIngredientBanned(newMedActiveIngredient) && !isIngredientBanned(newMedName)}
+                          onChange={(e) => setNewMedIsAllowed(e.target.checked)}
+                          className="w-4 h-4 rounded text-emerald-700"
+                        />
+                        <span className="font-semibold text-xs">
+                          {newMedType === 'Vật tư canh tác'
+                            ? 'Cho phép sử dụng trong tư vấn canh tác (Lavi được gợi ý cho nông dân)'
+                            : 'Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)'}
+                        </span>
                       </label>
-                      <Input
-                        type="number"
-                        disabled={newMedType === 'Vật tư canh tác'}
-                        placeholder={newMedType === 'Vật tư canh tác' ? 'Không áp dụng' : 'Xem trên nhãn thuốc (ví dụ: 7)'}
-                        value={newMedPhi}
-                        onChange={(e) => setNewMedPhi(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                        className="text-xs"
-                      />
-                    </div>
 
-                    <div>
-                      <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
-                      <Input
-                        type="text"
-                        value={newMedDosage}
-                        onChange={(e) => setNewMedDosage(e.target.value)}
-                        placeholder={
-                          newMedType === 'Vật tư canh tác'
-                            ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
-                            : 'Pha theo hướng dẫn trên bao bì'
-                        }
-                        className="text-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="font-semibold block mb-1">
-                        Link nguồn tra PHI/liều (nhãn, trang nhà sản xuất)
-                        {newMedType === 'Vật tư canh tác' ? ' (tùy chọn)' : ' *'}
-                      </label>
-                      <Input
-                        type="url"
-                        placeholder="https://khuyennongvn.gov.vn/..."
-                        value={newMedSourceUrl}
-                        onChange={(e) => setNewMedSourceUrl(e.target.value)}
-                        className="text-xs"
-                      />
-                    </div>
-
-                    <label className="flex items-center gap-2 cursor-pointer pt-1">
-                      <input
-                        type="checkbox"
-                        disabled={isIngredientBanned(newMedActiveIngredient) || isIngredientBanned(newMedName)}
-                        checked={newMedIsAllowed && !isIngredientBanned(newMedActiveIngredient) && !isIngredientBanned(newMedName)}
-                        onChange={(e) => setNewMedIsAllowed(e.target.checked)}
-                        className="w-4 h-4 rounded text-emerald-700"
-                      />
-                      <span className="font-semibold text-xs">
-                        {newMedType === 'Vật tư canh tác'
-                          ? 'Cho phép sử dụng trong tư vấn canh tác (Lavi được gợi ý cho nông dân)'
-                          : 'Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)'}
-                      </span>
-                    </label>
-
-                    <DialogFooter className="pt-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
-                        Hủy
-                      </Button>
-                      <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
-                        {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
-                      </Button>
-                    </DialogFooter>
-                  </form>
+                      <DialogFooter className="pt-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
+                          Hủy
+                        </Button>
+                        <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
+                          {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </div>
                 </DialogContent>
               </Dialog>
 
@@ -8317,33 +9771,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
 
                           {newImageMode === 'URL' ? (
                             <div className="space-y-1.5 pt-1">
-                              <Input
-                                type="url"
-                                placeholder="https://example.com/images/late-blight-symptom.jpg"
+                              <Textarea
+                                placeholder="Dán 1 hoặc nhiều link HTTPS ảnh (mỗi link 1 dòng)...&#10;https://example.com/anh1.jpg&#10;https://example.com/anh2.jpg"
                                 value={newImageUrl}
                                 onChange={(e) => setNewImageUrl(e.target.value)}
-                                className="text-xs bg-background"
+                                rows={3}
+                                className="text-xs bg-background font-mono"
                               />
-                              <p className="text-[10px] text-muted-foreground">
-                                URL ảnh trực tiếp phải là link https:// an toàn từ trang nông nghiệp uy tín.
-                              </p>
-                              {newImageUrl.trim() && (newImageUrl.startsWith('http://') || newImageUrl.startsWith('https://')) && (
+                              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                <span>URL ảnh trực tiếp (link https:// an toàn). Hỗ trợ dán nhiều link cùng lúc.</span>
+                                {parsedImageUrls.length > 0 && (
+                                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                                    Đã nhận diện {parsedImageUrls.length} ảnh
+                                  </span>
+                                )}
+                              </div>
+                              {parsedImageUrls.length > 0 && (
                                 <div className="mt-2 p-2 rounded-lg border border-border bg-muted/20">
-                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1">Xem trước ảnh từ URL:</div>
-                                  <div className="relative aspect-4/3 max-w-[220px] rounded-lg overflow-hidden border border-border bg-background flex items-center justify-center">
-                                    <img
-                                      src={newImageUrl}
-                                      alt="Xem trước ảnh"
-                                      className="h-full w-full object-cover"
-                                      onError={(e) => {
-                                        (e.target as HTMLElement).style.display = 'none';
-                                        const fallback = (e.target as HTMLElement).nextElementSibling;
-                                        if (fallback) (fallback as HTMLElement).style.display = 'flex';
-                                      }}
-                                    />
-                                    <div className="hidden h-full w-full flex-col items-center justify-center p-2 text-center text-[10px] text-destructive">
-                                      <span>Không tải được ảnh từ URL này. Vui lòng kiểm tra link trực tiếp.</span>
-                                    </div>
+                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1">
+                                    Xem trước ({parsedImageUrls.length} ảnh từ URL):
+                                  </div>
+                                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1">
+                                    {parsedImageUrls.map((url, idx) => (
+                                      <div key={idx} className="relative aspect-4/3 rounded-lg overflow-hidden border border-border bg-background">
+                                        <img
+                                          src={url}
+                                          alt={`Ảnh ${idx + 1}`}
+                                          referrerPolicy="no-referrer"
+                                          className="h-full w-full object-cover"
+                                          onError={(e) => {
+                                            (e.target as HTMLElement).style.display = 'none';
+                                          }}
+                                        />
+                                        <div className="absolute top-1 left-1 bg-black/60 text-white text-[9px] px-1 rounded">
+                                          #{idx + 1}
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
                                 </div>
                               )}
@@ -8353,18 +9817,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                               <Input
                                 type="file"
                                 accept="image/jpeg,image/png,image/webp"
+                                multiple
                                 onChange={handleImageFileChange}
                                 className="text-xs bg-background"
                               />
                               <p className="text-[11px] text-muted-foreground font-medium">
-                                Định dạng hỗ trợ: JPG, PNG, WebP (tối đa 5MB). Ưu tiên ảnh chụp rõ triệu chứng thực địa trên đồng ruộng.
+                                Định dạng hỗ trợ: JPG, PNG, WebP (tối đa 5MB/ảnh). Có thể chọn nhiều tệp cùng lúc.
                               </p>
                               <p className="text-[10px] text-muted-foreground italic">
                                 * Hệ thống tự động xóa EXIF / GPS để bảo vệ quyền riêng tư và lưu trữ an toàn trên MinIO bucket lavitree-images.
                               </p>
-                              {newImageFilePreview && (
-                                <div className="relative aspect-4/3 max-w-[200px] rounded-lg overflow-hidden border border-border">
-                                  <img src={newImageFilePreview} alt="Xem trước" className="h-full w-full object-cover" />
+                              {newImageFilePreviews.length > 0 && (
+                                <div className="mt-2 p-2 rounded-lg border border-border bg-muted/20">
+                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1">
+                                    Xem trước tệp tải lên ({newImageFilePreviews.length} ảnh):
+                                  </div>
+                                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1">
+                                    {newImageFilePreviews.map((preview, idx) => (
+                                      <div key={idx} className="relative aspect-4/3 rounded-lg overflow-hidden border border-border bg-background">
+                                        <img src={preview} alt={`Tệp ${idx + 1}`} className="h-full w-full object-cover" />
+                                        <div className="absolute top-1 left-1 bg-black/60 text-white text-[9px] px-1 rounded">
+                                          #{idx + 1}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -8558,7 +10035,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'in
                     </DialogContent>
                   </Dialog>
                 </div>
-                );
+              );
 };
 
-                export default AdminDashboard;
+export default AdminDashboard;

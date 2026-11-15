@@ -417,15 +417,11 @@ public class MedicinesController : ControllerBase
         }
         var isFarmingSupply = medicineType == FarmingSupplyType;
 
-        // Link nguồn: chỉ http/https (chặn javascript: khi hiển thị ở trang Admin); thuốc bắt buộc có
+        // Link nguồn: chỉ http/https nếu có nhập (tùy chọn tra cứu)
         var infoSourceUrl = string.IsNullOrWhiteSpace(dto.InfoSourceUrl) ? null : dto.InfoSourceUrl.Trim();
         if (infoSourceUrl != null && !IsHttpUrl(infoSourceUrl))
         {
             return BadRequest(new { detail = "Link nguồn phải là địa chỉ http(s) hợp lệ." });
-        }
-        if (!isFarmingSupply && infoSourceUrl == null)
-        {
-            return BadRequest(new { detail = "Thuốc hóa học/sinh học bắt buộc có link nguồn nơi tra PHI và liều (nhãn, trang nhà sản xuất)." });
         }
 
         // Chốt chặn thuốc cấm: quét cả tên với mọi loại (tránh khai "vật tư" để lách)
@@ -434,13 +430,19 @@ public class MedicinesController : ControllerBase
             return BadRequest(new { detail = $"Hoạt chất hoặc tên sản phẩm '{dto.ActiveIngredient ?? dto.Name}' nằm trong Danh mục thuốc BVTV cấm sử dụng tại Việt Nam theo Thông tư 75/2025. Tuyệt đối không được phép đưa vào lưu hành." });
         }
 
-        // Với thuốc hóa học & sinh học: bắt buộc nhập PHI >= 0
-        if (!isFarmingSupply)
+        // Xử lý PHI linh hoạt: Thuốc hóa học mặc định 7 ngày nếu bỏ trống; sinh học / vật tư canh tác mặc định 0 ngày
+        int? phiDays = dto.PhiDays;
+        if (isFarmingSupply)
         {
-            if (!dto.PhiDays.HasValue || dto.PhiDays.Value < 0 || dto.PhiDays.Value > 365)
-            {
-                return BadRequest(new { detail = "Thuốc BVTV hóa học/sinh học bắt buộc phải nhập thời gian cách ly (PHI) từ 0 đến 365 ngày." });
-            }
+            phiDays = null;
+        }
+        else if (medicineType == "Hóa học")
+        {
+            phiDays = dto.PhiDays ?? 7;
+        }
+        else
+        {
+            phiDays = dto.PhiDays ?? 0;
         }
 
         var product = new Lavitree.Domain.Entities.Product
@@ -449,8 +451,11 @@ public class MedicinesController : ControllerBase
             ActiveIngredient = isFarmingSupply ? null : dto.ActiveIngredient?.Trim(),
             MedicineType = medicineType,
             Price = dto.Price,
-            DosageInstruction = dto.DosageInstruction.Trim(),
-            PhiDays = isFarmingSupply ? null : dto.PhiDays,
+            ImageUrl = string.IsNullOrWhiteSpace(dto.ImageUrl) ? null : dto.ImageUrl.Trim(),
+            DosageInstruction = string.IsNullOrWhiteSpace(dto.DosageInstruction)
+                ? (isFarmingSupply ? "Sử dụng theo hướng dẫn nhà sản xuất" : "Pha theo hướng dẫn trên bao bì")
+                : dto.DosageInstruction.Trim(),
+            PhiDays = phiDays,
             StockQuantity = dto.StockQuantity,
             Availability = availability,
             InfoSourceUrl = infoSourceUrl,
@@ -479,16 +484,29 @@ public class MedicinesController : ControllerBase
             }
         }
 
-        // Cập nhật trạng thái suggestion nếu được tạo từ suggestion
+        // Cập nhật trạng thái suggestion nếu được tạo từ suggestion (đồng bộ tất cả bản ghi có cùng mention_text)
         if (dto.SuggestionId.HasValue)
         {
             var suggestion = await _dbContext.ProductSuggestions
                 .FirstOrDefaultAsync(s => s.Id == dto.SuggestionId.Value);
             if (suggestion != null)
             {
-                suggestion.Status = "ADDED";
-                suggestion.ProductId = product.Id;
-                suggestion.ResolvedAt = DateTime.UtcNow;
+                var targetMention = suggestion.MentionText.Trim().ToLower();
+                var sameSuggestions = await _dbContext.ProductSuggestions
+                    .Where(s => !s.IsDeleted && s.Status == "PENDING" && s.MentionText.Trim().ToLower() == targetMention)
+                    .ToListAsync();
+
+                if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
+                {
+                    sameSuggestions.Add(suggestion);
+                }
+
+                foreach (var s in sameSuggestions)
+                {
+                    s.Status = "ADDED";
+                    s.ProductId = product.Id;
+                    s.ResolvedAt = DateTime.UtcNow;
+                }
                 await _dbContext.SaveChangesAsync();
             }
         }

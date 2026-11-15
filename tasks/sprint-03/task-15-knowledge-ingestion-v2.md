@@ -692,3 +692,224 @@ Ghi nhận các điểm bất cập sau đợt kiểm thử thực tế bằng t
   - `tasks/TODO.md`:
     - Cập nhật mục `TODO Hậu Đồ Án (Commercial Release Hardening)` ghi rõ nhiệm vụ siết lại: `INGEST_MAX_CHUNKS` (từ 30 về 8–20 đoạn), `INGEST_MIN_QUOTA_FLOOR` (từ 20.000 về 2.500–4.000 ký tự), và `INGEST_MAX_RATIO_PERCENT` (từ 90% về 30–60%).
 - **Kiểm chứng**: Core API `dotnet build` thành công (`0` lỗi, `8.26s`), Frontend `npm run build` thành công (`2002 modules transformed`, `0` lỗi, `3.73s`).
+
+### 13.19 Nạp nhiều ảnh triệu chứng, Gom nhóm thông minh gợi ý vật tư, Tra cứu Google & Chuẩn hóa tạo sản phẩm (`TASK-15-R25`, 15/11/2026)
+
+- **Bối cảnh & Phản hồi thực tế từ Admin**:
+  1. *Ảnh triệu chứng*: Modal chỉ cho thêm 1 ảnh một lần; muốn thêm hàng loạt nhiều ảnh cùng lúc bằng cách dán nhiều link HTTPS hoặc chọn nhiều file tải lên MinIO.
+  2. *Gợi ý vật tư quá nhiều và lặp lại*: Một bài báo 14 đoạn nhắc đi nhắc lại "Trichoderma", "vôi", "phân lân" sinh ra tới 42 dòng gợi ý trùng lặp, gây rối loạn danh sách và mất công xử lý từng dòng.
+  3. *Đoạn trích bằng chứng bị xấu*: Cột đoạn trích bằng chứng hiển thị ký tự Markdown thô (`##`, `###`, `**`) và bị cắt cụt `...` không có cách xem toàn văn.
+  4. *Biện pháp canh tác (PRACTICE) bị khóa*: Code trước đó hardcode ẩn nút Tạo SP và Gắn SP với loại `PRACTICE`, khiến Admin không thể tạo vật tư hỗ trợ (bẫy dính, lưới chắn, kéo cắt cành) hoặc xác nhận ghi nhận kỹ thuật vào sổ tay.
+  5. *Form Tạo thuốc / vật tư quá khắt khe*: Bắt buộc PHI, bắt buộc link nguồn tra cứu, bắt buộc giá bán/tồn kho ngay cả với chế phẩm sinh học hay vật tư canh tác (vốn không có PHI). Đồng thời form thiếu ô nhập ảnh sản phẩm và mô tả đặc tính kỹ thuật.
+  6. *Tra cứu tra tìm khó khăn*: Thiếu phím tắt tra Google nhanh về tên hoạt chất, sản phẩm hoặc hình ảnh.
+- **Giải pháp hoàn thiện**:
+  - **Nạp nhiều ảnh triệu chứng cùng lúc (`addImageModalOpen`)**:
+    - Phương thức URL: Đổi sang `<Textarea>` font mono cho phép dán nhiều URL (mỗi URL 1 dòng hoặc cách nhau bởi dấu phẩy). Tự động phân tích các URL hợp lệ (`parsedImageUrls`), hiển thị lưới thumbnail xem trước kèm số thứ tự.
+    - Phương thức tải tệp: Bổ sung thuộc tính `multiple` cho `<Input type="file">`, hỗ trợ chọn nhiều tệp ảnh cùng lúc (JPG, PNG, WebP $\le 5$MB), tự động xóa EXIF và hiển thị lưới xem trước các tệp tải lên (`newImageFilePreviews`).
+    - Nút lưu hiển thị số lượng batch: `Lưu hàng loạt (N ảnh)`. Vòng lặp tự động gửi lần lượt từng ảnh lên backend.
+  - **Gom nhóm thông minh gợi ý vật tư (Group by Mention Text & Kind)**:
+    - Bổ sung bộ chuyển đổi chế độ xem trên thanh công cụ: `Gộp theo tên ({groupedSuggestions.length})` vs `Tất cả đoạn ({filteredSuggestions.length})`.
+    - Khi ở chế độ gộp: Gom toàn bộ gợi ý có cùng tên vật tư và loại vào 1 dòng đại diện (`primaryItem`), hiển thị badge `Xuất hiện ở N đoạn trích`.
+    - Khi Admin bấm `Tạo SP`, `Gắn SP`, hoặc `Bỏ qua` trên dòng gộp: Cả Frontend và Backend Core API (`MedicinesController.CreateMedicine`, `KnowledgeController.LinkProductSuggestion`, `KnowledgeController.DismissProductSuggestion`) tự động tìm toàn bộ các gợi ý còn lại có cùng `mention_text` để cập nhật đồng bộ trạng thái `ADDED`, `LINKED`, hoặc `DISMISSED`. 42 dòng trùng lặp được xử lý dứt điểm chỉ trong 1 thao tác!
+  - **Phím tắt tra cứu Google nhanh (`[🔍 Tra Google]`)**:
+    - Bổ sung nút bấm `[🔍 Tra Google]` cạnh từng từ khóa vật tư trong bảng gợi ý và popover bằng chứng, mở tab tìm kiếm Google với từ khóa chuyên ngành nông nghiệp.
+    - Bổ sung nút `[🔍 Tra Google]` trực tiếp trên form Tạo sản phẩm để Admin tra nhanh nhãn mác, hình ảnh và liều dùng.
+  - **Làm sạch định dạng đoạn trích bằng chứng & Dialog xem chi tiết (`viewingEvidenceItem`)**:
+    - Thêm hàm `cleanEvidencePreview(text)`: loại bỏ sạch sẽ các ký tự `#`, `##`, `###`, `**`, bullet points, chuẩn hóa khoảng trắng giúp hiển thị câu chữ trang nhã, dễ đọc trong ô bảng.
+    - Thêm nút `[👁️ Xem chi tiết đoạn trích (N)]` mở modal popover hiển thị toàn văn ngữ cảnh đoạn trích bóc tách từ bài báo, độ dài ký tự, chuyên đề cây-bệnh, phân loại và liên kết bài viết gốc.
+  - **Mở khóa toàn diện cho Biện pháp canh tác (`PRACTICE`)**:
+    - Cho phép `[+ Tạo vật tư]` (để tạo các sản phẩm hỗ trợ canh tác như bẫy vàng Pheromone, túi bao trái, kéo tỉa).
+    - Cho phép `[🔗 Gắn SP]` (gắn vào vật tư có sẵn).
+    - Bổ sung nút chuyên biệt `[✓ Ghi nhận]` (ghi nhận kỹ thuật canh tác vào sổ tay nông vụ và đánh dấu hoàn tất gợi ý).
+  - **Chuẩn hóa & Nới lỏng form Tạo thuốc / vật tư (`createMedModalOpen`)**:
+    - Bổ sung trường `Ảnh sản phẩm (URL)` (`newMedImageUrl`) kèm thumbnail xem trước ảnh.
+    - Bổ sung trường `Mô tả sản phẩm / Đặc tính kỹ thuật` (`newMedDescription`) lưu trữ công dụng, cơ chế và liều lượng.
+    - Nới lỏng PHI: Chỉ khuyến nghị đối với thuốc `Hóa học` (mặc định 7 ngày nếu để trống); đối với `Sinh học` và `Vật tư canh tác` mặc định 0 ngày (không bắt buộc).
+    - Nới lỏng link nguồn tra cứu: Chuyển thành trường tùy chọn (`tùy chọn`).
+    - Nới lỏng giá bán & tồn kho: Không chặn cứng form khi Admin muốn nạp sản phẩm kỹ thuật hoặc tư vấn.
+- **Kiểm chứng kỹ thuật**:
+  - Backend Core API `dotnet build Lavitree.sln --no-restore --disable-build-servers -m:1` thành công (`0` lỗi, `10.33s`).
+  - Frontend `npm run build` (`tsc && vite build`) thành công (`2002 modules transformed`, `0` lỗi, `14.77s`).
+
+### 13.20 Dọn dẹp nút Tra Google ở bảng, Khắc phục ô mô tả & Tích hợp AI Crawl tự điền sản phẩm từ URL (`TASK-15-R26`, 15/11/2026)
+
+- **Vấn đề phản ánh từ Admin**:
+  1. *Ảnh 1*: Nút `[Tra Google]` khối to màu xanh nhạt nằm choán chỗ trong ô tên vật tư ở bảng gợi ý, làm phình dòng và đè lên badge số đoạn trích.
+  2. *Ảnh 2*: Ô *Mô tả sản phẩm / Đặc tính kỹ thuật* bị tự động điền sẵn nguyên văn cả đoạn trích bài báo dài `795/1000` ký tự (không phải mô tả sản phẩm).
+  3. *Đề xuất*: Đưa ô Link URL tra cứu lên vị trí số 1 đầu form và bổ sung tính năng AI đọc trang web tự động điền các trường còn lại (ảnh sản phẩm, tên, hoạt chất, liều dùng, giá...).
+- **Giải pháp triển khai (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - **Dọn dẹp bảng gợi ý vật tư (Ảnh 1)**:
+    - Gỡ bỏ hoàn toàn nút `[Tra Google]` khối to khỏi cột vật tư ở cả 2 chế độ xem gộp (`grouped`) và phẳng (`all`).
+    - Giữ giao diện bảng tinh gọn, thông thoáng và chuẩn mực; các thao tác tra cứu tập trung vào modal tạo sản phẩm và popup xem bằng chứng.
+  - **Khắc phục ô mô tả sản phẩm (Ảnh 2)**:
+    - Trong `handleOpenCreateMedModal`: reset `newMedDescription = ''` (rỗng hoàn toàn) khi mở modal thay vì gán đoạn trích bài báo.
+  - **Khối Link URL và AI Crawl Auto-fill đưa lên đầu Form**:
+    - Chuyển trường *Link trang sản phẩm / nhãn thuốc (URL)* lên vị trí số 1 ngay đầu form tạo sản phẩm.
+    - Tích hợp nút `[🔍 Tra Google tìm link]` mở tab tìm kiếm Google sản phẩm.
+    - Tích hợp nút **`[⚡ AI đọc & Điền]`** (`handleAiAutofillProductFromUrl`):
+      - Tải HTML trang web qua proxy SSRF-safe (`/knowledge/fetch-url`).
+      - Dùng DOMParser, Schema.org JSON-LD và biểu thức quy chuẩn tự động bóc tách:
+        - `image_url`: Ảnh sản phẩm chuẩn từ `og:image`, `twitter:image`, Microdata/JSON-LD, tự động kích hoạt khung xem trước ảnh.
+        - `name`: Tên thương mại sạch (đã dọn dẹp hậu tố sàn TMĐT Shopee, Tiki, VTNN...).
+        - `active_ingredient`: Hoạt chất bóc tách từ thông số bài viết.
+        - `description`: Mô tả ngắn gọn 2-3 câu từ thẻ `og:description` / meta description.
+        - `dosage_instruction`: Liều lượng hướng dẫn pha bình.
+        - `phi_days`: Ngày cách ly (nếu là thuốc BVTV).
+        - `price`: Giá bán niêm yết (nếu có từ Schema.org Product).
+        - `medicine_type`: Tự nhận diện Hóa học / Sinh học / Vật tư canh tác.
+      - Tự động điền đầy đủ vào các ô trong form.
+- **Kiểm chứng kỹ thuật**:
+  - Frontend `npm run build` (`tsc && vite build`) thành công (`2002 modules transformed`, `0` lỗi, `9.77s`).
+
+---
+
+### 13.21 Bộ soi tài liệu gốc (Raw Inspector) 2 cột đối chiếu song song, Thư viện 2-4 ảnh ứng viên & Chuẩn hóa AI bóc tách Vật tư (`TASK-15-R27`, 15/11/2026)
+
+- **Vấn đề phản ánh từ Admin khi kiểm thử thực tế với trang `vietchem.com.vn/tin-tuc/voi-bot.html`**:
+  1. *Lỗi tên sản phẩm*: Tự điền cả câu giật tít blog câu hỏi: *"Vôi Bột Là Gì? Tác Dụng, Giá Cả & Cách Sử Dụng Hiệu Quả"* thay vì tên ngắn gọn chuẩn danh mục ("Vôi bột" hoặc "Vôi bột nông nghiệp").
+  2. *Lỗi phân loại*: Nhận diện nhầm thành *"Chế phẩm sinh học BVTV"* do trong bài viết có câu chứa từ "sinh học" ("kết hợp cùng các biện pháp sinh học, hóa học...").
+  3. *Lỗi hoạt chất*: Điền tên sản phẩm vào ô hoạt chất thay vì công thức hóa học `CaO (Canxi oxit)`.
+  4. *Lỗi mô tả*: Trích xuất mô tả giật tít của blog thay vì công dụng nông nghiệp thực tế (cải tạo đất, hạ phèn, khử trùng diệt nấm khuẩn).
+  5. *Yêu cầu ảnh & CSDL*: Hiện chỉ trích xuất được 1 ảnh; yêu cầu lấy 2-4 ảnh để Admin chủ động chọn; đồng thời kiểm tra xem DB đã có trường ảnh cho nhóm Vật tư canh tác chưa.
+  6. *Yêu cầu giao diện 2 cột (Raw Inspector)*: Modal tạo sản phẩm hiện tại quá nhỏ (`sm:max-w-lg`). Yêu cầu mở rộng thành giao diện 2 cột chuẩn như màn hình Nhập bài báo:
+     - Cột trái: Form nhập liệu + Thư viện ảnh ứng viên (bấm để chọn).
+     - Cột phải: Bản raw nội dung trang web với 2 chế độ `👁️ Văn bản đẹp` (mặc định) và `</> Code Markdown`.
+     - Tương tác thông minh: Khi Admin focus vào bất kỳ ô nào ở cột trái (Tên, Ảnh, Mô tả, Phân loại, Hoạt chất, Giá, PHI, Liều lượng), cột phải tự động cuộn đến phần nội dung tương ứng và viền nổi bật màu hổ phách.
+- **Giải pháp kiến trúc & triển khai**:
+  - **Xác nhận Cơ sở dữ liệu CSDL**:
+    - Thực thể `Product.cs` và bảng CSDL `Products` đã có sẵn cột `ImageUrl` (kiểu `text`, nullable).
+    - Cột này được dùng chung cho mọi phân loại sản phẩm trong hệ thống bao gồm `Thuốc BVTV hóa học`, `Chế phẩm sinh học BVTV` và `Vật tư canh tác` (`MedicineType = 'Vật tư canh tác'`). Khi tạo sản phẩm mới, URL ảnh được lưu trực tiếp vào CSDL và sẵn sàng hiển thị trên Sổ tay bệnh học cũng như danh mục vật tư.
+  - **Chuẩn hóa thuật toán bóc tách AI (`handleAiAutofillProductFromUrl`)**:
+    - *Lọc sạch tiêu đề blog câu hỏi*: Dùng regex loại bỏ các hậu tố `"Là gì? Tác dụng, giá cả & cách sử dụng hiệu quả..."`, dấu chấm hỏi `?`, và tên thương hiệu website. Fallback về tên viết hoa của `fromSuggestion.mention_text` nếu tiêu đề bị rỗng.
+    - *Phân loại thông minh phân tầng*: Ưu tiên kiểm tra từ khóa Vật tư canh tác (`vôi bột`, `vôi tôi`, `đá vôi`, `bẫy dính`, `lưới`, `bạt`, `kéo`, `phân trùn`, `phân chuồng`, `phân bón`...) lên hàng đầu. Khắc phục triệt để lỗi "sinh học" lấn át khi bài viết nhắc từ ngữ phụ.
+    - *Nhận diện công thức hóa học*: Tự động phát hiện `CaO` -> `CaO (Canxi oxit)`, `Ca(OH)2`, `CaCO3`. Đối với Vật tư canh tác, trường hoạt chất được để trống/không bắt buộc.
+    - *Bóc tách mô tả nông nghiệp*: Ưu tiên các đoạn văn bản trong bài có nhắc đến *nông nghiệp*, *khử trùng đất*, *cải tạo đất*, *hạ phèn*, *nâng pH*, *diệt khuẩn nấm bệnh*.
+    - *Thư viện 2-4 ảnh ứng viên (`candidateImages`)*: Quét đồng thời `og:image`, `twitter:image`, JSON-LD và các thẻ `<img>` trong bài viết; lọc bỏ svg/ico/ảnh rác, chuẩn hóa URL tuyệt đối và lấy danh sách ảnh ứng viên.
+  - **Thiết kế lại Giao diện 2 Cột Split-Screen (`AdminDashboard.tsx`)**:
+    - Modal mở rộng thành `sm:max-w-6xl w-[96vw] max-h-[92vh] flex flex-col`.
+    - **Cột trái (Form nhập liệu)**:
+      - Khối URL + nút `[AI đọc & Điền]`.
+      - Khối lưới Thumbnail chọn ảnh ứng viên: Hiển thị 2-4 ảnh tìm thấy; nhấp chuột trực tiếp vào ảnh để gán làm ảnh sản phẩm (có viền xanh lục `ring-emerald-500` và dấu tích check).
+      - Các ô input gắn sự kiện `onFocus={() => scrollToInspectorSection(fieldKey)}`.
+    - **Cột phải (Raw Inspector - Bộ soi dữ liệu gốc)**:
+      - Header: Tiêu đề + Bộ chuyển đổi `👁️ Văn bản đẹp` vs `</> Markdown` + Nút `[Sao chép Markdown]` + Nút mở link gốc.
+      - Chế độ `👁️ Văn bản đẹp`: Hiển thị các khối dữ liệu cấu trúc (`sec-title`, `sec-image`, `sec-description`, `sec-category`, `sec-active`, `sec-dosage`, `sec-phi`, `sec-price`, `sec-raw-body`).
+      - Chế độ `</> Markdown`: Hiển thị văn bản Markdown nguyên bản có định dạng.
+      - Tương tác đồng bộ: Khi Admin focus vào trường nào bên trái, hàm `scrollToInspectorSection` kích hoạt `activeInspectorField = fieldKey`, tự động cuộn mượt đến khối tương ứng và gắn hiệu ứng viền nổi bật màu hổ phách (`border-amber-400 bg-amber-50/80 ring-2 ring-amber-400/50`).
+- **Kiểm chứng kỹ thuật**:
+  - Frontend `npm run build` (`tsc && vite build`) thành công (`2002 modules transformed`, `0` lỗi, `10.59s`).
+
+---
+
+### 13.22 Xóa khối ảnh trùng, Lọc ảnh cờ rác, Ẩn Raw mặc định & Tích hợp Chế độ Dev (Prompt Gemini Web + Nạp JSON) (`TASK-15-R28`, 15/11/2026)
+
+- **Vấn đề phản ánh từ Admin**:
+  1. *Trùng ảnh*: Cột trái hiển thị một khối ảnh ứng viên to tướng ở đầu form, dưới lại có khối xem trước ảnh, và bên cột phải lại hiển thị tiếp -> gây rối mắt và lặp lại.
+  2. *Ảnh rác / cờ quốc gia*: Trang web (như Vietchem) có thanh chọn ngôn ngữ nên crawler bóc tách nhầm các icon cờ Việt Nam, cờ Mỹ, cờ Nhật làm ảnh sản phẩm.
+  3. *Lưu trữ CSDL*: DB có cho phép chọn nhiều ảnh không? -> Cần làm rõ: Bảng `Products` chỉ lưu 1 ảnh chính (`ImageUrl` là chuỗi `TEXT`), do đó chỉ hiển thị duy nhất ảnh đã chọn ở dưới ô *Ảnh sản phẩm (URL tùy chọn)*.
+  4. *Đề xuất Chế độ Dev (Prompt Gemini)*: Để không mất thời gian chỉnh sửa do crawler cục bộ không bằng mô hình AI xịn, nên ẩn cột Raw Inspector mặc định và cung cấp nút **Chế độ Dev** (gồm nút sao chép prompt mẫu ném cho Gemini Web/Advanced xịn làm, và ô dán JSON kết quả để điền tự động).
+  5. *Thắc mắc về unit "Biện pháp" và nút "Ghi nhận"*: Cần giải thích rõ nguồn gốc và vai trò của nút này trong bảng gợi ý.
+- **Giải pháp triển khai (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - **Dọn dẹp ảnh trùng & Lọc sạch ảnh cờ**:
+    - Xóa bỏ hoàn toàn khối thư viện ảnh ứng viên ở phía trên trường *Tên thuốc / Tên sản phẩm*.
+    - Chỉ hiển thị một khung xem trước duy nhất của ảnh được chọn ngay bên dưới ô *Ảnh sản phẩm (URL tùy chọn)* kèm nhãn *"Ảnh đã chọn (lưu vào CSDL)"* và nút gỡ ảnh.
+    - Cập nhật hàm `addCandidateImg` tự động loại bỏ các ảnh có tên tệp/URL chứa `flag`, `quoc-ky`, `lang`, `language`, `cờ`, `icon`, `logo`, `avatar`, `vietnam`, `united-states`, `japan`.
+  - **Ẩn Raw Inspector mặc định & Nút mở rộng 2 cột**:
+    - Biến trạng thái `showRawInspector` mặc định là `false`.
+    - Khi đóng: Modal ở dạng 1 cột thon gọn (`sm:max-w-2xl`).
+    - Nút `[👁️ Soi trang gốc]` trên header cho phép Admin chủ động mở rộng thành 2 cột (`sm:max-w-6xl`) khi thực sự cần đối chiếu văn bản gốc.
+  - **Tích hợp Chế độ Dev (Gemini Prompt & Nạp JSON)**:
+    - Nút `[🛠️ Chế độ Dev]` trên header mở rộng một thẻ công cụ màu xanh chuyên dụng.
+    - Nút **`[📋 Sao chép Prompt cho Gemini]`**: Tự động tổng hợp URL bài viết, tên nhận diện và trích đoạn nội dung tạo thành prompt định dạng JSON hoàn chỉnh cho Gemini Web (Advanced).
+    - Ô `<Textarea>` dán kết quả từ Gemini.
+    - Nút **`[⚡ Điền form từ Gemini]`**: Phân tích cú pháp JSON và tự động điền đầy đủ mọi thông số vào form chỉ với 1 cú click.
+  - **Giải thích tường minh về unit "Biện pháp" và nút "Ghi nhận"**:
+    - Khi đọc bài báo kỹ thuật, các đoạn trích thường chứa 4 loại thực thể: Thuốc hóa học (`CHEMICAL`), Thuốc sinh học (`BIOLOGICAL`), Vật tư (`SUPPLY`), và Biện pháp canh tác (`PRACTICE`).
+    - Khác với thuốc/vật tư là hàng hóa mua bán được, *Biện pháp canh tác* (như cắt tỉa cành, nhổ bỏ cây bệnh, luân canh...) là **thao tác kỹ thuật** chứ không phải mặt hàng bán trong tiệm thuốc.
+    - Do đó, nút **`[Ghi nhận]`** giúp Admin ghi nhận biện pháp này vào sổ tay kỹ thuật và đánh dấu đã xử lý (Dismiss), dọn sạch danh sách chờ duyệt mà không ép Admin phải tạo sản phẩm giả trong kho hàng.
+- **Kiểm chứng kỹ thuật**:
+  - Frontend `npm run build` (`tsc && vite build`) hoàn thành thành công trong `3.79s` (`2002 modules transformed`, `0` lỗi).
+
+---
+
+### 13.23 Bỏ nút Crawler & Raw Inspector, Tối giản Chế độ Dev `</>`, Cảnh báo thiếu URL, Nâng cấp Mô tả chuyên sâu & Không chỉ định bệnh hại (`TASK-15-R29`, 15/11/2026)
+
+- **Phản hồi từ Admin**:
+  1. *Chất lượng Gemini Web vượt trội*: Việc dùng Gemini Web (Advanced) cho kết quả rất tốt, do đó các tính năng crawler nội bộ tạm thời như nút `[AI đọc & Điền]` (Ảnh 1) và nút `[👁️ Soi trang gốc]` kèm cột Raw Inspector cồng kềnh (Ảnh 2) không còn cần thiết $\rightarrow$ Yêu cầu gỡ bỏ hoàn toàn để giao diện tinh gọn, tập trung.
+  2. *Nút Chế độ Dev*: Rút gọn thành biểu tượng `</>` chuyên nghiệp như chế độ developer.
+  3. *Cảnh báo khi sao chép prompt*: Khi người dùng bấm sao chép prompt mà chưa dán URL sản phẩm, hệ thống phải cảnh báo rõ ràng.
+  4. *Nâng cấp mô tả (Description)*: Prompt ban đầu sinh mô tả quá hời hợt (1-3 câu); yêu cầu mô tả chuyên sâu và thực tế như bài viết Vietchem (giải thích là gì, phân loại các dạng thường gặp, công dụng nông nghiệp hạ phèn/khử trùng đất, và lưu ý an toàn kỹ thuật khi bón).
+  5. *Bệnh hại mục tiêu*: Bổ sung trường `target_disease_code` vào prompt và logic nạp JSON; nếu là vật tư cải tạo đất chung (như vôi bột, phân bón, bạt phủ...) thì mặc định là *"Không chỉ định"* (áp dụng diện rộng).
+- **Giải pháp triển khai (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - **Tối giản hóa giao diện Modal**:
+    - Gỡ bỏ hoàn toàn nút `[AI đọc & Điền]` khỏi khối URL; ô nhập URL chiếm toàn bộ chiều ngang thanh thoát.
+    - Gỡ bỏ hoàn toàn nút `[👁️ Soi trang gốc]` và toàn bộ cột Raw Inspector. Modal trở về kích thước 1 cột chuẩn mực (`sm:max-w-2xl max-h-[92vh] overflow-y-auto`).
+    - Nút Chế độ Dev trên header thu gọn thành biểu tượng **`</>`** font monospace với tooltip *"Chế độ Dev: Tạo prompt cho Gemini & Nạp JSON tự động"*.
+  - **Chốt chặn kiểm tra URL**:
+    - Khi bấm `[📋 Sao chép Prompt cho Gemini]`, nếu `newMedSourceUrl.trim()` rỗng, hàm lập tức hiển thị `toast.error('Vui lòng dán Link trang sản phẩm / nhãn thuốc (URL) trước khi sao chép prompt!')` và dừng lại.
+  - **Nâng cấp nội dung Prompt cho Gemini**:
+    - Mô tả (`description`): Yêu cầu viết từ 150 - 350 từ chia thành 4 ý rõ ràng:
+      1. Bản chất: Sản phẩm là gì?
+      2. Phân loại/Dạng thường gặp (vôi bột nông nghiệp, vôi tôi, vôi sống, bột đá vôi...).
+      3. Công dụng nông nghiệp chính: Khử trùng đất, tiêu diệt mầm bệnh nấm khuẩn, hạ phèn, nâng pH đất, kích rễ, giải độc.
+      4. Lưu ý an toàn & kỹ thuật: Thời điểm bón, không trộn ngay với phân đạm/phân chuồng chưa hoai để tránh mất đạm.
+    - Bệnh hại mục tiêu (`target_disease_code`): Bổ sung hướng dẫn và trường JSON; nếu là vật tư cải tạo đất chung thì để `"NONE"`.
+  - **Cập nhật logic nạp JSON (`handleApplyGeminiJson`)**:
+    - Nếu `data.target_disease_code` là `"NONE"`, rỗng hoặc chứa chuỗi *"không chỉ định"*, hệ thống gán `newMedTargetDisease = ''` (Hiển thị nhãn *"-- Không chỉ định (áp dụng chung) --"*).
+    - Đồng thời trong `handleOpenCreateMedModal`: khi mở tạo sản phẩm từ gợi ý vật tư canh tác (Vôi bột, phân bón...), trường bệnh mục tiêu tự động mặc định là rỗng (Không chỉ định) thay vì gán nhầm sang `Tomato___Late_blight`.
+- **Kiểm chứng kỹ thuật**:
+  - Frontend `npm run build` (`tsc && vite build`) hoàn thành thành công trong `9.77s` (`2002 modules transformed`, `0` lỗi).
+
+---
+
+### 13.24 Xóa lặp icon Dev, Chống đè nút X đóng, Mở rộng không gian làm việc & Sửa lỗi hiển thị ảnh sản phẩm (`TASK-15-R30`, 15/11/2026)
+
+- **Phản hồi từ Admin (kèm ảnh chụp màn hình `media_1794742682678_816c468b.png`)**:
+  1. *Lặp biểu tượng `</>`*: Nút Dev trên thanh tiêu đề hiển thị bị lặp thành `</> < / >` do vừa render icon `<Code2 />` vừa có text `&lt; / &gt;`.
+  2. *Đè nút [X] đóng modal*: Nút Dev bị căn sát lề phải, va chạm và bị nút đóng `[X]` của Dialog (`absolute right-4 top-4`) đè trực tiếp lên.
+  3. *Mô tả thừa*: Không cần câu chữ giải thích nút ẩn trong phần phụ đề `DialogDescription` và dưới ô URL; cần giữ giao diện tinh gọn, chuyên nghiệp.
+  4. *Ảnh không hiện*: Trường ảnh sản phẩm không hiển thị ảnh xem trước (bị biến mất khi tải do CDN chặn Referer hoặc lỗi hotlink).
+  5. *Không gian làm việc chật hẹp*: Kích thước modal `sm:max-w-2xl` khá hẹp khi điền thông số và thao tác; yêu cầu mở rộng không gian làm việc rộng rãi hơn.
+- **Giải pháp triển khai (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - **Sửa lặp icon Dev & Chống đè nút [X]**:
+    - Xóa bỏ thẻ `<span>&lt; / &gt;</span>`, chỉ giữ lại duy nhất 1 icon `<Code2 className="w-4 h-4" />` chuẩn xác trong nút bấm vuông vắn `h-7 w-7 p-0`.
+    - Bổ sung khoảng đệm `pr-8` trên hàng tiêu đề `DialogHeader`, dịch toàn bộ nội dung header cách xa nút đóng `[X]` của Radix Dialog, chống va chạm 100%.
+  - **Dọn dẹp phụ đề mô tả thừa**:
+    - Chuẩn hóa `DialogDescription` thành: *"Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số."*
+    - Chuẩn hóa chú thích dưới URL thành: *"Dán link bài viết hoặc trang sản phẩm để hỗ trợ đối chiếu thông tin và lấy link ảnh sản phẩm."*
+  - **Mở rộng không gian làm việc**:
+    - Nâng kích thước `DialogContent` từ `sm:max-w-2xl` lên `sm:max-w-3xl lg:max-w-4xl w-[94vw] max-w-4xl max-h-[92vh] overflow-y-auto p-5 sm:p-6`.
+  - **Khắc phục triệt để lỗi hiển thị ảnh sản phẩm**:
+    - Bổ sung thuộc tính `referrerPolicy="no-referrer"` cho thẻ `<img>` xem trước: Giúp trình duyệt không gửi header `Referer: localhost`, vượt qua cơ chế chống hotlink / leeching của hầu hết CDN (như SudoSpaces, Vietchem, Shopee...).
+    - Thêm state `medImageFailed` và xử lý `onError` thông minh: Thay vì ẩn mất thẻ ảnh (`style.display = 'none'`), hiển thị khung thẻ ảnh fallback với icon `<ImageOff className="w-5 h-5 text-amber-600" />` và nhãn *"Lỗi tải ảnh (Trang nguồn chặn nhúng ngoài, hệ thống vẫn lưu link này)"*.
+    - Bổ sung liên kết 1-click `[Mở xem ảnh gốc ↗]` cho phép Admin nhấp mở trực tiếp tab mới để kiểm tra ảnh gốc bất cứ lúc nào.
+    - Bổ sung dải ảnh gợi ý trích xuất từ bài báo (nếu có `crawledProductSource.candidateImages`), click vào ảnh nào sẽ tự động điền URL ảnh đó vào form.
+    - Cải tiến hàm `handleApplyGeminiJson` dùng biểu thức chính quy trích xuất URL ảnh an toàn kể cả khi Gemini bọc trong cú pháp Markdown hoặc dấu ngoặc kép.
+- **Kiểm chứng kỹ thuật**:
+  - Frontend `npm run build` (`tsc && vite build`) hoàn thành thành công trong `3.92s` (`2002 modules transformed`, `0` lỗi).
+
+---
+
+### 13.25 Định dạng Mô tả Bullet đẹp, Thu gọn Cây-Bệnh thành 2-3 dòng & Multi-Tabs xem trọn 2-4 đoạn trích (`TASK-15-R31`, 15/11/2026)
+
+- **Phản hồi từ Admin (kèm ảnh chụp màn hình `media_1794743551871_ad9c1126.jpg`)**:
+  1. *Định dạng mô tả form*: Khung mô tả nhìn hơi xấu, cần chuẩn hóa prompt sinh định dạng rõ ràng, chuyên sâu và có chế độ xem đẹp.
+  2. *Bảng gợi ý vật tư bị tràn ngang*: Cột *Cây – Bệnh mục tiêu* để trên 1 dòng quá dài (`whitespace-nowrap`) khiến bảng bị kéo dãn ra ngoài màn hình, Admin luôn phải kéo chuột sang phải mới thao tác được các nút [Tạo SP], [Gắn SP], [Bỏ qua]. Yêu cầu cho cột này ngắt thành 2-3 dòng và tối ưu độ rộng các cột.
+  3. *Không xem được đủ 2-4 đoạn trích*: Trước đây khi gợi ý xuất hiện ở 2-4 đoạn trích, bấm vào chỉ mở được duy nhất đoạn trích đầu tiên. Yêu cầu mở thành các Tab để xem được toàn bộ các đoạn trích, và có thể tạo/gắn sản phẩm chung ở ngay trên đầu hoặc từng tab riêng.
+- **Giải pháp triển khai (`frontend/web/src/pages/AdminDashboard.tsx`)**:
+  - **Định dạng trường Mô tả sản phẩm (Prompt & Form)**:
+    - Cập nhật prompt Gemini trong `handleCopyGeminiPrompt`: yêu cầu bố cục 4 phần mạch lạc bằng các dấu chấm đầu dòng • (`• Bản chất & Phân loại`, `• Công dụng nông nghiệp`, `• Phạm vi & Cây trồng`, `• Hướng dẫn & Lưu ý an toàn khi dùng`).
+    - Nâng cấp ô nhập mô tả trong modal Tạo sản phẩm: tăng chiều cao lên 5 dòng thoáng đãng, bổ sung nút bấm nhanh `+ Thêm mục •` và bộ chuyển đổi 2 chế độ:
+      - `[✏️ Soạn thảo]`: Chỉnh sửa trực tiếp với font sans thoáng đãng.
+      - `[👁️ Định dạng đẹp]`: Render tự động thành thẻ preview chuyên nghiệp với chấm tròn xanh emerald, in đậm tiêu đề mục con và thụt lề rõ ràng.
+  - **Tối ưu bảng Gợi ý vật tư chống kéo ngang**:
+    - Cột *Cây – Bệnh mục tiêu*: Bỏ `whitespace-nowrap`, giới hạn độ rộng cố định `w-[150px] min-w-[130px] max-w-[170px]`, chia thành 2-3 dòng gọn gàng (Dòng 1: chấm xanh + tên cây trồng in đậm; Dòng 2-3: tên bệnh hại màu ghi với `line-clamp-2`).
+    - Cột *Đoạn trích bằng chứng*: Giới hạn `w-[240px] min-w-[190px] max-w-[260px]`, đoạn trích `line-clamp-2`.
+    - Cột *Thao tác Admin*: Cố định dính lề phải (`sticky right-0 bg-background/95 backdrop-blur-xs shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.06)] z-10`), giúp cụm nút thao tác luôn luôn hiển thị trên màn hình dù người dùng xem ở bất kỳ độ phân giải nào.
+  - **Nâng cấp Modal Xem chi tiết thành Multi-Tabs (2-4 đoạn trích)**:
+    - Nâng cấp state `viewingEvidenceGroup` chứa đầy đủ mảng `items: ProductSuggestionItem[]` của cả nhóm gợi ý.
+    - Đặt khối **Thao tác nhanh cho gợi ý chung ngay trên đầu modal** với các nút nổi bật: `[+ Tạo sản phẩm]`, `[🔗 Gắn vào SP có sẵn]`.
+    - Hàng Tabs tương tác: Khi gợi ý có từ 2-4 đoạn trích, hiển thị dải tab `[Đoạn #1]`, `[Đoạn #2]`, `[Đoạn #3]`... kèm tên bệnh mục tiêu tương ứng.
+    - Trong từng Tab: Hiển thị trọn vẹn văn bản đoạn trích gốc, số lượng ký tự, nguồn bài báo khoa học, cùng các nút thao tác nhanh riêng cho từng đoạn.
+- **Kiểm chứng kỹ thuật**:
+  - Frontend `npm run build` (`tsc && vite build`) hoàn thành thành công trong `8.16s` (`2002 modules transformed`, `0` lỗi).
