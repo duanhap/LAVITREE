@@ -1,3 +1,5 @@
+import type { UsageProfile } from './lib/usage-profile';
+
 export interface DiseaseOption {
   classCode: string;
   plantName: string;
@@ -61,6 +63,7 @@ export interface MedicineItem {
   info_source_url?: string;
   image_url?: string;
   target_diseases?: string[]; // ClassCode các bệnh hại gắn với sản phẩm
+  usage_profile?: UsageProfile | null; // Phiếu cách dùng (TASK-18)
 }
 
 export interface ProductSuggestionItem {

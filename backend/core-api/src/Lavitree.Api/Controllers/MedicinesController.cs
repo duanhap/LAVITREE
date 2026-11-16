@@ -117,7 +117,8 @@ public class MedicinesController : ControllerBase
                     TargetDiseases = p.DiseaseProducts
                         .Where(dp => dp.Disease != null)
                         .Select(dp => dp.Disease.ClassCode)
-                        .ToList()
+                        .ToList(),
+                    UsageProfile = p.UsageProfile
                 }).ToList();
             }
             else
@@ -302,6 +303,22 @@ public class MedicinesController : ControllerBase
     private static bool IsHttpUrl(string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
+    /// <summary>Chuẩn hóa + kiểm tra phiếu cách dùng (TASK-18). Phiếu rỗng → null. Lỗi → error khác null.</summary>
+    private static Lavitree.Domain.Entities.UsageProfile? PrepareUsageProfile(Lavitree.Domain.Entities.UsageProfile? profile, out string? error)
+    {
+        error = null;
+        if (profile == null) return null;
+        profile.Normalize();
+        if (profile.IsEmpty) return null;
+        var errors = profile.Validate();
+        if (errors.Count > 0)
+        {
+            error = "Phiếu cách dùng không hợp lệ: " + string.Join(" ", errors);
+            return null;
+        }
+        return profile;
+    }
+
     public static bool IsBannedIngredient(string? ingredient)
     {
         if (string.IsNullOrWhiteSpace(ingredient)) return false;
@@ -352,6 +369,9 @@ public class MedicinesController : ControllerBase
 
         [JsonPropertyName("target_diseases")]
         public List<string> TargetDiseases { get; set; } = new();
+
+        [JsonPropertyName("usage_profile")]
+        public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
     }
 
     public class UpdateMedicineDto
@@ -393,6 +413,10 @@ public class MedicinesController : ControllerBase
         /// <summary>null = giữ nguyên; danh sách (kể cả rỗng) = thay toàn bộ liên kết bệnh hại theo ClassCode.</summary>
         [JsonPropertyName("target_diseases")]
         public List<string>? TargetDiseases { get; set; }
+
+        /// <summary>null = giữ nguyên; phiếu (kể cả rỗng {}) = thay toàn bộ, phiếu rỗng = xóa phiếu.</summary>
+        [JsonPropertyName("usage_profile")]
+        public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
     }
 
     /// <summary>
@@ -456,6 +480,12 @@ public class MedicinesController : ControllerBase
             phiDays = dto.PhiDays.Value;
         }
 
+        var usageProfile = PrepareUsageProfile(dto.UsageProfile, out var usageError);
+        if (usageError != null)
+        {
+            return BadRequest(new { detail = usageError });
+        }
+
         var product = new Lavitree.Domain.Entities.Product
         {
             Name = dto.Name.Trim(),
@@ -470,6 +500,7 @@ public class MedicinesController : ControllerBase
             StockQuantity = dto.StockQuantity,
             Availability = availability,
             InfoSourceUrl = infoSourceUrl,
+            UsageProfile = usageProfile,
             IsAllowed = dto.IsAllowed && !IsBannedIngredient(dto.ActiveIngredient),
             RainResistant = false,
             CreatedAt = DateTime.UtcNow,
@@ -558,6 +589,7 @@ public class MedicinesController : ControllerBase
             availability = product.Availability,
             is_allowed = product.IsAllowed,
             stock_quantity = product.StockQuantity,
+            usage_profile = product.UsageProfile,
             suggestions_kept_pending = keptPending
         });
     }
@@ -690,6 +722,16 @@ public class MedicinesController : ControllerBase
             }
         }
 
+        if (dto.UsageProfile != null)
+        {
+            var usageProfile = PrepareUsageProfile(dto.UsageProfile, out var usageError);
+            if (usageError != null)
+            {
+                return BadRequest(new { detail = usageError });
+            }
+            product.UsageProfile = usageProfile;
+        }
+
         // Đổi vật tư thành thuốc mà chưa có PHI: báo lỗi rõ thay vì để CHECK constraint ném 500
         if (product.MedicineType != FarmingSupplyType && !product.PhiDays.HasValue)
         {
@@ -755,6 +797,7 @@ public class MedicinesController : ControllerBase
             availability = product.Availability,
             info_source_url = product.InfoSourceUrl,
             medicine_type = product.MedicineType,
+            usage_profile = product.UsageProfile,
             updated_at = product.UpdatedAt
         });
     }

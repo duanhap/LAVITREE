@@ -398,6 +398,10 @@ public class CreateProductRequestDto
 
     [JsonPropertyName("is_allowed")]
     public bool IsAllowed { get; set; } = false;
+
+    /// <summary>Phiếu cách dùng có cấu trúc (TASK-18); null hoặc phiếu rỗng = không lưu.</summary>
+    [JsonPropertyName("usage_profile")]
+    public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
 }
 
 public class AgentReindexRequest

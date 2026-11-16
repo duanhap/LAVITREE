@@ -359,6 +359,7 @@
 - **Quy tắc Nghiệp vụ**:
   - Chỉ tài khoản có Role `ADMIN` hoặc yêu cầu kèm `X-Admin-Key` hợp lệ mới được quyền cập nhật. Nông dân (`FARMER`) bị chặn với `403 Forbidden`.
   - Hỗ trợ cập nhật từng trường lẻ (partial update: giá, tồn kho, số ngày cách ly PHI, trạng thái cho phép lưu hành).
+  - `usage_profile` (TASK-18): không gửi / `null` = giữ nguyên; gửi phiếu = thay toàn bộ; gửi `{}` (phiếu rỗng) = xóa phiếu. Phiếu được chuẩn hóa và kiểm tra như `POST`. Response trả `usage_profile`.
 - **Response Body (`200 OK`)**:
   ```json
   {
@@ -928,11 +929,12 @@
 - **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
 - **Quy chuẩn An toàn**:
   - Đối chiếu với danh sách `BANNED_INGREDIENTS` của `backend/agent-service/app/agent/guardrails.py` (8 hoạt chất: `paraquat`, `2,4-d`, `chlorpyrifos`, `carbofuran`, `glyphosate`, `monocrotophos`, `methamidophos`, `endosulfan`, kèm các cách viết khác và tên thương phẩm `gramoxone`; chưa đối chiếu từng dòng với phụ lục TT 75/2025, xem BUG-93), quét cả tên và hoạt chất với mọi loại sản phẩm. Trùng thì trả `400`, không tạo sản phẩm; `PATCH` cũng không bật được `is_allowed`.
-  - Thuốc (`Hóa học`, `Sinh học`) bắt buộc có `phi_days` (0–365) và `info_source_url` (http/https, nơi tra PHI và liều). CSDL có CHECK `CK_Products_PhiDays_RequiredForMedicine`.
+  - Thuốc (`Hóa học`, `Sinh học`) bắt buộc có `phi_days` (0–365). `info_source_url` tùy chọn, phải là http/https nếu có. CSDL có CHECK `CK_Products_PhiDays_RequiredForMedicine`.
+  - `usage_profile` (TASK-18, tùy chọn): phiếu cách dùng có cấu trúc, lưu ở `Products.UsageProfile` (jsonb). Server cắt khoảng trắng, chuỗi rỗng thành `null`, bỏ buổi trùng; phiếu rỗng → không lưu. `dose_per_area` = `{ min, max, unit }` cho phân, vôi, chế phẩm rắc (ví dụ 20–30 `tấn/ha`), bắt buộc có `unit`. Từ chối `400` khi: liều / lượng nước < 0, `times_per_day` ngoài 1–10, `max_applications_per_season` ngoài 1–50, `avoid_rain_hours` ngoài 0–72, `interval_days` ngoài 0–365 hoặc `min > max`, `source_url` không phải http(s). Thời gian cách ly KHÔNG nằm trong phiếu (dùng `phi_days`). `GET /medicines/search` trả kèm `usage_profile`; agent hiện bỏ qua trường này.
   - `medicine_type` chỉ nhận `Hóa học` | `Sinh học` | `Vật tư canh tác`; `availability` chỉ nhận `IN_STOCK` | `OUT_OF_STOCK` | `NOT_SOLD` (CHECK `CK_Products_Availability`).
   - `is_allowed` mặc định `false`: Admin phải tick "Đã đối chiếu Danh mục thuốc BVTV được phép" mới bật.
   - Nếu `MedicineType = 'Vật tư canh tác'`: Không yêu cầu `PhiDays` (cho phép `null`), không bắt buộc `ActiveIngredient`.
-  - Hỗ trợ gắn `SuggestionId`: Nếu truyền `suggestion_id`, gợi ý tương ứng sẽ tự động chuyển sang trạng thái `ADDED`.
+  - Hỗ trợ gắn `SuggestionId`: nếu truyền `suggestion_id`, gợi ý đó và các gợi ý đang chờ cùng tên có bệnh đã được gắn (hoặc không có bệnh) chuyển `ADDED`; gợi ý cho bệnh khác giữ `PENDING` để Gắn SP sau. Response trả `suggestions_kept_pending` (TASK-17).
 - **Request Body (`application/json`)**:
   ```json
   {
@@ -947,7 +949,15 @@
     "info_source_url": "https://khuyennongvn.gov.vn/ky-thuat-dat-bay-dinh",
     "target_disease_code": "Tomato___Late_blight",
     "is_allowed": true,
-    "suggestion_id": 2
+    "suggestion_id": 2,
+    "usage_profile": {
+      "version": 1, "dose_amount": 20, "dose_unit": "bẫy", "water_liters": null, "dose_text": "20 bẫy / 1000 m²",
+      "dose_per_area": { "min": 20, "max": 20, "unit": "bẫy/1000 m²" },
+      "spray_volume_per_ha": null, "method": "treo cách ngọn cây 15–20 cm", "time_of_day": null, "times_per_day": null,
+      "interval_days": { "min": 30, "max": 45 }, "max_applications_per_season": null,
+      "start_when": "từ khi cây có 4–5 lá thật", "stop_when": null, "weather_note": null, "avoid_rain_hours": null,
+      "safety_note": null, "source_url": "https://khuyennongvn.gov.vn/ky-thuat-dat-bay-dinh"
+    }
   }
   ```
 - **Response Body (`201 Created`)**:

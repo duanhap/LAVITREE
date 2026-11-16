@@ -142,9 +142,10 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `RainResistant` | `BOOLEAN` | DEFAULT FALSE | Khả năng chống chịu mưa rửa trôi của thuốc |
 | `MedicineType` | `VARCHAR(50)` | DEFAULT 'Hóa học' | 'Hóa học' \| 'Sinh học' \| 'Vật tư canh tác' |
 | `Availability` | `VARCHAR(20)` | NOT NULL, DEFAULT 'IN_STOCK', CHECK | 'IN_STOCK' \| 'OUT_OF_STOCK' \| 'NOT_SOLD' (Cửa hàng không bán - chỉ tư vấn kỹ thuật) |
-| `InfoSourceUrl` | `VARCHAR(500)` | NULL | Nơi Admin tra PHI/liều (nhãn, trang nhà sản xuất). Bắt buộc với thuốc (kiểm tra ở Core API) |
+| `InfoSourceUrl` | `VARCHAR(500)` | NULL | Nơi Admin tra PHI/liều (nhãn, trang nhà sản xuất). Tùy chọn, phải là http(s) nếu có |
+| `UsageProfile` | `JSONB` | NULL | Phiếu cách dùng có cấu trúc (TASK-18): liều theo bình, liều theo diện tích, lượng nước, cách dùng, buổi, số lần / ngày, khoảng cách ngày min–max, tối đa lần / vụ, thời tiết, an toàn. Dùng cho lịch phun / nhắc nhở (xem [treatment-schedule-design.md](treatment-schedule-design.md)). PHI không lặp ở đây |
 
-*Ràng buộc CHECK (migration `20261111080000_AddProductSuggestionsAndRefineProducts`): `CK_Products_PhiDays_RequiredForMedicine` (`PhiDays IS NOT NULL OR MedicineType = 'Vật tư canh tác'`) và `CK_Products_Availability`.*
+*Ràng buộc CHECK (migration `20261111080000_AddProductSuggestionsAndRefineProducts`): `CK_Products_PhiDays_RequiredForMedicine` (`PhiDays IS NOT NULL OR MedicineType = 'Vật tư canh tác'`) và `CK_Products_Availability`. Cột `UsageProfile`: migration `20261116192621_AddProductUsageProfile`.*
 
 #### 7. `DiseaseProducts` (Bảng trung gian: Bệnh $\leftrightarrow$ Thuốc đặc trị)
 | Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |

@@ -477,6 +477,9 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("UsageProfile")
+                        .HasColumnType("jsonb");
+
                     b.HasKey("Id");
 
                     b.ToTable("Products", t =>

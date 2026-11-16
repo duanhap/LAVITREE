@@ -147,7 +147,7 @@
   - Đầu ra đợt 1: prompt JSON (chế độ Dev) kèm đoạn trích, yêu cầu AI xác định vật tư theo ngữ cảnh (sản phẩm / tự pha / giống / vật tư / biện pháp) và trả `target_diseases` từ danh sách mã bệnh hợp lệ; nạp JSON gộp bệnh hại, báo bệnh không khớp, gợi ý link; chip Tra Google theo loại vật tư; tô đậm tên vật tư trong trích dẫn.
   - Đầu ra đợt 2: bệnh hại điền sẵn theo mọi bài trích (gợi ý có bệnh chưa gắn giữ PENDING để Gắn SP sau); gộp đoạn cùng bài + cùng bệnh; nút "Tìm link với AI" chỉ nhờ AI tìm link; modal gọn, có ô "Dùng bài này"; sửa lỗi Gắn SP ở dòng gộp. Chi tiết: `tasks/sprint-03/task-17-product-research-ai.md`.
 
-- [ ] **TASK-18: Phiếu cách dùng vật tư, prompt Gemini tổng hợp, chuẩn bị lịch phun**
+- [x] **TASK-18: Phiếu cách dùng vật tư, prompt Gemini tổng hợp, chuẩn bị lịch phun**
   - Trách nhiệm: **Trưởng nhóm** (làm cùng Claude Code)
-  - Trạng thái: `[ ] TODO`
+  - Trạng thái: `[x] DONE` (bản nhẹ; lịch phun / nhắc nhở bản đầy đủ: `docs/architecture/treatment-schedule-design.md`)
   - Đầu ra: Nút "Tạo SP" ở hàng mở modal trích dẫn; gộp đoạn trích nằm trọn trong đoạn khác; chỉ còn 1 nút "Sao chép prompt cho Gemini" (chế độ Dev); prompt mới tổng hợp thông tin tại Việt Nam bám đoạn trích, trả JSON (mô tả chi tiết + phiếu `usage`: liều, buổi, số lần, cách nhau, tối đa lần/vụ, thời tiết, an toàn) và danh sách nguồn + ảnh để chọn; cột `Products.UsageProfile` (jsonb) lưu phiếu cách dùng để làm lịch phun / nhắc nhở ở task sau; "Hướng dẫn sử dụng" ghép tự động theo nhãn cố định cho trợ lý Lavi đọc. Chi tiết: `tasks/sprint-03/task-18-usage-profile-gemini-prompt.md`.

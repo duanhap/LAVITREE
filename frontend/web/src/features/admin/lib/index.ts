@@ -6,3 +6,4 @@ export * from './agri-translations';
 export * from './disease-format';
 export * from './guardrails';
 export * from './product-research';
+export * from './usage-profile';
