@@ -17,6 +17,7 @@ import {
   Copy,
   ImageOff,
   Pencil,
+  Bot,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -35,7 +36,21 @@ import {
 } from '@/components/ui/dialog';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import type { MedicineItem, ProductSuggestionItem } from '@/features/admin/types';
-import { isSafeHttpUrl, isIngredientBanned, cleanEvidencePreview } from '@/features/admin/lib';
+import {
+  isSafeHttpUrl,
+  isIngredientBanned,
+  excerptAroundMention,
+  buildGoogleQueries,
+  buildProductResearchPrompt,
+  buildLinkSearchPrompt,
+  mergeEvidencesByArticle,
+  MAX_PROMPT_EVIDENCES,
+  parseProductResearchJson,
+  kindFromMedicineType,
+  KIND_LABEL,
+  type ResearchEvidence,
+} from '@/features/admin/lib';
+import { HighlightedText } from '@/features/admin/components/HighlightedText';
 import { useDiseaseOptions } from '@/features/admin/hooks';
 
 interface EvidenceModalGroup {
@@ -108,11 +123,31 @@ export const AdminInventoryPage: React.FC = () => {
   const [showDevMode, setShowDevMode] = useState<boolean>(false);
   const [devGeminiInput, setDevGeminiInput] = useState<string>('');
   const [medImageFailed, setMedImageFailed] = useState<boolean>(false);
+  // TASK-17: các đoạn trích làm ngữ cảnh cho prompt AI / gợi ý Google của form, và link nguồn AI đề xuất
+  const [researchItems, setResearchItems] = useState<ProductSuggestionItem[]>([]);
+  const [aiSourceLinks, setAiSourceLinks] = useState<string[]>([]);
 
   // Chế độ hiển thị Gợi ý vật tư: 'grouped' (Gộp theo tên vật tư chống trùng lặp) vs 'all' (Từng dòng)
   const [suggestionsViewMode, setSuggestionsViewMode] = useState<'grouped' | 'all'>('grouped');
   const [viewingEvidenceGroup, setViewingEvidenceGroup] = useState<EvidenceModalGroup | null>(null);
   const [activeEvidenceTabIdx, setActiveEvidenceTabIdx] = useState<number>(0);
+  // Tab trong modal = 1 bài + 1 bệnh (các đoạn trích cùng bài, cùng bệnh gộp chung). Bài bị bỏ không dùng cho Tạo SP / prompt.
+  const [excludedEvidenceTabs, setExcludedEvidenceTabs] = useState<string[]>([]);
+  useEffect(() => setExcludedEvidenceTabs([]), [viewingEvidenceGroup]);
+  const evidenceTabs = useMemo(() => {
+    if (!viewingEvidenceGroup) return [];
+    const tabs: { key: string; items: ProductSuggestionItem[] }[] = [];
+    viewingEvidenceGroup.items.forEach((it) => {
+      // mỗi đoạn trích là 1 KnowledgeSource riêng → "cùng bài" so theo link / tiêu đề bài
+      const article = (it.source_url || '').trim() || (it.source_title || '').trim() || it.knowledge_source_id || String(it.id);
+      const key = `${article}##${it.model_class || `${it.plant_name}|${it.disease_name}`}`;
+      const tab = tabs.find((t) => t.key === key);
+      if (tab) tab.items.push(it);
+      else tabs.push({ key, items: [it] });
+    });
+    return tabs;
+  }, [viewingEvidenceGroup]);
+  const usableEvidenceItems = evidenceTabs.filter((t) => !excludedEvidenceTabs.includes(t.key)).flatMap((t) => t.items);
   const [descPreviewMode, setDescPreviewMode] = useState<boolean>(false);
 
   // Load kho thuốc & gợi ý khi vào trang
@@ -186,6 +221,8 @@ export const AdminInventoryPage: React.FC = () => {
     setNewMedStock(Number(med.stock_quantity) || 0);
     setNewMedDosage(dosage);
     setNewMedIsAllowed(!!med.is_allowed);
+    setResearchItems(suggestions.filter((sg) => sg.product_id === med.id && sg.evidence_text));
+    setAiSourceLinks([]);
     setCreateMedModalOpen(true);
   };
 
@@ -258,8 +295,11 @@ export const AdminInventoryPage: React.FC = () => {
     }
   };
 
-  const handleOpenCreateMedModal = (sug?: ProductSuggestionItem) => {
+  // groupItems: các đoạn trích của nhóm gợi ý (cùng tên vật tư) làm ngữ cảnh prompt AI và nguồn bệnh hại điền sẵn
+  const handleOpenCreateMedModal = (sug?: ProductSuggestionItem, groupItems?: ProductSuggestionItem[]) => {
     setEditingMedId(null);
+    setResearchItems(groupItems && groupItems.length ? groupItems : sug ? [sug] : []);
+    setAiSourceLinks([]);
     setShowDevMode(false);
     setDevGeminiInput('');
 
@@ -281,7 +321,19 @@ export const AdminInventoryPage: React.FC = () => {
       setNewMedImageUrl('');
       setMedImageFailed(false);
       setNewMedDescription('');
-      setNewMedTargetDiseases(isSupplyOrPractice || !sug.model_class ? [] : [sug.model_class]);
+      // Bệnh hại điền sẵn = bệnh của mọi đoạn trích đang chờ trong nhóm (kể cả vật tư): bài nói về bệnh nào thì gắn bệnh đó.
+      // Gợi ý cho cây / bệnh khác xuất hiện sau sẽ Gắn SP sau (server giữ PENDING những gợi ý có bệnh chưa gắn).
+      const sourceItems = (groupItems && groupItems.length ? groupItems : [sug]).filter((it) => it.status === 'PENDING' || it.id === sug.id);
+      const knownCodes = new Set(diseases.map((d) => d.classCode));
+      setNewMedTargetDiseases(
+        Array.from(
+          new Set(
+            sourceItems
+              .map((it) => (it.model_class || '').trim())
+              .filter((c) => c && !/healthy/i.test(c) && (!knownCodes.size || knownCodes.has(c)))
+          )
+        )
+      );
       setNewMedPrice(0);
       setNewMedStock(0);
       setNewMedDosage(
@@ -310,104 +362,157 @@ export const AdminInventoryPage: React.FC = () => {
     setCreateMedModalOpen(true);
   };
 
-  const handleCopyGeminiPrompt = () => {
-    const url = newMedSourceUrl.trim();
-    if (!url) {
-      toast.error('Vui lòng dán Link trang sản phẩm / nhãn thuốc (URL) trước khi sao chép prompt!');
+  const toResearchEvidences = (items: ProductSuggestionItem[]): ResearchEvidence[] =>
+    items
+      .filter((it) => it.evidence_text)
+      .map((it) => ({
+        text: it.evidence_text || '',
+        plantName: it.plant_name,
+        diseaseName: it.disease_name,
+        diseaseCode: it.model_class,
+        sourceId: it.knowledge_source_id,
+        sourceTitle: it.source_title,
+        sourceUrl: it.source_url,
+      }));
+
+  // Số khối "bài + bệnh" (các đoạn cùng bài, cùng bệnh tính là 1)
+  const countArticleBlocks = (items: ProductSuggestionItem[]) =>
+    Math.min(mergeEvidencesByArticle(toResearchEvidences(items)).length, MAX_PROMPT_EVIDENCES);
+
+  const copyText = async (text: string, okMsg: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(okMsg);
+    } catch {
+      toast.error('Trình duyệt chặn sao chép. Hãy cho phép quyền clipboard rồi thử lại.');
+    }
+  };
+
+  // Nút cạnh ô link: prompt CHỈ nhờ AI tìm link bài viết / trang nguồn (không điền form)
+  const handleCopyLinkSearchPrompt = () => {
+    const name = newMedName.trim();
+    const mention = fromSuggestion?.mention_text || researchItems[0]?.mention_text || name;
+    if (!mention) {
+      toast.error('Nhập tên sản phẩm trước khi nhờ AI tìm link.');
       return;
     }
+    const kind = fromSuggestion?.kind || researchItems[0]?.kind || kindFromMedicineType(newMedType);
+    const prompt = buildLinkSearchPrompt({
+      mention,
+      kind,
+      evidences: toResearchEvidences(researchItems),
+      currentName: name,
+      activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient.trim(),
+    });
+    const n = countArticleBlocks(researchItems);
+    copyText(
+      prompt,
+      `Đã sao chép prompt tìm link${n ? ` (kèm ${n} bài trích)` : ''}. Dán vào Gemini / ChatGPT bản web có tìm kiếm, chọn link phù hợp rồi dán vào ô Link nguồn.`
+    );
+  };
 
-    const prompt = `Bạn là chuyên gia phân loại vật tư nông nghiệp & thuốc bảo vệ thực vật của dự án LAVITREE.
-Hãy đọc thông tin về sản phẩm/vật tư từ liên kết sau:
-URL: ${url}
-${newMedName ? `Tên gợi ý ban đầu: ${newMedName}` : ''}
-
-Hãy trích xuất và phân tích thật đầy đủ, chuyên sâu và trả về ĐÚNG cấu trúc JSON sau (chỉ trả về duy nhất khối markdown json, không kèm văn bản dẫn dắt ngoài):
-\`\`\`json
-{
-  "name": "Tên sản phẩm chuẩn, ngắn gọn (ví dụ: Vôi bột nông nghiệp, Ridomil Gold 68WG; loại bỏ các câu hỏi blog 'là gì', 'tác dụng')",
-  "medicine_type": "Vật tư canh tác" | "Sinh học" | "Hóa học",
-  "active_ingredient": "Hoạt chất chính hoặc công thức hóa học (VD: CaO (Canxi oxit), Mancozeb... Nếu là dụng cụ vật tư thông thường thì để rỗng '')",
-  "description": "Mô tả chuẩn hóa nông nghiệp, bố cục 4 phần mạch lạc rõ đẹp (khoảng 150 - 300 từ):\\n• Bản chất & Phân loại: (Sản phẩm là gì, nguồn gốc, công thức hoặc dạng tồn tại...)\\n• Công dụng nông nghiệp: (Hạ phèn, nâng pH đất, khử trùng tiêu diệt mầm bệnh nấm khuẩn trong đất, kích rễ, giải độc hữu cơ...)\\n• Phạm vi & Cây trồng: (Dùng cho đất trồng rau màu, cây ăn quả, xử lý hố trồng, chuồng trại...)\\n• Hướng dẫn & Lưu ý khi dùng: (Bón lúc làm đất/đầu vụ, tuyệt đối không trộn chung với phân đạm để tránh thất thoát đạm, mang găng tay và đồ bảo hộ)",
-  "image_url": "URL ảnh chụp sản phẩm thực tế từ bài viết (link https://..., nếu không có link ảnh trực tiếp thì để rỗng '')",
-  "dosage_instruction": "Liều lượng sử dụng và cách bón/pha thực tế (ví dụ: Bón 20 - 50kg/sào tùy độ chua của đất)",
-  "phi_days": null,
-  "price": 0,
-  "target_disease_code": "NONE"
-}
-\`\`\`
-Lưu ý quan trọng:
-- Trường description: BẮT BUỘC dùng dấu chấm đầu dòng • rõ ràng cho từng mục, mỗi mục xuống dòng cách biệt, tuyệt đối không viết thành một đoạn văn xuôi dài dính chùm.
-- Với trường target_disease_code: Nếu là vật tư cải tạo đất chung (như vôi bột, phân bón, bạt phủ, bẫy dính...) hoặc phòng trừ diện rộng, BẮT BUỘC để là "NONE" (Không chỉ định). Chỉ điền mã bệnh khi là thuốc đặc trị riêng cho 1 bệnh cụ thể.
-- Trường phi_days: CHỈ điền số ngày cách ly ghi rõ trong nguồn/nhãn thuốc. Nếu nguồn không ghi hoặc là Vật tư canh tác thì để null, TUYỆT ĐỐI không tự đoán (kể cả với chế phẩm sinh học).`;
-
-    navigator.clipboard.writeText(prompt);
-    toast.success('Đã sao chép Prompt cho Gemini! Hãy dán vào Gemini Web rồi copy kết quả JSON dán vào ô bên dưới.');
+  // Prompt điền form (JSON) trong chế độ Dev: link là tùy chọn, ngữ cảnh lấy từ researchItems
+  const handleCopyGeminiPrompt = () => {
+    const name = newMedName.trim();
+    const mention = fromSuggestion?.mention_text || researchItems[0]?.mention_text || name;
+    if (!mention && !newMedSourceUrl.trim()) {
+      toast.error('Nhập tên sản phẩm hoặc link trước khi tạo prompt.');
+      return;
+    }
+    const kind = fromSuggestion?.kind || researchItems[0]?.kind || kindFromMedicineType(newMedType);
+    const prompt = buildProductResearchPrompt({
+      mention,
+      kind,
+      evidences: toResearchEvidences(researchItems),
+      diseases,
+      currentName: name,
+      activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient.trim(),
+      sourceUrl: newMedSourceUrl.trim(),
+    });
+    setShowDevMode(true);
+    const n = countArticleBlocks(researchItems);
+    copyText(
+      prompt,
+      `Đã sao chép prompt${n ? ` kèm ${n} bài trích` : ''}. Dán vào AI bản web có tìm kiếm, rồi dán JSON trả về vào ô bên dưới.`
+    );
   };
 
   const handleApplyGeminiJson = () => {
     if (!devGeminiInput.trim()) {
-      toast.error('Vui lòng dán đoạn JSON từ Gemini vào ô trước khi bấm áp dụng!');
+      toast.error('Vui lòng dán đoạn JSON từ AI vào ô trước khi bấm áp dụng!');
       return;
     }
-    try {
-      let cleanJson = devGeminiInput.trim();
-      const match = cleanJson.match(/\{[\s\S]*\}/);
-      if (match) {
-        cleanJson = match[0];
-      }
-      const data = JSON.parse(cleanJson);
-      if (data.name) setNewMedName(String(data.name).trim());
-      if (data.medicine_type) {
-        const t = String(data.medicine_type).trim();
-        if (t === 'Sinh học' || t === 'Vật tư canh tác' || t === 'Hóa học') {
-          setNewMedType(t);
-        }
-      }
-      if (data.active_ingredient !== undefined) {
-        setNewMedActiveIngredient(String(data.active_ingredient || '').trim());
-      }
-      if (data.description) setNewMedDescription(String(data.description).trim());
-      if (data.image_url) {
-        let rawImg = String(data.image_url).trim();
-        const urlMatch = rawImg.match(/https?:\/\/[^\s"')]+/);
-        if (urlMatch) {
-          rawImg = urlMatch[0];
-        }
-        if (isSafeHttpUrl(rawImg) || /^https?:\/\//i.test(rawImg)) {
-          setNewMedImageUrl(rawImg);
-          setMedImageFailed(false);
-        }
-      }
-      if (data.dosage_instruction) setNewMedDosage(String(data.dosage_instruction).trim());
-      if (data.phi_days !== undefined) {
-        const p = parseInt(String(data.phi_days), 10);
-        setNewMedPhi(isNaN(p) ? '' : p);
-      }
-      if (data.price !== undefined) {
-        const pr = parseFloat(String(data.price));
-        if (!isNaN(pr) && pr >= 0) {
-          setNewMedPrice(pr);
-          if (pr > 0) {
-            setNewMedAvailability('IN_STOCK');
-            setNewMedStock(100);
-          }
-        }
-      }
-      if (data.target_disease_code !== undefined) {
-        const rawCode = String(data.target_disease_code || '').trim();
-        if (!rawCode || rawCode.toUpperCase() === 'NONE' || rawCode.toLowerCase().includes('không chỉ định')) {
-          setNewMedTargetDiseases([]);
-        } else {
-          const matched = diseases.find((d) => d.classCode.toLowerCase() === rawCode.toLowerCase());
-          setNewMedTargetDiseases(matched ? [matched.classCode] : []);
-        }
-      }
-      toast.success('Đã áp dụng toàn bộ thông số từ Gemini thành công!');
-      setDevGeminiInput('');
-    } catch {
-      toast.error('Không thể đọc dữ liệu JSON. Vui lòng kiểm tra lại cấu trúc JSON được dán.');
+    const contextPlants = Array.from(new Set(researchItems.map((it) => it.plant_name).filter(Boolean)));
+    const parsed = parseProductResearchJson(devGeminiInput, diseases, contextPlants);
+    if (!parsed) {
+      toast.error('Không đọc được JSON. Hãy copy đúng khối ```json mà AI trả về.');
+      return;
     }
+    const data = parsed.data as Record<string, any>;
+    const str = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim());
+
+    if (str(data.name)) setNewMedName(str(data.name));
+    const t = str(data.medicine_type);
+    if (t === 'Sinh học' || t === 'Vật tư canh tác' || t === 'Hóa học') setNewMedType(t);
+    if (data.active_ingredient !== undefined) setNewMedActiveIngredient(t === 'Vật tư canh tác' ? '' : str(data.active_ingredient));
+    if (str(data.description)) setNewMedDescription(str(data.description));
+    if (str(data.image_url)) {
+      const urlMatch = str(data.image_url).match(/https?:\/\/[^\s"')]+/);
+      if (urlMatch && isSafeHttpUrl(urlMatch[0])) {
+        setNewMedImageUrl(urlMatch[0]);
+        setMedImageFailed(false);
+      }
+    }
+    if (str(data.dosage_instruction)) setNewMedDosage(str(data.dosage_instruction));
+    if (data.phi_days !== undefined) {
+      const p = parseInt(str(data.phi_days), 10);
+      setNewMedPhi(isNaN(p) || t === 'Vật tư canh tác' ? '' : p);
+    }
+    if (data.price !== undefined) {
+      const pr = parseFloat(str(data.price));
+      if (!isNaN(pr) && pr > 0) {
+        setNewMedPrice(pr);
+        setNewMedAvailability('IN_STOCK');
+        setNewMedStock(100);
+      }
+    }
+
+    // Bệnh hại: gộp thêm vào lựa chọn hiện có, KHÔNG xóa bệnh Admin đã chọn
+    if (parsed.matchedDiseases.length) {
+      setNewMedTargetDiseases((prev) => Array.from(new Set([...prev, ...parsed.matchedDiseases])));
+    }
+
+    // Link nguồn AI đề xuất: điền ô link nếu đang trống, còn lại hiện để Admin chọn
+    const validLinks = parsed.sourceUrls.filter((u) => isSafeHttpUrl(u));
+    setAiSourceLinks(validLinks);
+    if (validLinks.length && !newMedSourceUrl.trim()) setNewMedSourceUrl(validLinks[0]);
+
+    const notes: string[] = [];
+    notes.push(
+      parsed.matchedDiseases.length
+        ? `bệnh hại +${parsed.matchedDiseases.length}`
+        : parsed.hasDiseaseField
+          ? 'không có bệnh hại cụ thể'
+          : 'JSON không có trường bệnh hại'
+    );
+    if (validLinks.length) notes.push(`${validLinks.length} link nguồn`);
+    toast.success(`Đã điền form từ JSON (${notes.join(', ')}). Hãy đối chiếu lại trước khi lưu.`);
+    if (parsed.unmatchedDiseases.length) {
+      toast.warning(`Không khớp được bệnh: ${parsed.unmatchedDiseases.join(', ')}. Hãy chọn tay ở ô "Bệnh hại mục tiêu".`);
+    }
+    const identified = str(data.identified_as).toUpperCase();
+    const note = str(data.identification_note);
+    if (identified === 'HOMEMADE') {
+      toast.info(`AI xác định đây là chế phẩm TỰ PHA CHẾ, không phải sản phẩm bán sẵn. ${note}`.trim(), { duration: 9000 });
+    } else if (identified === 'PRACTICE') {
+      toast.warning(`AI xác định đây là BIỆN PHÁP canh tác, không phải vật tư. Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm. ${note}`.trim(), { duration: 9000 });
+    } else if (identified === 'SEED') {
+      toast.info(`AI xác định đây là GIỐNG CÂY / HẠT GIỐNG. ${note}`.trim(), { duration: 7000 });
+    }
+    if (data.mentions_differ === true) {
+      toast.warning(`Các đoạn trích nói về những thứ khác nhau: ${str(data.differ_note) || 'xem lại từng đoạn'}`, { duration: 10000 });
+    }
+    setDevGeminiInput('');
   };
 
   const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
@@ -458,7 +563,7 @@ Lưu ý quan trọng:
           target_diseases: newMedTargetDiseases,
           is_allowed: newMedIsAllowed,
         });
-        setMedicines((prev) => prev.map((m) => (m.id === editingMedId ? { ...m, ...res.data } : m)));
+        await fetchMedicines();
         toast.success(`Đã cập nhật sản phẩm "${res.data.name}".`);
         setCreateMedModalOpen(false);
         setEditingMedId(null);
@@ -483,6 +588,13 @@ Lưu ý quan trọng:
 
       const res = await apiClient.post('/medicines', payload);
       toast.success(`Đã thêm sản phẩm "${res.data.name}" vào danh mục thành công!`);
+      const keptPending = Number(res.data?.suggestions_kept_pending) || 0;
+      if (keptPending > 0) {
+        toast.info(
+          `Còn ${keptPending} gợi ý "${fromSuggestion?.mention_text}" cho bệnh chưa gắn vẫn ở trạng thái Chờ. Khi cần, bấm "Gắn SP" để gắn thêm bệnh đó.`,
+          { duration: 9000 }
+        );
+      }
       setCreateMedModalOpen(false);
       fetchMedicines();
       if (fromSuggestion) {
@@ -890,7 +1002,9 @@ Lưu ý quan trọng:
                       groupedSuggestions.map((group) => {
                         const isBanned = isIngredientBanned(group.mentionText);
                         const primary = group.primaryItem;
-                        const cleanPreview = cleanEvidencePreview(primary.evidence_text);
+                        // Thao tác (Tạo / Gắn / Bỏ qua) phải dùng gợi ý còn PENDING: gợi ý đầu nhóm có thể đã ADDED (TASK-17-R2)
+                        const actionItem = group.items.find((it) => it.status === 'PENDING') || primary;
+                        const cleanPreview = excerptAroundMention(primary.evidence_text || '', group.mentionText, 170);
 
                         return (
                           <tr key={group.groupKey} className="hover:bg-muted/30 transition-colors">
@@ -947,7 +1061,7 @@ Lưu ý quan trọng:
 
                             <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                                "{cleanPreview}"
+                                "<HighlightedText text={cleanPreview} mention={group.mentionText} />"
                               </p>
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 <button
@@ -1026,7 +1140,7 @@ Lưu ý quan trọng:
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
                                   <Button
                                     size="sm"
-                                    onClick={() => handleOpenCreateMedModal(primary)}
+                                    onClick={() => handleOpenCreateMedModal(actionItem, group.items)}
                                     className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
                                     title={group.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
                                   >
@@ -1038,8 +1152,8 @@ Lưu ý quan trọng:
                                     size="sm"
                                     variant="outline"
                                     onClick={() => {
-                                      setLinkingSuggestion(primary);
-                                      setSelectedLinkMedId(primary.product_id ?? '');
+                                      setLinkingSuggestion(actionItem);
+                                      setSelectedLinkMedId(actionItem.product_id ?? group.productId ?? '');
                                     }}
                                     className="h-7 px-2 border-border text-[11px] font-medium"
                                     title="Liên kết với sản phẩm đã có sẵn trong kho"
@@ -1052,7 +1166,7 @@ Lưu ý quan trọng:
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      onClick={() => handleDismissSuggestion(primary.id, true)}
+                                      onClick={() => handleDismissSuggestion(actionItem.id, true)}
                                       className="h-7 px-2 border-purple-200 text-purple-700 dark:text-purple-300 hover:bg-purple-50 text-[11px]"
                                       title="Đã lưu biện pháp vào sổ tay kỹ thuật nông vụ"
                                     >
@@ -1064,7 +1178,7 @@ Lưu ý quan trọng:
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    onClick={() => handleDismissSuggestion(primary.id)}
+                                    onClick={() => handleDismissSuggestion(actionItem.id)}
                                     className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
                                     title={`Bỏ qua cả ${group.count} gợi ý này`}
                                   >
@@ -1081,7 +1195,7 @@ Lưu ý quan trọng:
                     ) : (
                       filteredSuggestions.map((sug) => {
                         const isBanned = isIngredientBanned(sug.mention_text);
-                        const cleanPreview = cleanEvidencePreview(sug.evidence_text);
+                        const cleanPreview = excerptAroundMention(sug.evidence_text || '', sug.mention_text, 170);
 
                         return (
                           <tr key={sug.id} className="hover:bg-muted/30 transition-colors">
@@ -1136,7 +1250,7 @@ Lưu ý quan trọng:
 
                             <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                                "{cleanPreview}"
+                                "<HighlightedText text={cleanPreview} mention={sug.mention_text} />"
                               </p>
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 <button
@@ -1347,7 +1461,7 @@ Lưu ý quan trọng:
                 <span>Đoạn trích bằng chứng: "{viewingEvidenceGroup?.mentionText}"</span>
               </DialogTitle>
               <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300">
-                {viewingEvidenceGroup?.count || 1} đoạn trích
+                {viewingEvidenceGroup?.count || 1} đoạn trích · {evidenceTabs.length} bài
               </Badge>
             </div>
             <DialogDescription className="text-xs mt-1">
@@ -1357,24 +1471,27 @@ Lưu ý quan trọng:
 
           {viewingEvidenceGroup && (
             <div className="space-y-3 py-2 text-xs">
-              {/* 1. KHỐI TẠO SẢN PHẨM HOẶC GẮN SP CHUNG Ở NGAY TRÊN ĐẦU */}
+              {/* 1. TẠO SẢN PHẨM / GẮN SP CHO CẢ NHÓM (TASK-17-R2: chỉ còn 1 luồng, prompt AI nằm trong form) */}
               <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-wrap items-center justify-between gap-2.5">
                 <div>
                   <div className="font-bold text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Thao tác nhanh cho gợi ý: <strong>{viewingEvidenceGroup.mentionText}</strong></span>
+                    <span>Thao tác cho gợi ý: <strong>{viewingEvidenceGroup.mentionText}</strong></span>
                   </div>
                   <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
-                    Áp dụng tạo hoặc gắn cho toàn bộ {viewingEvidenceGroup.count} đoạn trích bằng chứng
+                    Tạo SP dùng {evidenceTabs.length - excludedEvidenceTabs.length}/{evidenceTabs.length} bài làm ngữ cảnh và bệnh hại điền sẵn
+                    {excludedEvidenceTabs.length > 0 ? ' (bài đã bỏ không được dùng)' : ''}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     size="sm"
+                    disabled={usableEvidenceItems.length === 0}
                     onClick={() => {
-                      const itm = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
+                      const groupItems = usableEvidenceItems;
+                      const itm = groupItems.find((it) => it.status === 'PENDING') || groupItems[0];
                       setViewingEvidenceGroup(null);
-                      handleOpenCreateMedModal(itm);
+                      handleOpenCreateMedModal(itm, groupItems);
                     }}
                     className="h-7 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs gap-1 shadow-2xs"
                   >
@@ -1385,12 +1502,16 @@ Lưu ý quan trọng:
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      const itm = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
+                      const itm =
+                        usableEvidenceItems.find((it) => it.status === 'PENDING') ||
+                        viewingEvidenceGroup.items.find((it) => it.status === 'PENDING') ||
+                        viewingEvidenceGroup.items[0];
                       setViewingEvidenceGroup(null);
                       setLinkingSuggestion(itm);
                       setSelectedLinkMedId(itm.product_id ?? '');
                     }}
                     className="h-7 px-2.5 text-xs font-semibold bg-background border-emerald-300 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100/50"
+                    title="Gắn vào sản phẩm có sẵn; bệnh của các gợi ý đang chờ được gắn thêm cho sản phẩm"
                   >
                     <LinkIcon className="w-3 h-3 mr-1" />
                     <span>Gắn vào SP có sẵn</span>
@@ -1398,123 +1519,132 @@ Lưu ý quan trọng:
                 </div>
               </div>
 
-              {/* 2. HÀNG TABS CHUYỂN ĐỔI 2-4 ĐOẠN TRÍCH */}
+              {/* 1b. GỢI Ý TRA GOOGLE THEO LOẠI VẬT TƯ & NGỮ CẢNH (TASK-17) */}
+              {(() => {
+                const queries = buildGoogleQueries({
+                  name: viewingEvidenceGroup.mentionText,
+                  kind: viewingEvidenceGroup.kind,
+                  evidences: toResearchEvidences(usableEvidenceItems),
+                });
+                if (!queries.length) return null;
+                return (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="text-muted-foreground inline-flex items-center gap-1">
+                      <Search className="w-3 h-3" />
+                      Tra Google:
+                    </span>
+                    {queries.map((q) => (
+                      <a
+                        key={q.url}
+                        href={q.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={q.query}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100/70 font-medium"
+                      >
+                        <span>{q.label}</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* 2. TABS: MỖI TAB = 1 BÀI + 1 BỆNH (các đoạn cùng bài, cùng bệnh gộp chung) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 border-b border-border pb-1">
                   <span className="text-xs font-semibold text-foreground">
-                    Danh sách các đoạn văn xuất hiện ({viewingEvidenceGroup.count} đoạn):
+                    {viewingEvidenceGroup.count} đoạn trích trong {evidenceTabs.length} bài:
                   </span>
-                  {viewingEvidenceGroup.items.length > 1 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      Bấm từng tab để đọc ngữ cảnh &amp; bệnh mục tiêu riêng
-                    </span>
+                  {evidenceTabs.length > 1 && (
+                    <span className="text-[10px] text-muted-foreground">Bấm từng tab để đọc; bài không liên quan thì bỏ tick</span>
                   )}
                 </div>
 
-                {viewingEvidenceGroup.items.length > 1 && (
+                {evidenceTabs.length > 1 && (
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                    {viewingEvidenceGroup.items.map((item, idx) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setActiveEvidenceTabIdx(idx)}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${
-                          activeEvidenceTabIdx === idx
-                            ? 'bg-emerald-700 text-white shadow-xs'
-                            : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
-                        }`}
-                      >
-                        <span>Đoạn #{idx + 1}</span>
-                        <span className="text-[10px] opacity-80 max-w-[130px] truncate">
-                          ({item.plant_name} - {item.disease_name})
-                        </span>
-                      </button>
-                    ))}
+                    {evidenceTabs.map((tab, idx) => {
+                      const first = tab.items[0];
+                      const excluded = excludedEvidenceTabs.includes(tab.key);
+                      return (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setActiveEvidenceTabIdx(idx)}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${
+                            activeEvidenceTabIdx === idx
+                              ? 'bg-emerald-700 text-white shadow-xs'
+                              : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
+                          } ${excluded ? 'opacity-50 line-through' : ''}`}
+                        >
+                          <span>Bài #{idx + 1}</span>
+                          <span className="text-[10px] opacity-80 max-w-[150px] truncate">
+                            ({first.plant_name} - {first.disease_name}{tab.items.length > 1 ? `, ${tab.items.length} đoạn` : ''})
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* 3. CHI TIẾT ĐOẠN TRÍCH ĐANG CHỌN */}
+                {/* 3. CHI TIẾT BÀI ĐANG CHỌN */}
                 {(() => {
-                  const currentItem = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
-                  if (!currentItem) return null;
+                  const tab = evidenceTabs[activeEvidenceTabIdx] || evidenceTabs[0];
+                  if (!tab) return null;
+                  const first = tab.items[0];
+                  const excluded = excludedEvidenceTabs.includes(tab.key);
                   return (
                     <div className="space-y-2.5 pt-1">
-                      {/* THÔNG TIN NGỮ CẢNH CỦA RIÊNG ĐOẠN NÀY */}
                       <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-secondary/30 border border-border text-xs">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Badge variant="outline" className="text-xs font-medium bg-background">
-                            {currentItem.plant_name} – {currentItem.disease_name}
+                            {first.plant_name} – {first.disease_name}
                           </Badge>
-                          <Badge
-                            variant="outline"
-                            className={
-                              viewingEvidenceGroup.kind === 'CHEMICAL'
-                                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                : viewingEvidenceGroup.kind === 'BIOLOGICAL'
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                  : viewingEvidenceGroup.kind === 'SUPPLY'
-                                    ? 'bg-blue-50 text-blue-800 border-blue-300'
-                                    : 'bg-purple-50 text-purple-800 border-purple-300'
-                            }
-                          >
-                            {viewingEvidenceGroup.kind === 'CHEMICAL'
-                              ? 'Thuốc BVTV hóa học'
-                              : viewingEvidenceGroup.kind === 'BIOLOGICAL'
-                                ? 'Chế phẩm sinh học'
-                                : viewingEvidenceGroup.kind === 'SUPPLY'
-                                  ? 'Vật tư canh tác'
-                                  : 'Biện pháp canh tác'}
+                          <Badge variant="outline" className="text-xs font-medium bg-background">
+                            {KIND_LABEL[viewingEvidenceGroup.kind] || viewingEvidenceGroup.kind}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setViewingEvidenceGroup(null);
-                              handleOpenCreateMedModal(currentItem);
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold hover:underline"
-                            title="Tạo sản phẩm lấy mã bệnh của riêng đoạn này"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Tạo SP từ đoạn này</span>
-                          </button>
-                          <span className="text-muted-foreground">•</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setViewingEvidenceGroup(null);
-                              setLinkingSuggestion(currentItem);
-                              setSelectedLinkMedId(currentItem.product_id ?? '');
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 font-semibold hover:underline"
-                            title="Gắn sản phẩm cho riêng đoạn này"
-                          >
-                            <LinkIcon className="w-3 h-3" />
-                            <span>Gắn SP đoạn này</span>
-                          </button>
-                        </div>
+                        {evidenceTabs.length > 1 && (
+                          <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={!excluded}
+                              onChange={(e) =>
+                                setExcludedEvidenceTabs((prev) =>
+                                  e.target.checked ? prev.filter((k) => k !== tab.key) : [...prev, tab.key]
+                                )
+                              }
+                            />
+                            <span>{excluded ? 'Không dùng bài này' : 'Dùng bài này'}</span>
+                          </label>
+                        )}
                       </div>
 
-                      {/* VĂN BẢN ĐOẠN TRÍCH NGUYÊN VĂN */}
-                      <div className="p-3.5 bg-muted/30 rounded-xl border border-border space-y-1.5">
-                        <div className="text-[11px] font-semibold text-muted-foreground flex items-center justify-between">
-                          <span>Nội dung đoạn văn trích xuất (Đoạn #{activeEvidenceTabIdx + 1}/{viewingEvidenceGroup.count}):</span>
-                          <span className="font-mono text-[10px]">{currentItem.evidence_text.length} ký tự</span>
-                        </div>
-                        <div className="text-xs leading-relaxed text-foreground whitespace-pre-line p-3 bg-background rounded-lg border border-border">
-                          {cleanEvidencePreview(currentItem.evidence_text)}
-                        </div>
+                      <div className={`p-3.5 bg-muted/30 rounded-xl border border-border space-y-2 ${excluded ? 'opacity-50' : ''}`}>
+                        {tab.items.map((item, i) => (
+                          <div key={item.id} className="space-y-1">
+                            {tab.items.length > 1 && (
+                              <div className="text-[11px] font-semibold text-muted-foreground">
+                                Đoạn {i + 1}/{tab.items.length}
+                              </div>
+                            )}
+                            <div className="text-xs leading-relaxed text-foreground whitespace-pre-line p-3 bg-background rounded-lg border border-border">
+                              <HighlightedText
+                                text={excerptAroundMention(item.evidence_text || '', viewingEvidenceGroup.mentionText, 100000)}
+                                mention={viewingEvidenceGroup.mentionText}
+                              />
+                            </div>
+                          </div>
+                        ))}
                       </div>
 
-                      {/* NGUỒN BÀI BÁO KHOA HỌC */}
-                      {currentItem.source_url && (
+                      {first.source_url && (
                         <div className="p-2.5 bg-secondary/30 rounded-lg border border-border text-[11px] flex items-center justify-between">
                           <span className="text-muted-foreground truncate">
-                            Nguồn: <strong>{currentItem.source_title || 'Bài viết gốc'}</strong>
+                            Nguồn: <strong>{first.source_title || 'Bài viết gốc'}</strong>
                           </span>
                           <a
-                            href={currentItem.source_url}
+                            href={first.source_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-primary hover:underline shrink-0 ml-2 font-medium"
@@ -1614,8 +1744,8 @@ Lưu ý quan trọng:
                 </Button>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                1. Dán Link sản phẩm bên dưới $\rightarrow$ Bấm <strong>Sao chép Prompt</strong> rồi dán vào Gemini Web (Gemini Advanced).<br />
-                2. Copy đoạn JSON kết quả Gemini trả về rồi dán vào ô bên dưới $\rightarrow$ Bấm <strong>Điền form từ Gemini</strong>.
+                1. Bấm <strong>Sao chép Prompt</strong>: prompt đã kèm đoạn trích bài báo (gộp theo bài), tên, link (nếu có) và danh sách mã bệnh → dán vào Gemini / ChatGPT / Claude bản web có tìm kiếm.<br />
+                2. Copy khối JSON AI trả về, dán vào ô bên dưới → bấm <strong>Điền form từ Gemini</strong>. Bệnh hại được <em>gộp thêm</em>, không xóa bệnh đã chọn; link nguồn AI tìm được hiện để bạn chọn.
               </p>
               <div className="space-y-1.5">
                 <Textarea
@@ -1658,22 +1788,49 @@ Lưu ý quan trọng:
                   <label className="font-semibold block text-xs">
                     Link trang sản phẩm / nhãn thuốc (URL)
                   </label>
-                  {newMedName.trim() && (
-                    <a
-                      href={`https://www.google.com/search?q=${encodeURIComponent(
-                        `${newMedName} ${newMedActiveIngredient || ''} nông nghiệp liều dùng`
-                      )}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                      title="Mở Google tìm kiếm trang web bán hoặc nhãn sản phẩm"
-                    >
-                      <Search className="w-3 h-3" />
-                      <span>Tra Google tìm link</span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyLinkSearchPrompt}
+                    disabled={!newMedName.trim() && researchItems.length === 0}
+                    className="h-7 px-2.5 text-[11px] font-semibold gap-1 bg-background border-violet-300 text-violet-800 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                    title="Sao chép prompt nhờ AI bản web (có tìm kiếm) tìm link bài viết / trang nguồn, kèm các đoạn trích bài báo"
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>Tìm link với AI{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
+                  </Button>
                 </div>
+                {(() => {
+                  const queries = buildGoogleQueries({
+                    name: newMedName.trim() || fromSuggestion?.mention_text || '',
+                    activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient,
+                    kind: fromSuggestion?.kind || researchItems[0]?.kind || kindFromMedicineType(newMedType),
+                    evidences: toResearchEvidences(researchItems),
+                  });
+                  if (!queries.length) return null;
+                  return (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="text-muted-foreground inline-flex items-center gap-1">
+                        <Search className="w-3 h-3" />
+                        Tra Google:
+                      </span>
+                      {queries.map((q) => (
+                        <a
+                          key={q.url}
+                          href={q.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={q.query}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100/70 font-medium"
+                        >
+                          <span>{q.label}</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <Input
                   type="url"
                   placeholder="Dán link sản phẩm (Vietchem, Shopee, VTNN, nhãn thuốc)..."
@@ -1681,8 +1838,27 @@ Lưu ý quan trọng:
                   onChange={(e) => setNewMedSourceUrl(e.target.value)}
                   className="text-xs bg-background w-full"
                 />
+                {aiSourceLinks.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-semibold text-violet-800 dark:text-violet-300">Link nguồn AI đề xuất (hãy mở kiểm tra):</div>
+                    {aiSourceLinks.map((u) => (
+                      <div key={u} className="flex items-center gap-2 text-[11px]">
+                        <a href={u} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 dark:text-blue-400 hover:underline flex-1 min-w-0" title={u}>
+                          {u}
+                        </a>
+                        {newMedSourceUrl.trim() === u ? (
+                          <span className="text-emerald-700 dark:text-emerald-400 font-semibold shrink-0">Đang dùng</span>
+                        ) : (
+                          <button type="button" onClick={() => setNewMedSourceUrl(u)} className="text-violet-700 dark:text-violet-300 font-semibold hover:underline shrink-0">
+                            Dùng link này
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-[10px] text-muted-foreground">
-                  Dán link bài viết hoặc trang sản phẩm để hỗ trợ đối chiếu thông tin và lấy link ảnh sản phẩm.
+                  Không bắt buộc. Chưa có link thì dùng các gợi ý Tra Google hoặc bấm <strong>Tìm link với AI</strong>. Muốn AI điền cả form thì dùng chế độ Dev (nút <code>&lt;/&gt;</code>).
                 </p>
               </div>
 

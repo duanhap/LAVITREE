@@ -505,7 +505,9 @@ public class MedicinesController : ControllerBase
             }
         }
 
-        // Cập nhật trạng thái suggestion nếu được tạo từ suggestion (đồng bộ tất cả bản ghi có cùng mention_text)
+        // Cập nhật trạng thái suggestion nếu được tạo từ suggestion (đồng bộ các bản ghi có cùng mention_text).
+        // Chỉ đóng gợi ý có bệnh đã được gắn (hoặc không có bệnh); gợi ý cho cây / bệnh khác giữ PENDING để Admin Gắn SP sau.
+        var keptPending = 0;
         if (dto.SuggestionId.HasValue)
         {
             var suggestion = await _dbContext.ProductSuggestions
@@ -522,8 +524,21 @@ public class MedicinesController : ControllerBase
                     sameSuggestions.Add(suggestion);
                 }
 
+                var attachedCodes = await _dbContext.DiseaseProducts
+                    .Where(dp => dp.ProductId == product.Id)
+                    .Select(dp => dp.Disease.ClassCode.ToLower())
+                    .ToListAsync();
+
                 foreach (var s in sameSuggestions)
                 {
+                    var covered = s.Id == suggestion.Id
+                        || string.IsNullOrWhiteSpace(s.ModelClass)
+                        || attachedCodes.Contains(s.ModelClass.Trim().ToLower());
+                    if (!covered)
+                    {
+                        keptPending++;
+                        continue;
+                    }
                     s.Status = "ADDED";
                     s.ProductId = product.Id;
                     s.ResolvedAt = DateTime.UtcNow;
@@ -542,7 +557,8 @@ public class MedicinesController : ControllerBase
             phi_days = product.PhiDays,
             availability = product.Availability,
             is_allowed = product.IsAllowed,
-            stock_quantity = product.StockQuantity
+            stock_quantity = product.StockQuantity,
+            suggestions_kept_pending = keptPending
         });
     }
 
