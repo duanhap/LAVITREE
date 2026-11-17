@@ -30,7 +30,8 @@ public static class QuoteMatcher
     private static readonly Regex Spaces = new(@"[ \t\f\v ]+", RegexOptions.Compiled);
     // Chữ và số tách riêng: "m2" = "m 2", "10kg" = "10 kg" (trang hay viết "m²", Gemini viết "m2")
     private static readonly Regex Token = new(@"\p{L}+|\p{N}+", RegexOptions.Compiled);
-    private static readonly Regex Number = new(@"\d+(?:[.,]\d+)?", RegexOptions.Compiled);
+    // Bỏ số dính sau chữ cái (m2, CaCO3): đó là đơn vị / công thức, không phải liều
+    private static readonly Regex Number = new(@"(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?", RegexOptions.Compiled);
 
     /// <summary>HTML → chữ thuần (bỏ script/style/comment, thẻ khối thành xuống dòng, giải mã &amp;...).</summary>
     public static string HtmlToText(string html)

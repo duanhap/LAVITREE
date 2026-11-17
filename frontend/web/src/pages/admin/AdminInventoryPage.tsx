@@ -528,7 +528,16 @@ export const AdminInventoryPage: React.FC = () => {
     const identified = str(data.identified_as).toUpperCase();
     const note = str(data.identification_note);
     const aiNoteList: { title: string; text: string }[] = [];
-    if (str(data.scope_note)) aiNoteList.push({ title: 'Số liệu', text: str(data.scope_note) });
+    const scopeNote = str(data.scope_note);
+    if (/KH[ÔO]NG T[ÌI]M [ĐD][ƯU][ỢO]C WEB/i.test(scopeNote)) {
+      // Gemini bản web có lúc hết lượt / không bật Google Search → mọi con số để trống
+      aiNoteList.push({
+        title: 'Gemini không tìm được web',
+        text: 'Chưa có nguồn nên liều lượng để trống. Mở cuộc trò chuyện Gemini mới (hoặc đổi chế độ) rồi dán lại prompt, hoặc dùng các nút Tra Google ở trên.',
+      });
+    } else if (scopeNote) {
+      aiNoteList.push({ title: 'Số liệu', text: scopeNote });
+    }
     if (identified === 'HOMEMADE') aiNoteList.push({ title: 'Chế phẩm tự pha', text: note });
     else if (identified === 'PRACTICE') aiNoteList.push({ title: 'Là biện pháp, không phải vật tư', text: note || 'Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm.' });
     else if (identified === 'SEED') aiNoteList.push({ title: 'Giống cây / hạt giống', text: note });

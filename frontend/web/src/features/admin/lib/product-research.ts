@@ -355,7 +355,23 @@ export const buildProductResearchPrompt = (opts: {
         .join('\n')}\n`
     : '';
 
-  return `Bạn là kỹ sư bảo vệ thực vật, chuyên về vật tư nông nghiệp và thuốc BVTV đang lưu hành TẠI VIỆT NAM. Bạn giúp Admin dự án LAVITREE nhập danh mục vật tư cho trợ lý tư vấn nông dân Việt Nam. Thông tin bạn tổng hợp sẽ được dùng để tư vấn và để LÊN LỊCH PHUN / NHẮC NHỞ cho nông dân, nên phải đầy đủ, cụ thể và có nguồn.
+  // Bước tìm Google đặt ĐẦU prompt, kèm sẵn truy vấn (TASK-18-R6): prompt dài + "không tìm được thì ghi..." làm Gemini bản web
+  // bỏ qua bước tìm và trả "KHÔNG TÌM ĐƯỢC WEB", trong khi câu hỏi ngắn cùng nội dung vẫn tìm ra nguồn.
+  // Bỏ phần trong ngoặc ("Vôi bột nông nghiệp (CaCO3 hoặc CaO)" → "Vôi bột nông nghiệp") cho truy vấn gọn
+  const searchName = (opts.currentName || mention).replace(/\s*\([^)]*\)/g, '').trim() || mention;
+  const cropQ = plants[0] ? ` ${plants[0].toLowerCase()}` : '';
+  const doseHint = opts.kind === 'CHEMICAL' || opts.kind === 'BIOLOGICAL' ? 'liều lượng pha bình 16 lít' : 'liều lượng kg/sào';
+  // Dòng ĐẦU TIÊN là câu tìm kiếm ngắn, tự nhiên (dạng Gemini chắc chắn bật Google Search); vai trò + quy tắc để sau
+  const searchBlock = [
+    `Tìm trên Google: ${searchName}${cropQ} ${doseHint} và cách sử dụng tại Việt Nam. Đọc 2–5 trang Việt Nam (khuyến nông, nhà sản xuất, cửa hàng vật tư)${opts.sourceUrl ? ` và trang ${opts.sourceUrl}` : ''}, ghi lại link và câu nguyên văn có con số. Gợi ý truy vấn thêm: "${searchName} cách sử dụng${cropQ}", "${searchName}${cropQ} khuyến nông".`,
+    ``,
+    `Sau khi đã tìm, trình bày kết quả theo yêu cầu dưới đây. Mọi con số phải lấy từ các trang đã tìm, kèm link và đoạn trích nguyên văn (mục 4.2).`,
+  ].join('\n');
+
+  return `${searchBlock}
+
+## Vai trò
+Bạn là kỹ sư bảo vệ thực vật, chuyên về vật tư nông nghiệp và thuốc BVTV đang lưu hành TẠI VIỆT NAM. Bạn giúp Admin dự án LAVITREE nhập danh mục vật tư cho trợ lý tư vấn nông dân Việt Nam. Thông tin bạn tổng hợp sẽ được dùng để tư vấn và để LÊN LỊCH PHUN / NHẮC NHỞ cho nông dân, nên phải đầy đủ, cụ thể và có nguồn.
 
 ## 1. Vật tư cần tra cứu
 ${known}
@@ -371,7 +387,7 @@ ${evidenceBlock}
    - SUPPLY: vật tư, dụng cụ, phân bón, vôi, bẫy, lưới, bạt.
    - PRACTICE: biện pháp canh tác, không phải vật tư.
    Nếu các đoạn trích nói về những thứ KHÁC NHAU, đặt "mentions_differ": true, giải thích trong "differ_note" và điền theo nghĩa xuất hiện nhiều nhất.
-2. DÙNG GOOGLE SEARCH để tìm trên web và tổng hợp từ 2–5 nguồn TẠI VIỆT NAM (bài báo ở mục 2 không tính là nguồn số liệu nếu nó không ghi con số). Nếu không tìm web được, ghi đúng câu "KHÔNG TÌM ĐƯỢC WEB" vào scope_note và để mọi con số null, ưu tiên: ${preferredSources(opts.kind, ctx)}. Bám sát cây / bệnh trong đoạn trích (${cropText}).
+2. Tổng hợp từ 2–5 nguồn TẠI VIỆT NAM đã tìm ở dòng đầu (bài báo ở mục 2 không tính là nguồn số liệu nếu nó không ghi con số), ưu tiên: ${preferredSources(opts.kind, ctx)}. Bám sát cây / bệnh trong đoạn trích (${cropText}). Chỉ khi đã tìm thật mà không trang nào ghi con số, mới ghi "KHÔNG TÌM ĐƯỢC WEB" vào scope_note và để các con số null.
    Tìm ĐÚNG loại vật tư như bài mô tả${keySentences.length ? ' (mục 1b)' : ''}, cụ thể nhất có thể (ví dụ "phân bò hoai mục" khác "phân hữu cơ đóng bao", "Trichoderma dạng bột" khác "chế phẩm vi sinh" chung). Nguồn chỉ nói về loại RỘNG hơn hoặc KHÁC (ví dụ "phân hữu cơ" nói chung, bài về phân NPK) thì KHÔNG lấy số liệu của nguồn đó cho usage; nếu buộc phải dùng thì ghi rõ trong "scope_note".
 3. Tổng hợp ĐẦY ĐỦ cách dùng thực tế để lên lịch: liều lượng và lượng nước pha, lượng phun trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng (sáng sớm / chiều mát…), mấy lần một ngày, cách nhau bao nhiêu ngày, tối đa mấy lần một vụ, bắt đầu khi nào, ngừng khi nào, điều kiện thời tiết (không phun khi sắp mưa, nắng gắt…), thời gian cách ly trước thu hoạch, bảo hộ an toàn.
 4. Trả lời theo ĐÚNG thứ tự ở mục 4: khối \`\`\`json trước, sau đó danh sách nguồn và ảnh. Không viết lời dẫn trước khối JSON.
@@ -419,7 +435,7 @@ ${evidenceBlock}
 ### 4.2. Sau khối JSON: danh sách nguồn và ảnh
 ## Nguồn đã dùng
 1. <URL> — <loại trang: nhãn thuốc / nhà sản xuất / khuyến nông / báo…> — <năm đăng nếu có> — "<đoạn COPY NGUYÊN VĂN 5–20 chữ trên trang, có chứa con số bạn đã dùng>"
-(Mỗi con số trong usage và phi_days phải có ít nhất 1 đoạn trích. Đoạn trích phải COPY y hệt chữ trên trang: không viết lại, không gộp 2 câu, không thêm "Lượng bón:", không đổi đơn vị. Chỉ trích đoạn ngắn quanh con số, giữ nguyên cả lỗi chính tả / khoảng trắng của trang. Mỗi đoạn trích 1 dòng riêng; một link có nhiều đoạn thì lặp lại link ở dòng mới. Không trích được thì để con số đó null. Hệ thống sẽ tự tải trang để so khớp từng đoạn trích.)
+(Mỗi con số trong usage và phi_days phải có ít nhất 1 đoạn trích. Đoạn trích phải COPY y hệt chữ trên trang: không viết lại, không gộp 2 câu, không thêm "Lượng bón:", không đổi đơn vị. Chỉ trích đoạn ngắn quanh con số, giữ nguyên cả lỗi chính tả / khoảng trắng của trang. Link để trần, KHÔNG đặt link trong ngoặc kép; ngoặc kép chỉ dành cho đoạn chữ trích từ trang. Mỗi đoạn trích 1 dòng riêng; một link có nhiều đoạn thì lặp lại link ở dòng mới. Không trích được thì để con số đó null. Hệ thống sẽ tự tải trang để so khớp từng đoạn trích.)
 ## Ảnh sản phẩm
 1. <link ảnh trực tiếp .jpg / .png / .webp> — lấy từ <URL trang>
 
@@ -476,7 +492,10 @@ export const extractSourceQuotes = (raw: string): SourceQuote[] => {
   for (const line of tail.split(/\r?\n/)) {
     const url = (line.match(/https?:\/\/[^\s<>"'()\]]+/) || [])[0]?.replace(/[.,;:]+$/, '');
     if (!url) continue;
-    const quotes = [...line.matchAll(/"([^"]{8,})"|“([^”]{8,})”/g)].map((m) => (m[1] || m[2]).trim());
+    // Bỏ "câu trích" thực ra là link (Gemini hay để link trong ngoặc kép) — đó không phải chữ trên trang
+    const quotes = [...line.matchAll(/"([^"]{8,})"|“([^”]{8,})”/g)]
+      .map((m) => (m[1] || m[2]).trim())
+      .filter((q) => !/https?:\/\/|www\./i.test(q));
     for (const q of quotes) {
       const key = `${url}##${q}`;
       if (seen.has(key)) continue;

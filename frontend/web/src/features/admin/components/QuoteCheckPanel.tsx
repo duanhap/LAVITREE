@@ -100,6 +100,13 @@ export const QuoteCheckPanel: React.FC<Props> = ({ links, quotes }) => {
   const described = results?.map(describeResult) ?? [];
   const bad = described.filter((d) => d.tone === 'bad').length;
   const okCount = described.filter((d) => d.tone === 'ok').length;
+  // Chỉ đếm mục có câu trích; mục chỉ có link ("Trang mở được") không tính là khớp hay lệch
+  const quotedCount = results ? items.filter((it, i) => it.quote && results[i]).length : 0;
+  const summaryCls = bad
+    ? 'text-destructive'
+    : okCount === quotedCount
+      ? 'text-emerald-700 dark:text-emerald-400'
+      : 'text-amber-700 dark:text-amber-400';
 
   return (
     <div className="space-y-1.5 pt-1">
@@ -117,8 +124,10 @@ export const QuoteCheckPanel: React.FC<Props> = ({ links, quotes }) => {
 
       {error && <div className="text-[11px] text-destructive">{error}</div>}
       {results && (
-        <div className={`text-[11px] font-semibold ${bad ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-400'}`}>
-          {okCount}/{results.length} khớp trang nguồn{bad ? ` · ${bad} sai số liệu, đừng dùng số đó` : ''}
+        <div className={`text-[11px] font-semibold ${summaryCls}`}>
+          {quotedCount === 0
+            ? 'Gemini không đưa câu trích, hãy tự mở link xem số liệu'
+            : `${okCount}/${quotedCount} câu trích khớp trang nguồn${bad ? ` · ${bad} sai số liệu, đừng dùng số đó` : ''}`}
         </div>
       )}
 
