@@ -389,11 +389,19 @@ public class CreateProductRequestDto
     [JsonPropertyName("target_disease_code")]
     public string? TargetDiseaseCode { get; set; }
 
+    /// <summary>Nhiều bệnh hại mục tiêu (ClassCode); gộp chung với target_disease_code.</summary>
+    [JsonPropertyName("target_diseases")]
+    public List<string>? TargetDiseases { get; set; }
+
     [JsonPropertyName("suggestion_id")]
     public int? SuggestionId { get; set; }
 
     [JsonPropertyName("is_allowed")]
     public bool IsAllowed { get; set; } = false;
+
+    /// <summary>Phiếu cách dùng có cấu trúc (TASK-18); null hoặc phiếu rỗng = không lưu.</summary>
+    [JsonPropertyName("usage_profile")]
+    public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
 }
 
 public class AgentReindexRequest
@@ -403,6 +411,51 @@ public class AgentReindexRequest
 
     [JsonPropertyName("action")]
     public string Action { get; set; } = "approve"; // approve | unapprove | delete | manual
+}
+
+/// <summary>TASK-18-R4: kiểm tra câu trích nguyên văn có trong trang nguồn không.</summary>
+public class VerifyQuotesRequestDto
+{
+    [Required]
+    [JsonPropertyName("items")]
+    public List<VerifyQuoteItemDto> Items { get; set; } = new();
+}
+
+public class VerifyQuoteItemDto
+{
+    [Required]
+    [MaxLength(1000)]
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [MaxLength(1000)]
+    [JsonPropertyName("quote")]
+    public string? Quote { get; set; }
+}
+
+public class VerifyQuoteResultDto
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("quote")]
+    public string? Quote { get; set; }
+
+    /// <summary>FOUND | PARTIAL | NOT_FOUND | NO_QUOTE (trang mở được, không có câu trích) | FETCH_FAILED | INVALID_URL</summary>
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [JsonPropertyName("score")]
+    public double Score { get; set; }
+
+    [JsonPropertyName("page_snippet")]
+    public string? PageSnippet { get; set; }
+
+    [JsonPropertyName("missing_numbers")]
+    public List<string> MissingNumbers { get; set; } = new();
+
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
 }
 
 public class FetchUrlRequestDto

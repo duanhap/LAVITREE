@@ -117,7 +117,8 @@ public class MedicinesController : ControllerBase
                     TargetDiseases = p.DiseaseProducts
                         .Where(dp => dp.Disease != null)
                         .Select(dp => dp.Disease.ClassCode)
-                        .ToList()
+                        .ToList(),
+                    UsageProfile = p.UsageProfile
                 }).ToList();
             }
             else
@@ -302,6 +303,22 @@ public class MedicinesController : ControllerBase
     private static bool IsHttpUrl(string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
+    /// <summary>Chuẩn hóa + kiểm tra phiếu cách dùng (TASK-18). Phiếu rỗng → null. Lỗi → error khác null.</summary>
+    private static Lavitree.Domain.Entities.UsageProfile? PrepareUsageProfile(Lavitree.Domain.Entities.UsageProfile? profile, out string? error)
+    {
+        error = null;
+        if (profile == null) return null;
+        profile.Normalize();
+        if (profile.IsEmpty) return null;
+        var errors = profile.Validate();
+        if (errors.Count > 0)
+        {
+            error = "Phiếu cách dùng không hợp lệ: " + string.Join(" ", errors);
+            return null;
+        }
+        return profile;
+    }
+
     public static bool IsBannedIngredient(string? ingredient)
     {
         if (string.IsNullOrWhiteSpace(ingredient)) return false;
@@ -352,6 +369,9 @@ public class MedicinesController : ControllerBase
 
         [JsonPropertyName("target_diseases")]
         public List<string> TargetDiseases { get; set; } = new();
+
+        [JsonPropertyName("usage_profile")]
+        public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
     }
 
     public class UpdateMedicineDto
@@ -385,6 +405,18 @@ public class MedicinesController : ControllerBase
 
         [JsonPropertyName("medicine_type")]
         public string? MedicineType { get; set; }
+
+        /// <summary>null = giữ nguyên; "" = gỡ ảnh; còn lại phải là http(s).</summary>
+        [JsonPropertyName("image_url")]
+        public string? ImageUrl { get; set; }
+
+        /// <summary>null = giữ nguyên; danh sách (kể cả rỗng) = thay toàn bộ liên kết bệnh hại theo ClassCode.</summary>
+        [JsonPropertyName("target_diseases")]
+        public List<string>? TargetDiseases { get; set; }
+
+        /// <summary>null = giữ nguyên; phiếu (kể cả rỗng {}) = thay toàn bộ, phiếu rỗng = xóa phiếu.</summary>
+        [JsonPropertyName("usage_profile")]
+        public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
     }
 
     /// <summary>
@@ -448,6 +480,12 @@ public class MedicinesController : ControllerBase
             phiDays = dto.PhiDays.Value;
         }
 
+        var usageProfile = PrepareUsageProfile(dto.UsageProfile, out var usageError);
+        if (usageError != null)
+        {
+            return BadRequest(new { detail = usageError });
+        }
+
         var product = new Lavitree.Domain.Entities.Product
         {
             Name = dto.Name.Trim(),
@@ -462,6 +500,7 @@ public class MedicinesController : ControllerBase
             StockQuantity = dto.StockQuantity,
             Availability = availability,
             InfoSourceUrl = infoSourceUrl,
+            UsageProfile = usageProfile,
             IsAllowed = dto.IsAllowed && !IsBannedIngredient(dto.ActiveIngredient),
             RainResistant = false,
             CreatedAt = DateTime.UtcNow,
@@ -471,23 +510,35 @@ public class MedicinesController : ControllerBase
         _dbContext.Products.Add(product);
         await _dbContext.SaveChangesAsync();
 
-        // Gắn với bệnh mục tiêu nếu có
-        if (!string.IsNullOrWhiteSpace(dto.TargetDiseaseCode))
+        // Gắn với các bệnh mục tiêu (target_diseases, giữ tương thích target_disease_code cũ)
+        var targetCodes = (dto.TargetDiseases ?? new List<string>())
+            .Append(dto.TargetDiseaseCode ?? string.Empty)
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim().ToLower())
+            .Distinct()
+            .ToList();
+        if (targetCodes.Count > 0)
         {
-            var disease = await _dbContext.Diseases
-                .FirstOrDefaultAsync(d => d.ClassCode.ToLower() == dto.TargetDiseaseCode.Trim().ToLower());
-            if (disease != null)
+            var diseases = await _dbContext.Diseases
+                .Where(d => targetCodes.Contains(d.ClassCode.ToLower()))
+                .ToListAsync();
+            foreach (var disease in diseases)
             {
                 _dbContext.DiseaseProducts.Add(new Lavitree.Domain.Entities.DiseaseProduct
                 {
                     DiseaseId = disease.Id,
                     ProductId = product.Id
                 });
+            }
+            if (diseases.Count > 0)
+            {
                 await _dbContext.SaveChangesAsync();
             }
         }
 
-        // Cập nhật trạng thái suggestion nếu được tạo từ suggestion (đồng bộ tất cả bản ghi có cùng mention_text)
+        // Cập nhật trạng thái suggestion nếu được tạo từ suggestion (đồng bộ các bản ghi có cùng mention_text).
+        // Chỉ đóng gợi ý có bệnh đã được gắn (hoặc không có bệnh); gợi ý cho cây / bệnh khác giữ PENDING để Admin Gắn SP sau.
+        var keptPending = 0;
         if (dto.SuggestionId.HasValue)
         {
             var suggestion = await _dbContext.ProductSuggestions
@@ -504,8 +555,21 @@ public class MedicinesController : ControllerBase
                     sameSuggestions.Add(suggestion);
                 }
 
+                var attachedCodes = await _dbContext.DiseaseProducts
+                    .Where(dp => dp.ProductId == product.Id)
+                    .Select(dp => dp.Disease.ClassCode.ToLower())
+                    .ToListAsync();
+
                 foreach (var s in sameSuggestions)
                 {
+                    var covered = s.Id == suggestion.Id
+                        || string.IsNullOrWhiteSpace(s.ModelClass)
+                        || attachedCodes.Contains(s.ModelClass.Trim().ToLower());
+                    if (!covered)
+                    {
+                        keptPending++;
+                        continue;
+                    }
                     s.Status = "ADDED";
                     s.ProductId = product.Id;
                     s.ResolvedAt = DateTime.UtcNow;
@@ -524,7 +588,9 @@ public class MedicinesController : ControllerBase
             phi_days = product.PhiDays,
             availability = product.Availability,
             is_allowed = product.IsAllowed,
-            stock_quantity = product.StockQuantity
+            stock_quantity = product.StockQuantity,
+            usage_profile = product.UsageProfile,
+            suggestions_kept_pending = keptPending
         });
     }
 
@@ -638,17 +704,88 @@ public class MedicinesController : ControllerBase
             product.MedicineType = medicineType;
         }
 
+        if (dto.ImageUrl != null)
+        {
+            var img = dto.ImageUrl.Trim();
+            // Ảnh lưu đường dẫn tương đối (MinIO) được GET trả về dạng tuyệt đối; gửi lại y nguyên = không đổi.
+            if (img.Length > 0 && img == FormatImageUrl(product.ImageUrl ?? string.Empty))
+            {
+                // giữ nguyên
+            }
+            else if (img.Length > 0 && !IsHttpUrl(img))
+            {
+                return BadRequest(new { detail = "Ảnh sản phẩm phải là địa chỉ http(s) hợp lệ." });
+            }
+            else
+            {
+                product.ImageUrl = img.Length > 0 ? img : null;
+            }
+        }
+
+        if (dto.UsageProfile != null)
+        {
+            var usageProfile = PrepareUsageProfile(dto.UsageProfile, out var usageError);
+            if (usageError != null)
+            {
+                return BadRequest(new { detail = usageError });
+            }
+            product.UsageProfile = usageProfile;
+        }
+
         // Đổi vật tư thành thuốc mà chưa có PHI: báo lỗi rõ thay vì để CHECK constraint ném 500
         if (product.MedicineType != FarmingSupplyType && !product.PhiDays.HasValue)
         {
             return BadRequest(new { detail = "Thuốc hóa học/sinh học bắt buộc có thời gian cách ly (phi_days)." });
         }
+        // Vật tư canh tác không có PHI (khớp CHECK constraint và cách tạo mới)
+        if (product.MedicineType == FarmingSupplyType)
+        {
+            product.PhiDays = null;
+        }
+
+        // Thay toàn bộ liên kết bệnh hại khi client gửi target_diseases
+        if (dto.TargetDiseases != null)
+        {
+            var codes = dto.TargetDiseases
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Select(c => c.Trim().ToLower())
+                .Distinct()
+                .ToList();
+            var wanted = await _dbContext.Diseases
+                .Where(d => codes.Contains(d.ClassCode.ToLower()))
+                .ToListAsync();
+            if (wanted.Count != codes.Count)
+            {
+                var found = wanted.Select(d => d.ClassCode.ToLower()).ToHashSet();
+                var missing = string.Join(", ", codes.Where(c => !found.Contains(c)));
+                return BadRequest(new { detail = $"Không tìm thấy bệnh hại: {missing}." });
+            }
+            var wantedIds = wanted.Select(d => d.Id).ToHashSet();
+            var current = await _dbContext.DiseaseProducts.Where(dp => dp.ProductId == product.Id).ToListAsync();
+            _dbContext.DiseaseProducts.RemoveRange(current.Where(dp => !wantedIds.Contains(dp.DiseaseId)));
+            var currentIds = current.Select(dp => dp.DiseaseId).ToHashSet();
+            foreach (var diseaseId in wantedIds.Where(id => !currentIds.Contains(id)))
+            {
+                _dbContext.DiseaseProducts.Add(new Lavitree.Domain.Entities.DiseaseProduct
+                {
+                    DiseaseId = diseaseId,
+                    ProductId = product.Id
+                });
+            }
+        }
 
         product.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
 
+        var targetDiseases = await _dbContext.DiseaseProducts
+            .Where(dp => dp.ProductId == product.Id && dp.Disease != null)
+            .Select(dp => dp.Disease.ClassCode)
+            .ToListAsync();
+
         return Ok(new
         {
+            image_url = FormatImageUrl(product.ImageUrl ?? string.Empty),
+            target_diseases = targetDiseases,
             id = product.Id,
             name = product.Name,
             active_ingredient = product.ActiveIngredient,
@@ -660,6 +797,7 @@ public class MedicinesController : ControllerBase
             availability = product.Availability,
             info_source_url = product.InfoSourceUrl,
             medicine_type = product.MedicineType,
+            usage_profile = product.UsageProfile,
             updated_at = product.UpdatedAt
         });
     }

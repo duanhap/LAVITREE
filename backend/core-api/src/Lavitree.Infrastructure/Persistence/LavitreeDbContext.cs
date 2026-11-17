@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System.Text.Json;
 using Lavitree.Domain.Entities;
 using Lavitree.Domain.Common;
 using System;
@@ -37,6 +39,16 @@ public class LavitreeDbContext : DbContext
             entity.Property(e => e.MedicineType).HasMaxLength(50).HasDefaultValue("Hóa học");
             entity.Property(e => e.InfoSourceUrl).HasMaxLength(500);
             entity.Property(e => e.ActiveIngredient).HasMaxLength(200);
+            // Phiếu cách dùng (TASK-18): jsonb, chuyển đổi bằng System.Text.Json, so sánh theo nội dung JSON
+            entity.Property(e => e.UsageProfile)
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => string.IsNullOrWhiteSpace(v) ? null : JsonSerializer.Deserialize<UsageProfile>(v, (JsonSerializerOptions?)null),
+                    new ValueComparer<UsageProfile?>(
+                        (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
+                        v => v == null ? 0 : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+                        v => v == null ? null : JsonSerializer.Deserialize<UsageProfile>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null), (JsonSerializerOptions?)null)));
             entity.ToTable(t =>
             {
                 // Chỉ vật tư canh tác (lưới, bẫy...) được thiếu PHI; thuốc hóa học/sinh học bắt buộc có PHI

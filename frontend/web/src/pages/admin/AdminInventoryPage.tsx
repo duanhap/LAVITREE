@@ -16,6 +16,8 @@ import {
   Code2,
   Copy,
   ImageOff,
+  Pencil,
+  Bot,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -34,7 +36,21 @@ import {
 } from '@/components/ui/dialog';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import type { MedicineItem, ProductSuggestionItem } from '@/features/admin/types';
-import { isSafeHttpUrl, isIngredientBanned, cleanEvidencePreview } from '@/features/admin/lib';
+import {
+  isSafeHttpUrl,
+  isIngredientBanned,
+  excerptAroundMention,
+  buildGoogleQueries,
+  buildProductResearchPrompt,
+  buildLinkSearchPrompt,
+  mergeEvidencesByArticle,
+  MAX_PROMPT_EVIDENCES,
+  parseProductResearchJson,
+  kindFromMedicineType,
+  KIND_LABEL,
+  type ResearchEvidence,
+} from '@/features/admin/lib';
+import { HighlightedText } from '@/features/admin/components/HighlightedText';
 import { useDiseaseOptions } from '@/features/admin/hooks';
 
 interface EvidenceModalGroup {
@@ -71,8 +87,8 @@ export const AdminInventoryPage: React.FC = () => {
   const [medicines, setMedicines] = useState<MedicineItem[]>([]);
   const [loadingMedicines, setLoadingMedicines] = useState<boolean>(false);
   const [medSearch, setMedSearch] = useState<string>('');
-  const [editingMed, setEditingMed] = useState<MedicineItem | null>(null);
-  const [medSaving, setMedSaving] = useState<boolean>(false);
+  // Sửa sản phẩm dùng chung modal Tạo sản phẩm: editingMedId != null = đang sửa sản phẩm có id này
+  const [editingMedId, setEditingMedId] = useState<number | null>(null);
 
   // Gợi ý vật tư từ bài báo (Task-15 Phase 3)
   const [suggestions, setSuggestions] = useState<ProductSuggestionItem[]>([]);
@@ -101,17 +117,37 @@ export const AdminInventoryPage: React.FC = () => {
   const [newMedSourceUrl, setNewMedSourceUrl] = useState<string>('');
   const [newMedImageUrl, setNewMedImageUrl] = useState<string>('');
   const [newMedDescription, setNewMedDescription] = useState<string>('');
-  const [newMedTargetDisease, setNewMedTargetDisease] = useState<string>('Tomato___Late_blight');
+  const [newMedTargetDiseases, setNewMedTargetDiseases] = useState<string[]>([]);
   const [newMedIsAllowed, setNewMedIsAllowed] = useState<boolean>(false);
   const [creatingMed, setCreatingMed] = useState<boolean>(false);
   const [showDevMode, setShowDevMode] = useState<boolean>(false);
   const [devGeminiInput, setDevGeminiInput] = useState<string>('');
   const [medImageFailed, setMedImageFailed] = useState<boolean>(false);
+  // TASK-17: các đoạn trích làm ngữ cảnh cho prompt AI / gợi ý Google của form, và link nguồn AI đề xuất
+  const [researchItems, setResearchItems] = useState<ProductSuggestionItem[]>([]);
+  const [aiSourceLinks, setAiSourceLinks] = useState<string[]>([]);
 
   // Chế độ hiển thị Gợi ý vật tư: 'grouped' (Gộp theo tên vật tư chống trùng lặp) vs 'all' (Từng dòng)
   const [suggestionsViewMode, setSuggestionsViewMode] = useState<'grouped' | 'all'>('grouped');
   const [viewingEvidenceGroup, setViewingEvidenceGroup] = useState<EvidenceModalGroup | null>(null);
   const [activeEvidenceTabIdx, setActiveEvidenceTabIdx] = useState<number>(0);
+  // Tab trong modal = 1 bài + 1 bệnh (các đoạn trích cùng bài, cùng bệnh gộp chung). Bài bị bỏ không dùng cho Tạo SP / prompt.
+  const [excludedEvidenceTabs, setExcludedEvidenceTabs] = useState<string[]>([]);
+  useEffect(() => setExcludedEvidenceTabs([]), [viewingEvidenceGroup]);
+  const evidenceTabs = useMemo(() => {
+    if (!viewingEvidenceGroup) return [];
+    const tabs: { key: string; items: ProductSuggestionItem[] }[] = [];
+    viewingEvidenceGroup.items.forEach((it) => {
+      // mỗi đoạn trích là 1 KnowledgeSource riêng → "cùng bài" so theo link / tiêu đề bài
+      const article = (it.source_url || '').trim() || (it.source_title || '').trim() || it.knowledge_source_id || String(it.id);
+      const key = `${article}##${it.model_class || `${it.plant_name}|${it.disease_name}`}`;
+      const tab = tabs.find((t) => t.key === key);
+      if (tab) tab.items.push(it);
+      else tabs.push({ key, items: [it] });
+    });
+    return tabs;
+  }, [viewingEvidenceGroup]);
+  const usableEvidenceItems = evidenceTabs.filter((t) => !excludedEvidenceTabs.includes(t.key)).flatMap((t) => t.items);
   const [descPreviewMode, setDescPreviewMode] = useState<boolean>(false);
 
   // Load kho thuốc & gợi ý khi vào trang
@@ -154,51 +190,40 @@ export const AdminInventoryPage: React.FC = () => {
     }
   };
 
-  const handleSaveMedicineEdit = async () => {
-    if (!editingMed) return;
+  // Mô tả sản phẩm được lưu gộp vào dosage_instruction dạng "Mô tả: <mô tả>\n<liều dùng>" (xem submit) → tách lại khi sửa
+  const splitDescriptionFromDosage = (text: string): { description: string; dosage: string } => {
+    const t = (text || '').replace(/\r\n/g, '\n');
+    if (!t.startsWith('Mô tả:')) return { description: '', dosage: t.trim() };
+    const body = t.slice('Mô tả:'.length).trim();
+    const lastNl = body.lastIndexOf('\n');
+    if (lastNl === -1) return { description: body, dosage: '' };
+    return { description: body.slice(0, lastNl).trim(), dosage: body.slice(lastNl + 1).trim() };
+  };
 
-    if (!editingMed.name.trim()) {
-      toast.error('Vui lòng nhập tên sản phẩm.');
-      return;
-    }
-
-    const isSupply = editingMed.medicine_type === 'Vật tư canh tác';
-    if (isIngredientBanned(editingMed.name) || (!isSupply && isIngredientBanned(editingMed.active_ingredient))) {
-      toast.error('Tên hoặc hoạt chất thuộc danh mục thuốc BVTV cấm sử dụng tại Việt Nam.');
-      return;
-    }
-
-    if (!isSupply && (editingMed.phi_days === null || editingMed.phi_days === undefined)) {
-      toast.error('Thuốc hóa học/sinh học bắt buộc có thời gian cách ly (PHI).');
-      return;
-    }
-
-    try {
-      setMedSaving(true);
-      const res = await apiClient.patch(`/medicines/${editingMed.id}`, {
-        name: editingMed.name.trim(),
-        active_ingredient: isSupply ? null : (editingMed.active_ingredient?.trim() || null),
-        dosage_instruction: editingMed.dosage_instruction?.trim() || (isSupply ? 'Sử dụng theo hướng dẫn kỹ thuật' : 'Pha theo hướng dẫn trên bao bì'),
-        phi_days: isSupply ? null : editingMed.phi_days,
-        price: editingMed.availability === 'NOT_SOLD' ? 0 : (Number(editingMed.price) || 0),
-        stock_quantity: editingMed.availability === 'NOT_SOLD' ? 0 : (Number(editingMed.stock_quantity) || 0),
-        is_allowed: editingMed.is_allowed,
-        availability: editingMed.availability,
-        info_source_url: editingMed.info_source_url,
-        medicine_type: editingMed.medicine_type,
-      });
-
-      setMedicines((prev) =>
-        prev.map((m) => (m.id === editingMed.id ? { ...m, ...res.data } : m))
-      );
-
-      setEditingMed(null);
-      toast.success(`Đã cập nhật thông tin sản phẩm '${res.data.name}'.`);
-    } catch (err) {
-      toast.error(getErrorMessage(err));
-    } finally {
-      setMedSaving(false);
-    }
+  const handleOpenEditMedModal = (med: MedicineItem) => {
+    const { description, dosage } = splitDescriptionFromDosage(med.dosage_instruction);
+    setShowDevMode(false);
+    setDevGeminiInput('');
+    setDescPreviewMode(false);
+    setFromSuggestion(null);
+    setEditingMedId(med.id);
+    setNewMedName(med.name || '');
+    setNewMedType(med.medicine_type || 'Hóa học');
+    setNewMedActiveIngredient(med.active_ingredient || '');
+    setNewMedPhi(med.phi_days ?? '');
+    setNewMedAvailability(med.availability || 'IN_STOCK');
+    setNewMedSourceUrl(med.info_source_url || '');
+    setNewMedImageUrl(med.image_url || '');
+    setMedImageFailed(false);
+    setNewMedDescription(description);
+    setNewMedTargetDiseases(med.target_diseases || []);
+    setNewMedPrice(Number(med.price) || 0);
+    setNewMedStock(Number(med.stock_quantity) || 0);
+    setNewMedDosage(dosage);
+    setNewMedIsAllowed(!!med.is_allowed);
+    setResearchItems(suggestions.filter((sg) => sg.product_id === med.id && sg.evidence_text));
+    setAiSourceLinks([]);
+    setCreateMedModalOpen(true);
   };
 
   const filteredMedicines = medicines.filter((m) => {
@@ -270,7 +295,11 @@ export const AdminInventoryPage: React.FC = () => {
     }
   };
 
-  const handleOpenCreateMedModal = (sug?: ProductSuggestionItem) => {
+  // groupItems: các đoạn trích của nhóm gợi ý (cùng tên vật tư) làm ngữ cảnh prompt AI và nguồn bệnh hại điền sẵn
+  const handleOpenCreateMedModal = (sug?: ProductSuggestionItem, groupItems?: ProductSuggestionItem[]) => {
+    setEditingMedId(null);
+    setResearchItems(groupItems && groupItems.length ? groupItems : sug ? [sug] : []);
+    setAiSourceLinks([]);
     setShowDevMode(false);
     setDevGeminiInput('');
 
@@ -292,7 +321,19 @@ export const AdminInventoryPage: React.FC = () => {
       setNewMedImageUrl('');
       setMedImageFailed(false);
       setNewMedDescription('');
-      setNewMedTargetDisease(isSupplyOrPractice ? '' : (sug.model_class || ''));
+      // Bệnh hại điền sẵn = bệnh của mọi đoạn trích đang chờ trong nhóm (kể cả vật tư): bài nói về bệnh nào thì gắn bệnh đó.
+      // Gợi ý cho cây / bệnh khác xuất hiện sau sẽ Gắn SP sau (server giữ PENDING những gợi ý có bệnh chưa gắn).
+      const sourceItems = (groupItems && groupItems.length ? groupItems : [sug]).filter((it) => it.status === 'PENDING' || it.id === sug.id);
+      const knownCodes = new Set(diseases.map((d) => d.classCode));
+      setNewMedTargetDiseases(
+        Array.from(
+          new Set(
+            sourceItems
+              .map((it) => (it.model_class || '').trim())
+              .filter((c) => c && !/healthy/i.test(c) && (!knownCodes.size || knownCodes.has(c)))
+          )
+        )
+      );
       setNewMedPrice(0);
       setNewMedStock(0);
       setNewMedDosage(
@@ -312,7 +353,7 @@ export const AdminInventoryPage: React.FC = () => {
       setNewMedImageUrl('');
       setMedImageFailed(false);
       setNewMedDescription('');
-      setNewMedTargetDisease('');
+      setNewMedTargetDiseases([]);
       setNewMedPrice(50000);
       setNewMedStock(50);
       setNewMedDosage('Pha theo hướng dẫn trên bao bì');
@@ -321,104 +362,157 @@ export const AdminInventoryPage: React.FC = () => {
     setCreateMedModalOpen(true);
   };
 
-  const handleCopyGeminiPrompt = () => {
-    const url = newMedSourceUrl.trim();
-    if (!url) {
-      toast.error('Vui lòng dán Link trang sản phẩm / nhãn thuốc (URL) trước khi sao chép prompt!');
+  const toResearchEvidences = (items: ProductSuggestionItem[]): ResearchEvidence[] =>
+    items
+      .filter((it) => it.evidence_text)
+      .map((it) => ({
+        text: it.evidence_text || '',
+        plantName: it.plant_name,
+        diseaseName: it.disease_name,
+        diseaseCode: it.model_class,
+        sourceId: it.knowledge_source_id,
+        sourceTitle: it.source_title,
+        sourceUrl: it.source_url,
+      }));
+
+  // Số khối "bài + bệnh" (các đoạn cùng bài, cùng bệnh tính là 1)
+  const countArticleBlocks = (items: ProductSuggestionItem[]) =>
+    Math.min(mergeEvidencesByArticle(toResearchEvidences(items)).length, MAX_PROMPT_EVIDENCES);
+
+  const copyText = async (text: string, okMsg: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(okMsg);
+    } catch {
+      toast.error('Trình duyệt chặn sao chép. Hãy cho phép quyền clipboard rồi thử lại.');
+    }
+  };
+
+  // Nút cạnh ô link: prompt CHỈ nhờ AI tìm link bài viết / trang nguồn (không điền form)
+  const handleCopyLinkSearchPrompt = () => {
+    const name = newMedName.trim();
+    const mention = fromSuggestion?.mention_text || researchItems[0]?.mention_text || name;
+    if (!mention) {
+      toast.error('Nhập tên sản phẩm trước khi nhờ AI tìm link.');
       return;
     }
+    const kind = fromSuggestion?.kind || researchItems[0]?.kind || kindFromMedicineType(newMedType);
+    const prompt = buildLinkSearchPrompt({
+      mention,
+      kind,
+      evidences: toResearchEvidences(researchItems),
+      currentName: name,
+      activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient.trim(),
+    });
+    const n = countArticleBlocks(researchItems);
+    copyText(
+      prompt,
+      `Đã sao chép prompt tìm link${n ? ` (kèm ${n} bài trích)` : ''}. Dán vào Gemini / ChatGPT bản web có tìm kiếm, chọn link phù hợp rồi dán vào ô Link nguồn.`
+    );
+  };
 
-    const prompt = `Bạn là chuyên gia phân loại vật tư nông nghiệp & thuốc bảo vệ thực vật của dự án LAVITREE.
-Hãy đọc thông tin về sản phẩm/vật tư từ liên kết sau:
-URL: ${url}
-${newMedName ? `Tên gợi ý ban đầu: ${newMedName}` : ''}
-
-Hãy trích xuất và phân tích thật đầy đủ, chuyên sâu và trả về ĐÚNG cấu trúc JSON sau (chỉ trả về duy nhất khối markdown json, không kèm văn bản dẫn dắt ngoài):
-\`\`\`json
-{
-  "name": "Tên sản phẩm chuẩn, ngắn gọn (ví dụ: Vôi bột nông nghiệp, Ridomil Gold 68WG; loại bỏ các câu hỏi blog 'là gì', 'tác dụng')",
-  "medicine_type": "Vật tư canh tác" | "Sinh học" | "Hóa học",
-  "active_ingredient": "Hoạt chất chính hoặc công thức hóa học (VD: CaO (Canxi oxit), Mancozeb... Nếu là dụng cụ vật tư thông thường thì để rỗng '')",
-  "description": "Mô tả chuẩn hóa nông nghiệp, bố cục 4 phần mạch lạc rõ đẹp (khoảng 150 - 300 từ):\\n• Bản chất & Phân loại: (Sản phẩm là gì, nguồn gốc, công thức hoặc dạng tồn tại...)\\n• Công dụng nông nghiệp: (Hạ phèn, nâng pH đất, khử trùng tiêu diệt mầm bệnh nấm khuẩn trong đất, kích rễ, giải độc hữu cơ...)\\n• Phạm vi & Cây trồng: (Dùng cho đất trồng rau màu, cây ăn quả, xử lý hố trồng, chuồng trại...)\\n• Hướng dẫn & Lưu ý khi dùng: (Bón lúc làm đất/đầu vụ, tuyệt đối không trộn chung với phân đạm để tránh thất thoát đạm, mang găng tay và đồ bảo hộ)",
-  "image_url": "URL ảnh chụp sản phẩm thực tế từ bài viết (link https://..., nếu không có link ảnh trực tiếp thì để rỗng '')",
-  "dosage_instruction": "Liều lượng sử dụng và cách bón/pha thực tế (ví dụ: Bón 20 - 50kg/sào tùy độ chua của đất)",
-  "phi_days": null,
-  "price": 0,
-  "target_disease_code": "NONE"
-}
-\`\`\`
-Lưu ý quan trọng:
-- Trường description: BẮT BUỘC dùng dấu chấm đầu dòng • rõ ràng cho từng mục, mỗi mục xuống dòng cách biệt, tuyệt đối không viết thành một đoạn văn xuôi dài dính chùm.
-- Với trường target_disease_code: Nếu là vật tư cải tạo đất chung (như vôi bột, phân bón, bạt phủ, bẫy dính...) hoặc phòng trừ diện rộng, BẮT BUỘC để là "NONE" (Không chỉ định). Chỉ điền mã bệnh khi là thuốc đặc trị riêng cho 1 bệnh cụ thể.
-- Trường phi_days: CHỈ điền số ngày cách ly ghi rõ trong nguồn/nhãn thuốc. Nếu nguồn không ghi hoặc là Vật tư canh tác thì để null, TUYỆT ĐỐI không tự đoán (kể cả với chế phẩm sinh học).`;
-
-    navigator.clipboard.writeText(prompt);
-    toast.success('Đã sao chép Prompt cho Gemini! Hãy dán vào Gemini Web rồi copy kết quả JSON dán vào ô bên dưới.');
+  // Prompt điền form (JSON) trong chế độ Dev: link là tùy chọn, ngữ cảnh lấy từ researchItems
+  const handleCopyGeminiPrompt = () => {
+    const name = newMedName.trim();
+    const mention = fromSuggestion?.mention_text || researchItems[0]?.mention_text || name;
+    if (!mention && !newMedSourceUrl.trim()) {
+      toast.error('Nhập tên sản phẩm hoặc link trước khi tạo prompt.');
+      return;
+    }
+    const kind = fromSuggestion?.kind || researchItems[0]?.kind || kindFromMedicineType(newMedType);
+    const prompt = buildProductResearchPrompt({
+      mention,
+      kind,
+      evidences: toResearchEvidences(researchItems),
+      diseases,
+      currentName: name,
+      activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient.trim(),
+      sourceUrl: newMedSourceUrl.trim(),
+    });
+    setShowDevMode(true);
+    const n = countArticleBlocks(researchItems);
+    copyText(
+      prompt,
+      `Đã sao chép prompt${n ? ` kèm ${n} bài trích` : ''}. Dán vào AI bản web có tìm kiếm, rồi dán JSON trả về vào ô bên dưới.`
+    );
   };
 
   const handleApplyGeminiJson = () => {
     if (!devGeminiInput.trim()) {
-      toast.error('Vui lòng dán đoạn JSON từ Gemini vào ô trước khi bấm áp dụng!');
+      toast.error('Vui lòng dán đoạn JSON từ AI vào ô trước khi bấm áp dụng!');
       return;
     }
-    try {
-      let cleanJson = devGeminiInput.trim();
-      const match = cleanJson.match(/\{[\s\S]*\}/);
-      if (match) {
-        cleanJson = match[0];
-      }
-      const data = JSON.parse(cleanJson);
-      if (data.name) setNewMedName(String(data.name).trim());
-      if (data.medicine_type) {
-        const t = String(data.medicine_type).trim();
-        if (t === 'Sinh học' || t === 'Vật tư canh tác' || t === 'Hóa học') {
-          setNewMedType(t);
-        }
-      }
-      if (data.active_ingredient !== undefined) {
-        setNewMedActiveIngredient(String(data.active_ingredient || '').trim());
-      }
-      if (data.description) setNewMedDescription(String(data.description).trim());
-      if (data.image_url) {
-        let rawImg = String(data.image_url).trim();
-        const urlMatch = rawImg.match(/https?:\/\/[^\s"')]+/);
-        if (urlMatch) {
-          rawImg = urlMatch[0];
-        }
-        if (isSafeHttpUrl(rawImg) || /^https?:\/\//i.test(rawImg)) {
-          setNewMedImageUrl(rawImg);
-          setMedImageFailed(false);
-        }
-      }
-      if (data.dosage_instruction) setNewMedDosage(String(data.dosage_instruction).trim());
-      if (data.phi_days !== undefined) {
-        const p = parseInt(String(data.phi_days), 10);
-        setNewMedPhi(isNaN(p) ? '' : p);
-      }
-      if (data.price !== undefined) {
-        const pr = parseFloat(String(data.price));
-        if (!isNaN(pr) && pr >= 0) {
-          setNewMedPrice(pr);
-          if (pr > 0) {
-            setNewMedAvailability('IN_STOCK');
-            setNewMedStock(100);
-          }
-        }
-      }
-      if (data.target_disease_code !== undefined) {
-        const rawCode = String(data.target_disease_code || '').trim();
-        if (!rawCode || rawCode.toUpperCase() === 'NONE' || rawCode.toLowerCase().includes('không chỉ định')) {
-          setNewMedTargetDisease('');
-        } else {
-          const matched = diseases.find((d) => d.classCode.toLowerCase() === rawCode.toLowerCase());
-          setNewMedTargetDisease(matched ? matched.classCode : '');
-        }
-      }
-      toast.success('Đã áp dụng toàn bộ thông số từ Gemini thành công!');
-      setDevGeminiInput('');
-    } catch {
-      toast.error('Không thể đọc dữ liệu JSON. Vui lòng kiểm tra lại cấu trúc JSON được dán.');
+    const contextPlants = Array.from(new Set(researchItems.map((it) => it.plant_name).filter(Boolean)));
+    const parsed = parseProductResearchJson(devGeminiInput, diseases, contextPlants);
+    if (!parsed) {
+      toast.error('Không đọc được JSON. Hãy copy đúng khối ```json mà AI trả về.');
+      return;
     }
+    const data = parsed.data as Record<string, any>;
+    const str = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim());
+
+    if (str(data.name)) setNewMedName(str(data.name));
+    const t = str(data.medicine_type);
+    if (t === 'Sinh học' || t === 'Vật tư canh tác' || t === 'Hóa học') setNewMedType(t);
+    if (data.active_ingredient !== undefined) setNewMedActiveIngredient(t === 'Vật tư canh tác' ? '' : str(data.active_ingredient));
+    if (str(data.description)) setNewMedDescription(str(data.description));
+    if (str(data.image_url)) {
+      const urlMatch = str(data.image_url).match(/https?:\/\/[^\s"')]+/);
+      if (urlMatch && isSafeHttpUrl(urlMatch[0])) {
+        setNewMedImageUrl(urlMatch[0]);
+        setMedImageFailed(false);
+      }
+    }
+    if (str(data.dosage_instruction)) setNewMedDosage(str(data.dosage_instruction));
+    if (data.phi_days !== undefined) {
+      const p = parseInt(str(data.phi_days), 10);
+      setNewMedPhi(isNaN(p) || t === 'Vật tư canh tác' ? '' : p);
+    }
+    if (data.price !== undefined) {
+      const pr = parseFloat(str(data.price));
+      if (!isNaN(pr) && pr > 0) {
+        setNewMedPrice(pr);
+        setNewMedAvailability('IN_STOCK');
+        setNewMedStock(100);
+      }
+    }
+
+    // Bệnh hại: gộp thêm vào lựa chọn hiện có, KHÔNG xóa bệnh Admin đã chọn
+    if (parsed.matchedDiseases.length) {
+      setNewMedTargetDiseases((prev) => Array.from(new Set([...prev, ...parsed.matchedDiseases])));
+    }
+
+    // Link nguồn AI đề xuất: điền ô link nếu đang trống, còn lại hiện để Admin chọn
+    const validLinks = parsed.sourceUrls.filter((u) => isSafeHttpUrl(u));
+    setAiSourceLinks(validLinks);
+    if (validLinks.length && !newMedSourceUrl.trim()) setNewMedSourceUrl(validLinks[0]);
+
+    const notes: string[] = [];
+    notes.push(
+      parsed.matchedDiseases.length
+        ? `bệnh hại +${parsed.matchedDiseases.length}`
+        : parsed.hasDiseaseField
+          ? 'không có bệnh hại cụ thể'
+          : 'JSON không có trường bệnh hại'
+    );
+    if (validLinks.length) notes.push(`${validLinks.length} link nguồn`);
+    toast.success(`Đã điền form từ JSON (${notes.join(', ')}). Hãy đối chiếu lại trước khi lưu.`);
+    if (parsed.unmatchedDiseases.length) {
+      toast.warning(`Không khớp được bệnh: ${parsed.unmatchedDiseases.join(', ')}. Hãy chọn tay ở ô "Bệnh hại mục tiêu".`);
+    }
+    const identified = str(data.identified_as).toUpperCase();
+    const note = str(data.identification_note);
+    if (identified === 'HOMEMADE') {
+      toast.info(`AI xác định đây là chế phẩm TỰ PHA CHẾ, không phải sản phẩm bán sẵn. ${note}`.trim(), { duration: 9000 });
+    } else if (identified === 'PRACTICE') {
+      toast.warning(`AI xác định đây là BIỆN PHÁP canh tác, không phải vật tư. Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm. ${note}`.trim(), { duration: 9000 });
+    } else if (identified === 'SEED') {
+      toast.info(`AI xác định đây là GIỐNG CÂY / HẠT GIỐNG. ${note}`.trim(), { duration: 7000 });
+    }
+    if (data.mentions_differ === true) {
+      toast.warning(`Các đoạn trích nói về những thứ khác nhau: ${str(data.differ_note) || 'xem lại từng đoạn'}`, { duration: 10000 });
+    }
+    setDevGeminiInput('');
   };
 
   const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
@@ -454,6 +548,28 @@ Lưu ý quan trọng:
         .filter(Boolean)
         .join('\n');
 
+      if (editingMedId !== null) {
+        const res = await apiClient.patch(`/medicines/${editingMedId}`, {
+          name: newMedName.trim(),
+          medicine_type: newMedType,
+          active_ingredient: isSupply ? '' : newMedActiveIngredient.trim(),
+          price: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedPrice) || 0),
+          dosage_instruction: combinedDosage || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
+          phi_days: isSupply ? null : Number(newMedPhi),
+          stock_quantity: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedStock) || 0),
+          availability: newMedAvailability,
+          info_source_url: newMedSourceUrl.trim(),
+          image_url: newMedImageUrl.trim(),
+          target_diseases: newMedTargetDiseases,
+          is_allowed: newMedIsAllowed,
+        });
+        await fetchMedicines();
+        toast.success(`Đã cập nhật sản phẩm "${res.data.name}".`);
+        setCreateMedModalOpen(false);
+        setEditingMedId(null);
+        return;
+      }
+
       const payload: any = {
         name: newMedName.trim(),
         medicine_type: newMedType,
@@ -465,13 +581,20 @@ Lưu ý quan trọng:
         availability: newMedAvailability,
         info_source_url: newMedSourceUrl.trim() || undefined,
         image_url: newMedImageUrl.trim() || undefined,
-        target_disease_code: newMedTargetDisease || undefined,
+        target_diseases: newMedTargetDiseases,
         is_allowed: newMedIsAllowed,
         suggestion_id: fromSuggestion ? fromSuggestion.id : undefined,
       };
 
       const res = await apiClient.post('/medicines', payload);
       toast.success(`Đã thêm sản phẩm "${res.data.name}" vào danh mục thành công!`);
+      const keptPending = Number(res.data?.suggestions_kept_pending) || 0;
+      if (keptPending > 0) {
+        toast.info(
+          `Còn ${keptPending} gợi ý "${fromSuggestion?.mention_text}" cho bệnh chưa gắn vẫn ở trạng thái Chờ. Khi cần, bấm "Gắn SP" để gắn thêm bệnh đó.`,
+          { duration: 9000 }
+        );
+      }
       setCreateMedModalOpen(false);
       fetchMedicines();
       if (fromSuggestion) {
@@ -553,11 +676,10 @@ Lưu ý quan trọng:
           <button
             type="button"
             onClick={() => setInventorySubTab('medicines')}
-            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
-              inventorySubTab === 'medicines'
-                ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${inventorySubTab === 'medicines'
+              ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
           >
             <Package className="w-3.5 h-3.5" />
             <span>Kho thuốc &amp; Vật tư ({medicines.length})</span>
@@ -569,11 +691,10 @@ Lưu ý quan trọng:
               setInventorySubTab('suggestions');
               fetchSuggestions();
             }}
-            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
-              inventorySubTab === 'suggestions'
-                ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${inventorySubTab === 'suggestions'
+              ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
             <span>Gợi ý vật tư từ bài báo</span>
@@ -657,13 +778,8 @@ Lưu ý quan trọng:
                         <tr key={med.id} className="hover:bg-muted/30 transition-colors">
                           <td className="p-3 font-mono text-muted-foreground">{med.id}</td>
                           <td className="p-3">
-                            <div className="font-bold text-foreground flex items-center gap-1.5">
+                            <div className="font-bold text-foreground">
                               <span>{med.name}</span>
-                              {isIngredientBanned(med.active_ingredient) && (
-                                <Badge variant="destructive" className="text-[9px] h-4 px-1">
-                                  Hoạt chất cấm
-                                </Badge>
-                              )}
                             </div>
                             <div className="text-[11px] text-muted-foreground">
                               {med.active_ingredient || (
@@ -683,18 +799,35 @@ Lưu ý quan trọng:
                             )}
                           </td>
                           <td className="p-3 whitespace-nowrap">
-                            <Badge
-                              variant="outline"
-                              className={
-                                med.medicine_type === 'Sinh học'
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                  : med.medicine_type === 'Vật tư canh tác'
-                                    ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300'
-                                    : 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300'
-                              }
-                            >
-                              {med.medicine_type}
-                            </Badge>
+                            {med.medicine_type === 'Hóa chất cấm' || isIngredientBanned(med.active_ingredient) || isIngredientBanned(med.name) ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-red-50 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-300 font-semibold"
+                              >
+                                {med.medicine_type === 'Hóa chất cấm' ? med.medicine_type : `${med.medicine_type} (Cấm)`}
+                              </Badge>
+                            ) : med.medicine_type === 'Sinh học' ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300"
+                              >
+                                {med.medicine_type}
+                              </Badge>
+                            ) : med.medicine_type === 'Vật tư canh tác' ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300"
+                              >
+                                {med.medicine_type}
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300"
+                              >
+                                {med.medicine_type}
+                              </Badge>
+                            )}
                           </td>
                           <td className="p-3 font-semibold text-emerald-800 dark:text-emerald-400 whitespace-nowrap">
                             {med.availability === 'NOT_SOLD' ? (
@@ -743,11 +876,10 @@ Lưu ý quan trọng:
                               size="sm"
                               variant={med.is_allowed ? 'default' : 'outline'}
                               onClick={() => handleToggleMedicineAllowed(med)}
-                              className={`h-7 px-2.5 text-xs font-semibold ${
-                                med.is_allowed
-                                  ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                                  : 'text-destructive border-destructive/30 hover:bg-destructive/10'
-                              }`}
+                              className={`h-7 px-2.5 text-xs font-semibold ${med.is_allowed
+                                ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                : 'text-destructive border-destructive/30 hover:bg-destructive/10'
+                                }`}
                             >
                               {med.is_allowed ? 'Đang lưu hành' : 'Bị cấm / Dừng bán'}
                             </Button>
@@ -756,7 +888,7 @@ Lưu ý quan trọng:
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => setEditingMed(med)}
+                              onClick={() => handleOpenEditMedModal(med)}
                               className="h-7 text-xs text-primary"
                             >
                               Sửa thông số
@@ -814,22 +946,20 @@ Lưu ý quan trọng:
                   <button
                     type="button"
                     onClick={() => setSuggestionsViewMode('grouped')}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
-                      suggestionsViewMode === 'grouped'
-                        ? 'bg-primary text-white shadow-2xs'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${suggestionsViewMode === 'grouped'
+                      ? 'bg-primary text-white shadow-2xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     Gộp theo tên ({groupedSuggestions.length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setSuggestionsViewMode('all')}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
-                      suggestionsViewMode === 'all'
-                        ? 'bg-primary text-white shadow-2xs'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${suggestionsViewMode === 'all'
+                      ? 'bg-primary text-white shadow-2xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     Tất cả đoạn ({filteredSuggestions.length})
                   </button>
@@ -879,7 +1009,9 @@ Lưu ý quan trọng:
                       groupedSuggestions.map((group) => {
                         const isBanned = isIngredientBanned(group.mentionText);
                         const primary = group.primaryItem;
-                        const cleanPreview = cleanEvidencePreview(primary.evidence_text);
+                        // Thao tác (Tạo / Gắn / Bỏ qua) phải dùng gợi ý còn PENDING: gợi ý đầu nhóm có thể đã ADDED (TASK-17-R2)
+                        const actionItem = group.items.find((it) => it.status === 'PENDING') || primary;
+                        const cleanPreview = excerptAroundMention(primary.evidence_text || '', group.mentionText, 170);
 
                         return (
                           <tr key={group.groupKey} className="hover:bg-muted/30 transition-colors">
@@ -936,7 +1068,7 @@ Lưu ý quan trọng:
 
                             <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                                "{cleanPreview}"
+                                "<HighlightedText text={cleanPreview} mention={group.mentionText} />"
                               </p>
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 <button
@@ -1015,7 +1147,7 @@ Lưu ý quan trọng:
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
                                   <Button
                                     size="sm"
-                                    onClick={() => handleOpenCreateMedModal(primary)}
+                                    onClick={() => handleOpenCreateMedModal(actionItem, group.items)}
                                     className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
                                     title={group.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
                                   >
@@ -1027,8 +1159,8 @@ Lưu ý quan trọng:
                                     size="sm"
                                     variant="outline"
                                     onClick={() => {
-                                      setLinkingSuggestion(primary);
-                                      setSelectedLinkMedId(primary.product_id ?? '');
+                                      setLinkingSuggestion(actionItem);
+                                      setSelectedLinkMedId(actionItem.product_id ?? group.productId ?? '');
                                     }}
                                     className="h-7 px-2 border-border text-[11px] font-medium"
                                     title="Liên kết với sản phẩm đã có sẵn trong kho"
@@ -1041,7 +1173,7 @@ Lưu ý quan trọng:
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      onClick={() => handleDismissSuggestion(primary.id, true)}
+                                      onClick={() => handleDismissSuggestion(actionItem.id, true)}
                                       className="h-7 px-2 border-purple-200 text-purple-700 dark:text-purple-300 hover:bg-purple-50 text-[11px]"
                                       title="Đã lưu biện pháp vào sổ tay kỹ thuật nông vụ"
                                     >
@@ -1053,7 +1185,7 @@ Lưu ý quan trọng:
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    onClick={() => handleDismissSuggestion(primary.id)}
+                                    onClick={() => handleDismissSuggestion(actionItem.id)}
                                     className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
                                     title={`Bỏ qua cả ${group.count} gợi ý này`}
                                   >
@@ -1070,7 +1202,7 @@ Lưu ý quan trọng:
                     ) : (
                       filteredSuggestions.map((sug) => {
                         const isBanned = isIngredientBanned(sug.mention_text);
-                        const cleanPreview = cleanEvidencePreview(sug.evidence_text);
+                        const cleanPreview = excerptAroundMention(sug.evidence_text || '', sug.mention_text, 170);
 
                         return (
                           <tr key={sug.id} className="hover:bg-muted/30 transition-colors">
@@ -1125,7 +1257,7 @@ Lưu ý quan trọng:
 
                             <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                                "{cleanPreview}"
+                                "<HighlightedText text={cleanPreview} mention={sug.mention_text} />"
                               </p>
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 <button
@@ -1266,228 +1398,6 @@ Lưu ý quan trọng:
       </div>
 
       {/* ========================================================================================= */}
-      {/* DIALOG SỬA THÔNG SỐ THUỐC BVTV & VẬT TƯ */}
-      {/* ========================================================================================= */}
-      <Dialog open={!!editingMed} onOpenChange={() => setEditingMed(null)}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">
-              Chỉnh sửa sản phẩm: {editingMed?.name}
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Cập nhật thông tin chi tiết, giá bán, số ngày cách ly (PHI), tình trạng bán và hướng dẫn sử dụng.
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingMed && (
-            <div className="space-y-3 py-2 text-xs">
-              {isIngredientBanned(editingMed.active_ingredient || editingMed.name) && (
-                <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div>
-                    <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên hoặc hoạt chất của sản phẩm nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể kích hoạt trạng thái lưu hành.
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="font-semibold block mb-1">Tên thuốc / Tên sản phẩm *</label>
-                <Input
-                  type="text"
-                  value={editingMed.name}
-                  onChange={(e) => setEditingMed({ ...editingMed, name: e.target.value })}
-                  className="text-xs"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold block mb-1">Phân loại sản phẩm *</label>
-                  <select
-                    value={editingMed.medicine_type || 'Hóa học'}
-                    onChange={(e) => {
-                      const t = e.target.value;
-                      setEditingMed({
-                        ...editingMed,
-                        medicine_type: t,
-                        phi_days: t === 'Vật tư canh tác' ? null : editingMed.phi_days,
-                        active_ingredient: t === 'Vật tư canh tác' ? '' : editingMed.active_ingredient,
-                        dosage_instruction:
-                          t === 'Vật tư canh tác' && editingMed.dosage_instruction === 'Pha theo hướng dẫn trên bao bì'
-                            ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
-                            : editingMed.dosage_instruction,
-                      });
-                    }}
-                    className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                  >
-                    <option value="Hóa học">Thuốc BVTV hóa học</option>
-                    <option value="Sinh học">Chế phẩm sinh học BVTV</option>
-                    <option value="Vật tư canh tác">Vật tư canh tác (lưới, bẫy, bạt phủ...)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-semibold block mb-1">Tình trạng kinh doanh *</label>
-                  <select
-                    value={editingMed.availability || 'IN_STOCK'}
-                    onChange={(e) =>
-                      setEditingMed({ ...editingMed, availability: e.target.value })
-                    }
-                    className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
-                  >
-                    <option value="IN_STOCK">Đang bán (cho phép đặt mua)</option>
-                    <option value="OUT_OF_STOCK">Tạm hết hàng (tạm ẩn nút mua)</option>
-                    <option value="NOT_SOLD">Cửa hàng không bán (chỉ tư vấn kỹ thuật)</option>
-                  </select>
-                </div>
-              </div>
-
-              {editingMed.medicine_type !== 'Vật tư canh tác' ? (
-                <div>
-                  <label className="font-semibold block mb-1">Hoạt chất chính (Active Ingredient)</label>
-                  <Input
-                    type="text"
-                    value={editingMed.active_ingredient || ''}
-                    onChange={(e) =>
-                      setEditingMed({ ...editingMed, active_ingredient: e.target.value })
-                    }
-                    placeholder="Ví dụ: Metalaxyl-M, Mancozeb..."
-                    className="text-xs"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="font-semibold block mb-1 text-muted-foreground">Hoạt chất chính</label>
-                  <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground flex items-center">
-                    Không áp dụng cho vật tư canh tác
-                  </div>
-                </div>
-              )}
-
-              {editingMed.availability !== 'NOT_SOLD' ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-semibold block mb-1">Giá bán (VNĐ) *</label>
-                    <Input
-                      type="number"
-                      value={editingMed.price}
-                      onChange={(e) =>
-                        setEditingMed({ ...editingMed, price: parseFloat(e.target.value) || 0 })
-                      }
-                      className="text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-semibold block mb-1">Số lượng tồn kho *</label>
-                    <Input
-                      type="number"
-                      value={editingMed.stock_quantity}
-                      onChange={(e) =>
-                        setEditingMed({ ...editingMed, stock_quantity: parseInt(e.target.value, 10) || 0 })
-                      }
-                      className="text-xs"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs">
-                  Sản phẩm ở chế độ "Cửa hàng không bán": Giá bán và Tồn kho được mặc định là 0. Sản phẩm chỉ hiển thị để tư vấn kỹ thuật nông vụ.
-                </div>
-              )}
-
-              <div>
-                <label className="font-semibold block mb-1">
-                  Thời gian cách ly PHI (ngày)
-                  {editingMed.medicine_type === 'Vật tư canh tác' ? (
-                    <span className="font-normal text-muted-foreground ml-1">(Không áp dụng cho vật tư canh tác)</span>
-                  ) : (
-                    <span className="text-destructive ml-0.5">*</span>
-                  )}
-                </label>
-                <Input
-                  type="number"
-                  disabled={editingMed.medicine_type === 'Vật tư canh tác'}
-                  placeholder={editingMed.medicine_type === 'Vật tư canh tác' ? 'Không áp dụng' : 'Ví dụ: 7'}
-                  value={editingMed.phi_days ?? ''}
-                  onChange={(e) =>
-                    setEditingMed({
-                      ...editingMed,
-                      phi_days: e.target.value === '' ? null : parseInt(e.target.value, 10),
-                    })
-                  }
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
-                <Input
-                  type="text"
-                  value={editingMed.dosage_instruction || ''}
-                  onChange={(e) =>
-                    setEditingMed({ ...editingMed, dosage_instruction: e.target.value })
-                  }
-                  placeholder={
-                    editingMed.medicine_type === 'Vật tư canh tác'
-                      ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
-                      : 'Pha theo hướng dẫn trên bao bì'
-                  }
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">
-                  URL nguồn tra cứu PHI/liều (nhãn, trang nhà sản xuất)
-                  {editingMed.medicine_type === 'Vật tư canh tác' ? ' (tùy chọn)' : ' *'}
-                </label>
-                <Input
-                  type="url"
-                  placeholder="https://khuyennongvn.gov.vn/..."
-                  value={editingMed.info_source_url || ''}
-                  onChange={(e) =>
-                    setEditingMed({ ...editingMed, info_source_url: e.target.value })
-                  }
-                  className="text-xs"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  disabled={isIngredientBanned(editingMed.active_ingredient) || isIngredientBanned(editingMed.name)}
-                  checked={editingMed.is_allowed && !isIngredientBanned(editingMed.active_ingredient) && !isIngredientBanned(editingMed.name)}
-                  onChange={(e) => setEditingMed({ ...editingMed, is_allowed: e.target.checked })}
-                  className="w-4 h-4 rounded text-emerald-700"
-                />
-                <span className="font-semibold text-xs">
-                  {editingMed.medicine_type === 'Vật tư canh tác'
-                    ? 'Cho phép sử dụng trong tư vấn canh tác (Lavi được gợi ý cho nông dân)'
-                    : 'Đã đối chiếu Danh mục thuốc BVTV được phép sử dụng tại Việt Nam (bật lưu hành, Lavi mới được gợi ý)'}
-                </span>
-              </label>
-
-              <DialogFooter className="gap-2 sm:gap-0 pt-2">
-                <Button variant="outline" size="sm" onClick={() => setEditingMed(null)}>
-                  Hủy
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={medSaving}
-                  onClick={handleSaveMedicineEdit}
-                  className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
-                >
-                  {medSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ========================================================================================= */}
       {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
       {/* ========================================================================================= */}
       <Dialog open={!!linkingSuggestion} onOpenChange={() => setLinkingSuggestion(null)}>
@@ -1558,7 +1468,7 @@ Lưu ý quan trọng:
                 <span>Đoạn trích bằng chứng: "{viewingEvidenceGroup?.mentionText}"</span>
               </DialogTitle>
               <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300">
-                {viewingEvidenceGroup?.count || 1} đoạn trích
+                {viewingEvidenceGroup?.count || 1} đoạn trích · {evidenceTabs.length} bài
               </Badge>
             </div>
             <DialogDescription className="text-xs mt-1">
@@ -1568,24 +1478,27 @@ Lưu ý quan trọng:
 
           {viewingEvidenceGroup && (
             <div className="space-y-3 py-2 text-xs">
-              {/* 1. KHỐI TẠO SẢN PHẨM HOẶC GẮN SP CHUNG Ở NGAY TRÊN ĐẦU */}
+              {/* 1. TẠO SẢN PHẨM / GẮN SP CHO CẢ NHÓM (TASK-17-R2: chỉ còn 1 luồng, prompt AI nằm trong form) */}
               <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800 flex flex-wrap items-center justify-between gap-2.5">
                 <div>
                   <div className="font-bold text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Thao tác nhanh cho gợi ý: <strong>{viewingEvidenceGroup.mentionText}</strong></span>
+                    <span>Thao tác cho gợi ý: <strong>{viewingEvidenceGroup.mentionText}</strong></span>
                   </div>
                   <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
-                    Áp dụng tạo hoặc gắn cho toàn bộ {viewingEvidenceGroup.count} đoạn trích bằng chứng
+                    Tạo SP dùng {evidenceTabs.length - excludedEvidenceTabs.length}/{evidenceTabs.length} bài làm ngữ cảnh và bệnh hại điền sẵn
+                    {excludedEvidenceTabs.length > 0 ? ' (bài đã bỏ không được dùng)' : ''}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     size="sm"
+                    disabled={usableEvidenceItems.length === 0}
                     onClick={() => {
-                      const itm = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
+                      const groupItems = usableEvidenceItems;
+                      const itm = groupItems.find((it) => it.status === 'PENDING') || groupItems[0];
                       setViewingEvidenceGroup(null);
-                      handleOpenCreateMedModal(itm);
+                      handleOpenCreateMedModal(itm, groupItems);
                     }}
                     className="h-7 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs gap-1 shadow-2xs"
                   >
@@ -1596,12 +1509,16 @@ Lưu ý quan trọng:
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      const itm = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
+                      const itm =
+                        usableEvidenceItems.find((it) => it.status === 'PENDING') ||
+                        viewingEvidenceGroup.items.find((it) => it.status === 'PENDING') ||
+                        viewingEvidenceGroup.items[0];
                       setViewingEvidenceGroup(null);
                       setLinkingSuggestion(itm);
                       setSelectedLinkMedId(itm.product_id ?? '');
                     }}
                     className="h-7 px-2.5 text-xs font-semibold bg-background border-emerald-300 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100/50"
+                    title="Gắn vào sản phẩm có sẵn; bệnh của các gợi ý đang chờ được gắn thêm cho sản phẩm"
                   >
                     <LinkIcon className="w-3 h-3 mr-1" />
                     <span>Gắn vào SP có sẵn</span>
@@ -1609,123 +1526,131 @@ Lưu ý quan trọng:
                 </div>
               </div>
 
-              {/* 2. HÀNG TABS CHUYỂN ĐỔI 2-4 ĐOẠN TRÍCH */}
+              {/* 1b. GỢI Ý TRA GOOGLE THEO LOẠI VẬT TƯ & NGỮ CẢNH (TASK-17) */}
+              {(() => {
+                const queries = buildGoogleQueries({
+                  name: viewingEvidenceGroup.mentionText,
+                  kind: viewingEvidenceGroup.kind,
+                  evidences: toResearchEvidences(usableEvidenceItems),
+                });
+                if (!queries.length) return null;
+                return (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="text-muted-foreground inline-flex items-center gap-1">
+                      <Search className="w-3 h-3" />
+                      Tra Google:
+                    </span>
+                    {queries.map((q) => (
+                      <a
+                        key={q.url}
+                        href={q.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={q.query}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100/70 font-medium"
+                      >
+                        <span>{q.label}</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* 2. TABS: MỖI TAB = 1 BÀI + 1 BỆNH (các đoạn cùng bài, cùng bệnh gộp chung) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 border-b border-border pb-1">
                   <span className="text-xs font-semibold text-foreground">
-                    Danh sách các đoạn văn xuất hiện ({viewingEvidenceGroup.count} đoạn):
+                    {viewingEvidenceGroup.count} đoạn trích trong {evidenceTabs.length} bài:
                   </span>
-                  {viewingEvidenceGroup.items.length > 1 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      Bấm từng tab để đọc ngữ cảnh &amp; bệnh mục tiêu riêng
-                    </span>
+                  {evidenceTabs.length > 1 && (
+                    <span className="text-[10px] text-muted-foreground">Bấm từng tab để đọc; bài không liên quan thì bỏ tick</span>
                   )}
                 </div>
 
-                {viewingEvidenceGroup.items.length > 1 && (
+                {evidenceTabs.length > 1 && (
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                    {viewingEvidenceGroup.items.map((item, idx) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setActiveEvidenceTabIdx(idx)}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${
-                          activeEvidenceTabIdx === idx
+                    {evidenceTabs.map((tab, idx) => {
+                      const first = tab.items[0];
+                      const excluded = excludedEvidenceTabs.includes(tab.key);
+                      return (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setActiveEvidenceTabIdx(idx)}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${activeEvidenceTabIdx === idx
                             ? 'bg-emerald-700 text-white shadow-xs'
                             : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
-                        }`}
-                      >
-                        <span>Đoạn #{idx + 1}</span>
-                        <span className="text-[10px] opacity-80 max-w-[130px] truncate">
-                          ({item.plant_name} - {item.disease_name})
-                        </span>
-                      </button>
-                    ))}
+                            } ${excluded ? 'opacity-50 line-through' : ''}`}
+                        >
+                          <span>Bài #{idx + 1}</span>
+                          <span className="text-[10px] opacity-80 max-w-[150px] truncate">
+                            ({first.plant_name} - {first.disease_name}{tab.items.length > 1 ? `, ${tab.items.length} đoạn` : ''})
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* 3. CHI TIẾT ĐOẠN TRÍCH ĐANG CHỌN */}
+                {/* 3. CHI TIẾT BÀI ĐANG CHỌN */}
                 {(() => {
-                  const currentItem = viewingEvidenceGroup.items[activeEvidenceTabIdx] || viewingEvidenceGroup.items[0];
-                  if (!currentItem) return null;
+                  const tab = evidenceTabs[activeEvidenceTabIdx] || evidenceTabs[0];
+                  if (!tab) return null;
+                  const first = tab.items[0];
+                  const excluded = excludedEvidenceTabs.includes(tab.key);
                   return (
                     <div className="space-y-2.5 pt-1">
-                      {/* THÔNG TIN NGỮ CẢNH CỦA RIÊNG ĐOẠN NÀY */}
                       <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-secondary/30 border border-border text-xs">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Badge variant="outline" className="text-xs font-medium bg-background">
-                            {currentItem.plant_name} – {currentItem.disease_name}
+                            {first.plant_name} – {first.disease_name}
                           </Badge>
-                          <Badge
-                            variant="outline"
-                            className={
-                              viewingEvidenceGroup.kind === 'CHEMICAL'
-                                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                : viewingEvidenceGroup.kind === 'BIOLOGICAL'
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                  : viewingEvidenceGroup.kind === 'SUPPLY'
-                                    ? 'bg-blue-50 text-blue-800 border-blue-300'
-                                    : 'bg-purple-50 text-purple-800 border-purple-300'
-                            }
-                          >
-                            {viewingEvidenceGroup.kind === 'CHEMICAL'
-                              ? 'Thuốc BVTV hóa học'
-                              : viewingEvidenceGroup.kind === 'BIOLOGICAL'
-                                ? 'Chế phẩm sinh học'
-                                : viewingEvidenceGroup.kind === 'SUPPLY'
-                                  ? 'Vật tư canh tác'
-                                  : 'Biện pháp canh tác'}
+                          <Badge variant="outline" className="text-xs font-medium bg-background">
+                            {KIND_LABEL[viewingEvidenceGroup.kind] || viewingEvidenceGroup.kind}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setViewingEvidenceGroup(null);
-                              handleOpenCreateMedModal(currentItem);
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold hover:underline"
-                            title="Tạo sản phẩm lấy mã bệnh của riêng đoạn này"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Tạo SP từ đoạn này</span>
-                          </button>
-                          <span className="text-muted-foreground">•</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setViewingEvidenceGroup(null);
-                              setLinkingSuggestion(currentItem);
-                              setSelectedLinkMedId(currentItem.product_id ?? '');
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 font-semibold hover:underline"
-                            title="Gắn sản phẩm cho riêng đoạn này"
-                          >
-                            <LinkIcon className="w-3 h-3" />
-                            <span>Gắn SP đoạn này</span>
-                          </button>
-                        </div>
+                        {evidenceTabs.length > 1 && (
+                          <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={!excluded}
+                              onChange={(e) =>
+                                setExcludedEvidenceTabs((prev) =>
+                                  e.target.checked ? prev.filter((k) => k !== tab.key) : [...prev, tab.key]
+                                )
+                              }
+                            />
+                            <span>{excluded ? 'Không dùng bài này' : 'Dùng bài này'}</span>
+                          </label>
+                        )}
                       </div>
 
-                      {/* VĂN BẢN ĐOẠN TRÍCH NGUYÊN VĂN */}
-                      <div className="p-3.5 bg-muted/30 rounded-xl border border-border space-y-1.5">
-                        <div className="text-[11px] font-semibold text-muted-foreground flex items-center justify-between">
-                          <span>Nội dung đoạn văn trích xuất (Đoạn #{activeEvidenceTabIdx + 1}/{viewingEvidenceGroup.count}):</span>
-                          <span className="font-mono text-[10px]">{currentItem.evidence_text.length} ký tự</span>
-                        </div>
-                        <div className="text-xs leading-relaxed text-foreground whitespace-pre-line p-3 bg-background rounded-lg border border-border">
-                          {cleanEvidencePreview(currentItem.evidence_text)}
-                        </div>
+                      <div className={`p-3.5 bg-muted/30 rounded-xl border border-border space-y-2 ${excluded ? 'opacity-50' : ''}`}>
+                        {tab.items.map((item, i) => (
+                          <div key={item.id} className="space-y-1">
+                            {tab.items.length > 1 && (
+                              <div className="text-[11px] font-semibold text-muted-foreground">
+                                Đoạn {i + 1}/{tab.items.length}
+                              </div>
+                            )}
+                            <div className="text-xs leading-relaxed text-foreground whitespace-pre-line p-3 bg-background rounded-lg border border-border">
+                              <HighlightedText
+                                text={excerptAroundMention(item.evidence_text || '', viewingEvidenceGroup.mentionText, 100000)}
+                                mention={viewingEvidenceGroup.mentionText}
+                              />
+                            </div>
+                          </div>
+                        ))}
                       </div>
 
-                      {/* NGUỒN BÀI BÁO KHOA HỌC */}
-                      {currentItem.source_url && (
+                      {first.source_url && (
                         <div className="p-2.5 bg-secondary/30 rounded-lg border border-border text-[11px] flex items-center justify-between">
                           <span className="text-muted-foreground truncate">
-                            Nguồn: <strong>{currentItem.source_title || 'Bài viết gốc'}</strong>
+                            Nguồn: <strong>{first.source_title || 'Bài viết gốc'}</strong>
                           </span>
                           <a
-                            href={currentItem.source_url}
+                            href={first.source_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-primary hover:underline shrink-0 ml-2 font-medium"
@@ -1753,14 +1678,28 @@ Lưu ý quan trọng:
       {/* ========================================================================================= */}
       {/* DIALOG THÊM THUỐC / VẬT TƯ MỚI (TASK-15 PHASE 3 - GIAO DIỆN TINH GỌN & CHẾ ĐỘ DEV </>) */}
       {/* ========================================================================================= */}
-      <Dialog open={createMedModalOpen} onOpenChange={setCreateMedModalOpen}>
+      <Dialog
+        open={createMedModalOpen}
+        onOpenChange={(open) => {
+          setCreateMedModalOpen(open);
+          if (!open) setEditingMedId(null);
+        }}
+      >
         <DialogContent className="sm:max-w-3xl lg:max-w-4xl w-[94vw] max-w-4xl max-h-[92vh] overflow-y-auto p-5 sm:p-6">
           <DialogHeader className="shrink-0 pb-2 border-b border-border">
             <div className="flex items-center justify-between gap-2 pr-8">
               <DialogTitle className="text-base font-bold flex items-center gap-2">
-                <Plus className="w-4 h-4 text-emerald-700" />
+                {editingMedId !== null ? (
+                  <Pencil className="w-4 h-4 text-emerald-700" />
+                ) : (
+                  <Plus className="w-4 h-4 text-emerald-700" />
+                )}
                 <span>
-                  {fromSuggestion ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"` : 'Thêm thuốc / Vật tư mới'}
+                  {editingMedId !== null
+                    ? `Chỉnh sửa sản phẩm: ${newMedName || ''}`
+                    : fromSuggestion
+                      ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"`
+                      : 'Thêm thuốc / Vật tư mới'}
                 </span>
               </DialogTitle>
 
@@ -1770,11 +1709,10 @@ Lưu ý quan trọng:
                 size="sm"
                 variant="outline"
                 onClick={() => setShowDevMode((v) => !v)}
-                className={`h-7 w-7 p-0 font-mono font-bold transition-colors flex items-center justify-center shrink-0 ${
-                  showDevMode
-                    ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-400 shadow-xs'
-                    : 'bg-background hover:bg-blue-50 text-blue-700 dark:text-blue-400 border-border'
-                }`}
+                className={`h-7 w-7 p-0 font-mono font-bold transition-colors flex items-center justify-center shrink-0 ${showDevMode
+                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-400 shadow-xs'
+                  : 'bg-background hover:bg-blue-50 text-blue-700 dark:text-blue-400 border-border'
+                  }`}
                 title="Chế độ Dev: Prompt Gemini & Nạp JSON"
               >
                 <Code2 className="w-4 h-4" />
@@ -1782,9 +1720,11 @@ Lưu ý quan trọng:
             </div>
 
             <DialogDescription className="text-xs mt-1">
-              {fromSuggestion
-                ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
-                : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
+              {editingMedId !== null
+                ? 'Cập nhật đầy đủ thông tin sản phẩm: link nguồn, ảnh, mô tả, bệnh hại, giá, tồn kho, PHI và trạng thái lưu hành.'
+                : fromSuggestion
+                  ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
+                  : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1809,8 +1749,8 @@ Lưu ý quan trọng:
                 </Button>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                1. Dán Link sản phẩm bên dưới $\rightarrow$ Bấm <strong>Sao chép Prompt</strong> rồi dán vào Gemini Web (Gemini Advanced).<br />
-                2. Copy đoạn JSON kết quả Gemini trả về rồi dán vào ô bên dưới $\rightarrow$ Bấm <strong>Điền form từ Gemini</strong>.
+                1. Bấm <strong>Sao chép Prompt</strong>: prompt đã kèm đoạn trích bài báo (gộp theo bài), tên, link (nếu có) và danh sách mã bệnh → dán vào Gemini / ChatGPT / Claude bản web có tìm kiếm.<br />
+                2. Copy khối JSON AI trả về, dán vào ô bên dưới → bấm <strong>Điền form từ Gemini</strong>. Bệnh hại được <em>gộp thêm</em>, không xóa bệnh đã chọn; link nguồn AI tìm được hiện để bạn chọn.
               </p>
               <div className="space-y-1.5">
                 <Textarea
@@ -1853,22 +1793,49 @@ Lưu ý quan trọng:
                   <label className="font-semibold block text-xs">
                     Link trang sản phẩm / nhãn thuốc (URL)
                   </label>
-                  {newMedName.trim() && (
-                    <a
-                      href={`https://www.google.com/search?q=${encodeURIComponent(
-                        `${newMedName} ${newMedActiveIngredient || ''} nông nghiệp liều dùng`
-                      )}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                      title="Mở Google tìm kiếm trang web bán hoặc nhãn sản phẩm"
-                    >
-                      <Search className="w-3 h-3" />
-                      <span>Tra Google tìm link</span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyLinkSearchPrompt}
+                    disabled={!newMedName.trim() && researchItems.length === 0}
+                    className="h-7 px-2.5 text-[11px] font-semibold gap-1 bg-background border-violet-300 text-violet-800 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                    title="Sao chép prompt nhờ AI bản web (có tìm kiếm) tìm link bài viết / trang nguồn, kèm các đoạn trích bài báo"
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>Tìm link với AI{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
+                  </Button>
                 </div>
+                {(() => {
+                  const queries = buildGoogleQueries({
+                    name: newMedName.trim() || fromSuggestion?.mention_text || '',
+                    activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient,
+                    kind: fromSuggestion?.kind || researchItems[0]?.kind || kindFromMedicineType(newMedType),
+                    evidences: toResearchEvidences(researchItems),
+                  });
+                  if (!queries.length) return null;
+                  return (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="text-muted-foreground inline-flex items-center gap-1">
+                        <Search className="w-3 h-3" />
+                        Tra Google:
+                      </span>
+                      {queries.map((q) => (
+                        <a
+                          key={q.url}
+                          href={q.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={q.query}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100/70 font-medium"
+                        >
+                          <span>{q.label}</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <Input
                   type="url"
                   placeholder="Dán link sản phẩm (Vietchem, Shopee, VTNN, nhãn thuốc)..."
@@ -1876,8 +1843,27 @@ Lưu ý quan trọng:
                   onChange={(e) => setNewMedSourceUrl(e.target.value)}
                   className="text-xs bg-background w-full"
                 />
+                {aiSourceLinks.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-semibold text-violet-800 dark:text-violet-300">Link nguồn AI đề xuất (hãy mở kiểm tra):</div>
+                    {aiSourceLinks.map((u) => (
+                      <div key={u} className="flex items-center gap-2 text-[11px]">
+                        <a href={u} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 dark:text-blue-400 hover:underline flex-1 min-w-0" title={u}>
+                          {u}
+                        </a>
+                        {newMedSourceUrl.trim() === u ? (
+                          <span className="text-emerald-700 dark:text-emerald-400 font-semibold shrink-0">Đang dùng</span>
+                        ) : (
+                          <button type="button" onClick={() => setNewMedSourceUrl(u)} className="text-violet-700 dark:text-violet-300 font-semibold hover:underline shrink-0">
+                            Dùng link này
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-[10px] text-muted-foreground">
-                  Dán link bài viết hoặc trang sản phẩm để hỗ trợ đối chiếu thông tin và lấy link ảnh sản phẩm.
+                  Không bắt buộc. Chưa có link thì dùng các gợi ý Tra Google hoặc bấm <strong>Tìm link với AI</strong>. Muốn AI điền cả form thì dùng chế độ Dev (nút <code>&lt;/&gt;</code>).
                 </p>
               </div>
 
@@ -1977,22 +1963,20 @@ Lưu ý quan trọng:
                       <button
                         type="button"
                         onClick={() => setDescPreviewMode(false)}
-                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                          !descPreviewMode
-                            ? 'bg-background text-foreground shadow-2xs font-semibold'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
+                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${!descPreviewMode
+                          ? 'bg-background text-foreground shadow-2xs font-semibold'
+                          : 'text-muted-foreground hover:text-foreground'
+                          }`}
                       >
                         ✏️ Soạn thảo
                       </button>
                       <button
                         type="button"
                         onClick={() => setDescPreviewMode(true)}
-                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                          descPreviewMode
-                            ? 'bg-background text-foreground shadow-2xs font-semibold'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
+                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${descPreviewMode
+                          ? 'bg-background text-foreground shadow-2xs font-semibold'
+                          : 'text-muted-foreground hover:text-foreground'
+                          }`}
                       >
                         👁️ Định dạng đẹp
                       </button>
@@ -2109,17 +2093,48 @@ Lưu ý quan trọng:
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold block mb-1">Bệnh hại mục tiêu</label>
+                  {newMedTargetDiseases.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-1.5">
+                      {newMedTargetDiseases.map((code) => {
+                        const d = diseases.find((x) => x.classCode === code);
+                        return (
+                          <span
+                            key={code}
+                            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-900 dark:text-emerald-200"
+                          >
+                            <span>{d ? `${d.plantName} – ${d.commonNameVi}` : code}</span>
+                            <button
+                              type="button"
+                              onClick={() => setNewMedTargetDiseases((prev) => prev.filter((c) => c !== code))}
+                              className="rounded-full p-0.5 hover:bg-emerald-200/60 dark:hover:bg-emerald-800/60"
+                              aria-label="Bỏ bệnh hại này"
+                              title="Bỏ bệnh hại này"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                   <select
-                    value={newMedTargetDisease}
-                    onChange={(e) => setNewMedTargetDisease(e.target.value)}
+                    value=""
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      if (code) setNewMedTargetDiseases((prev) => (prev.includes(code) ? prev : [...prev, code]));
+                    }}
                     className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs"
                   >
-                    <option value="">-- Không chỉ định (áp dụng chung) --</option>
-                    {diseases.map((d) => (
-                      <option key={d.classCode} value={d.classCode}>
-                        {d.plantName} – {d.commonNameVi}
-                      </option>
-                    ))}
+                    <option value="">
+                      {newMedTargetDiseases.length === 0 ? '-- Không chỉ định (áp dụng chung) --' : '+ Thêm bệnh hại khác...'}
+                    </option>
+                    {diseases
+                      .filter((d) => !newMedTargetDiseases.includes(d.classCode))
+                      .map((d) => (
+                        <option key={d.classCode} value={d.classCode}>
+                          {d.plantName} – {d.commonNameVi}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -2137,7 +2152,7 @@ Lưu ý quan trọng:
                 ) : (
                   <div>
                     <label className="font-semibold block mb-1 text-muted-foreground">Hoạt chất chính</label>
-                    <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground flex items-center">
+                    <div className="h-8 px-2.5 py-1.5 bg-muted/40 border border-border rounded text-xs text-muted-foreground/60 flex items-center italic">
                       Không áp dụng cho vật tư canh tác
                     </div>
                   </div>
@@ -2226,11 +2241,13 @@ Lưu ý quan trọng:
               </label>
 
               <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
+                <Button type="button" variant="outline" size="sm" onClick={() => { setCreateMedModalOpen(false); setEditingMedId(null); }} disabled={creatingMed}>
                   Hủy
                 </Button>
                 <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
-                  {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
+                  {editingMedId !== null
+                    ? (creatingMed ? 'Đang lưu...' : 'Lưu thay đổi')
+                    : (creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm')}
                 </Button>
               </DialogFooter>
             </form>

@@ -937,6 +937,107 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = validationError ?? "URL không hợp lệ." });
         }
 
+        var fetched = await FetchPublicHtmlAsync(currentUri, cancellationToken);
+        if (fetched.Html == null)
+        {
+            return fetched.ErrorStatus == 400
+                ? BadRequest(new { detail = fetched.Error })
+                : StatusCode(StatusCodes.Status422UnprocessableEntity, new { detail = fetched.Error });
+        }
+
+        return Ok(new FetchUrlResponseDto
+        {
+            Url = fetched.FinalUri!.ToString(),
+            Html = fetched.Html
+        });
+    }
+
+    // 4.2e. POST /api/v1/knowledge/verify-quotes (TASK-18-R4)
+    // Kiểm tra câu "trích nguyên văn" AI đưa ra có thật trong trang nguồn không. Tải trang qua FetchPublicHtmlAsync (chống SSRF).
+    private const int MaxVerifyItems = 8;
+    private const int MaxVerifyUrls = 5;
+
+    [HttpPost("verify-quotes")]
+    public async Task<IActionResult> VerifyQuotes([FromBody] VerifyQuotesRequestDto dto, CancellationToken cancellationToken)
+    {
+        if (!IsAdminUser(out var authError))
+        {
+            return authError!;
+        }
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+        var items = (dto.Items ?? new List<VerifyQuoteItemDto>())
+            .Where(i => !string.IsNullOrWhiteSpace(i.Url))
+            .Select(i => new VerifyQuoteItemDto { Url = i.Url.Trim(), Quote = i.Quote?.Trim() })
+            .ToList();
+        if (items.Count == 0)
+        {
+            return BadRequest(new { detail = "Không có link nào để kiểm tra." });
+        }
+        if (items.Count > MaxVerifyItems || items.Select(i => i.Url).Distinct().Count() > MaxVerifyUrls)
+        {
+            return BadRequest(new { detail = $"Kiểm tra tối đa {MaxVerifyItems} câu trích trên {MaxVerifyUrls} link mỗi lần." });
+        }
+
+        // Tải mỗi link một lần, song song
+        var pages = new Dictionary<string, (string? Text, string? Error, bool Invalid)>();
+        var tasks = items.Select(i => i.Url).Distinct().Select(async url =>
+        {
+            var (uri, invalid) = await ValidateSafePublicUrlAsync(url, cancellationToken);
+            if (uri == null) return (url, (Text: (string?)null, Error: invalid, Invalid: true));
+            var fetched = await FetchPublicHtmlAsync(uri, cancellationToken);
+            return fetched.Html == null
+                ? (url, (Text: (string?)null, Error: fetched.Error, Invalid: fetched.ErrorStatus == 400))
+                : (url, (Text: QuoteMatcher.HtmlToText(fetched.Html), Error: (string?)null, Invalid: false));
+        });
+        foreach (var (url, page) in await Task.WhenAll(tasks))
+        {
+            pages[url] = page;
+        }
+
+        var results = items.Select(i =>
+        {
+            var page = pages[i.Url];
+            if (page.Text == null)
+            {
+                return new VerifyQuoteResultDto
+                {
+                    Url = i.Url,
+                    Quote = i.Quote,
+                    Status = page.Invalid ? "INVALID_URL" : "FETCH_FAILED",
+                    Detail = page.Error
+                };
+            }
+            if (string.IsNullOrWhiteSpace(i.Quote))
+            {
+                return new VerifyQuoteResultDto { Url = i.Url, Status = "NO_QUOTE", Detail = "Trang mở được nhưng không có câu trích để đối chiếu." };
+            }
+            var m = QuoteMatcher.Match(page.Text, i.Quote);
+            return new VerifyQuoteResultDto
+            {
+                Url = i.Url,
+                Quote = i.Quote,
+                Status = m.Status,
+                Score = m.Score,
+                PageSnippet = m.PageSnippet,
+                MissingNumbers = m.MissingNumbers
+            };
+        }).ToList();
+
+        return Ok(new { results });
+    }
+
+    private sealed record SafeFetchResult(string? Html, Uri? FinalUri, int ErrorStatus, string? Error);
+
+    /// <summary>
+    /// Tải HTML từ URL công khai, chống SSRF (chặn IP nội bộ lúc kết nối, kiểm tra lại từng lần chuyển hướng,
+    /// tối đa 3 lần), tối đa 2 MB, hết giờ 15 giây. Dùng chung cho fetch-url và verify-quotes.
+    /// ErrorStatus: 400 = URL không an toàn, 422 = trang không tải được.
+    /// </summary>
+    private async Task<SafeFetchResult> FetchPublicHtmlAsync(Uri currentUri, CancellationToken cancellationToken)
+    {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromSeconds(15));
 
@@ -1003,10 +1104,7 @@ public class KnowledgeController : ControllerBase
                     if (hop == maxRedirects)
                     {
                         response.Dispose();
-                        return StatusCode(StatusCodes.Status422UnprocessableEntity, new
-                        {
-                            detail = "Trang web chuyển hướng quá nhiều lần. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
-                        });
+                        return new SafeFetchResult(null, null, 422, "Trang web chuyển hướng quá nhiều lần. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
                     }
 
                     var nextUri = response.Headers.Location.IsAbsoluteUri
@@ -1017,7 +1115,7 @@ public class KnowledgeController : ControllerBase
                     if (validatedNext == null)
                     {
                         response.Dispose();
-                        return BadRequest(new { detail = redirectErr ?? "Chuyển hướng sang URL không an toàn (SSRF protection)." });
+                        return new SafeFetchResult(null, null, 400, redirectErr ?? "Chuyển hướng sang URL không an toàn (SSRF protection).");
                     }
 
                     currentUri = validatedNext;
@@ -1029,20 +1127,14 @@ public class KnowledgeController : ControllerBase
 
             if (response == null)
             {
-                return StatusCode(StatusCodes.Status422UnprocessableEntity, new
-                {
-                    detail = "Trang web không phản hồi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
-                });
+                return new SafeFetchResult(null, null, 422, "Trang web không phản hồi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
             }
 
             using (response)
             {
                 if (!response.IsSuccessStatusCode)
                 {
-                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
-                    {
-                        detail = $"Trang web không cho phép tải tự động hoặc phản hồi lỗi (HTTP {(int)response.StatusCode}). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
-                    });
+                    return new SafeFetchResult(null, null, 422, $"Trang web không cho phép tải tự động hoặc phản hồi lỗi (HTTP {(int)response.StatusCode}). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
                 }
 
                 var mediaType = response.Content.Headers.ContentType?.MediaType;
@@ -1051,26 +1143,16 @@ public class KnowledgeController : ControllerBase
                     !mediaType.Contains("xml", StringComparison.OrdinalIgnoreCase) &&
                     !mediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
                 {
-                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
-                    {
-                        detail = $"URL trả về định dạng '{mediaType}' không phải trang web HTML. Vui lòng copy nội dung thủ công."
-                    });
+                    return new SafeFetchResult(null, null, 422, $"URL trả về định dạng '{mediaType}' không phải trang web HTML. Vui lòng copy nội dung thủ công.");
                 }
 
                 var html = await ReadLimitedHtmlAsync(response.Content, maxBytes: 2 * 1024 * 1024, cts.Token);
                 if (string.IsNullOrWhiteSpace(html))
                 {
-                    return StatusCode(StatusCodes.Status422UnprocessableEntity, new
-                    {
-                        detail = "Trang web trả về nội dung trống (có thể trang dùng JavaScript render). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
-                    });
+                    return new SafeFetchResult(null, null, 422, "Trang web trả về nội dung trống (có thể trang dùng JavaScript render). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
                 }
 
-                return Ok(new FetchUrlResponseDto
-                {
-                    Url = currentUri.ToString(),
-                    Html = html
-                });
+                return new SafeFetchResult(html, currentUri, 0, null);
             }
         }
         catch (HttpRequestException ex)
@@ -1078,19 +1160,13 @@ public class KnowledgeController : ControllerBase
             _logger.LogWarning(ex, "Failed to fetch article URL safely: {Url}", currentUri);
             if (ex.Message.Contains("SSRF", StringComparison.OrdinalIgnoreCase))
             {
-                return BadRequest(new { detail = ex.Message });
+                return new SafeFetchResult(null, null, 400, ex.Message);
             }
-            return StatusCode(StatusCodes.Status422UnprocessableEntity, new
-            {
-                detail = "Trang web không cho phép tải tự động hoặc phản hồi lỗi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
-            });
+            return new SafeFetchResult(null, null, 422, "Trang web không cho phép tải tự động hoặc phản hồi lỗi. Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
         }
         catch (OperationCanceledException)
         {
-            return StatusCode(StatusCodes.Status422UnprocessableEntity, new
-            {
-                detail = "Hết thời gian chờ tải trang web (15s). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công."
-            });
+            return new SafeFetchResult(null, null, 422, "Hết thời gian chờ tải trang web (15s). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
         }
     }
 

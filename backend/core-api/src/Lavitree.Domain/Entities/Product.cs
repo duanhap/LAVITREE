@@ -21,6 +21,9 @@ public class Product : BaseEntity
     public string Availability { get; set; } = "IN_STOCK"; // "IN_STOCK", "OUT_OF_STOCK", "NOT_SOLD"
     public string? InfoSourceUrl { get; set; } // Link nguồn tra cứu thông số/nhãn thuốc BVTV
 
+    // Phiếu cách dùng có cấu trúc (TASK-18, jsonb, null = chưa có). Dùng cho lịch phun / nhắc nhở (FEAT-06).
+    public UsageProfile? UsageProfile { get; set; }
+
     // Navigation
     public ICollection<DiseaseProduct> DiseaseProducts { get; set; } = new List<DiseaseProduct>();
     public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();

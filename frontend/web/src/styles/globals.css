@@ -110,6 +110,13 @@ body {
   min-height: 100vh;
 }
 
+/* Làm mờ các placeholder / hint / ví dụ trong toàn bộ ô nhập liệu */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.45;
+}
+
 /* Lớp tương thích cho các màn hình nguyên mẫu cũ (DiagnosePage, HandbookPage, KnowledgeCollectorPage, AdminDashboard) */
 .btn {
   display: inline-flex;

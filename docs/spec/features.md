@@ -76,6 +76,10 @@
     - Nông dân khai báo ngày tuổi cây (ví dụ: Vườn cà chua 25 ngày tuổi).
     - AI Agent tự động sinh Lịch trình chăm sóc chuẩn Khuyến nông: Thời điểm tưới nước, bón thúc NPK, tỉa chồi nách, bón Canxi-Bo chống rụng hoa.
     - AI Agent đóng vai trò **Trợ lý nhắc việc thông minh**, gửi lời nhắc kèm điều kiện thời tiết thực tế.
+  - **Nhánh 3: Lịch phun thuốc / điều trị (Dành cho cây bệnh)**:
+    - Từ chẩn đoán + ngày thu hoạch dự kiến, hệ thống lập thời khóa biểu: ngày, buổi, sản phẩm, liều, ghi chú; dừng trước thời gian cách ly; luân phiên thuốc; dời lịch khi dự báo mưa; nhắc nhở và nút "Đã làm".
+    - Ngày và liều do code tính từ **phiếu cách dùng** đã duyệt (`Products.UsageProfile`, bản nhẹ đã có từ TASK-18); AI chỉ viết lời nhắc.
+    - Thiết kế đầy đủ và lộ trình: [treatment-schedule-design.md](../architecture/treatment-schedule-design.md).
 
 ---
 
