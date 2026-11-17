@@ -17,6 +17,7 @@ import {
   Copy,
   ImageOff,
   Pencil,
+  Bot,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -41,13 +42,7 @@ import {
   excerptAroundMention,
   buildGoogleQueries,
   buildProductResearchPrompt,
-  dedupeContainedTexts,
-  emptyUsageProfile,
-  normalizeUsageProfile,
-  formatUsageText,
-  usageProfileForApi,
-  type UsageProfile,
-  type SourceQuote,
+  buildLinkSearchPrompt,
   mergeEvidencesByArticle,
   MAX_PROMPT_EVIDENCES,
   parseProductResearchJson,
@@ -56,11 +51,6 @@ import {
   type ResearchEvidence,
 } from '@/features/admin/lib';
 import { HighlightedText } from '@/features/admin/components/HighlightedText';
-import { UsageProfileEditor } from '@/features/admin/components/UsageProfileEditor';
-import { QuoteCheckPanel } from '@/features/admin/components/QuoteCheckPanel';
-
-// Mô tả lưu gộp vào dosage_instruction (cột text, không giới hạn); prompt Gemini yêu cầu 250–450 từ ≈ 1.500–3.000 ký tự
-const DESCRIPTION_MAX = 3500;
 import { useDiseaseOptions } from '@/features/admin/hooks';
 
 interface EvidenceModalGroup {
@@ -136,13 +126,6 @@ export const AdminInventoryPage: React.FC = () => {
   // TASK-17: các đoạn trích làm ngữ cảnh cho prompt AI / gợi ý Google của form, và link nguồn AI đề xuất
   const [researchItems, setResearchItems] = useState<ProductSuggestionItem[]>([]);
   const [aiSourceLinks, setAiSourceLinks] = useState<string[]>([]);
-  // TASK-18: phiếu cách dùng + ảnh Gemini đề xuất
-  const [newMedUsage, setNewMedUsage] = useState<UsageProfile>(emptyUsageProfile());
-  const [aiImageCandidates, setAiImageCandidates] = useState<string[]>([]);
-  // TASK-18-R4: câu trích nguyên văn trong "Nguồn đã dùng" để kiểm tra với trang thật
-  const [aiSourceQuotes, setAiSourceQuotes] = useState<SourceQuote[]>([]);
-  // Lưu ý của Gemini (scope_note, loại vật tư...) hiện ngay trong form thay cho toast dài (TASK-18-R5)
-  const [aiNotes, setAiNotes] = useState<{ title: string; text: string }[]>([]);
 
   // Chế độ hiển thị Gợi ý vật tư: 'grouped' (Gộp theo tên vật tư chống trùng lặp) vs 'all' (Từng dòng)
   const [suggestionsViewMode, setSuggestionsViewMode] = useState<'grouped' | 'all'>('grouped');
@@ -153,24 +136,18 @@ export const AdminInventoryPage: React.FC = () => {
   useEffect(() => setExcludedEvidenceTabs([]), [viewingEvidenceGroup]);
   const evidenceTabs = useMemo(() => {
     if (!viewingEvidenceGroup) return [];
-    // items = đoạn hiển thị (đã bỏ đoạn trùng / nằm trọn trong đoạn khác); allItems = mọi gợi ý của bài + bệnh đó
-    const tabs: { key: string; items: ProductSuggestionItem[]; allItems: ProductSuggestionItem[] }[] = [];
+    const tabs: { key: string; items: ProductSuggestionItem[] }[] = [];
     viewingEvidenceGroup.items.forEach((it) => {
       // mỗi đoạn trích là 1 KnowledgeSource riêng → "cùng bài" so theo link / tiêu đề bài
       const article = (it.source_url || '').trim() || (it.source_title || '').trim() || it.knowledge_source_id || String(it.id);
       const key = `${article}##${it.model_class || `${it.plant_name}|${it.disease_name}`}`;
       const tab = tabs.find((t) => t.key === key);
-      if (tab) tab.allItems.push(it);
-      else tabs.push({ key, items: [], allItems: [it] });
-    });
-    tabs.forEach((t) => {
-      t.items = dedupeContainedTexts(t.allItems.map((it) => it.evidence_text || '')).map((i) => t.allItems[i]);
-      if (!t.items.length) t.items = [t.allItems[0]];
+      if (tab) tab.items.push(it);
+      else tabs.push({ key, items: [it] });
     });
     return tabs;
   }, [viewingEvidenceGroup]);
-  const usableEvidenceItems = evidenceTabs.filter((t) => !excludedEvidenceTabs.includes(t.key)).flatMap((t) => t.allItems);
-  const shownEvidenceCount = evidenceTabs.reduce((n, t) => n + t.items.length, 0);
+  const usableEvidenceItems = evidenceTabs.filter((t) => !excludedEvidenceTabs.includes(t.key)).flatMap((t) => t.items);
   const [descPreviewMode, setDescPreviewMode] = useState<boolean>(false);
 
   // Load kho thuốc & gợi ý khi vào trang
@@ -246,10 +223,6 @@ export const AdminInventoryPage: React.FC = () => {
     setNewMedIsAllowed(!!med.is_allowed);
     setResearchItems(suggestions.filter((sg) => sg.product_id === med.id && sg.evidence_text));
     setAiSourceLinks([]);
-    setAiSourceQuotes([]);
-    setAiNotes([]);
-    setAiImageCandidates([]);
-    setNewMedUsage(med.usage_profile ? normalizeUsageProfile(med.usage_profile) : emptyUsageProfile());
     setCreateMedModalOpen(true);
   };
 
@@ -327,10 +300,6 @@ export const AdminInventoryPage: React.FC = () => {
     setEditingMedId(null);
     setResearchItems(groupItems && groupItems.length ? groupItems : sug ? [sug] : []);
     setAiSourceLinks([]);
-    setAiSourceQuotes([]);
-    setAiNotes([]);
-    setAiImageCandidates([]);
-    setNewMedUsage(emptyUsageProfile());
     setShowDevMode(false);
     setDevGeminiInput('');
 
@@ -393,23 +362,6 @@ export const AdminInventoryPage: React.FC = () => {
     setCreateMedModalOpen(true);
   };
 
-  // TASK-18: nút "Tạo SP" ở cuối hàng mở modal trích dẫn trước (xem / bỏ bài không liên quan rồi mới tạo)
-  const openEvidenceModal = (items: ProductSuggestionItem[]) => {
-    if (!items.length) return;
-    const first = items.find((it) => it.status === 'PENDING') || items[0];
-    setViewingEvidenceGroup({
-      mentionText: first.mention_text,
-      kind: first.kind,
-      count: items.length,
-      items,
-      status: items.some((it) => it.status === 'PENDING') ? 'PENDING' : first.status,
-      plantName: first.plant_name,
-      diseaseName: first.disease_name,
-      productName: items.find((it) => it.product_name)?.product_name,
-    });
-    setActiveEvidenceTabIdx(0);
-  };
-
   const toResearchEvidences = (items: ProductSuggestionItem[]): ResearchEvidence[] =>
     items
       .filter((it) => it.evidence_text)
@@ -436,7 +388,30 @@ export const AdminInventoryPage: React.FC = () => {
     }
   };
 
-  // Nút AI duy nhất (chế độ Dev, TASK-18): prompt Gemini tổng hợp, link là tùy chọn, ngữ cảnh lấy từ researchItems
+  // Nút cạnh ô link: prompt CHỈ nhờ AI tìm link bài viết / trang nguồn (không điền form)
+  const handleCopyLinkSearchPrompt = () => {
+    const name = newMedName.trim();
+    const mention = fromSuggestion?.mention_text || researchItems[0]?.mention_text || name;
+    if (!mention) {
+      toast.error('Nhập tên sản phẩm trước khi nhờ AI tìm link.');
+      return;
+    }
+    const kind = fromSuggestion?.kind || researchItems[0]?.kind || kindFromMedicineType(newMedType);
+    const prompt = buildLinkSearchPrompt({
+      mention,
+      kind,
+      evidences: toResearchEvidences(researchItems),
+      currentName: name,
+      activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient.trim(),
+    });
+    const n = countArticleBlocks(researchItems);
+    copyText(
+      prompt,
+      `Đã sao chép prompt tìm link${n ? ` (kèm ${n} bài trích)` : ''}. Dán vào Gemini / ChatGPT bản web có tìm kiếm, chọn link phù hợp rồi dán vào ô Link nguồn.`
+    );
+  };
+
+  // Prompt điền form (JSON) trong chế độ Dev: link là tùy chọn, ngữ cảnh lấy từ researchItems
   const handleCopyGeminiPrompt = () => {
     const name = newMedName.trim();
     const mention = fromSuggestion?.mention_text || researchItems[0]?.mention_text || name;
@@ -458,7 +433,7 @@ export const AdminInventoryPage: React.FC = () => {
     const n = countArticleBlocks(researchItems);
     copyText(
       prompt,
-      `Đã sao chép prompt${n ? ` kèm ${n} bài trích` : ''}. Dán vào Gemini bản web, rồi dán cả câu trả lời (JSON + danh sách nguồn) vào ô bên dưới.`
+      `Đã sao chép prompt${n ? ` kèm ${n} bài trích` : ''}. Dán vào AI bản web có tìm kiếm, rồi dán JSON trả về vào ô bên dưới.`
     );
   };
 
@@ -481,28 +456,17 @@ export const AdminInventoryPage: React.FC = () => {
     if (t === 'Sinh học' || t === 'Vật tư canh tác' || t === 'Hóa học') setNewMedType(t);
     if (data.active_ingredient !== undefined) setNewMedActiveIngredient(t === 'Vật tư canh tác' ? '' : str(data.active_ingredient));
     if (str(data.description)) setNewMedDescription(str(data.description));
-    // Ảnh: hiện danh sách để Admin chọn; ô ảnh đang trống thì điền ảnh đầu tiên (form tự báo nếu ảnh không tải được)
-    const images = parsed.imageCandidates.filter((u) => isSafeHttpUrl(u));
-    setAiImageCandidates(images);
-    if (images.length && !newMedImageUrl.trim()) {
-      setNewMedImageUrl(images[0]);
-      setMedImageFailed(false);
+    if (str(data.image_url)) {
+      const urlMatch = str(data.image_url).match(/https?:\/\/[^\s"')]+/);
+      if (urlMatch && isSafeHttpUrl(urlMatch[0])) {
+        setNewMedImageUrl(urlMatch[0]);
+        setMedImageFailed(false);
+      }
     }
-    const isSupplyType = (t || newMedType) === 'Vật tư canh tác';
-    let phiForText: number | null = newMedPhi === '' ? null : Number(newMedPhi);
+    if (str(data.dosage_instruction)) setNewMedDosage(str(data.dosage_instruction));
     if (data.phi_days !== undefined) {
       const p = parseInt(str(data.phi_days), 10);
-      phiForText = isNaN(p) || isSupplyType ? null : p;
-      setNewMedPhi(phiForText === null ? '' : phiForText);
-    }
-    // Phiếu cách dùng (TASK-18) → khối Cách dùng + "Hướng dẫn sử dụng" ghép theo nhãn cố định
-    if (parsed.usage) {
-      setNewMedUsage(parsed.usage);
-      const composed = formatUsageText(parsed.usage, phiForText, isSupplyType);
-      if (composed) setNewMedDosage(composed);
-      else if (str(data.dosage_instruction)) setNewMedDosage(str(data.dosage_instruction));
-    } else if (str(data.dosage_instruction)) {
-      setNewMedDosage(str(data.dosage_instruction));
+      setNewMedPhi(isNaN(p) || t === 'Vật tư canh tác' ? '' : p);
     }
     if (data.price !== undefined) {
       const pr = parseFloat(str(data.price));
@@ -521,30 +485,32 @@ export const AdminInventoryPage: React.FC = () => {
     // Link nguồn AI đề xuất: điền ô link nếu đang trống, còn lại hiện để Admin chọn
     const validLinks = parsed.sourceUrls.filter((u) => isSafeHttpUrl(u));
     setAiSourceLinks(validLinks);
-    setAiSourceQuotes(parsed.sourceQuotes.filter((q) => isSafeHttpUrl(q.url)));
     if (validLinks.length && !newMedSourceUrl.trim()) setNewMedSourceUrl(validLinks[0]);
 
-    // Một toast ngắn; chi tiết (lưu ý số liệu, loại vật tư...) hiện trong khung "Lưu ý từ Gemini" của form
+    const notes: string[] = [];
+    notes.push(
+      parsed.matchedDiseases.length
+        ? `bệnh hại +${parsed.matchedDiseases.length}`
+        : parsed.hasDiseaseField
+          ? 'không có bệnh hại cụ thể'
+          : 'JSON không có trường bệnh hại'
+    );
+    if (validLinks.length) notes.push(`${validLinks.length} link nguồn`);
+    toast.success(`Đã điền form từ JSON (${notes.join(', ')}). Hãy đối chiếu lại trước khi lưu.`);
+    if (parsed.unmatchedDiseases.length) {
+      toast.warning(`Không khớp được bệnh: ${parsed.unmatchedDiseases.join(', ')}. Hãy chọn tay ở ô "Bệnh hại mục tiêu".`);
+    }
     const identified = str(data.identified_as).toUpperCase();
     const note = str(data.identification_note);
-    const aiNoteList: { title: string; text: string }[] = [];
-    if (str(data.scope_note)) aiNoteList.push({ title: 'Số liệu', text: str(data.scope_note) });
-    if (identified === 'HOMEMADE') aiNoteList.push({ title: 'Chế phẩm tự pha', text: note });
-    else if (identified === 'PRACTICE') aiNoteList.push({ title: 'Là biện pháp, không phải vật tư', text: note || 'Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm.' });
-    else if (identified === 'SEED') aiNoteList.push({ title: 'Giống cây / hạt giống', text: note });
-    if (data.mentions_differ === true) aiNoteList.push({ title: 'Các đoạn trích nói về thứ khác nhau', text: str(data.differ_note) });
-    if (parsed.unmatchedDiseases.length) aiNoteList.push({ title: 'Bệnh chưa khớp mã, chọn tay', text: parsed.unmatchedDiseases.join(', ') });
-    setAiNotes(aiNoteList);
-
-    const parts = ['Đã điền form'];
-    if (parsed.matchedDiseases.length) parts.push(`+${parsed.matchedDiseases.length} bệnh`);
-    if (validLinks.length) parts.push(`${validLinks.length} link`);
-    if (images.length) parts.push(`${images.length} ảnh`);
-    if (!parsed.usage) parts.push('chưa có cách dùng');
-    if (aiNoteList.length) {
-      toast.warning(`${parts.join(' · ')} · ${aiNoteList.length} lưu ý, xem dưới ô link`);
-    } else {
-      toast.success(parts.join(' · '));
+    if (identified === 'HOMEMADE') {
+      toast.info(`AI xác định đây là chế phẩm TỰ PHA CHẾ, không phải sản phẩm bán sẵn. ${note}`.trim(), { duration: 9000 });
+    } else if (identified === 'PRACTICE') {
+      toast.warning(`AI xác định đây là BIỆN PHÁP canh tác, không phải vật tư. Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm. ${note}`.trim(), { duration: 9000 });
+    } else if (identified === 'SEED') {
+      toast.info(`AI xác định đây là GIỐNG CÂY / HẠT GIỐNG. ${note}`.trim(), { duration: 7000 });
+    }
+    if (data.mentions_differ === true) {
+      toast.warning(`Các đoạn trích nói về những thứ khác nhau: ${str(data.differ_note) || 'xem lại từng đoạn'}`, { duration: 10000 });
     }
     setDevGeminiInput('');
   };
@@ -596,8 +562,6 @@ export const AdminInventoryPage: React.FC = () => {
           image_url: newMedImageUrl.trim(),
           target_diseases: newMedTargetDiseases,
           is_allowed: newMedIsAllowed,
-          // phiếu rỗng gửi {} để server xóa phiếu (null = giữ nguyên)
-          usage_profile: usageProfileForApi(newMedUsage) ?? {},
         });
         await fetchMedicines();
         toast.success(`Đã cập nhật sản phẩm "${res.data.name}".`);
@@ -619,7 +583,6 @@ export const AdminInventoryPage: React.FC = () => {
         image_url: newMedImageUrl.trim() || undefined,
         target_diseases: newMedTargetDiseases,
         is_allowed: newMedIsAllowed,
-        usage_profile: usageProfileForApi(newMedUsage),
         suggestion_id: fromSuggestion ? fromSuggestion.id : undefined,
       };
 
@@ -713,11 +676,10 @@ export const AdminInventoryPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setInventorySubTab('medicines')}
-            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
-              inventorySubTab === 'medicines'
-                ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${inventorySubTab === 'medicines'
+              ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
           >
             <Package className="w-3.5 h-3.5" />
             <span>Kho thuốc &amp; Vật tư ({medicines.length})</span>
@@ -729,11 +691,10 @@ export const AdminInventoryPage: React.FC = () => {
               setInventorySubTab('suggestions');
               fetchSuggestions();
             }}
-            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
-              inventorySubTab === 'suggestions'
-                ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${inventorySubTab === 'suggestions'
+              ? 'border-emerald-700 text-emerald-800 dark:text-emerald-300'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
             <span>Gợi ý vật tư từ bài báo</span>
@@ -817,13 +778,8 @@ export const AdminInventoryPage: React.FC = () => {
                         <tr key={med.id} className="hover:bg-muted/30 transition-colors">
                           <td className="p-3 font-mono text-muted-foreground">{med.id}</td>
                           <td className="p-3">
-                            <div className="font-bold text-foreground flex items-center gap-1.5">
+                            <div className="font-bold text-foreground">
                               <span>{med.name}</span>
-                              {isIngredientBanned(med.active_ingredient) && (
-                                <Badge variant="destructive" className="text-[9px] h-4 px-1">
-                                  Hoạt chất cấm
-                                </Badge>
-                              )}
                             </div>
                             <div className="text-[11px] text-muted-foreground">
                               {med.active_ingredient || (
@@ -843,18 +799,35 @@ export const AdminInventoryPage: React.FC = () => {
                             )}
                           </td>
                           <td className="p-3 whitespace-nowrap">
-                            <Badge
-                              variant="outline"
-                              className={
-                                med.medicine_type === 'Sinh học'
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                  : med.medicine_type === 'Vật tư canh tác'
-                                    ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300'
-                                    : 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300'
-                              }
-                            >
-                              {med.medicine_type}
-                            </Badge>
+                            {med.medicine_type === 'Hóa chất cấm' || isIngredientBanned(med.active_ingredient) || isIngredientBanned(med.name) ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-red-50 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-300 font-semibold"
+                              >
+                                {med.medicine_type === 'Hóa chất cấm' ? med.medicine_type : `${med.medicine_type} (Cấm)`}
+                              </Badge>
+                            ) : med.medicine_type === 'Sinh học' ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300"
+                              >
+                                {med.medicine_type}
+                              </Badge>
+                            ) : med.medicine_type === 'Vật tư canh tác' ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300"
+                              >
+                                {med.medicine_type}
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300"
+                              >
+                                {med.medicine_type}
+                              </Badge>
+                            )}
                           </td>
                           <td className="p-3 font-semibold text-emerald-800 dark:text-emerald-400 whitespace-nowrap">
                             {med.availability === 'NOT_SOLD' ? (
@@ -903,11 +876,10 @@ export const AdminInventoryPage: React.FC = () => {
                               size="sm"
                               variant={med.is_allowed ? 'default' : 'outline'}
                               onClick={() => handleToggleMedicineAllowed(med)}
-                              className={`h-7 px-2.5 text-xs font-semibold ${
-                                med.is_allowed
-                                  ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                                  : 'text-destructive border-destructive/30 hover:bg-destructive/10'
-                              }`}
+                              className={`h-7 px-2.5 text-xs font-semibold ${med.is_allowed
+                                ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                : 'text-destructive border-destructive/30 hover:bg-destructive/10'
+                                }`}
                             >
                               {med.is_allowed ? 'Đang lưu hành' : 'Bị cấm / Dừng bán'}
                             </Button>
@@ -974,22 +946,20 @@ export const AdminInventoryPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSuggestionsViewMode('grouped')}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
-                      suggestionsViewMode === 'grouped'
-                        ? 'bg-primary text-white shadow-2xs'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${suggestionsViewMode === 'grouped'
+                      ? 'bg-primary text-white shadow-2xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     Gộp theo tên ({groupedSuggestions.length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setSuggestionsViewMode('all')}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
-                      suggestionsViewMode === 'all'
-                        ? 'bg-primary text-white shadow-2xs'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${suggestionsViewMode === 'all'
+                      ? 'bg-primary text-white shadow-2xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                      }`}
                   >
                     Tất cả đoạn ({filteredSuggestions.length})
                   </button>
@@ -1177,7 +1147,7 @@ export const AdminInventoryPage: React.FC = () => {
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
                                   <Button
                                     size="sm"
-                                    onClick={() => openEvidenceModal(group.items)}
+                                    onClick={() => handleOpenCreateMedModal(actionItem, group.items)}
                                     className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
                                     title={group.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
                                   >
@@ -1366,7 +1336,7 @@ export const AdminInventoryPage: React.FC = () => {
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
                                   <Button
                                     size="sm"
-                                    onClick={() => openEvidenceModal([sug])}
+                                    onClick={() => handleOpenCreateMedModal(sug)}
                                     className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
                                     title={sug.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
                                   >
@@ -1498,7 +1468,7 @@ export const AdminInventoryPage: React.FC = () => {
                 <span>Đoạn trích bằng chứng: "{viewingEvidenceGroup?.mentionText}"</span>
               </DialogTitle>
               <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300">
-                {shownEvidenceCount || 1} đoạn trích · {evidenceTabs.length} bài
+                {viewingEvidenceGroup?.count || 1} đoạn trích · {evidenceTabs.length} bài
               </Badge>
             </div>
             <DialogDescription className="text-xs mt-1">
@@ -1591,7 +1561,7 @@ export const AdminInventoryPage: React.FC = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 border-b border-border pb-1">
                   <span className="text-xs font-semibold text-foreground">
-                    {shownEvidenceCount} đoạn trích trong {evidenceTabs.length} bài:
+                    {viewingEvidenceGroup.count} đoạn trích trong {evidenceTabs.length} bài:
                   </span>
                   {evidenceTabs.length > 1 && (
                     <span className="text-[10px] text-muted-foreground">Bấm từng tab để đọc; bài không liên quan thì bỏ tick</span>
@@ -1608,11 +1578,10 @@ export const AdminInventoryPage: React.FC = () => {
                           key={tab.key}
                           type="button"
                           onClick={() => setActiveEvidenceTabIdx(idx)}
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${
-                            activeEvidenceTabIdx === idx
-                              ? 'bg-emerald-700 text-white shadow-xs'
-                              : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
-                          } ${excluded ? 'opacity-50 line-through' : ''}`}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${activeEvidenceTabIdx === idx
+                            ? 'bg-emerald-700 text-white shadow-xs'
+                            : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            } ${excluded ? 'opacity-50 line-through' : ''}`}
                         >
                           <span>Bài #{idx + 1}</span>
                           <span className="text-[10px] opacity-80 max-w-[150px] truncate">
@@ -1740,11 +1709,10 @@ export const AdminInventoryPage: React.FC = () => {
                 size="sm"
                 variant="outline"
                 onClick={() => setShowDevMode((v) => !v)}
-                className={`h-7 w-7 p-0 font-mono font-bold transition-colors flex items-center justify-center shrink-0 ${
-                  showDevMode
-                    ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-400 shadow-xs'
-                    : 'bg-background hover:bg-blue-50 text-blue-700 dark:text-blue-400 border-border'
-                }`}
+                className={`h-7 w-7 p-0 font-mono font-bold transition-colors flex items-center justify-center shrink-0 ${showDevMode
+                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-400 shadow-xs'
+                  : 'bg-background hover:bg-blue-50 text-blue-700 dark:text-blue-400 border-border'
+                  }`}
                 title="Chế độ Dev: Prompt Gemini & Nạp JSON"
               >
                 <Code2 className="w-4 h-4" />
@@ -1755,8 +1723,8 @@ export const AdminInventoryPage: React.FC = () => {
               {editingMedId !== null
                 ? 'Cập nhật đầy đủ thông tin sản phẩm: link nguồn, ảnh, mô tả, bệnh hại, giá, tồn kho, PHI và trạng thái lưu hành.'
                 : fromSuggestion
-                ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
-                : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
+                  ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
+                  : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1766,7 +1734,7 @@ export const AdminInventoryPage: React.FC = () => {
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 dark:text-blue-300">
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Chế độ Dev: Gemini bản web tổng hợp thông tin (prompt &amp; nạp JSON)</span>
+                  <span>Chế độ Dev: Tận dụng Gemini Web xịn (Prompt mẫu &amp; Nạp JSON)</span>
                 </div>
                 <Button
                   type="button"
@@ -1774,22 +1742,22 @@ export const AdminInventoryPage: React.FC = () => {
                   variant="outline"
                   onClick={handleCopyGeminiPrompt}
                   className="h-7 px-2 text-[11px] bg-background font-semibold text-blue-700 dark:text-blue-300 border-blue-300 hover:bg-blue-100/50 gap-1"
-                  title="Sao chép prompt (kèm đoạn trích bài báo) để dán vào Gemini bản web"
+                  title="Sao chép toàn bộ prompt mẫu vào bộ nhớ tạm để dán vào Gemini Web"
                 >
                   <Copy className="w-3 h-3" />
-                  <span>📋 Sao chép prompt cho Gemini{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
+                  <span>📋 Sao chép Prompt cho Gemini</span>
                 </Button>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                1. Bấm <strong>Sao chép prompt cho Gemini</strong>: prompt kèm đoạn trích bài báo (gộp theo bài), tên, link (nếu có), danh sách mã bệnh; yêu cầu Gemini tổng hợp nguồn tại Việt Nam, mô tả chi tiết và phiếu cách dùng (liều, buổi, số lần, cách nhau, tối đa lần/vụ, cách ly).<br />
-                2. Copy <strong>cả câu trả lời</strong> (khối JSON + danh sách nguồn / ảnh), dán vào ô bên dưới → bấm <strong>Điền form từ Gemini</strong>. Bệnh hại được <em>gộp thêm</em>; link và ảnh hiện để bạn chọn. Chế độ Dev để tìm nhanh, vẫn phải đối chiếu nguồn trước khi lưu.
+                1. Bấm <strong>Sao chép Prompt</strong>: prompt đã kèm đoạn trích bài báo (gộp theo bài), tên, link (nếu có) và danh sách mã bệnh → dán vào Gemini / ChatGPT / Claude bản web có tìm kiếm.<br />
+                2. Copy khối JSON AI trả về, dán vào ô bên dưới → bấm <strong>Điền form từ Gemini</strong>. Bệnh hại được <em>gộp thêm</em>, không xóa bệnh đã chọn; link nguồn AI tìm được hiện để bạn chọn.
               </p>
               <div className="space-y-1.5">
                 <Textarea
                   value={devGeminiInput}
                   onChange={(e) => setDevGeminiInput(e.target.value)}
-                  placeholder="Dán cả câu trả lời của Gemini vào đây (khối ```json ... ``` và danh sách nguồn bên dưới)"
-                  rows={4}
+                  placeholder='Dán đoạn JSON hoặc kết quả từ Gemini vào đây... Ví dụ: {"name": "Vôi bột nông nghiệp", "medicine_type": "Vật tư canh tác", ...}'
+                  rows={3}
                   className="text-xs font-mono bg-background"
                 />
                 <div className="flex justify-end gap-2">
@@ -1825,6 +1793,18 @@ export const AdminInventoryPage: React.FC = () => {
                   <label className="font-semibold block text-xs">
                     Link trang sản phẩm / nhãn thuốc (URL)
                   </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyLinkSearchPrompt}
+                    disabled={!newMedName.trim() && researchItems.length === 0}
+                    className="h-7 px-2.5 text-[11px] font-semibold gap-1 bg-background border-violet-300 text-violet-800 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                    title="Sao chép prompt nhờ AI bản web (có tìm kiếm) tìm link bài viết / trang nguồn, kèm các đoạn trích bài báo"
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>Tìm link với AI{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
+                  </Button>
                 </div>
                 {(() => {
                   const queries = buildGoogleQueries({
@@ -1882,21 +1862,8 @@ export const AdminInventoryPage: React.FC = () => {
                     ))}
                   </div>
                 )}
-                {aiNotes.length > 0 && (
-                  <div className="p-2 rounded-lg border border-amber-300/70 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-[11px] space-y-1">
-                    <div className="font-semibold text-amber-800 dark:text-amber-300">Lưu ý từ Gemini</div>
-                    {aiNotes.map((n, i) => (
-                      <div key={i} className="text-amber-900 dark:text-amber-200">
-                        <span className="font-semibold">{n.title}:</span> {n.text}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {(aiSourceLinks.length > 0 || aiSourceQuotes.length > 0) && (
-                  <QuoteCheckPanel links={aiSourceLinks} quotes={aiSourceQuotes} />
-                )}
                 <p className="text-[10px] text-muted-foreground">
-                  Không bắt buộc. Chưa có link thì dùng các gợi ý Tra Google, hoặc mở chế độ Dev (nút <code>&lt;/&gt;</code>) để Gemini tổng hợp và đề xuất link.
+                  Không bắt buộc. Chưa có link thì dùng các gợi ý Tra Google hoặc bấm <strong>Tìm link với AI</strong>. Muốn AI điền cả form thì dùng chế độ Dev (nút <code>&lt;/&gt;</code>).
                 </p>
               </div>
 
@@ -1986,42 +1953,6 @@ export const AdminInventoryPage: React.FC = () => {
                     </Button>
                   </div>
                 )}
-
-                {/* ẢNH GEMINI ĐỀ XUẤT (TASK-18): chọn 1 ảnh, ảnh không tải được tự ẩn */}
-                {aiImageCandidates.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    <div className="text-[10px] font-semibold text-violet-800 dark:text-violet-300">
-                      Ảnh Gemini đề xuất (bấm để dùng; ảnh không tải được sẽ tự ẩn):
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {aiImageCandidates.map((u) => (
-                        <button
-                          key={u}
-                          type="button"
-                          onClick={() => {
-                            setNewMedImageUrl(u);
-                            setMedImageFailed(false);
-                          }}
-                          title={u}
-                          className={`relative w-16 h-16 rounded-md border overflow-hidden bg-background ${
-                            newMedImageUrl === u ? 'border-emerald-600 ring-2 ring-emerald-500/40' : 'border-border hover:border-violet-400'
-                          }`}
-                        >
-                          <img
-                            src={u}
-                            alt="Ảnh đề xuất"
-                            referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover"
-                            onError={() => setAiImageCandidates((prev) => prev.filter((x) => x !== u))}
-                          />
-                          {newMedImageUrl === u && (
-                            <span className="absolute bottom-0 inset-x-0 bg-emerald-700/90 text-white text-[9px] font-semibold">Đang dùng</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div>
@@ -2032,22 +1963,20 @@ export const AdminInventoryPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setDescPreviewMode(false)}
-                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                          !descPreviewMode
-                            ? 'bg-background text-foreground shadow-2xs font-semibold'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
+                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${!descPreviewMode
+                          ? 'bg-background text-foreground shadow-2xs font-semibold'
+                          : 'text-muted-foreground hover:text-foreground'
+                          }`}
                       >
                         ✏️ Soạn thảo
                       </button>
                       <button
                         type="button"
                         onClick={() => setDescPreviewMode(true)}
-                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                          descPreviewMode
-                            ? 'bg-background text-foreground shadow-2xs font-semibold'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
+                        className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${descPreviewMode
+                          ? 'bg-background text-foreground shadow-2xs font-semibold'
+                          : 'text-muted-foreground hover:text-foreground'
+                          }`}
                       >
                         👁️ Định dạng đẹp
                       </button>
@@ -2066,7 +1995,7 @@ export const AdminInventoryPage: React.FC = () => {
                         + Thêm mục •
                       </button>
                     )}
-                    <span>{newMedDescription.length}/{DESCRIPTION_MAX}</span>
+                    <span>{newMedDescription.length}/1000</span>
                   </div>
                 </div>
 
@@ -2076,7 +2005,7 @@ export const AdminInventoryPage: React.FC = () => {
                     value={newMedDescription}
                     onChange={(e) => setNewMedDescription(e.target.value)}
                     rows={5}
-                    maxLength={DESCRIPTION_MAX}
+                    maxLength={1000}
                     className="text-xs leading-relaxed font-sans"
                   />
                 ) : (
@@ -2281,24 +2210,10 @@ export const AdminInventoryPage: React.FC = () => {
                 />
               </div>
 
-              {/* PHIẾU CÁCH DÙNG (TASK-18) */}
-              <UsageProfileEditor
-                value={newMedUsage}
-                onChange={setNewMedUsage}
-                isSupply={newMedType === 'Vật tư canh tác'}
-                onCompose={() => {
-                  const isSupply = newMedType === 'Vật tư canh tác';
-                  const text = formatUsageText(newMedUsage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply);
-                  if (text) {
-                    setNewMedDosage(text);
-                    toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
-                  }
-                }}
-              />
-
               <div>
                 <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
-                <Textarea
+                <Input
+                  type="text"
                   value={newMedDosage}
                   onChange={(e) => setNewMedDosage(e.target.value)}
                   placeholder={
@@ -2306,12 +2221,8 @@ export const AdminInventoryPage: React.FC = () => {
                       ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
                       : 'Pha theo hướng dẫn trên bao bì'
                   }
-                  rows={Math.min(9, Math.max(2, newMedDosage.split('\n').length + 1))}
                   className="text-xs"
                 />
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.
-                </p>
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer pt-1">
