@@ -413,6 +413,51 @@ public class AgentReindexRequest
     public string Action { get; set; } = "approve"; // approve | unapprove | delete | manual
 }
 
+/// <summary>TASK-18-R4: kiểm tra câu trích nguyên văn có trong trang nguồn không.</summary>
+public class VerifyQuotesRequestDto
+{
+    [Required]
+    [JsonPropertyName("items")]
+    public List<VerifyQuoteItemDto> Items { get; set; } = new();
+}
+
+public class VerifyQuoteItemDto
+{
+    [Required]
+    [MaxLength(1000)]
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [MaxLength(1000)]
+    [JsonPropertyName("quote")]
+    public string? Quote { get; set; }
+}
+
+public class VerifyQuoteResultDto
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("quote")]
+    public string? Quote { get; set; }
+
+    /// <summary>FOUND | PARTIAL | NOT_FOUND | NO_QUOTE (trang mở được, không có câu trích) | FETCH_FAILED | INVALID_URL</summary>
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [JsonPropertyName("score")]
+    public double Score { get; set; }
+
+    [JsonPropertyName("page_snippet")]
+    public string? PageSnippet { get; set; }
+
+    [JsonPropertyName("missing_numbers")]
+    public List<string> MissingNumbers { get; set; } = new();
+
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
+}
+
 public class FetchUrlRequestDto
 {
     [Required(ErrorMessage = "Vui lòng nhập đường dẫn URL bài viết.")]

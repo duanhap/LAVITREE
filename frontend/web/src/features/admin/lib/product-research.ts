@@ -371,7 +371,7 @@ ${evidenceBlock}
    - SUPPLY: vật tư, dụng cụ, phân bón, vôi, bẫy, lưới, bạt.
    - PRACTICE: biện pháp canh tác, không phải vật tư.
    Nếu các đoạn trích nói về những thứ KHÁC NHAU, đặt "mentions_differ": true, giải thích trong "differ_note" và điền theo nghĩa xuất hiện nhiều nhất.
-2. Tìm trên web và tổng hợp từ 2–5 nguồn TẠI VIỆT NAM, ưu tiên: ${preferredSources(opts.kind, ctx)}. Bám sát cây / bệnh trong đoạn trích (${cropText}).
+2. DÙNG GOOGLE SEARCH để tìm trên web và tổng hợp từ 2–5 nguồn TẠI VIỆT NAM (bài báo ở mục 2 không tính là nguồn số liệu nếu nó không ghi con số). Nếu không tìm web được, ghi đúng câu "KHÔNG TÌM ĐƯỢC WEB" vào scope_note và để mọi con số null, ưu tiên: ${preferredSources(opts.kind, ctx)}. Bám sát cây / bệnh trong đoạn trích (${cropText}).
    Tìm ĐÚNG loại vật tư như bài mô tả${keySentences.length ? ' (mục 1b)' : ''}, cụ thể nhất có thể (ví dụ "phân bò hoai mục" khác "phân hữu cơ đóng bao", "Trichoderma dạng bột" khác "chế phẩm vi sinh" chung). Nguồn chỉ nói về loại RỘNG hơn hoặc KHÁC (ví dụ "phân hữu cơ" nói chung, bài về phân NPK) thì KHÔNG lấy số liệu của nguồn đó cho usage; nếu buộc phải dùng thì ghi rõ trong "scope_note".
 3. Tổng hợp ĐẦY ĐỦ cách dùng thực tế để lên lịch: liều lượng và lượng nước pha, lượng phun trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng (sáng sớm / chiều mát…), mấy lần một ngày, cách nhau bao nhiêu ngày, tối đa mấy lần một vụ, bắt đầu khi nào, ngừng khi nào, điều kiện thời tiết (không phun khi sắp mưa, nắng gắt…), thời gian cách ly trước thu hoạch, bảo hộ an toàn.
 4. Trả lời theo ĐÚNG thứ tự ở mục 4: khối \`\`\`json trước, sau đó danh sách nguồn và ảnh. Không viết lời dẫn trước khối JSON.
@@ -418,8 +418,8 @@ ${evidenceBlock}
 
 ### 4.2. Sau khối JSON: danh sách nguồn và ảnh
 ## Nguồn đã dùng
-1. <URL> — <loại trang: nhãn thuốc / nhà sản xuất / khuyến nông / báo…> — <năm đăng nếu có> — "<TRÍCH NGUYÊN VĂN câu trên trang chứa con số bạn đã dùng (liều, số ngày, số lần, cách ly)>"
-(Mỗi con số trong usage và phi_days phải có ít nhất 1 câu trích nguyên văn ở đây. Không trích được thì để con số đó null.)
+1. <URL> — <loại trang: nhãn thuốc / nhà sản xuất / khuyến nông / báo…> — <năm đăng nếu có> — "<đoạn COPY NGUYÊN VĂN 5–20 chữ trên trang, có chứa con số bạn đã dùng>"
+(Mỗi con số trong usage và phi_days phải có ít nhất 1 đoạn trích. Đoạn trích phải COPY y hệt chữ trên trang: không viết lại, không gộp 2 câu, không thêm "Lượng bón:", không đổi đơn vị. Chỉ trích đoạn ngắn quanh con số, giữ nguyên cả lỗi chính tả / khoảng trắng của trang. Mỗi đoạn trích 1 dòng riêng; một link có nhiều đoạn thì lặp lại link ở dòng mới. Không trích được thì để con số đó null. Hệ thống sẽ tự tải trang để so khớp từng đoạn trích.)
 ## Ảnh sản phẩm
 1. <link ảnh trực tiếp .jpg / .png / .webp> — lấy từ <URL trang>
 
@@ -455,7 +455,37 @@ export interface ParsedResearch {
   imageCandidates: string[];
   /** Phiếu cách dùng đã chuẩn hóa; null nếu JSON không có "usage". */
   usage: UsageProfile | null;
+  /** Câu "trích nguyên văn" trong phần "Nguồn đã dùng", theo link (TASK-18-R4, để kiểm tra trích dẫn). */
+  sourceQuotes: SourceQuote[];
 }
+
+export interface SourceQuote {
+  url: string;
+  quote: string;
+}
+
+/**
+ * Đọc các dòng "1. <URL> — loại — năm — "câu trích"" sau khối JSON. Mỗi dòng có link + câu trong ngoặc kép
+ * (" " hoặc “ ”) dài ≥ 8 ký tự → 1 cặp. Một link có nhiều dòng thì giữ nhiều câu.
+ */
+export const extractSourceQuotes = (raw: string): SourceQuote[] => {
+  const fenceEnd = raw.lastIndexOf('```');
+  const tail = fenceEnd >= 0 ? raw.slice(fenceEnd + 3) : raw;
+  const out: SourceQuote[] = [];
+  const seen = new Set<string>();
+  for (const line of tail.split(/\r?\n/)) {
+    const url = (line.match(/https?:\/\/[^\s<>"'()\]]+/) || [])[0]?.replace(/[.,;:]+$/, '');
+    if (!url) continue;
+    const quotes = [...line.matchAll(/"([^"]{8,})"|“([^”]{8,})”/g)].map((m) => (m[1] || m[2]).trim());
+    for (const q of quotes) {
+      const key = `${url}##${q}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ url, quote: q });
+    }
+  }
+  return out;
+};
 
 export const extractJsonObject = (raw: string): Record<string, unknown> | null => {
   if (!raw || !raw.trim()) return null;
@@ -551,5 +581,6 @@ export const parseProductResearchJson = (
     sourceUrls,
     imageCandidates,
     usage,
+    sourceQuotes: extractSourceQuotes(raw),
   };
 };

@@ -975,6 +975,33 @@
   }
   ```
 
+#### 3.13.5. `POST /api/v1/knowledge/verify-quotes` (Kiểm tra câu trích nguyên văn có trong trang nguồn — TASK-18-R4)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Mục đích**: Gemini bản web có thể "trích nguyên văn" một câu không có trên trang. Server tải từng trang (cùng cơ chế chống SSRF với `fetch-url`: chặn IP nội bộ lúc kết nối, kiểm tra lại mỗi lần chuyển hướng, tối đa 3 lần, 2 MB, 15 giây), chuyển HTML sang chữ, so khớp sau khi bỏ dấu và dấu câu.
+- **Giới hạn**: tối đa 8 câu trích trên 5 link mỗi lần (vượt → `400`); mỗi link chỉ tải một lần, tải song song.
+- **Request Body**:
+  ```json
+  { "items": [ { "url": "https://khuyennongvn.gov.vn/...-3430.html", "quote": "Phân hữu cơ khoảng 20 tấn/ha" } ] }
+  ```
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "results": [
+      {
+        "url": "https://khuyennongvn.gov.vn/...-3430.html",
+        "quote": "Bón phân: Lượng bón cho 1 ha: Phân chuồng 15 - 20 tấn",
+        "status": "NOT_FOUND",
+        "score": 0.5,
+        "page_snippet": "…Lượng phân bón: (Sử dụng cho 1.000m2 trồng cà chua) - Phân hữu cơ khoảng 20 tấn/ha…",
+        "missing_numbers": ["15"],
+        "detail": null
+      }
+    ]
+  }
+  ```
+- `status`: `FOUND` (có nguyên văn) | `PARTIAL` (≥ 80% số từ khớp trong một đoạn liền) | `NOT_FOUND` | `NO_QUOTE` (trang mở được, không gửi câu trích) | `FETCH_FAILED` (trang chặn tải / lỗi / hết giờ; Admin tự mở kiểm tra) | `INVALID_URL` (không phải http(s) hoặc trỏ vào mạng nội bộ).
+- `missing_numbers`: con số trong câu trích không có ở đoạn trang gần câu trích nhất (±15 từ). `page_snippet`: đoạn trang gần câu trích nhất (khi khớp ≥ 40%).
+
 ---
 
 ## 4. PHÂN HỆ 3: TÁC TỬ NÔNG NGHIỆP THÔNG MINH (`agent-service:8001`)

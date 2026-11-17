@@ -47,6 +47,7 @@ import {
   formatUsageText,
   usageProfileForApi,
   type UsageProfile,
+  type SourceQuote,
   mergeEvidencesByArticle,
   MAX_PROMPT_EVIDENCES,
   parseProductResearchJson,
@@ -56,6 +57,10 @@ import {
 } from '@/features/admin/lib';
 import { HighlightedText } from '@/features/admin/components/HighlightedText';
 import { UsageProfileEditor } from '@/features/admin/components/UsageProfileEditor';
+import { QuoteCheckPanel } from '@/features/admin/components/QuoteCheckPanel';
+
+// Mô tả lưu gộp vào dosage_instruction (cột text, không giới hạn); prompt Gemini yêu cầu 250–450 từ ≈ 1.500–3.000 ký tự
+const DESCRIPTION_MAX = 3500;
 import { useDiseaseOptions } from '@/features/admin/hooks';
 
 interface EvidenceModalGroup {
@@ -134,6 +139,10 @@ export const AdminInventoryPage: React.FC = () => {
   // TASK-18: phiếu cách dùng + ảnh Gemini đề xuất
   const [newMedUsage, setNewMedUsage] = useState<UsageProfile>(emptyUsageProfile());
   const [aiImageCandidates, setAiImageCandidates] = useState<string[]>([]);
+  // TASK-18-R4: câu trích nguyên văn trong "Nguồn đã dùng" để kiểm tra với trang thật
+  const [aiSourceQuotes, setAiSourceQuotes] = useState<SourceQuote[]>([]);
+  // Lưu ý của Gemini (scope_note, loại vật tư...) hiện ngay trong form thay cho toast dài (TASK-18-R5)
+  const [aiNotes, setAiNotes] = useState<{ title: string; text: string }[]>([]);
 
   // Chế độ hiển thị Gợi ý vật tư: 'grouped' (Gộp theo tên vật tư chống trùng lặp) vs 'all' (Từng dòng)
   const [suggestionsViewMode, setSuggestionsViewMode] = useState<'grouped' | 'all'>('grouped');
@@ -237,6 +246,8 @@ export const AdminInventoryPage: React.FC = () => {
     setNewMedIsAllowed(!!med.is_allowed);
     setResearchItems(suggestions.filter((sg) => sg.product_id === med.id && sg.evidence_text));
     setAiSourceLinks([]);
+    setAiSourceQuotes([]);
+    setAiNotes([]);
     setAiImageCandidates([]);
     setNewMedUsage(med.usage_profile ? normalizeUsageProfile(med.usage_profile) : emptyUsageProfile());
     setCreateMedModalOpen(true);
@@ -316,6 +327,8 @@ export const AdminInventoryPage: React.FC = () => {
     setEditingMedId(null);
     setResearchItems(groupItems && groupItems.length ? groupItems : sug ? [sug] : []);
     setAiSourceLinks([]);
+    setAiSourceQuotes([]);
+    setAiNotes([]);
     setAiImageCandidates([]);
     setNewMedUsage(emptyUsageProfile());
     setShowDevMode(false);
@@ -508,38 +521,30 @@ export const AdminInventoryPage: React.FC = () => {
     // Link nguồn AI đề xuất: điền ô link nếu đang trống, còn lại hiện để Admin chọn
     const validLinks = parsed.sourceUrls.filter((u) => isSafeHttpUrl(u));
     setAiSourceLinks(validLinks);
+    setAiSourceQuotes(parsed.sourceQuotes.filter((q) => isSafeHttpUrl(q.url)));
     if (validLinks.length && !newMedSourceUrl.trim()) setNewMedSourceUrl(validLinks[0]);
 
-    const notes: string[] = [];
-    notes.push(
-      parsed.matchedDiseases.length
-        ? `bệnh hại +${parsed.matchedDiseases.length}`
-        : parsed.hasDiseaseField
-          ? 'không có bệnh hại cụ thể'
-          : 'JSON không có trường bệnh hại'
-    );
-    if (validLinks.length) notes.push(`${validLinks.length} link nguồn`);
-    if (images.length) notes.push(`${images.length} ảnh`);
-    notes.push(parsed.usage ? 'có phiếu cách dùng' : 'KHÔNG có phiếu cách dùng');
-    toast.success(`Đã điền form từ JSON (${notes.join(', ')}). Hãy đối chiếu lại trước khi lưu.`);
-    if (parsed.unmatchedDiseases.length) {
-      toast.warning(`Không khớp được bệnh: ${parsed.unmatchedDiseases.join(', ')}. Hãy chọn tay ở ô "Bệnh hại mục tiêu".`);
-    }
+    // Một toast ngắn; chi tiết (lưu ý số liệu, loại vật tư...) hiện trong khung "Lưu ý từ Gemini" của form
     const identified = str(data.identified_as).toUpperCase();
     const note = str(data.identification_note);
-    if (identified === 'HOMEMADE') {
-      toast.info(`AI xác định đây là chế phẩm TỰ PHA CHẾ, không phải sản phẩm bán sẵn. ${note}`.trim(), { duration: 9000 });
-    } else if (identified === 'PRACTICE') {
-      toast.warning(`AI xác định đây là BIỆN PHÁP canh tác, không phải vật tư. Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm. ${note}`.trim(), { duration: 9000 });
-    } else if (identified === 'SEED') {
-      toast.info(`AI xác định đây là GIỐNG CÂY / HẠT GIỐNG. ${note}`.trim(), { duration: 7000 });
-    }
-    if (data.mentions_differ === true) {
-      toast.warning(`Các đoạn trích nói về những thứ khác nhau: ${str(data.differ_note) || 'xem lại từng đoạn'}`, { duration: 10000 });
-    }
-    // Số liệu lấy từ nguồn nói về loại rộng hơn / khác / quá cũ (TASK-18-R3): Admin phải đối chiếu trước khi lưu
-    if (str(data.scope_note)) {
-      toast.warning(`Lưu ý số liệu: ${str(data.scope_note)}`, { duration: 15000 });
+    const aiNoteList: { title: string; text: string }[] = [];
+    if (str(data.scope_note)) aiNoteList.push({ title: 'Số liệu', text: str(data.scope_note) });
+    if (identified === 'HOMEMADE') aiNoteList.push({ title: 'Chế phẩm tự pha', text: note });
+    else if (identified === 'PRACTICE') aiNoteList.push({ title: 'Là biện pháp, không phải vật tư', text: note || 'Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm.' });
+    else if (identified === 'SEED') aiNoteList.push({ title: 'Giống cây / hạt giống', text: note });
+    if (data.mentions_differ === true) aiNoteList.push({ title: 'Các đoạn trích nói về thứ khác nhau', text: str(data.differ_note) });
+    if (parsed.unmatchedDiseases.length) aiNoteList.push({ title: 'Bệnh chưa khớp mã, chọn tay', text: parsed.unmatchedDiseases.join(', ') });
+    setAiNotes(aiNoteList);
+
+    const parts = ['Đã điền form'];
+    if (parsed.matchedDiseases.length) parts.push(`+${parsed.matchedDiseases.length} bệnh`);
+    if (validLinks.length) parts.push(`${validLinks.length} link`);
+    if (images.length) parts.push(`${images.length} ảnh`);
+    if (!parsed.usage) parts.push('chưa có cách dùng');
+    if (aiNoteList.length) {
+      toast.warning(`${parts.join(' · ')} · ${aiNoteList.length} lưu ý, xem dưới ô link`);
+    } else {
+      toast.success(parts.join(' · '));
     }
     setDevGeminiInput('');
   };
@@ -1877,6 +1882,19 @@ export const AdminInventoryPage: React.FC = () => {
                     ))}
                   </div>
                 )}
+                {aiNotes.length > 0 && (
+                  <div className="p-2 rounded-lg border border-amber-300/70 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-[11px] space-y-1">
+                    <div className="font-semibold text-amber-800 dark:text-amber-300">Lưu ý từ Gemini</div>
+                    {aiNotes.map((n, i) => (
+                      <div key={i} className="text-amber-900 dark:text-amber-200">
+                        <span className="font-semibold">{n.title}:</span> {n.text}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(aiSourceLinks.length > 0 || aiSourceQuotes.length > 0) && (
+                  <QuoteCheckPanel links={aiSourceLinks} quotes={aiSourceQuotes} />
+                )}
                 <p className="text-[10px] text-muted-foreground">
                   Không bắt buộc. Chưa có link thì dùng các gợi ý Tra Google, hoặc mở chế độ Dev (nút <code>&lt;/&gt;</code>) để Gemini tổng hợp và đề xuất link.
                 </p>
@@ -2048,7 +2066,7 @@ export const AdminInventoryPage: React.FC = () => {
                         + Thêm mục •
                       </button>
                     )}
-                    <span>{newMedDescription.length}/1000</span>
+                    <span>{newMedDescription.length}/{DESCRIPTION_MAX}</span>
                   </div>
                 </div>
 
@@ -2058,7 +2076,7 @@ export const AdminInventoryPage: React.FC = () => {
                     value={newMedDescription}
                     onChange={(e) => setNewMedDescription(e.target.value)}
                     rows={5}
-                    maxLength={1000}
+                    maxLength={DESCRIPTION_MAX}
                     className="text-xs leading-relaxed font-sans"
                   />
                 ) : (

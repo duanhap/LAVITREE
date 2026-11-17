@@ -201,3 +201,31 @@ Thử "phân hữu cơ hoai mục": Gemini dẫn trang Khuyến nông Quốc gia
 **Sự cố trong lúc làm:** bản làm việc của `AdminInventoryPage.tsx` bị ghi đè bằng nội dung trước TASK-18 (lúc 03:16, có định dạng lại kiểu "format on save", khả năng do tab VS Code còn giữ nội dung cũ rồi được lưu). Đã khôi phục từ bản đã stage, giữ lại chỉnh của người dùng (ô hoạt chất khóa `text-muted-foreground/60 italic`); bản bị ghi đè được sao lưu ở scratchpad. Các sửa làm mờ placeholder (`input.tsx`, `textarea.tsx`, `globals.css`) là của người dùng, giữ nguyên, không gộp vào commit TASK-18.
 
 Kiểm thử: thư viện 24/24 PASS (thêm: câu then chốt chỉ lấy câu có tên vật tư và bỏ Markdown; prompt có mục 1b, cấm loại rộng hơn, bắt trích nguyên văn + năm, có `scope_note`; không có đoạn trích thì không có mục 1b); 23/23 ca TASK-17 PASS; Playwright luồng Tạo SP → lưu → mở sửa đúng sau khi khôi phục; `tsc` exit 0, `npm run build` thành công.
+
+### 9.6. Nút "Kiểm tra trích dẫn" (17/11/2026)
+Gemini bản web "trích nguyên văn" câu không có trên trang (trang Khuyến nông ghi "Phân hữu cơ khoảng 20 tấn/ha", Gemini trích "Bón phân: Lượng bón cho 1 ha: Phân chuồng 15 - 20 tấn"). Chỉ chỉnh prompt không chặn được, nên kiểm tra phía server.
+
+| Nơi | Thay đổi |
+|---|---|
+| `KnowledgeController` | Tách phần tải trang an toàn của `fetch-url` thành `FetchPublicHtmlAsync` (hành vi giữ nguyên). Thêm `POST /knowledge/verify-quotes` (Admin, ≤ 8 câu / 5 link, tải song song). |
+| `Infrastructure/Services/QuoteMatcher.cs` | HTML → chữ; bỏ dấu; khớp nguyên văn theo dãy từ (`FOUND`), cửa sổ trượt đếm từ trùng (`PARTIAL` ≥ 80%); con số trong câu trích phải có ở đoạn trang gần câu trích nhất (±15 từ); trả đoạn trang thật để so. |
+| `product-research.ts` | `extractSourceQuotes`: đọc câu trong ngoặc kép (" " hoặc “ ”) trên các dòng có link ở phần "Nguồn đã dùng". |
+| `components/QuoteCheckPanel.tsx` + `AdminInventoryPage.tsx` | Dưới "Link nguồn AI đề xuất": danh sách link + câu trích, nút **Kiểm tra trích dẫn**, kết quả ✅ / ⚠️ / ❌, "Con số không có trong trang", "Trang thật ghi: …". |
+
+Kiểm thử: thư viện 26/26 PASS (thêm đọc câu trích từ câu trả lời thật, link dạng markdown, ngoặc “ ”). API trên Core local với **trang thật**: câu bịa → `NOT_FOUND` + `missing_numbers ["15"]`; câu thật → `FOUND`; câu viết lại → `PARTIAL` 0.91; `http://127.0.0.1:5000/health` → `INVALID_URL`; không câu trích → `NO_QUOTE`; 9 mục → 400; không đăng nhập → 401/403 (~0,4 giây / lần). Sửa lỗi phát hiện khi test: con số ban đầu so với cả trang ("15" có ở chỗ khác nên không báo), đổi sang so với đoạn gần câu trích. `fetch-url` sau khi tách hàm: trang thật 200, localhost 400. Playwright: dán câu trả lời thật → toast `scope_note`, "2 câu trích", bấm kiểm tra → cả 2 câu "KHÔNG có trong trang", trang Vinachem thật ghi "Bón lót: phân chuồng 14 -20 tấn/ha".
+
+### 9.7. Thông báo gọn + kiểm tra ưu tiên con số (17/11/2026)
+Người dùng báo: toast dài, khó hiểu; "Kiểm tra trích dẫn" liên tục báo sai. Thử thật trên Chrome (web `:3000` + Gemini bản web) tìm ra nguyên nhân:
+
+1. Web `:3000` chuyển `/api` tới Core theo `CORE_API_URL`; Core đó **chưa có** `verify-quotes` → `404`, form chỉ hiện "Không tìm thấy dữ liệu". Cần deploy Core bản mới; trên Core local cùng câu trả lời → `FOUND`.
+2. Gemini viết lại câu (gộp câu, thêm "Lượng bón:"), nên câu không nguyên văn dù con số đúng.
+3. Trang ghi "m²", Gemini chép "m2" → chỉ `PARTIAL`.
+
+| Nơi | Thay đổi |
+|---|---|
+| `QuoteCheckPanel.tsx` | Bỏ toast. Nhãn ngắn `describeResult`: "Đúng nguyên văn"; "Số liệu có trong trang (câu được viết lại)" khi mọi con số có ở đoạn gần đó và khớp ≥ 50% từ; "Trang không ghi số X" (đỏ); "Gần đúng" / "Không thấy câu này" (vàng). Một dòng tổng kết "a/b khớp trang nguồn". `404` → "Server đang chạy chưa có chức năng này (cần Core API bản mới)". |
+| `AdminInventoryPage.tsx` | "Điền form từ Gemini" chỉ còn 1 toast một dòng ("Đã điền form · +1 bệnh · 6 link · 1 lưu ý, xem dưới ô link"). `scope_note`, loại vật tư (tự pha / biện pháp / giống), `differ_note`, bệnh chưa khớp hiện trong khung vàng "Lưu ý từ Gemini" dưới ô link. Ô mô tả 1000 → 3500 ký tự (`DESCRIPTION_MAX`; prompt đòi 250–450 từ, mô tả lưu trong cột `text`). |
+| `product-research.ts` (prompt) | Bắt dùng Google Search; không tìm được web thì ghi "KHÔNG TÌM ĐƯỢC WEB" vào `scope_note`, số để null. "Nguồn đã dùng": đoạn **copy nguyên văn 5–20 chữ** có chứa con số, không viết lại / gộp câu / đổi đơn vị, mỗi đoạn một dòng. |
+| `QuoteMatcher.cs` | Tách chữ và số thành từ riêng (`m2` = `m 2`), chuẩn hóa `FormKD` (`²` → `2`). |
+
+Kiểm thử thật: prompt mới với Gemini (Hydrogen, phân hữu cơ hoai mục) → 6 đoạn trích ngắn có số; Core local: 5/5 trang HTML `FOUND` (trước khi sửa `m²`: 4 `FOUND` + 1 `PARTIAL`), 1 PDF `FETCH_FAILED`. Hồi quy `t18_verify.mjs` ALL PASS (câu bịa vẫn `NOT_FOUND` + thiếu "15"). `describeResult` 6/6 PASS, thư viện ALL PASS, `tsc` 0, `npm run build` thành công. Trên `:3000`: toast một dòng, khung "Lưu ý từ Gemini", lỗi 404 báo rõ. Ghi nhận: Gemini chế độ khác có lần không tìm web (tự ghi vào `scope_note`, số để null).
