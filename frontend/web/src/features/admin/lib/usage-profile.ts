@@ -238,3 +238,38 @@ export const formatUsageText = (p: UsageProfile, phiDays?: number | null, isSupp
 /** Phiếu gửi lên API: null nếu rỗng. */
 export const usageProfileForApi = (p: UsageProfile | null | undefined): UsageProfile | null =>
   !p || isUsageEmpty(p) ? null : { ...p, version: USAGE_PROFILE_VERSION };
+
+// ---------------------------------------------------------------------------
+// Mô tả + Hướng dẫn sử dụng lưu chung cột dosage_instruction
+// ---------------------------------------------------------------------------
+
+const DESC_PREFIX = 'Mô tả:';
+const DOSAGE_MARKER = 'Hướng dẫn sử dụng:';
+
+/** "Mô tả: <mô tả>\n\nHướng dẫn sử dụng:\n<hướng dẫn>" (cả hai có thể nhiều dòng). */
+export const combineDescriptionDosage = (description: string, dosage: string): string => {
+  const d = description.trim();
+  const u = dosage.trim();
+  if (!d) return u;
+  return `${DESC_PREFIX} ${d}\n\n${DOSAGE_MARKER}\n${u}`.trimEnd();
+};
+
+const USAGE_LINE = new RegExp(
+  '^•\\s*(' + Object.values(USAGE_LABELS).map((l) => l.replace(/[()]/g, '\\$&')).join('|') + '):'
+);
+
+/** Tách lại khi mở form sửa. Bản lưu cũ (không có dòng "Hướng dẫn sử dụng:") tách ở dòng phiếu đầu tiên, nếu không có thì ở dòng cuối. */
+export const splitDescriptionDosage = (text: string): { description: string; dosage: string } => {
+  const t = (text || '').replace(/\r\n/g, '\n');
+  if (!t.startsWith(DESC_PREFIX)) return { description: '', dosage: t.trim() };
+  const body = t.slice(DESC_PREFIX.length).trim();
+  const lines = body.split('\n');
+  let at = lines.findIndex((l) => l.trim() === DOSAGE_MARKER);
+  if (at !== -1) {
+    return { description: lines.slice(0, at).join('\n').trim(), dosage: lines.slice(at + 1).join('\n').trim() };
+  }
+  at = lines.findIndex((l, i) => i > 0 && USAGE_LINE.test(l.trim()));
+  if (at === -1) at = lines.length > 1 ? lines.length - 1 : -1;
+  if (at === -1) return { description: body, dosage: '' };
+  return { description: lines.slice(0, at).join('\n').trim(), dosage: lines.slice(at).join('\n').trim() };
+};

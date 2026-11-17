@@ -45,9 +45,10 @@ import {
   emptyUsageProfile,
   normalizeUsageProfile,
   formatUsageText,
+  combineDescriptionDosage,
+  splitDescriptionDosage,
   usageProfileForApi,
   type UsageProfile,
-  type SourceQuote,
   mergeEvidencesByArticle,
   MAX_PROMPT_EVIDENCES,
   parseProductResearchJson,
@@ -57,7 +58,6 @@ import {
 } from '@/features/admin/lib';
 import { HighlightedText } from '@/features/admin/components/HighlightedText';
 import { UsageProfileEditor } from '@/features/admin/components/UsageProfileEditor';
-import { QuoteCheckPanel } from '@/features/admin/components/QuoteCheckPanel';
 
 // Mô tả lưu gộp vào dosage_instruction (cột text, không giới hạn); prompt Gemini yêu cầu 250–450 từ ≈ 1.500–3.000 ký tự
 const DESCRIPTION_MAX = 3500;
@@ -140,7 +140,6 @@ export const AdminInventoryPage: React.FC = () => {
   const [newMedUsage, setNewMedUsage] = useState<UsageProfile>(emptyUsageProfile());
   const [aiImageCandidates, setAiImageCandidates] = useState<string[]>([]);
   // TASK-18-R4: câu trích nguyên văn trong "Nguồn đã dùng" để kiểm tra với trang thật
-  const [aiSourceQuotes, setAiSourceQuotes] = useState<SourceQuote[]>([]);
   // Lưu ý của Gemini (scope_note, loại vật tư...) hiện ngay trong form thay cho toast dài (TASK-18-R5)
   const [aiNotes, setAiNotes] = useState<{ title: string; text: string }[]>([]);
 
@@ -213,18 +212,8 @@ export const AdminInventoryPage: React.FC = () => {
     }
   };
 
-  // Mô tả sản phẩm được lưu gộp vào dosage_instruction dạng "Mô tả: <mô tả>\n<liều dùng>" (xem submit) → tách lại khi sửa
-  const splitDescriptionFromDosage = (text: string): { description: string; dosage: string } => {
-    const t = (text || '').replace(/\r\n/g, '\n');
-    if (!t.startsWith('Mô tả:')) return { description: '', dosage: t.trim() };
-    const body = t.slice('Mô tả:'.length).trim();
-    const lastNl = body.lastIndexOf('\n');
-    if (lastNl === -1) return { description: body, dosage: '' };
-    return { description: body.slice(0, lastNl).trim(), dosage: body.slice(lastNl + 1).trim() };
-  };
-
   const handleOpenEditMedModal = (med: MedicineItem) => {
-    const { description, dosage } = splitDescriptionFromDosage(med.dosage_instruction);
+    const { description, dosage } = splitDescriptionDosage(med.dosage_instruction);
     setShowDevMode(false);
     setDevGeminiInput('');
     setDescPreviewMode(false);
@@ -246,7 +235,6 @@ export const AdminInventoryPage: React.FC = () => {
     setNewMedIsAllowed(!!med.is_allowed);
     setResearchItems(suggestions.filter((sg) => sg.product_id === med.id && sg.evidence_text));
     setAiSourceLinks([]);
-    setAiSourceQuotes([]);
     setAiNotes([]);
     setAiImageCandidates([]);
     setNewMedUsage(med.usage_profile ? normalizeUsageProfile(med.usage_profile) : emptyUsageProfile());
@@ -327,7 +315,6 @@ export const AdminInventoryPage: React.FC = () => {
     setEditingMedId(null);
     setResearchItems(groupItems && groupItems.length ? groupItems : sug ? [sug] : []);
     setAiSourceLinks([]);
-    setAiSourceQuotes([]);
     setAiNotes([]);
     setAiImageCandidates([]);
     setNewMedUsage(emptyUsageProfile());
@@ -458,7 +445,7 @@ export const AdminInventoryPage: React.FC = () => {
     const n = countArticleBlocks(researchItems);
     copyText(
       prompt,
-      `Đã sao chép prompt${n ? ` kèm ${n} bài trích` : ''}. Dán vào Gemini bản web, rồi dán cả câu trả lời (JSON + danh sách nguồn) vào ô bên dưới.`
+      `Đã sao chép prompt${n ? ` kèm ${n} bài trích` : ''}. Dán vào trợ lý AI (Gemini, ChatGPT...), rồi dán cả câu trả lời (JSON + danh sách nguồn) vào ô bên dưới.`
     );
   };
 
@@ -521,14 +508,22 @@ export const AdminInventoryPage: React.FC = () => {
     // Link nguồn AI đề xuất: điền ô link nếu đang trống, còn lại hiện để Admin chọn
     const validLinks = parsed.sourceUrls.filter((u) => isSafeHttpUrl(u));
     setAiSourceLinks(validLinks);
-    setAiSourceQuotes(parsed.sourceQuotes.filter((q) => isSafeHttpUrl(q.url)));
     if (validLinks.length && !newMedSourceUrl.trim()) setNewMedSourceUrl(validLinks[0]);
 
-    // Một toast ngắn; chi tiết (lưu ý số liệu, loại vật tư...) hiện trong khung "Lưu ý từ Gemini" của form
+    // Một toast ngắn; chi tiết (lưu ý số liệu, loại vật tư...) hiện trong khung "Lưu ý từ AI" của form
     const identified = str(data.identified_as).toUpperCase();
     const note = str(data.identification_note);
     const aiNoteList: { title: string; text: string }[] = [];
-    if (str(data.scope_note)) aiNoteList.push({ title: 'Số liệu', text: str(data.scope_note) });
+    const scopeNote = str(data.scope_note);
+    if (/KH[ÔO]NG T[ÌI]M [ĐD][ƯU][ỢO]C WEB/i.test(scopeNote)) {
+      // Gemini bản web có lúc hết lượt / không bật Google Search → mọi con số để trống
+      aiNoteList.push({
+        title: 'AI không tìm được web',
+        text: 'Chưa có nguồn nên liều lượng để trống. Mở cuộc trò chuyện mới (hoặc đổi chế độ / đổi AI) rồi dán lại prompt, hoặc dùng các nút Tra Google ở trên.',
+      });
+    } else if (scopeNote) {
+      aiNoteList.push({ title: 'Số liệu', text: scopeNote });
+    }
     if (identified === 'HOMEMADE') aiNoteList.push({ title: 'Chế phẩm tự pha', text: note });
     else if (identified === 'PRACTICE') aiNoteList.push({ title: 'Là biện pháp, không phải vật tư', text: note || 'Cân nhắc "Ghi nhận biện pháp" thay vì tạo sản phẩm.' });
     else if (identified === 'SEED') aiNoteList.push({ title: 'Giống cây / hạt giống', text: note });
@@ -575,12 +570,10 @@ export const AdminInventoryPage: React.FC = () => {
 
     try {
       setCreatingMed(true);
-      const combinedDosage = [
-        newMedDescription.trim() ? `Mô tả: ${newMedDescription.trim()}` : '',
-        newMedDosage.trim() || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
-      ]
-        .filter(Boolean)
-        .join('\n');
+      const combinedDosage = combineDescriptionDosage(
+        newMedDescription,
+        newMedDosage.trim() || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì')
+      );
 
       if (editingMedId !== null) {
         const res = await apiClient.patch(`/medicines/${editingMedId}`, {
@@ -1728,7 +1721,7 @@ export const AdminInventoryPage: React.FC = () => {
           if (!open) setEditingMedId(null);
         }}
       >
-        <DialogContent className="sm:max-w-3xl lg:max-w-4xl w-[94vw] max-w-4xl max-h-[92vh] overflow-y-auto p-5 sm:p-6">
+        <DialogContent className="sm:max-w-3xl lg:max-w-4xl w-[94vw] max-w-4xl max-h-[92vh] overflow-y-auto overflow-x-hidden grid-cols-[minmax(0,1fr)] p-5 sm:p-6">
           <DialogHeader className="shrink-0 pb-2 border-b border-border">
             <div className="flex items-center justify-between gap-2 pr-8">
               <DialogTitle className="text-base font-bold flex items-center gap-2">
@@ -1757,7 +1750,7 @@ export const AdminInventoryPage: React.FC = () => {
                     ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-400 shadow-xs'
                     : 'bg-background hover:bg-blue-50 text-blue-700 dark:text-blue-400 border-border'
                 }`}
-                title="Chế độ Dev: Prompt Gemini & Nạp JSON"
+                title="Chế độ Dev: Prompt AI & Nạp JSON"
               >
                 <Code2 className="w-4 h-4" />
               </Button>
@@ -1778,7 +1771,7 @@ export const AdminInventoryPage: React.FC = () => {
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 dark:text-blue-300">
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Chế độ Dev: Gemini bản web tổng hợp thông tin (prompt &amp; nạp JSON)</span>
+                  <span>Chế độ Dev: trợ lý AI tổng hợp thông tin (prompt &amp; nạp JSON)</span>
                 </div>
                 <Button
                   type="button"
@@ -1786,21 +1779,21 @@ export const AdminInventoryPage: React.FC = () => {
                   variant="outline"
                   onClick={handleCopyGeminiPrompt}
                   className="h-7 px-2 text-[11px] bg-background font-semibold text-blue-700 dark:text-blue-300 border-blue-300 hover:bg-blue-100/50 gap-1"
-                  title="Sao chép prompt (kèm đoạn trích bài báo) để dán vào Gemini bản web"
+                  title="Sao chép prompt (kèm đoạn trích bài báo) để dán vào trợ lý AI (Gemini, ChatGPT...)"
                 >
                   <Copy className="w-3 h-3" />
-                  <span>📋 Sao chép prompt cho Gemini{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
+                  <span>📋 Sao chép prompt cho AI{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
                 </Button>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                1. Bấm <strong>Sao chép prompt cho Gemini</strong>: prompt kèm đoạn trích bài báo (gộp theo bài), tên, link (nếu có), danh sách mã bệnh; yêu cầu Gemini tổng hợp nguồn tại Việt Nam, mô tả chi tiết và phiếu cách dùng (liều, buổi, số lần, cách nhau, tối đa lần/vụ, cách ly).<br />
-                2. Copy <strong>cả câu trả lời</strong> (khối JSON + danh sách nguồn / ảnh), dán vào ô bên dưới → bấm <strong>Điền form từ Gemini</strong>. Bệnh hại được <em>gộp thêm</em>; link và ảnh hiện để bạn chọn. Chế độ Dev để tìm nhanh, vẫn phải đối chiếu nguồn trước khi lưu.
+                1. Bấm <strong>Sao chép prompt cho AI</strong>: prompt kèm đoạn trích bài báo (gộp theo bài), tên, link (nếu có), danh sách mã bệnh; yêu cầu AI tổng hợp nguồn tại Việt Nam, mô tả chi tiết và phiếu cách dùng (liều, buổi, số lần, cách nhau, tối đa lần/vụ, cách ly).<br />
+                2. Copy <strong>cả câu trả lời</strong> (khối JSON + danh sách nguồn / ảnh), dán vào ô bên dưới → bấm <strong>Điền form từ AI</strong>. Bệnh hại được <em>gộp thêm</em>; link và ảnh hiện để bạn chọn. Chế độ Dev để tìm nhanh, vẫn phải đối chiếu nguồn trước khi lưu.
               </p>
               <div className="space-y-1.5">
                 <Textarea
                   value={devGeminiInput}
                   onChange={(e) => setDevGeminiInput(e.target.value)}
-                  placeholder="Dán cả câu trả lời của Gemini vào đây (khối ```json ... ``` và danh sách nguồn bên dưới)"
+                  placeholder="Dán cả câu trả lời của AI vào đây (khối ```json ... ``` và danh sách nguồn bên dưới)"
                   rows={4}
                   className="text-xs font-mono bg-background"
                 />
@@ -1813,7 +1806,7 @@ export const AdminInventoryPage: React.FC = () => {
                     className="h-7 px-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] gap-1"
                   >
                     <Sparkles className="w-3 h-3" />
-                    <span>⚡ Điền form từ Gemini</span>
+                    <span>⚡ Điền form từ AI</span>
                   </Button>
                 </div>
               </div>
@@ -1895,8 +1888,8 @@ export const AdminInventoryPage: React.FC = () => {
                   </div>
                 )}
                 {aiNotes.length > 0 && (
-                  <div className="p-2 rounded-lg border border-amber-300/70 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-[11px] space-y-1">
-                    <div className="font-semibold text-amber-800 dark:text-amber-300">Lưu ý từ Gemini</div>
+                  <div className="p-2 rounded-lg border border-amber-300/70 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-[11px] space-y-1 [overflow-wrap:anywhere]">
+                    <div className="font-semibold text-amber-800 dark:text-amber-300">Lưu ý từ AI</div>
                     {aiNotes.map((n, i) => (
                       <div key={i} className="text-amber-900 dark:text-amber-200">
                         <span className="font-semibold">{n.title}:</span> {n.text}
@@ -1904,11 +1897,8 @@ export const AdminInventoryPage: React.FC = () => {
                     ))}
                   </div>
                 )}
-                {(aiSourceLinks.length > 0 || aiSourceQuotes.length > 0) && (
-                  <QuoteCheckPanel links={aiSourceLinks} quotes={aiSourceQuotes} />
-                )}
                 <p className="text-[10px] text-muted-foreground">
-                  Không bắt buộc. Chưa có link thì dùng các gợi ý Tra Google, hoặc mở chế độ Dev (nút <code>&lt;/&gt;</code>) để Gemini tổng hợp và đề xuất link.
+                  Không bắt buộc. Chưa có link thì dùng các gợi ý Tra Google, hoặc mở chế độ Dev (nút <code>&lt;/&gt;</code>) để AI tổng hợp và đề xuất link.
                 </p>
               </div>
 
@@ -2003,7 +1993,7 @@ export const AdminInventoryPage: React.FC = () => {
                 {aiImageCandidates.length > 0 && (
                   <div className="mt-2 space-y-1">
                     <div className="text-[10px] font-semibold text-violet-800 dark:text-violet-300">
-                      Ảnh Gemini đề xuất (bấm để dùng; ảnh không tải được sẽ tự ẩn):
+                      Ảnh AI đề xuất (bấm để dùng; ảnh không tải được sẽ tự ẩn):
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {aiImageCandidates.map((u) => (
