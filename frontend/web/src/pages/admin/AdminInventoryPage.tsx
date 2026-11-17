@@ -47,6 +47,7 @@ import {
   formatUsageText,
   combineDescriptionDosage,
   splitDescriptionDosage,
+  validateUsageProfile,
   usageProfileForApi,
   type UsageProfile,
   mergeEvidencesByArticle,
@@ -565,6 +566,11 @@ export const AdminInventoryPage: React.FC = () => {
     }
     if (newMedSourceUrl.trim() && !/^https?:\/\//i.test(newMedSourceUrl.trim())) {
       toast.error('Link nguồn phải bắt đầu bằng http:// hoặc https://.');
+      return;
+    }
+    const usageError = validateUsageProfile(newMedUsage);
+    if (usageError) {
+      toast.error(`Phiếu cách dùng: ${usageError}`);
       return;
     }
 
