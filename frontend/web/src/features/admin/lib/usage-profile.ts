@@ -273,3 +273,42 @@ export const splitDescriptionDosage = (text: string): { description: string; dos
   if (at === -1) return { description: body, dosage: '' };
   return { description: lines.slice(0, at).join('\n').trim(), dosage: lines.slice(at).join('\n').trim() };
 };
+
+// ---------------------------------------------------------------------------
+// Kiểm tra phiếu trước khi lưu: chặn số làm lịch nhắc dày đặc (FEAT-06)
+// ---------------------------------------------------------------------------
+
+const isInt = (n: number) => Number.isInteger(n);
+
+/** Trả về câu báo lỗi đầu tiên, hoặc null nếu phiếu hợp lệ. Phiếu trống luôn hợp lệ. */
+export const validateUsageProfile = (p: UsageProfile | null | undefined): string | null => {
+  if (!p) return null;
+  const iv = p.interval_days;
+  const hasInterval = !!iv && (iv.min !== null || iv.max !== null);
+  if (hasInterval) {
+    for (const v of [iv!.min, iv!.max]) {
+      if (v !== null && (!isInt(v) || v < 1 || v > 365)) {
+        return 'Ô "Cách nhau (ngày)" phải là số ngày nguyên từ 1 đến 365.';
+      }
+    }
+    if (iv!.min !== null && iv!.max !== null && iv!.min > iv!.max) {
+      return 'Ô "Cách nhau (ngày)": số đầu phải nhỏ hơn hoặc bằng số sau (VD: 7-10).';
+    }
+    if (p.max_applications_per_season === null) {
+      return 'Đã nhập "Cách nhau (ngày)" thì phải nhập "Tối đa lần / vụ", nếu không lịch nhắc sẽ lặp mãi.';
+    }
+  }
+  const m = p.max_applications_per_season;
+  if (m !== null && (!isInt(m) || m < 1 || m > 50)) {
+    return 'Ô "Tối đa lần / vụ" phải là số nguyên từ 1 đến 50.';
+  }
+  const t = p.times_per_day;
+  if (t !== null && (!isInt(t) || t < 1 || t > 10)) {
+    return 'Ô "Số lần / ngày" phải là số nguyên từ 1 đến 10.';
+  }
+  const r = p.avoid_rain_hours;
+  if (r !== null && (r < 0 || r > 72)) {
+    return 'Ô "Tránh mưa (giờ)" phải từ 0 đến 72 giờ.';
+  }
+  return null;
+};
