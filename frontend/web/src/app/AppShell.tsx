@@ -57,12 +57,12 @@ export const AppShell: React.FC = () => {
   return (
     <div
       className={cn(
-        'flex flex-col bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary relative',
+        'flex flex-col bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary relative isolate',
         isChatRoute ? 'h-dvh overflow-hidden' : 'min-h-screen'
       )}
     >
-      {/* ================= BACKGROUND TECH PATTERN & AMBIENT DECOR ================= */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+      {/* ================= BACKGROUND TECH PATTERN & AMBIENT DECOR: NẰM DƯỚI ĐÁY TẤT CẢ PHẦN TỬ UI (-z-10) ================= */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
         {/* Layer 1: Lưới khối vuông vi mạch + đường chéo xanh 45° (Tech Circuit Grid) */}
         <div className="absolute inset-0 bg-tech-circuit opacity-85 [mask-image:radial-gradient(ellipse_95%_80%_at_50%_25%,#000_30%,transparent_92%)]" />
 

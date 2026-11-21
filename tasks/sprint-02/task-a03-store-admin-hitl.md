@@ -2,7 +2,7 @@
 * **Sprint**: Sprint 2 (Song hành Tác tử Nông nghiệp & Hình thành Hệ thống Toàn diện)
 * **Thứ tự thực hiện trong Sprint**: **Ưu tiên số 3 - Tuần 2 (P1 - Hoàn thiện trục nghiệp vụ mua sắm vật tư & kiểm duyệt tri thức)**
 * **Phân hệ**: `frontend/web` & `backend/core-api`
-* **Trạng thái**: `[/] ACTIVE (Đang hoàn thiện sau đánh giá TVA ngày 08/11/2026)`
+* **Trạng thái**: `[x] DONE` (đóng 22/11/2026; BUG-51 chấp nhận rủi ro, BUG-58 chuyển TASK-10)
 * **Người phụ trách**: Thành viên A (System, Auth & Web Lead)
 * **Độ ưu tiên**: P1 - Quan trọng nghiệp vụ
 * **Tài liệu tham chiếu chuẩn**:
@@ -93,14 +93,14 @@
 
 | Xong | ID | Mức | Vị trí | Lỗi và hậu quả | Cách sửa và nghiệm thu |
 |---|---|---|---|---|---|
-| [ ] | BUG-51 | HIGH | `sample_treatment_seed.json`, `Products` | `IsAllowed`, PHI, liều dùng chưa được đối chiếu từng sản phẩm với danh mục hiện hành, trong khi Store hiển thị thông điệp gây hiểu nhầm. | Đã gỡ bỏ banner "100% Cấp phép lưu hành theo TT 75/2025" trên StorePage; mở lại để tiếp tục đối chiếu từng sản phẩm với Phụ lục I, II của TT 75/2025/TT-BNNMT trước khi chính thức mở bán. |
+| [-] | BUG-51 | HIGH | `sample_treatment_seed.json`, `Products` | `IsAllowed`, PHI, liều dùng chưa được đối chiếu từng sản phẩm với danh mục hiện hành, trong khi Store hiển thị thông điệp gây hiểu nhầm. | Đã gỡ bỏ banner "100% Cấp phép lưu hành theo TT 75/2025" trên StorePage; mở lại để tiếp tục đối chiếu từng sản phẩm với Phụ lục I, II của TT 75/2025/TT-BNNMT trước khi chính thức mở bán. **→ Chấp nhận rủi ro Sprint 2, chuyển Sprint 3 (S2-BONUS BUG-51).** |
 | [x] | BUG-52 | MEDIUM | `DiagnosisRecords`, `DiagnoseController.cs` | DB chỉ lưu Top-1, nên W-08 không hiện được Top-3 như lúc khám; nhóm dễ nhầm đang suy từ `class_code`. | Thêm cột lưu Top-3 và `confusion_group`, cập nhật migration và `database-schema.md`. Ca cũ vẫn hiện được. Deserialization trả về frontend đầy đủ. |
 | [x] | BUG-53 | MEDIUM | `/chat`, `AdminDashboard.tsx`, `HistoryPage.tsx` | Nút "Nhờ Bác sĩ thẩm định" chưa có trên UI Nông dân; phản hồi chuyên gia ghi đè mất ghi chú ban đầu của nông dân. | Thêm nút & modal "Nhờ Bác sĩ thẩm định" ($\le 2000$ ký tự) trên HistoryPage, hiển thị thẻ kết luận chuyên gia; phân tách cột `Notes` (nông dân) và `ExpertNotes` (chuyên gia), bảo tồn 100% câu hỏi ban đầu. |
-| [ ] | BUG-54 | MEDIUM | `frontend/web/package.json` | `react-router-dom` 6.30.6 thuộc khoảng ảnh hưởng của GHSA-wrjc-x8rr-h8h6 (mức moderate); `vite` còn cảnh báo ở môi trường dev. | Nâng `react-router-dom` lên từ 7.18 và nâng `vite` trong một commit riêng, chạy lại các luồng route. `npm audit` không còn cảnh báo production. |
+| [x] | BUG-54 | MEDIUM | `frontend/web/package.json` | `react-router-dom` 6.30.6 thuộc khoảng ảnh hưởng của GHSA-wrjc-x8rr-h8h6 (mức moderate); `vite` còn cảnh báo ở môi trường dev. | Nâng `react-router-dom` lên từ 7.18 và nâng `vite` trong một commit riêng, chạy lại các luồng route. `npm audit` không còn cảnh báo production. **→ Xong ở S2-BONUS (đợt 2).** |
 | [x] | BUG-55 | MEDIUM | `LoginPage`, `RegisterPage`, form A03 | Form chưa dùng `react-hook-form` + `zod`, dữ liệu chưa dùng TanStack Query như `AGENTS.md` quy định. | Áp dụng `react-hook-form` + `zod` schema cho form đặt hàng COD StorePage A03. |
 | [x] | BUG-56 | MEDIUM | `test_task_a01_auth.py`, `test_task_a02_e2e.py` | Test tạo tài khoản và ảnh thật nếu trỏ vào DB chung; chưa kiểm tra trực tiếp hash trong DB. | Tài khoản test tự sinh uuid động theo từng phiên chạy, dọn sạch dữ liệu đơn hàng và cache sau khi kiểm thử. |
 | [x] | BUG-57 | LOW | `DiagnoseController.cs` | `SaveChanges` lỗi sau khi upload vẫn để lại ảnh mồ côi trong MinIO. | Xóa ảnh đã upload qua `IMinioStorageService.DeleteFileAsync` khi ghi DB thất bại. |
-| [ ] | BUG-58 | MEDIUM | App Android (A04) | Server xóa cả thẻ Orientation của EXIF. Client không xoay ảnh trước khi gửi sẽ lưu ảnh nằm ngang. | Android xoay và nén ảnh trước khi upload như `prepare-image.ts`. |
+| [-] | BUG-58 | MEDIUM | App Android (A04) | Server xóa cả thẻ Orientation của EXIF. Client không xoay ảnh trước khi gửi sẽ lưu ảnh nằm ngang. | Android xoay và nén ảnh trước khi upload như `prepare-image.ts`. **→ Chuyển TASK-10 (Sprint 3), 22/11.** |
 | [x] | BUG-59 | CRITICAL | `OrdersController.cs` | Race condition dẫn đến bán vượt tồn kho (overselling) khi gửi đồng thời nhiều đơn hàng. | Thay thế việc đọc rồi trừ bằng lệnh SQL atomic `ExecuteUpdateAsync` với điều kiện `StockQuantity >= item.Quantity` trong Transaction; trả 400 và rollback nếu thiếu hàng. Nghiệm thu qua bài test concurrency 10 đơn cho 3 tồn kho. |
 | [x] | BUG-60 | HIGH | `KnowledgeController.cs` | Vượt giới hạn 4 đoạn nguyên văn/URL thông qua biến thể URL (query params, hash, uppercase scheme/domain) và lưu trùng lặp nội dung. | Bổ sung `NormalizeUrl` chuẩn hóa URL toàn diện, khóa đồng thời `SemaphoreSlim` theo từng normalized URL, kiểm tra trùng lặp `EvidenceText` tuyệt đối trong transaction CSDL. |
 | [x] | BUG-61 | HIGH | `KnowledgeController.cs` | Khóa nội bộ `"Lavitree_Internal_Secret_2026_SecureKey"` bị hardcode dự phòng trong 3 vị trí mã nguồn. | Xóa bỏ toàn bộ chuỗi hardcode; triển khai hàm `GetInternalApiKey()` fail-closed (ném ngoại lệ `InvalidOperationException` nếu biến `INTERNAL_API_SECRET` chưa được thiết lập). |

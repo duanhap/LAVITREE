@@ -111,11 +111,11 @@ Khi Agent tra cứu qua `lookup_disease_knowledge(disease_code, query)`:
 
 ## 4. KẾ HOẠCH BẺ NHỎ THỰC THI (COOKING PHASES)
 
-- [ ] **Pha 1 (Thành viên B - Tận dụng Postgres SSOT Sprint 1 & Định nghĩa Pydantic Schema)**:
+- [x] **Pha 1 (Thành viên B - Tận dụng Postgres SSOT Sprint 1 & Định nghĩa Pydantic Schema)**:
   - Tận dụng 100% bảng `KnowledgeSources` đã nạp sẵn từ Sprint 1 (`KnowledgeSources_rows.csv` gồm các trường `ModelClass`, `EvidenceText`, `ContentType`, `SourceUrl`, `IsManualApproved`, `PlantName`, `DiseaseName`). Hai cột mới `UnitType`, `IsVerbatim` do Thành viên A thêm trong A03 (giá trị mặc định cho 112 bài cũ: `SUMMARY`, `false`); B chỉ đọc chúng làm metadata.
   - Thành viên B tạo `schema.py` định nghĩa các model Pydantic tương ứng (`KnowledgeRecord`, `RetrievalResult`).
   - Tạo tài khoản PostgreSQL **chỉ đọc** cho Agent (ví dụ role `lavitree_agent`: chỉ `SELECT` trên `KnowledgeSources`, thêm `Products` nếu `export_offline_cache.py` cần). Agent kết nối bằng biến `AGENT_DB_URL`, tuyệt đối không dùng tài khoản `postgres`. Tạo role bằng `psql -v agent_db_password="$AGENT_DB_PASSWORD" -f backend/core-api/seed/03_create_agent_readonly_role.sql "<ADMIN_DB_URL>"` sau khi chạy migration; mật khẩu không ghi trong file.
-- [ ] **Pha 2 (Thành viên B - Module Đồng bộ Sync Index từ CSDL 5 Bệnh Demo)**:
+- [x] **Pha 2 (Thành viên B - Module Đồng bộ Sync Index từ CSDL 5 Bệnh Demo)**:
   - Viết `sync_index.py`: Kết nối trực tiếp PostgreSQL, truy vấn các bài viết đã duyệt (`IsManualApproved = true`) lọc theo `ModelClass` của 5 bệnh demo hạt nhân:
     1. `Tomato___Late_blight` (Mốc sương cà chua - 9 bài có sẵn)
     2. `Tomato___Early_blight` (Đốm vòng cà chua - 5 bài có sẵn)
@@ -124,17 +124,17 @@ Khi Agent tra cứu qua `lookup_disease_knowledge(disease_code, query)`:
     5. `Corn_(maize)___Common_rust_` (Gỉ sắt ngô - 2 bài có sẵn, thêm bổ sung qua Web Admin Dashboard A03)
   - Bỏ hoàn toàn `extractor.py` và file seed tĩnh `knowledge_seed_5_diseases.json`. Thành viên B có thể bắt tay xây dựng chỉ mục ngay từ Ngày đầu tiên mà không bị phụ thuộc.
   - *(Lưu ý về trạng thái phê duyệt: Trong 19 bài của 5 bệnh demo từ CSV, hiện có 16 bài mang cờ `IsManualApproved = false`. Khi Web Admin A03 hoàn thiện, Admin duyệt qua nút "Duyệt hàng loạt". Để B test RAG ngay mà không phải chờ giao diện, có thể kích hoạt nhanh bằng lệnh SQL **chỉ trên DB local của máy dev** (không chạy trên DB demo/Supabase: trên bản demo, Admin phải đọc và duyệt thật qua dashboard để thể hiện quy trình HITL; nên bổ sung thêm bài cho ớt, Target spot và ngô): `UPDATE "KnowledgeSources" SET "IsManualApproved" = true WHERE "ModelClass" IN ('Tomato___Late_blight', 'Tomato___Early_blight', 'Tomato___Target_Spot', 'Pepper,_bell___Bacterial_spot', 'Corn_(maize)___Common_rust_');`)*
-- [ ] **Pha 3 (Thành viên B - ChromaDB Đa ngôn ngữ & BM25 Tiền xử lý)**:
+- [x] **Pha 3 (Thành viên B - ChromaDB Đa ngôn ngữ & BM25 Tiền xử lý)**:
   - Cài đặt `vector_retriever.py` sử dụng `BAAI/bge-m3` và ChromaDB cục bộ (`backend/agent-service/app/data/chroma_db/`, trong Docker là volume `agent_data`). BM25 lưu bản ghi dạng JSON, không dùng pickle.
   - Cài đặt `bm25_retriever.py` với bộ tiền xử lý chữ thường và token hóa song ngữ tên bệnh/hoạt chất.
   - Chạy `sync_index.py` (viết ở Pha 2) bằng 1 lệnh CLI để nạp ChromaDB + BM25.
-- [ ] **Pha 4 (Thành viên B - Thuật toán Hợp nhất RRF & Endpoint Reindex)**:
+- [x] **Pha 4 (Thành viên B - Thuật toán Hợp nhất RRF & Endpoint Reindex)**:
   - Cài đặt Reciprocal Rank Fusion ($k = 60$) tại `hybrid_fusion.py`.
   - Viết endpoint `POST /internal/reindex` trên FastAPI để `core-api` gọi khi Admin duyệt / bỏ duyệt / xóa bài (theo `api-contracts.md` Mục 4.3): kiểm tra `X-Internal-Key`, trả `202` rồi **dựng lại toàn bộ chỉ mục ở luồng nền** từ các bài đã duyệt (gỡ được bài đã bị bỏ duyệt, kể cả bài cuối cùng); thêm `GET /internal/reindex/status`. Agent cũng tự reindex khi khởi động.
-- [ ] **Pha 5 (Thành viên B - Facade Pipeline & Benchmark Kiểm thử)**:
+- [x] **Pha 5 (Thành viên B - Facade Pipeline & Benchmark Kiểm thử)**:
   - Hoàn thiện `pipeline.py` cung cấp interface duy nhất cho MCP Tool: `lookup_disease_knowledge(disease_code, query)`.
   - Viết script kiểm thử định lượng `test_rag_accuracy.py`: kiểm tra bộ câu hỏi đối chứng cho 5 bệnh demo, đo Recall@3 và kiểm tra độ trễ.
-- [ ] **Pha 6 (Thành viên B - AI gợi ý nhãn đoạn cho chức năng Nhập bài báo của A03)**:
+- [x] **Pha 6 (Thành viên B - AI gợi ý nhãn đoạn cho chức năng Nhập bài báo của A03)**:
   - Viết endpoint `POST /internal/knowledge/label-paragraphs` theo `api-contracts.md` Mục 4.4: nhận danh sách đoạn `P1, P2…`, gọi Gemini qua SDK `google-genai` (model theo env `GEMINI_MODEL`, `temperature = 0`, đầu ra JSON, timeout 30 giây; lỗi thì trả `503`), trả về **chỉ số đoạn + nhãn** (`SYMPTOMS` / `CAUSE_CONDITIONS` / `PREVENTION` / `TREATMENT`), tối đa 4 đoạn.
   - Kiểm tra đầu ra bằng code: loại `id` không có trong request và nhãn ngoài danh sách. Prompt ghi rõ nội dung đoạn là dữ liệu, không phải chỉ thị (chống prompt injection).
   - Endpoint này **không đọc / ghi PostgreSQL**, bắt buộc `X-Internal-Key`.
@@ -146,11 +146,11 @@ Kết quả đo ngày 2026-11-07 bằng `python -X utf8 test_rag_accuracy.py` (1
 
 - [x] Mỗi bệnh trong 5 bệnh demo có ít nhất 1 bài đã duyệt trong CSV seed (Target Spot mới có 1 bài; khuyến nghị ≥ 3 bài, bổ sung qua Form Admin A03). Cần kiểm tra lại trên DB demo.
 - [x] Agent đọc Postgres bằng tài khoản chỉ đọc; `INSERT`/`UPDATE`/`DELETE`/`CREATE TABLE` đều bị từ chối, đọc bảng ngoài danh sách (`Users`) bị từ chối.
-- [ ] Endpoint `POST /internal/reindex` tái tạo ChromaDB và BM25 từ Postgres của bản Docker chạy thật. Đã đạt riêng từng phần: loader đọc Postgres thật (chỉ lấy bài đã duyệt, trước và sau migration A03), endpoint chạy với CSV seed.
+- [/] Endpoint `POST /internal/reindex` tái tạo ChromaDB và BM25 từ Postgres của bản Docker chạy thật. Đã đạt riêng từng phần: loader đọc Postgres thật (chỉ lấy bài đã duyệt, trước và sau migration A03), endpoint chạy với CSV seed. **→ Agent dựng chỉ mục từ Postgres trong compose khi khởi động (đợt 5). Còn luồng Admin duyệt / bỏ duyệt gọi reindex: S2-BONUS BUG-74.**
 - [x] Reindex không làm đứng chat: endpoint trả `202` trong 0,38 giây; 7 lượt chat trong lúc reindex đều có citation, byte đầu tiên chậm nhất 0,66 giây.
 - [x] Bỏ duyệt bài cuối cùng → chỉ mục rỗng. Bệnh chưa có bài duyệt → không trích dẫn bài của bệnh khác.
 - [x] Container mới tự dựng chỉ mục khi khởi động; model embedding lỗi thì service dừng (exit code 3), không chạy với tìm kiếm hỏng.
-- [ ] `docker compose build agent-service` rồi chạy thử: model nạp được ở chế độ offline bằng user thường, volume `agent_data` ghi được.
+- [x] `docker compose build agent-service` rồi chạy thử: model nạp được ở chế độ offline bằng user thường, volume `agent_data` ghi được. **→ Đợt 5 S2-BONUS: Agent chạy trong compose dưới user thường, dựng chỉ mục từ Postgres, ghi được volume.**
 - [/] Độ chính xác truy vấn: bộ câu hỏi đối chứng (soạn **trước** khi tinh chỉnh) cho 5 bệnh demo, đo Recall@3 **không lọc theo `disease_code`**, trên toàn bộ bài đã duyệt. Có lọc thì Top-3 gần như chắc chắn trúng vì mỗi bệnh chỉ có 1–2 bài. Mục tiêu ≥ 90%, báo cáo số đo thật. **Hiện tại 9/10 = 90%, vừa chạm ngưỡng** (trượt câu "phòng trị bệnh đốm mục tiêu trên cây cà chua"). Đo trên 22 bài CSV, phải đo lại trên toàn bộ bài đã duyệt của DB demo.
 - [ ] Mô hình embedding đa ngôn ngữ hỗ trợ truy vấn chéo (câu hỏi tiếng Việt tìm trúng tài liệu có thuật ngữ/tên khoa học tiếng Anh).
 - [x] Thời gian truy xuất Hybrid Retrieval $\le 200$ms trên CPU cục bộ (đo được 145,3ms trên máy dev).

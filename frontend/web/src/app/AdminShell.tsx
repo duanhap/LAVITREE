@@ -178,10 +178,10 @@ export const AdminShell: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary relative">
-      {/* Background Tech Pattern */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute inset-0 bg-tech-circuit opacity-60 [mask-image:radial-gradient(ellipse_95%_80%_at_50%_20%,#000_25%,transparent_90%)]" />
+    <div className="min-h-screen flex bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary relative isolate">
+      {/* Background Tech Pattern: NẰM DƯỚI ĐÁY TẤT CẢ PHẦN TỬ UI (-z-10) */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
+        <div className="absolute inset-0 bg-tech-circuit opacity-35 [mask-image:radial-gradient(ellipse_95%_80%_at_50%_20%,#000_25%,transparent_90%)]" />
         <div className="absolute -top-36 left-1/2 -translate-x-1/2 w-[800px] h-[450px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(46,107,63,0.08),transparent_70%)] blur-2xl" />
       </div>
 
@@ -195,7 +195,7 @@ export const AdminShell: React.FC = () => {
 
       {/* Main Body */}
       <div className={cn(
-        'flex-1 flex flex-col min-h-screen transition-all duration-200',
+        'relative z-10 flex-1 flex flex-col min-h-screen transition-all duration-200',
         collapsed ? 'lg:pl-16' : 'lg:pl-60'
       )}>
         {/* Mobile Header (< 1024px) */}
