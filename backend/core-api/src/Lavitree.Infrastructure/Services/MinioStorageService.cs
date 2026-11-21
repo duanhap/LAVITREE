@@ -21,8 +21,9 @@ public class MinioStorageService : IMinioStorageService
     {
         _logger = logger;
 
-        var endpoint = configuration["Minio:Endpoint"]
-            ?? Environment.GetEnvironmentVariable("MINIO_ENDPOINT")
+        // BUG-78: appsettings.json không ghi sẵn localhost nữa nên MINIO_ENDPOINT / MINIO_PUBLIC_URL trong .env
+        // có hiệu lực khi chạy `dotnet run`. Docker dùng Minio__Endpoint / Minio__PublicUrl.
+        var endpoint = FirstConfigured(configuration["Minio:Endpoint"], Environment.GetEnvironmentVariable("MINIO_ENDPOINT"))
             ?? "localhost:9000";
 
         // BUG-43: "minioadmin" là mật khẩu mặc định ai cũng biết, chỉ dùng khi chạy máy dev.
@@ -30,8 +31,7 @@ public class MinioStorageService : IMinioStorageService
         var accessKey = RequireCredential(configuration["Minio:AccessKey"], "MINIO_ACCESS_KEY");
         var secretKey = RequireCredential(configuration["Minio:SecretKey"], "MINIO_SECRET_KEY");
 
-        _publicUrl = configuration["Minio:PublicUrl"]
-            ?? Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL")
+        _publicUrl = FirstConfigured(configuration["Minio:PublicUrl"], Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL"))
             ?? "http://localhost:9000";
 
         // Remove http:// or https:// if provided in endpoint
@@ -49,6 +49,9 @@ public class MinioStorageService : IMinioStorageService
             .WithSSL(useSsl)
             .Build();
     }
+
+    private static string? FirstConfigured(params string?[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
 
     private static string RequireCredential(string? configured, string envName)
     {

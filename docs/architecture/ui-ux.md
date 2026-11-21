@@ -164,7 +164,7 @@ Không bao giờ hiện nguyên văn lỗi kỹ thuật / stack trace cho ngư�
   - Không dùng `dangerouslySetInnerHTML`; Markdown của Agent render không bật HTML thô (mục 6).
   - nginx đặt header `Content-Security-Policy` chặn script lạ (`script-src 'self'`).
   - Đăng xuất hoặc nhận lỗi 401 → xóa token và cache của TanStack Query.
-  - Cân nhắc rút `expires_in` (hiện 86400s = 24h) xuống ngắn hơn khi có cơ chế làm mới token.
+  - Cân nhắc rút `expires_in` (hiện 604800s = 7 ngày, `AuthController` / `JwtTokenService`) xuống ngắn hơn khi có cơ chế làm mới token. Vé bị vô hiệu ngay khi tài khoản bị xóa hoặc đổi vai trò (BUG-38), nhưng đổi mật khẩu thì vé cũ vẫn dùng được đến khi hết hạn.
 - Phương án mạnh hơn nếu còn thời gian ở Sprint 3: chuyển sang cookie `HttpOnly; Secure; SameSite=Lax`.
 - Thông tin hiển thị (tên, vai trò) lấy từ `GET /api/v1/auth/me`, giữ trong TanStack Query; ẩn/hiện menu theo vai trò chỉ để tiện dùng — quyền thật do backend kiểm tra.
 

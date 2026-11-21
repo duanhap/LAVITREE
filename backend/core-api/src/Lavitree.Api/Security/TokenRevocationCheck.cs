@@ -41,7 +41,8 @@ public static class TokenRevocationCheck
                 .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
             // Role trống được JwtTokenService ghi thành FARMER; chuỗi rỗng = không còn tài khoản
             currentRole = row == null ? string.Empty : (string.IsNullOrWhiteSpace(row.Role) ? "FARMER" : row.Role);
-            cache.Set(cacheKey, currentRole, CacheFor);
+            // BUG-35: cache có SizeLimit nên mỗi mục phải khai báo Size
+            cache.Set(cacheKey, currentRole, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = CacheFor, Size = 1 });
         }
 
         if (string.IsNullOrEmpty(currentRole))

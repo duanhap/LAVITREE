@@ -1326,7 +1326,14 @@ public class KnowledgeController : ControllerBase
             CreatedAt = DateTime.UtcNow
         };
 
-        _memoryCache.Set(ingestionId, session, TimeSpan.FromHours(1));
+        // BUG-35: cache có SizeLimit nên phải khai báo Size; ưu tiên cao để phiên của Admin
+        // không bị dọn trước các mục thời tiết khi cache gần đầy
+        _memoryCache.Set(ingestionId, session, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
+            Size = 1,
+            Priority = CacheItemPriority.High
+        });
 
         return Ok(new IngestArticleResponseDto
         {

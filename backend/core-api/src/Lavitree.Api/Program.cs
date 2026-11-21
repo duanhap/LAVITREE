@@ -22,6 +22,10 @@ DotNetEnv.Env.TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
+// BUG-36: log của HttpClient ở mức Information ghi nguyên URL request, mà URL OpenWeather chứa khóa (?appid=...).
+// Cố định trong code (không chỉ trong appsettings) để đổi Logging__LogLevel__Default cũng không làm lộ khóa.
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+
 // 1. Database Configuration (PostgreSQL / Supabase)
 var envConn = Environment.GetEnvironmentVariable("SUPABASE_CONNECTION_STRING");
 var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD");
@@ -57,9 +61,12 @@ builder.Services.AddDbContext<LavitreeDbContext>(options =>
 
 // 2. Register AI Vision Service HttpClient
 var isContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
-var aiServiceBaseUrl = builder.Configuration["AiService:BaseUrl"]
-    ?? Environment.GetEnvironmentVariable("AI_SERVICE_URL")
-    ?? "http://localhost:8000";
+// BUG-78: appsettings.json không còn ghi sẵn localhost nữa, nên khi chạy `dotnet run` biến AI_SERVICE_URL
+// (trong .env) có hiệu lực. Docker dùng AiService__BaseUrl. Biến để trống coi như chưa đặt.
+var aiServiceBaseUrl = FirstConfigured(
+    builder.Configuration["AiService:BaseUrl"],
+    Environment.GetEnvironmentVariable("AI_SERVICE_URL"),
+    "http://localhost:8000");
 
 // Tự động chuyển localhost sang hostname nội bộ docker khi chạy trong container
 if (isContainer && (aiServiceBaseUrl.Contains("localhost") || aiServiceBaseUrl.Contains("127.0.0.1")))
@@ -74,9 +81,10 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
 });
 
 // 2.5. Register Agent Service HttpClient (SSOT: api-contracts.md Mục 4.3 & 4.4)
-var agentServiceBaseUrl = builder.Configuration["AgentService:BaseUrl"]
-    ?? Environment.GetEnvironmentVariable("AGENT_SERVICE_URL")
-    ?? "http://localhost:8001";
+var agentServiceBaseUrl = FirstConfigured(
+    builder.Configuration["AgentService:BaseUrl"],
+    Environment.GetEnvironmentVariable("AGENT_SERVICE_URL"),
+    "http://localhost:8001");
 
 if (isContainer && (agentServiceBaseUrl.Contains("localhost") || agentServiceBaseUrl.Contains("127.0.0.1")))
 {
@@ -93,7 +101,11 @@ builder.Services.AddHttpClient("AgentServiceClient", client =>
 builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 
 // 3.5. Register Memory Cache & Weather Service (SSOT: api-contracts.md Mục 3.9)
-builder.Services.AddMemoryCache();
+// BUG-35: bộ nhớ đệm có trần số mục (mỗi mục Size = 1). Không có trần thì gọi /weather với hàng nghìn
+// địa danh / số giờ khác nhau sẽ làm RAM tăng mãi. Đầy thì mục mới không được lưu và mục cũ bị dọn bớt,
+// Core vẫn trả kết quả bình thường (chỉ không dùng được bản lưu đệm).
+// Mọi lệnh Set vào IMemoryCache PHẢI đặt Size, nếu không .NET báo lỗi khi chạy.
+builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
 
 // BUG-47: lỗi không lường trước trả JSON ProblemDetails chuẩn (kèm traceId để tra log), không lộ chi tiết
 builder.Services.AddProblemDetails(options =>
@@ -364,3 +376,7 @@ if (args.Contains("--seed-only"))
 }
 
 app.Run();
+
+// Giá trị cấu hình đầu tiên khác rỗng (biến môi trường để trống trong docker-compose coi như chưa đặt)
+static string FirstConfigured(params string?[] values) =>
+    values.First(v => !string.IsNullOrWhiteSpace(v))!.Trim();
