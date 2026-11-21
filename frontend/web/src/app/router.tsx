@@ -1,7 +1,6 @@
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './AppShell';
-import { AdminShell } from './AdminShell';
 import { AuthLayout } from './AuthLayout';
 import { RequireRole } from './RequireRole';
 import { NotFoundPage } from './NotFoundPage';
@@ -11,11 +10,13 @@ import { EmptyState } from '@/components/common/EmptyState';
 
 // Core Eager Pages (Khám lá, Sổ tay, Auth để phản hồi tức thì)
 import { DiagnosePage } from '@/pages/DiagnosePage';
-import { HandbookPage } from '@/pages/HandbookPage';
-import { LoginPage } from '@/pages/LoginPage';
-import { RegisterPage } from '@/pages/RegisterPage';
 
 // Lazy Loaded Pages (BUG-27: Tối ưu bundle size cho mạng đồng ruộng & Admin portal)
+// BUG-27: chỉ trang chủ (Khám lá) nạp ngay; Sổ tay, Đăng nhập/Đăng ký và khung Admin tải khi cần
+const HandbookPage = React.lazy(() => import('@/pages/HandbookPage'));
+const LoginPage = React.lazy(() => import('@/pages/LoginPage'));
+const RegisterPage = React.lazy(() => import('@/pages/RegisterPage'));
+const AdminShell = React.lazy(() => import('./AdminShell'));
 const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
 const AdminIngestPage = React.lazy(() => import('@/pages/admin/AdminIngestPage'));
 const AdminImagesPage = React.lazy(() => import('@/pages/admin/AdminImagesPage'));
@@ -53,8 +54,8 @@ export const AppRouter: React.FC = () => {
     <Routes>
       {/* ================= AUTH (W-05, W-06): nền video toàn màn hình ================= */}
       <Route element={<AuthLayout />}>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/login" element={<Suspense fallback={<PageSkeleton variant="detail" />}><LoginPage /></Suspense>} />
+        <Route path="/register" element={<Suspense fallback={<PageSkeleton variant="detail" />}><RegisterPage /></Suspense>} />
       </Route>
 
       {/* ================= USER ROUTES (APPSHELL) ================= */}
@@ -64,8 +65,8 @@ export const AppRouter: React.FC = () => {
         <Route path="/diagnose" element={<Navigate to="/" replace />} />
 
         {/* W-02 & W-03: Sổ tay bệnh học & Chi tiết bệnh */}
-        <Route path="/handbook" element={<HandbookPage />} />
-        <Route path="/handbook/:classCode" element={<HandbookPage />} />
+        <Route path="/handbook" element={<Suspense fallback={<PageSkeleton variant="cards" />}><HandbookPage /></Suspense>} />
+        <Route path="/handbook/:classCode" element={<Suspense fallback={<PageSkeleton variant="cards" />}><HandbookPage /></Suspense>} />
 
         {/* W-07 & W-08: Lịch sử khám bệnh cá nhân & Chi tiết */}
         <Route
@@ -143,7 +144,9 @@ export const AppRouter: React.FC = () => {
       <Route
         element={
           <RequireRole allowedRoles={['ADMIN']}>
-            <AdminShell />
+            <Suspense fallback={<PageSkeleton variant="cards" />}>
+              <AdminShell />
+            </Suspense>
           </RequireRole>
         }
       >

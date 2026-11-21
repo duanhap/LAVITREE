@@ -438,7 +438,7 @@ public static class LavitreeDbContextSeeder
                         Price = 65000m,
                         DosageInstruction = "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
                         StockQuantity = 150,
-                        ImageUrl = "https://lavitree.io.vn/images/products/ridomil-gold.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 7,
                         IsAllowed = true,
                         RainResistant = true,
@@ -455,7 +455,7 @@ public static class LavitreeDbContextSeeder
                         Price = 45000m,
                         DosageInstruction = "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
                         StockQuantity = 120,
-                        ImageUrl = "https://lavitree.io.vn/images/products/antracol.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 7,
                         IsAllowed = true,
                         RainResistant = false,
@@ -472,7 +472,7 @@ public static class LavitreeDbContextSeeder
                         Price = 55000m,
                         DosageInstruction = "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
                         StockQuantity = 200,
-                        ImageUrl = "https://lavitree.io.vn/images/products/trichoderma.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 0,
                         IsAllowed = true,
                         RainResistant = true,
@@ -489,7 +489,7 @@ public static class LavitreeDbContextSeeder
                         Price = 85000m,
                         DosageInstruction = "Pha 10ml cho bình 16L nước, phun khi vết đốm vừa xuất hiện",
                         StockQuantity = 80,
-                        ImageUrl = "https://lavitree.io.vn/images/products/score.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 14,
                         IsAllowed = true,
                         RainResistant = true,

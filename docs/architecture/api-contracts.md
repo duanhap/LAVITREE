@@ -152,7 +152,7 @@
         "active_ingredient": "Mancozeb 64% + Metalaxyl-M 4%",
         "price": 65000,
         "unit": "Gói 100g",
-        "image_url": "/images/products/ridomil.jpg"
+        "image_url": ""
       }
     ],
     "verified_sources": [
@@ -317,7 +317,7 @@
         "is_allowed": true,
         "rain_resistant": true,
         "stock_quantity": 150,
-        "image_url": "/lavitree-diagnoses/products/ridomil-gold.png"
+        "image_url": ""
       },
       {
         "id": 2,
@@ -330,7 +330,7 @@
         "is_allowed": true,
         "rain_resistant": false,
         "stock_quantity": 120,
-        "image_url": "/lavitree-diagnoses/products/antracol.png"
+        "image_url": ""
       },
       {
         "id": 3,
@@ -343,7 +343,7 @@
         "is_allowed": true,
         "rain_resistant": true,
         "stock_quantity": 200,
-        "image_url": "/lavitree-diagnoses/products/trichoderma.png"
+        "image_url": ""
       }
     ]
   }
@@ -351,7 +351,7 @@
 
 ---
 
-  *(Lưu ý về URL ảnh: Backend trả về đường dẫn tương đối `/lavitree-diagnoses/products/...` hoặc tự động tiền tố từ biến môi trường `MINIO_PUBLIC_URL`. Nginx tự động reverse proxy đường dẫn `/lavitree-diagnoses/` sang MinIO container port 9000. Nhờ đó, cả ở localhost lẫn Production server trên AWS EC2 hay domain thật, ảnh đều hiển thị mượt mà không bị lỗi hardcode localhost).*
+  *(Lưu ý về URL ảnh (BUG-37): `image_url` có thể là chuỗi rỗng khi sản phẩm chưa có ảnh; 4 thuốc mẫu trong seed hiện để rỗng vì chưa có ảnh thật (trước đây trỏ tới `/images/products/*.png` không tồn tại, nginx trả trang HTML nên hiện ảnh vỡ). URL đầy đủ `http(s)://...` được trả nguyên; đường dẫn tương đối (vd. `/lavitree-diagnoses/products/x.png` khi ảnh nằm trong MinIO) được Core tiền tố `MINIO_PUBLIC_URL`. Client chỉ hiển thị URL `http(s)`; rỗng hoặc tải lỗi thì hiện icon theo loại thuốc. Admin đặt ảnh qua trang Kho thuốc (`image_url` trong `POST`/`PATCH /api/v1/medicines`). nginx trả `404` cho file không tồn tại dưới `/images/` và `/assets/`).*
 
 ---
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BUG-107: bản release chỉ cho kết nối HTTPS. Mật khẩu và vé đăng nhập không đi qua mạng dạng chữ thường.
+     Bản debug thay file này bằng src/debug/res/xml/network_security_config.xml (cho phép HTTP tới máy dev). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

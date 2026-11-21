@@ -22,6 +22,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { safeHref } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
 
 interface ProductItem {
@@ -56,6 +57,30 @@ const checkoutSchema = z.object({
 });
 
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
+
+// BUG-37: ảnh sản phẩm. Không có ảnh, đường dẫn không phải http(s) hoặc tải lỗi (file không tồn tại)
+// thì hiện icon theo loại thuốc, giữ nguyên chiều cao để các thẻ thẳng hàng.
+const ProductThumb: React.FC<{ product: ProductItem; isBio: boolean; isFarmingSupply: boolean }> = ({ product, isBio, isFarmingSupply }) => {
+  const src = safeHref(product.image_url);
+  const [failed, setFailed] = useState(false);
+  const Icon = isFarmingSupply ? Package : isBio ? Leaf : FlaskConical;
+  return (
+    <div className="h-32 w-full bg-muted/40 border-b border-border flex items-center justify-center overflow-hidden">
+      {src && !failed ? (
+        <img
+          src={src}
+          alt={product.name}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="h-full w-full object-contain p-2"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Icon className="w-10 h-10 text-muted-foreground/50" aria-label="Chưa có ảnh sản phẩm" />
+      )}
+    </div>
+  );
+};
 
 export const StorePage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -495,6 +520,7 @@ export const StorePage: React.FC = () => {
 
             return (
               <Card key={p.id} className="flex flex-col overflow-hidden hover:shadow-md transition-shadow border-border bg-card">
+                <ProductThumb product={p} isBio={isBio} isFarmingSupply={isFarmingSupply} />
                 <CardHeader className="p-4 pb-2 space-y-2">
                   <div className="flex items-center justify-between gap-1 flex-wrap">
                     <Badge

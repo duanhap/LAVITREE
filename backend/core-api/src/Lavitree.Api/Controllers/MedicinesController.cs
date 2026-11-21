@@ -235,7 +235,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 150,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/ridomil-gold.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Potato___Late_blight" }
             },
             new MedicineItemDto
@@ -250,7 +250,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = false,
                 StockQuantity = 120,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/antracol.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Pepper,_bell___Bacterial_spot" }
             },
             new MedicineItemDto
@@ -265,7 +265,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 200,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/trichoderma.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Tomato___Target_Spot" }
             },
             new MedicineItemDto
@@ -280,7 +280,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 80,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/score.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Early_blight", "Corn_(maize)___Common_rust_" }
             },
             new MedicineItemDto

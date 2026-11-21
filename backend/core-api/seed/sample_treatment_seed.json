@@ -31,7 +31,7 @@
       "is_allowed": true,
       "rain_resistant": true,
       "stock_quantity": 150,
-      "image_url": "https://lavitree.io.vn/images/products/ridomil-gold.png",
+      "image_url": "",
       "provenance_source": "CHƯA ĐỐI CHIẾU: cần kiểm tra từng sản phẩm với Phụ lục I Thông tư 75/2025/TT-BNNMT (sửa đổi bởi Thông tư 28/2026/TT-BNNMT)",
       "target_diseases": [
         "Tomato___Late_blight",
@@ -48,7 +48,7 @@
       "is_allowed": true,
       "rain_resistant": false,
       "stock_quantity": 120,
-      "image_url": "https://lavitree.io.vn/images/products/antracol.png",
+      "image_url": "",
       "provenance_source": "CHƯA ĐỐI CHIẾU: cần kiểm tra từng sản phẩm với Phụ lục I Thông tư 75/2025/TT-BNNMT (sửa đổi bởi Thông tư 28/2026/TT-BNNMT)",
       "target_diseases": [
         "Tomato___Late_blight",
@@ -66,7 +66,7 @@
       "is_allowed": true,
       "rain_resistant": true,
       "stock_quantity": 200,
-      "image_url": "https://lavitree.io.vn/images/products/trichoderma.png",
+      "image_url": "",
       "provenance_source": "Danh mục vi sinh vật đối kháng được phép lưu hành - Viện BVTV Việt Nam",
       "target_diseases": [
         "Tomato___Late_blight",
@@ -84,7 +84,7 @@
       "is_allowed": true,
       "rain_resistant": true,
       "stock_quantity": 80,
-      "image_url": "https://lavitree.io.vn/images/products/score.png",
+      "image_url": "",
       "provenance_source": "CHƯA ĐỐI CHIẾU: cần kiểm tra từng sản phẩm với Phụ lục I Thông tư 75/2025/TT-BNNMT (sửa đổi bởi Thông tư 28/2026/TT-BNNMT)",
       "target_diseases": [
         "Tomato___Early_blight",
