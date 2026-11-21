@@ -475,7 +475,8 @@ class ReActAgent:
             harvest_days_left=effective_harvest_days,
             had_phi_violation=had_phi_violation,
             blocked_medicines=blocked_medicines,
-            allowed_medicines=allowed_medicines
+            allowed_medicines=allowed_medicines,
+            user_query=message
         )
 
         # Liều lượng phải có trong tài liệu đã tra, kho thuốc đã lọc hoặc câu trả lời đã qua kiểm ở lượt trước
@@ -920,7 +921,8 @@ class ReActAgent:
             harvest_days_left=effective_harvest_days,
             had_phi_violation=had_phi_violation,
             blocked_medicines=blocked_medicines,
-            allowed_medicines=allowed_medicines
+            allowed_medicines=allowed_medicines,
+            user_query=message
         )
 
         evidence_texts = [str(citation.get("full_text", "")) for citation in collected_citations.values()]

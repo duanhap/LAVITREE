@@ -17,6 +17,7 @@ import {
   Copy,
   ImageOff,
   Pencil,
+  Ban,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -38,6 +39,7 @@ import type { MedicineItem, ProductSuggestionItem } from '@/features/admin/types
 import {
   isSafeHttpUrl,
   isIngredientBanned,
+  setBannedTerms,
   excerptAroundMention,
   buildGoogleQueries,
   buildProductResearchPrompt,
@@ -59,6 +61,7 @@ import {
 } from '@/features/admin/lib';
 import { HighlightedText } from '@/features/admin/components/HighlightedText';
 import { UsageProfileEditor } from '@/features/admin/components/UsageProfileEditor';
+import { BannedSubstancesTab } from '@/features/admin/components/BannedSubstancesTab';
 
 // Mô tả lưu gộp vào dosage_instruction (cột text, không giới hạn); prompt Gemini yêu cầu 250–450 từ ≈ 1.500–3.000 ký tự
 const DESCRIPTION_MAX = 3500;
@@ -94,7 +97,9 @@ export const AdminInventoryPage: React.FC = () => {
   const { diseases } = useDiseaseOptions();
 
   // Subtab điều hướng: 'medicines' (Kho thuốc & vật tư) vs 'suggestions' (Gợi ý từ bài báo)
-  const [inventorySubTab, setInventorySubTab] = useState<'medicines' | 'suggestions'>('medicines');
+  const [inventorySubTab, setInventorySubTab] = useState<'medicines' | 'suggestions' | 'banned'>('medicines');
+  // Danh mục chất cấm từ server (TASK-19): đổi danh sách thì vẽ lại huy hiệu "(Cấm)"
+  const [, setBannedVersion] = useState(0);
   const [medicines, setMedicines] = useState<MedicineItem[]>([]);
   const [loadingMedicines, setLoadingMedicines] = useState<boolean>(false);
   const [medSearch, setMedSearch] = useState<string>('');
@@ -177,7 +182,18 @@ export const AdminInventoryPage: React.FC = () => {
   useEffect(() => {
     fetchMedicines();
     fetchSuggestions();
+    fetchBannedTerms();
   }, []);
+
+  const fetchBannedTerms = async () => {
+    try {
+      const res = await apiClient.get<{ terms: { text: string; substance: string }[] }>('/banned-substances');
+      setBannedTerms(res.data.terms);
+      setBannedVersion((v) => v + 1);
+    } catch {
+      // Giữ danh sách dự phòng trong guardrails.ts; Core vẫn chặn khi lưu
+    }
+  };
 
   const fetchMedicines = async () => {
     try {
@@ -742,9 +758,23 @@ export const AdminInventoryPage: React.FC = () => {
               </span>
             )}
           </button>
+          <button
+            type="button"
+            onClick={() => setInventorySubTab('banned')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
+              inventorySubTab === 'banned'
+                ? 'border-red-700 text-red-800 dark:text-red-300'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Ban className="w-3.5 h-3.5 text-red-600" />
+            <span>Chất cấm</span>
+          </button>
         </div>
 
-        {inventorySubTab === 'medicines' ? (
+        {inventorySubTab === 'banned' ? (
+          <BannedSubstancesTab onChanged={() => { fetchBannedTerms(); fetchMedicines(); }} />
+        ) : inventorySubTab === 'medicines' ? (
           // ==================== SUBTAB 1: KHO THUỐC & VẬT TƯ ====================
           <div className="space-y-4">
             <div className="bg-card p-4 rounded-xl border border-border shadow-xs flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between text-xs">

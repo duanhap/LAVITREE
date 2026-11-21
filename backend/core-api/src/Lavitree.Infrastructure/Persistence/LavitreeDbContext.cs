@@ -27,6 +27,8 @@ public class LavitreeDbContext : DbContext
     public DbSet<KnowledgeSource> KnowledgeSources => Set<KnowledgeSource>();
     public DbSet<KnowledgeImage> KnowledgeImages => Set<KnowledgeImage>();
     public DbSet<ProductSuggestion> ProductSuggestions => Set<ProductSuggestion>();
+    public DbSet<BannedSubstance> BannedSubstances => Set<BannedSubstance>();
+    public DbSet<BannedSubstanceDecision> BannedSubstanceDecisions => Set<BannedSubstanceDecision>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -57,6 +59,32 @@ public class LavitreeDbContext : DbContext
                 t.HasCheckConstraint("CK_Products_Availability",
                     "\"Availability\" IN ('IN_STOCK', 'OUT_OF_STOCK', 'NOT_SOLD')");
             });
+        });
+
+        // Danh mục chất cấm (TASK-19): trạng thái tính từ lịch sử quyết định theo văn bản
+        modelBuilder.Entity<BannedSubstance>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CommonName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Aliases).HasColumnType("text[]");
+            entity.Property(e => e.Category).HasMaxLength(20).HasDefaultValue("OTHER");
+            entity.HasIndex(e => e.CommonName).IsUnique().HasFilter("\"IsDeleted\" = false");
+            entity.ToTable(t => t.HasCheckConstraint("CK_BannedSubstances_Category",
+                "\"Category\" IN ('INSECTICIDE', 'FUNGICIDE', 'HERBICIDE', 'RODENTICIDE', 'OTHER')"));
+        });
+        modelBuilder.Entity<BannedSubstanceDecision>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Action).HasMaxLength(10).IsRequired();
+            entity.Property(e => e.LegalDocument).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.SourceUrl).HasMaxLength(1000);
+            entity.Property(e => e.CreatedBy).HasMaxLength(200);
+            entity.HasIndex(e => e.BannedSubstanceId);
+            entity.HasOne(d => d.BannedSubstance)
+                .WithMany(s => s.Decisions)
+                .HasForeignKey(d => d.BannedSubstanceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t => t.HasCheckConstraint("CK_BannedSubstanceDecisions_Action", "\"Action\" IN ('BAN', 'UNBAN')"));
         });
 
         // ProductSuggestion configuration (TASK-15 Pha 3)

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
+using Lavitree.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
 using System.Security.Claims;
@@ -96,6 +97,11 @@ public class MedicinesController : ControllerBase
             }
 
             var dbProducts = await query.ToListAsync();
+            if (allowedOnly)
+            {
+                // Chất bị cấm SAU khi sản phẩm được lưu (thông tư mới) cũng phải loại ngay (TASK-19)
+                dbProducts = dbProducts.Where(p => !IsBannedIngredient(p.Name) && !IsBannedIngredient(p.ActiveIngredient)).ToList();
+            }
 
             if (dbProducts.Count > 0)
             {
@@ -277,24 +283,7 @@ public class MedicinesController : ControllerBase
         };
     }
 
-    // Danh sách hoạt chất cấm theo TT 75/2025/TT-BNNMT & QĐ 278/QĐ-BNN-BVTV (đồng bộ guardrails.py)
-    public static readonly HashSet<string> BannedIngredients = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "paraquat",
-        "pa-ra-quat",
-        "para-quat",
-        "gramoxone",
-        "2,4-d",
-        "2.4-d",
-        "2,4d",
-        "2.4d",
-        "chlorpyrifos",
-        "carbofuran",
-        "glyphosate",
-        "monocrotophos",
-        "methamidophos",
-        "endosulfan"
-    };
+    // Danh mục chất cấm: bảng BannedSubstances (TASK-19), xem BannedSubstanceRegistry
 
     public const string FarmingSupplyType = "Vật tư canh tác";
     private static readonly HashSet<string> ValidMedicineTypes = new(StringComparer.Ordinal) { "Hóa học", "Sinh học", FarmingSupplyType };
@@ -319,12 +308,7 @@ public class MedicinesController : ControllerBase
         return profile;
     }
 
-    public static bool IsBannedIngredient(string? ingredient)
-    {
-        if (string.IsNullOrWhiteSpace(ingredient)) return false;
-        var lower = ingredient.ToLowerInvariant();
-        return BannedIngredients.Any(banned => lower.Contains(banned));
-    }
+    public static bool IsBannedIngredient(string? ingredient) => BannedSubstanceRegistry.IsBanned(ingredient);
 
     public class MedicineItemDto
     {
@@ -459,7 +443,8 @@ public class MedicinesController : ControllerBase
         // Chốt chặn thuốc cấm: quét cả tên với mọi loại (tránh khai "vật tư" để lách)
         if (IsBannedIngredient(dto.ActiveIngredient) || IsBannedIngredient(dto.Name))
         {
-            return BadRequest(new { detail = $"Hoạt chất hoặc tên sản phẩm '{dto.ActiveIngredient ?? dto.Name}' nằm trong Danh mục thuốc BVTV cấm sử dụng tại Việt Nam theo Thông tư 75/2025. Tuyệt đối không được phép đưa vào lưu hành." });
+            var names = string.Join(", ", BannedSubstanceRegistry.FindBanned($"{dto.Name} {dto.ActiveIngredient}"));
+            return BadRequest(new { detail = $"Sản phẩm chứa hoạt chất cấm sử dụng tại Việt Nam ({names}), xem tab Chất cấm. Không được phép đưa vào lưu hành." });
         }
 
         // PHI (thời gian cách ly trước thu hoạch): KHÔNG tự điền mặc định. Con số này được hiện cho nông dân và

@@ -278,7 +278,8 @@ class OfflineRouter:
             harvest_days_left,
             had_phi_violation,
             blocked_medicines=blocked_chem,
-            allowed_medicines=filtered_chem + bio_measures
+            allowed_medicines=filtered_chem + bio_measures,
+            user_query=user_query
         )
         final_text = apply_hitl_tag(final_text)
 
