@@ -21,7 +21,8 @@ public static class LavitreeDbContextSeeder
         var seedDir = ResolveSeedDirectory(customSeedPath);
         if (seedDir == null || !Directory.Exists(seedDir))
         {
-            Console.WriteLine($"[Seeder] WARNING: Seed directory not found. Searched base: {AppContext.BaseDirectory}");
+            // BUG-40: image Docker phải chép thư mục seed; thiếu thì báo lỗi rõ để không tưởng là đã seed xong
+            Console.WriteLine($"[Seeder] ERROR: Không tìm thấy thư mục seed (đã tìm từ {AppContext.BaseDirectory}). CSDL mới sẽ thiếu loài cây, bệnh và sản phẩm mẫu. Kiểm tra Dockerfile có COPY seed.");
             return;
         }
 
@@ -519,12 +520,19 @@ public static class LavitreeDbContextSeeder
 
         var allDiseases = await context.Diseases.ToDictionaryAsync(d => d.ClassCode);
         var productList = new List<(Product prod, List<string> targets)>();
+        // BUG-40: sản phẩm mẫu chỉ thêm vào CSDL mới (bảng Products trống). CSDL đang chạy thật thì không
+        // thêm lại sản phẩm mẫu mà Admin đã đổi tên hoặc xóa (kể cả mẫu thuốc cấm Paraquat).
+        var isFreshProductTable = !await context.Products.AnyAsync();
 
         foreach (var item in sampleProducts)
         {
             var p = item.product;
             var existingProd = await context.Products.FirstOrDefaultAsync(x => x.Name == p.Name);
-            if (existingProd == null)
+            if (existingProd == null && !isFreshProductTable)
+            {
+                Console.WriteLine($"[Seeder] Bỏ qua sản phẩm mẫu {p.Name}: kho đã có dữ liệu do Admin quản lý.");
+            }
+            else if (existingProd == null)
             {
                 context.Products.Add(p);
                 productList.Add((p, item.targetDiseases));

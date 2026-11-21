@@ -1762,16 +1762,22 @@ public class KnowledgeController : ControllerBase
             var notes = EscapeCsv(s.ReviewerNotes ?? "");
             var hasCultivation = s.HasCultivationTechnique ? "Có" : "Không";
 
-            sb.AppendLine($"{s.Id},{s.ModelClass},{s.PlantName},{s.DiseaseName},{title},{org},{pubDate},{scope},{url},{s.ContentType},{hasCultivation},{match},{s.SourceQuality},{s.IsManualApproved},{evidence},{notes},{s.CreatedAt:yyyy-MM-dd HH:mm}");
+            sb.AppendLine($"{s.Id},{EscapeCsv(s.ModelClass)},{EscapeCsv(s.PlantName)},{EscapeCsv(s.DiseaseName)},{title},{org},{pubDate},{scope},{url},{EscapeCsv(s.ContentType)},{hasCultivation},{match},{EscapeCsv(s.SourceQuality)},{s.IsManualApproved},{evidence},{notes},{s.CreatedAt:yyyy-MM-dd HH:mm}");
         }
 
         var bytes = Encoding.UTF8.GetBytes(sb.ToString());
         return File(bytes, "text/csv", $"Lavitree_Knowledge_Sources_{DateTime.UtcNow:yyyyMMdd}.csv");
     }
 
-    private static string EscapeCsv(string value)
+    private static string EscapeCsv(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";
+        // BUG-33: ô bắt đầu bằng = + - @ (hoặc tab / xuống dòng) bị Excel hiểu là công thức (CSV injection).
+        // Thêm dấu ' phía trước để Excel hiện nguyên văn, không chạy.
+        if ("=+-@\t\r".IndexOf(value[0]) >= 0)
+        {
+            value = "'" + value;
+        }
         if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
         {
             return $"\"{value.Replace("\"", "\"\"")}\"";

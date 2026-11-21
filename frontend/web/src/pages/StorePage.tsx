@@ -10,6 +10,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
+
+// BUG-41: CSP chặn eval, nên tắt bước zod tự thử `new Function("")` (nếu không sẽ sinh cảnh báo CSP).
+// Kết quả kiểm tra form không đổi, zod chỉ bỏ phần tối ưu tốc độ.
+z.config({ jitless: true });
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
