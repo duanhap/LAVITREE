@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Lavitree.Api.Filters;
+using Lavitree.Api.Security;
 using Lavitree.Application.DTOs;
 using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
@@ -686,7 +686,7 @@ public class DiagnoseController : ControllerBase
         var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                      ?? User.FindFirst("sub")?.Value;
         Guid? userId = Guid.TryParse(userIdStr, out var parsed) ? parsed : null;
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN");
+        var isAdmin = User.IsAdmin();
 
         var record = await _dbContext.DiagnosisRecords.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
         if (record == null)
@@ -736,22 +736,9 @@ public class DiagnoseController : ControllerBase
     /// Danh sách ca bệnh cần chuyên gia thẩm định (Admin / Bác sĩ Cây trồng)
     /// </summary>
     [HttpGet("escalations")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> GetEscalations(CancellationToken cancellationToken)
     {
-        var hasValidKey = AdminApiKeyAuthAttribute.HasValidKey(Request);
-        var isAuthenticated = User.Identity?.IsAuthenticated == true;
-
-        if (!isAuthenticated && !hasValidKey)
-        {
-            return Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
-        }
-
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || hasValidKey;
-        if (!isAdmin)
-        {
-            return Forbid();
-        }
-
         var list = await _dbContext.DiagnosisRecords
             .Include(r => r.Disease)
                 .ThenInclude(d => d.Plant)
@@ -792,22 +779,9 @@ public class DiagnoseController : ControllerBase
     /// Chuyên gia phản hồi hướng dẫn xử lý và kết luận ca bệnh
     /// </summary>
     [HttpPatch("{id:guid}/expert-review")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> ReviewEscalation(Guid id, [FromBody] ExpertReviewDto dto, CancellationToken cancellationToken)
     {
-        var hasValidKey = AdminApiKeyAuthAttribute.HasValidKey(Request);
-        var isAuthenticated = User.Identity?.IsAuthenticated == true;
-
-        if (!isAuthenticated && !hasValidKey)
-        {
-            return Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
-        }
-
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || hasValidKey;
-        if (!isAdmin)
-        {
-            return Forbid();
-        }
-
         if (string.IsNullOrWhiteSpace(dto.ExpertNotes))
         {
             return BadRequest(new { detail = "Ghi chú kết luận của chuyên gia không được để trống." });

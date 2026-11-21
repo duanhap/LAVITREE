@@ -19,7 +19,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Web;
-using Lavitree.Api.Filters;
+using Lavitree.Api.Security;
+using Microsoft.AspNetCore.Authorization;
 using Lavitree.Application.DTOs;
 using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
@@ -338,7 +339,7 @@ public class KnowledgeController : ControllerBase
         [FromQuery] bool? isApproved,
         CancellationToken cancellationToken)
     {
-        var isAdmin = IsAdminUser(out _);
+        var isAdmin = User.IsAdmin();
 
         // Khách/Nông dân không có quyền lọc hoặc xem bài chưa duyệt
         if (!isAdmin && isApproved == false)
@@ -422,16 +423,20 @@ public class KnowledgeController : ControllerBase
 
     // 4. POST /api/v1/knowledge/sources
     [HttpPost("sources")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> CreateSource([FromBody] CreateSourceDto dto)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (string.IsNullOrWhiteSpace(dto.ModelClass) || string.IsNullOrWhiteSpace(dto.SourceUrl))
         {
             return BadRequest(new { message = "Vui lòng chọn lớp cây–bệnh và nhập đường dẫn URL." });
+        }
+
+        // BUG-32: link nguồn hiện cho nông dân bấm, chỉ nhận http/https (chặn javascript:, data:, file:)
+        if (dto.SourceUrl.Length > 2048
+            || !Uri.TryCreate(dto.SourceUrl.Trim(), UriKind.Absolute, out var sourceUri)
+            || (sourceUri.Scheme != Uri.UriSchemeHttp && sourceUri.Scheme != Uri.UriSchemeHttps))
+        {
+            return BadRequest(new { message = "Đường dẫn nguồn phải là URL http:// hoặc https:// (tối đa 2048 ký tự)." });
         }
 
         var trimmedUrl = dto.SourceUrl.Trim().TrimEnd('/');
@@ -510,13 +515,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.1. PATCH /api/v1/knowledge/sources/{id}/approve (Duyệt/Bỏ duyệt từng bài)
     [HttpPatch("sources/{id:guid}/approve")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> ApproveSource(Guid id, [FromBody] ApproveSourceRequestDto dto)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var source = await _dbContext.KnowledgeSources.FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted);
         if (source == null)
         {
@@ -546,13 +547,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.2. PATCH /api/v1/knowledge/sources/approve-batch (Duyệt hàng loạt - Bulk Approve)
     [HttpPatch("sources/approve-batch")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> ApproveBatchSources([FromBody] ApproveBatchRequestDto dto)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (dto.SourceIds == null || dto.SourceIds.Count == 0)
         {
             return BadRequest(new { detail = "Danh sách source_ids không được để trống." });
@@ -691,13 +688,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.2a. GET /api/v1/knowledge/sources/by-url?url=... (Mở lại bài đã lưu để sửa)
     [HttpGet("sources/by-url")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> GetArticleByUrl([FromQuery] string? url)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var normalizedUrl = NormalizeUrl(url ?? string.Empty);
         if (string.IsNullOrEmpty(normalizedUrl))
         {
@@ -722,13 +715,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.2b. PATCH /api/v1/knowledge/sources/by-url (Sửa thông tin chung của bài, áp cho mọi đoạn cùng URL)
     [HttpPatch("sources/by-url")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateArticle([FromBody] UpdateArticleRequestDto dto)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -818,13 +807,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.2c. PATCH /api/v1/knowledge/sources/{id} (Sửa một đoạn: nguyên văn chỉ đổi loại, tóm tắt sửa được chữ)
     [HttpPatch("sources/{id:guid}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateSourceUnit(Guid id, [FromBody] UpdateSourceUnitRequestDto dto)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -919,13 +904,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.2d. POST /api/v1/knowledge/fetch-url (Tải HTML bài báo từ URL an toàn chống SSRF cho Admin)
     [HttpPost("fetch-url")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> FetchArticleUrl([FromBody] FetchUrlRequestDto dto, CancellationToken cancellationToken)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -958,12 +939,9 @@ public class KnowledgeController : ControllerBase
     private const int MaxVerifyUrls = 5;
 
     [HttpPost("verify-quotes")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> VerifyQuotes([FromBody] VerifyQuotesRequestDto dto, CancellationToken cancellationToken)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -1172,13 +1150,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.3. POST /api/v1/knowledge/ingestions (Nhập bài báo - Bước 1: Dán văn bản, AI gợi ý đoạn)
     [HttpPost("ingestions")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> IngestArticle([FromBody] IngestArticleRequestDto dto)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -1339,13 +1313,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.4. POST /api/v1/knowledge/ingestions/{ingestion_id}/commit (Nhập bài báo - Bước 2: Admin tick chọn đoạn = Duyệt)
     [HttpPost("ingestions/{ingestionId}/commit")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> CommitIngestion(string ingestionId, [FromBody] CommitIngestionRequestDto dto)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -1686,13 +1656,9 @@ public class KnowledgeController : ControllerBase
 
     // 4.5. GET /api/v1/knowledge/reindex-status (Xem trạng thái reindex của Agent Service)
     [HttpGet("reindex-status")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> GetReindexStatus()
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         try
         {
             var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
@@ -1720,13 +1686,9 @@ public class KnowledgeController : ControllerBase
 
     // 5. DELETE /api/v1/knowledge/sources/{id}
     [HttpDelete("sources/{id:guid}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> DeleteSource(Guid id)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var item = await _dbContext.KnowledgeSources.FindAsync(id);
         if (item == null) return NotFound(new { message = "Không tìm thấy nguồn dữ liệu." });
 
@@ -1741,13 +1703,9 @@ public class KnowledgeController : ControllerBase
 
     // 5b. POST /api/v1/knowledge/sources/batch-delete
     [HttpPost("sources/batch-delete")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> BatchDeleteSources([FromBody] List<Guid> ids)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (ids == null || ids.Count == 0)
         {
             return BadRequest(new { detail = "Danh sách ID xóa không được để trống." });
@@ -1779,13 +1737,9 @@ public class KnowledgeController : ControllerBase
 
     // 6. GET /api/v1/knowledge/export
     [HttpGet("export")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> ExportCsv()
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var sources = await _dbContext.KnowledgeSources
             .Where(s => !s.IsDeleted)
             .OrderBy(s => s.ModelClass)
@@ -1823,30 +1777,6 @@ public class KnowledgeController : ControllerBase
             return $"\"{value.Replace("\"", "\"\"")}\"";
         }
         return value;
-    }
-
-    private bool IsAdminUser(out IActionResult? errorResult)
-    {
-        if (User.Identity?.IsAuthenticated == true)
-        {
-            if (User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN"))
-            {
-                errorResult = null;
-                return true;
-            }
-
-            errorResult = StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên (ADMIN) để thực hiện thao tác này." });
-            return false;
-        }
-
-        if (AdminApiKeyAuthAttribute.HasValidKey(Request))
-        {
-            errorResult = null;
-            return true;
-        }
-
-        errorResult = Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
-        return false;
     }
 
     private async Task<string> TriggerReindexAsync(string? sourceId, string action)
@@ -2415,7 +2345,7 @@ public class KnowledgeController : ControllerBase
         [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
-        var isAdmin = IsAdminUser(out _);
+        var isAdmin = User.IsAdmin();
 
         var query = _dbContext.KnowledgeImages
             .AsNoTracking()
@@ -2484,17 +2414,13 @@ public class KnowledgeController : ControllerBase
 
     // 5.2. POST /api/v1/knowledge/images (Admin tải ảnh lên MinIO hoặc dán HTTPS URL)
     [HttpPost("images")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> CreateKnowledgeImage(
         [FromForm] CreateKnowledgeImageRequestDto dto,
         [FromForm] IFormFile? file = null,
         CancellationToken cancellationToken = default)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -2621,16 +2547,12 @@ public class KnowledgeController : ControllerBase
 
     // 5.3. PATCH /api/v1/knowledge/images/{id}/approve (Admin duyệt / bỏ duyệt ảnh)
     [HttpPatch("images/{id}/approve")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> ApproveKnowledgeImage(
         int id,
         [FromBody] ApproveKnowledgeImageRequestDto dto,
         CancellationToken cancellationToken = default)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var image = await _dbContext.KnowledgeImages.FirstOrDefaultAsync(img => img.Id == id && !img.IsDeleted, cancellationToken);
         if (image == null)
         {
@@ -2647,15 +2569,11 @@ public class KnowledgeController : ControllerBase
 
     // 5.4. DELETE /api/v1/knowledge/images/{id} (Admin gỡ ảnh)
     [HttpDelete("images/{id}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> DeleteKnowledgeImage(
         int id,
         CancellationToken cancellationToken = default)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var image = await _dbContext.KnowledgeImages.FirstOrDefaultAsync(img => img.Id == id && !img.IsDeleted, cancellationToken);
         if (image == null)
         {
@@ -2676,6 +2594,7 @@ public class KnowledgeController : ControllerBase
 
     // 6.1. GET /api/v1/knowledge/product-suggestions
     [HttpGet("product-suggestions")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> GetProductSuggestions(
         [FromQuery] string? model_class = null,
         [FromQuery] string? kind = null,
@@ -2683,11 +2602,6 @@ public class KnowledgeController : ControllerBase
         [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var query = _dbContext.ProductSuggestions
             .Include(ps => ps.KnowledgeSource)
             .Include(ps => ps.Product)
@@ -2749,16 +2663,12 @@ public class KnowledgeController : ControllerBase
 
     // 6.2. POST /api/v1/knowledge/product-suggestions/{id}/link
     [HttpPost("product-suggestions/{id}/link")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> LinkProductSuggestion(
         int id,
         [FromBody] LinkProductSuggestionRequestDto dto,
         CancellationToken cancellationToken = default)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var suggestion = await _dbContext.ProductSuggestions
             .Include(ps => ps.KnowledgeSource)
             .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
@@ -2831,15 +2741,11 @@ public class KnowledgeController : ControllerBase
 
     // 6.3. POST /api/v1/knowledge/product-suggestions/{id}/dismiss
     [HttpPost("product-suggestions/{id}/dismiss")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> DismissProductSuggestion(
         int id,
         CancellationToken cancellationToken = default)
     {
-        if (!IsAdminUser(out var authError))
-        {
-            return authError!;
-        }
-
         var suggestion = await _dbContext.ProductSuggestions
             .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
 

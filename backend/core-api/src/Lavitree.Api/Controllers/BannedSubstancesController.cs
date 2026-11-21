@@ -6,7 +6,8 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Lavitree.Api.Filters;
+using Lavitree.Api.Security;
+using Microsoft.AspNetCore.Authorization;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
 using Lavitree.Infrastructure.Services;
@@ -42,7 +43,7 @@ public class BannedSubstancesController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken ct)
     {
-        var isAdmin = IsAdmin();
+        var isAdmin = User.IsAdmin();
         var today = BannedSubstanceRegistry.TodayVn();
         var substances = await _db.BannedSubstances.AsNoTracking()
             .Where(s => !s.IsDeleted)
@@ -60,9 +61,9 @@ public class BannedSubstancesController : ControllerBase
 
     // POST /api/v1/banned-substances
     [HttpPost]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> Create([FromBody] CreateBannedSubstanceDto dto, CancellationToken ct)
     {
-        if (!CheckAdmin(out var authError)) return authError!;
         var fields = CleanFields(dto.CommonName, dto.Aliases, dto.Category, dto.Note, out var error);
         if (error != null) return BadRequest(new { detail = error });
         var decision = CleanDecision(dto.Decision, out error);
@@ -83,9 +84,9 @@ public class BannedSubstancesController : ControllerBase
 
     // PATCH /api/v1/banned-substances/{id}: sửa tên, tên khác, nhóm, ghi chú (không đổi trạng thái cấm)
     [HttpPatch("{id:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateBannedSubstanceDto dto, CancellationToken ct)
     {
-        if (!CheckAdmin(out var authError)) return authError!;
         var entity = await _db.BannedSubstances.Include(s => s.Decisions).FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted, ct);
         if (entity == null) return NotFound(new { detail = "Không tìm thấy chất này." });
 
@@ -107,9 +108,9 @@ public class BannedSubstancesController : ControllerBase
 
     // POST /api/v1/banned-substances/{id}/decisions: thêm quyết định cấm / bỏ cấm theo văn bản mới
     [HttpPost("{id:int}/decisions")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> AddDecision(int id, [FromBody] DecisionInputDto dto, CancellationToken ct)
     {
-        if (!CheckAdmin(out var authError)) return authError!;
         var entity = await _db.BannedSubstances.Include(s => s.Decisions).FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted, ct);
         if (entity == null) return NotFound(new { detail = "Không tìm thấy chất này." });
         var decision = CleanDecision(dto, out var error);
@@ -124,9 +125,9 @@ public class BannedSubstancesController : ControllerBase
 
     // DELETE /api/v1/banned-substances/{id}/decisions/{decisionId}: gỡ quyết định nhập nhầm (giữ dấu vết)
     [HttpDelete("{id:int}/decisions/{decisionId:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> RemoveDecision(int id, int decisionId, CancellationToken ct)
     {
-        if (!CheckAdmin(out var authError)) return authError!;
         var entity = await _db.BannedSubstances.Include(s => s.Decisions).FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted, ct);
         var decision = entity?.Decisions.FirstOrDefault(d => d.Id == decisionId && !d.IsDeleted);
         if (entity == null || decision == null) return NotFound(new { detail = "Không tìm thấy quyết định này." });
@@ -143,9 +144,9 @@ public class BannedSubstancesController : ControllerBase
 
     // DELETE /api/v1/banned-substances/{id}: xóa chất nhập nhầm (xóa mềm). Chất hết bị cấm thì dùng quyết định UNBAN.
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
-        if (!CheckAdmin(out var authError)) return authError!;
         var entity = await _db.BannedSubstances.FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted, ct);
         if (entity == null) return NotFound(new { detail = "Không tìm thấy chất này." });
         entity.IsDeleted = true;
@@ -156,9 +157,9 @@ public class BannedSubstancesController : ControllerBase
 
     // POST /api/v1/banned-substances/import: nhập nhiều chất theo MỘT văn bản. dry_run = true chỉ xem trước, không lưu.
     [HttpPost("import")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> Import([FromBody] ImportBannedDto dto, CancellationToken ct)
     {
-        if (!CheckAdmin(out var authError)) return authError!;
         var template = CleanDecision(new DecisionInputDto
         {
             Action = dto.Action, LegalDocument = dto.LegalDocument, EffectiveDate = dto.EffectiveDate, SourceUrl = dto.SourceUrl, Note = dto.Note,
@@ -247,10 +248,10 @@ public class BannedSubstancesController : ControllerBase
     private const long MaxPdfBytes = 10 * 1024 * 1024;
 
     [HttpPost("parse-pdf")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     [RequestSizeLimit(MaxPdfBytes + 64 * 1024)]
     public async Task<IActionResult> ParsePdf(IFormFile? file, CancellationToken ct)
     {
-        if (!CheckAdmin(out var authError)) return authError!;
         if (file == null || file.Length == 0) return BadRequest(new { detail = "Chưa chọn file PDF." });
         if (file.Length > MaxPdfBytes) return BadRequest(new { detail = "File PDF tối đa 10 MB." });
 
@@ -374,22 +375,6 @@ public class BannedSubstancesController : ControllerBase
         };
     }
 
-    private bool IsAdmin() =>
-        (User.Identity?.IsAuthenticated == true && (User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN")))
-        || AdminApiKeyAuthAttribute.HasValidKey(Request);
-
-    private bool CheckAdmin(out IActionResult? error)
-    {
-        if (IsAdmin())
-        {
-            error = null;
-            return true;
-        }
-        error = User.Identity?.IsAuthenticated == true
-            ? StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên (ADMIN)." })
-            : Unauthorized(new { detail = "Yêu cầu đăng nhập tài khoản Quản trị viên hoặc khóa X-Admin-Key hợp lệ." });
-        return false;
-    }
 
     private string CurrentActor() =>
         User.FindFirst(ClaimTypes.Email)?.Value ?? User.FindFirst("email")?.Value

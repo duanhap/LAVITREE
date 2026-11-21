@@ -12,6 +12,10 @@
   - `400 Bad Request`: Ảnh không đúng định dạng hoặc thiếu trường bắt buộc.
   - `422 Unprocessable Entity`: Ảnh không thể giải mã thành bitmap tensor.
   - `500 Internal Server Error`: Lỗi máy chủ (có log trace nội bộ).
+- **Xác thực API quản trị (BUG-18, BUG-38)**:
+  - Chỉ nhận `Authorization: Bearer <JWT>` của tài khoản role `ADMIN` (policy `AdminOnly`). Khóa dùng chung `X-Admin-Key` đã bỏ, gửi lên bị bỏ qua.
+  - Không token, token sai hoặc hết hạn → `401 { "detail": "..." }`. Có token nhưng không phải Admin → `403 { "detail": "..." }`.
+  - JWT chỉ nhận thuật toán `HS256`. Mỗi request kiểm tra tài khoản còn tồn tại và role trong token còn khớp CSDL (đệm 30 giây). Xóa tài khoản hoặc đổi quyền thì token cũ bị từ chối trong tối đa 30 giây.
 - **Cấu trúc JSON phản hồi tiêu chuẩn**:
   ```json
   {
@@ -286,7 +290,7 @@
 - **Query Params**: 
   - `diseaseCode` (string, optional, ví dụ `Tomato___Late_blight`)
   - `requireRainResistant` (boolean, optional, mặc định `false`)
-  - `allowedOnly` (boolean, optional, mặc định `true`). `false` chỉ dành cho Admin (JWT role `ADMIN` hoặc `X-Admin-Key`), không có quyền thì `403`.
+  - `allowedOnly` (boolean, optional, mặc định `true`). `false` chỉ dành cho Admin (JWT role `ADMIN`), không có quyền thì `403`.
 - **Rate limit**: `PUBLIC_API_RATE_LIMIT_PER_MINUTE` (mặc định 60 request/phút/IP), vượt thì `429`. Agent gửi `X-Internal-Key` hợp lệ nên không bị tính chung vào giới hạn này (áp dụng cả Mục 3.9).
 - **Lỗi CSDL ở Production**: `503`. `is_fallback: true` chỉ xuất hiện khi chạy Development hoặc `ENABLE_DEV_FALLBACK=true`, nghĩa là danh mục mẫu, không phải kho thật.
 - **Response Body (`200 OK`)**:
@@ -346,7 +350,7 @@
 ---
 
 ### 3.4.0. `PATCH /api/v1/medicines/{id}` (Cập nhật Tồn kho & Giấy phép Thuốc BVTV — RBAC Admin)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`)
+- **Headers**: `Authorization: Bearer <Admin_JWT>`
 - **Request Body (`application/json`)**:
   ```json
   {
@@ -357,7 +361,7 @@
   }
   ```
 - **Quy tắc Nghiệp vụ**:
-  - Chỉ tài khoản có Role `ADMIN` hoặc yêu cầu kèm `X-Admin-Key` hợp lệ mới được quyền cập nhật. Nông dân (`FARMER`) bị chặn với `403 Forbidden`.
+  - Chỉ tài khoản có Role `ADMIN` mới được quyền cập nhật. Nông dân (`FARMER`) bị chặn với `403 Forbidden`.
   - Hỗ trợ cập nhật từng trường lẻ (partial update: giá, tồn kho, số ngày cách ly PHI, trạng thái cho phép lưu hành).
   - `usage_profile` (TASK-18): không gửi / `null` = giữ nguyên; gửi phiếu = thay toàn bộ; gửi `{}` (phiếu rỗng) = xóa phiếu. Phiếu được chuẩn hóa và kiểm tra như `POST`. Response trả `usage_profile`.
 - **Response Body (`200 OK`)**:
@@ -617,7 +621,7 @@
 ---
 
 ### 3.8.1. `GET /api/v1/diagnose/escalations` (Danh sách Ca bệnh cần Thẩm định — RBAC Admin/Bác sĩ)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`).
+- **Headers**: `Authorization: Bearer <Admin_JWT>`.
 - **Quy tắc Bảo mật**:
   - Yêu cầu xác thực bắt buộc: Chưa đăng nhập trả về `401 Unauthorized`.
   - Tài khoản không có quyền Admin/Bác sĩ trả về `403 Forbidden`.
@@ -642,7 +646,7 @@
 ---
 
 ### 3.8.2. `PATCH /api/v1/diagnose/{id}/expert-review` (Bác sĩ Cây trồng Kết luận Ca bệnh)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`).
+- **Headers**: `Authorization: Bearer <Admin_JWT>`.
 - **Request Body (`application/json`)**:
   ```json
   {
@@ -778,7 +782,7 @@
 ---
 
 ### 3.11.1. `GET /api/v1/knowledge/reindex-status` (Tra cứu Trạng thái Reindex Vector — RBAC Admin)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`)
+- **Headers**: `Authorization: Bearer <Admin_JWT>`
 - **Quy tắc Hoạt động**:
   - Core API proxy tới `GET http://agent-service:8001/internal/reindex-status` với header `X-Internal-Key` nội bộ an toàn.
   - Phục vụ Admin Web Dashboard hiển thị thông điệp thân thiện "Đang đồng bộ vector nền" trong quá trình lập chỉ mục BM25 / ChromaDB.
@@ -1004,7 +1008,7 @@
 
 ### 3.14. Danh mục chất cấm (`BannedSubstances` — TASK-19)
 
-Trạng thái cấm tính từ quyết định mới nhất có `effective_date ≤ hôm nay (giờ VN)`; `effective_date = null` nghĩa là đã hiệu lực, chưa ghi ngày. Mọi thay đổi nạp lại danh mục trong bộ nhớ Core ngay; agent-service đệm 5 phút. So khớp theo từ nguyên vẹn, không phân biệt hoa thường. Ghi: Admin (JWT `ADMIN` hoặc `X-Admin-Key`), sai quyền 401 / 403.
+Trạng thái cấm tính từ quyết định mới nhất có `effective_date ≤ hôm nay (giờ VN)`; `effective_date = null` nghĩa là đã hiệu lực, chưa ghi ngày. Mọi thay đổi nạp lại danh mục trong bộ nhớ Core ngay; agent-service đệm 5 phút. So khớp theo từ nguyên vẹn, không phân biệt hoa thường. Ghi: Admin (JWT `ADMIN`), sai quyền 401 / 403.
 
 #### 3.14.1. `GET /api/v1/banned-substances` (công khai)
 ```json

@@ -55,10 +55,9 @@ services:
       - AgentService__BaseUrl=http://agent-service:8001
       - Minio__Endpoint=minio:9000
       - Minio__PublicUrl=${MINIO_PUBLIC_URL:-http://localhost:3000}
-      - Minio__AccessKey=${MINIO_ACCESS_KEY:-minioadmin}
-      - Minio__SecretKey=${MINIO_SECRET_KEY}
+      - Minio__AccessKey=${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY must be set}
+      - Minio__SecretKey=${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set}
       - Minio__BucketName=${MINIO_BUCKET_NAME:-lavitree-diagnoses}
-      - ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
     depends_on:
@@ -99,8 +98,8 @@ services:
     restart: always
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY must be set}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set}
     ports:
       - "127.0.0.1:9000:9000"    # S3 API bind localhost bảo mật
       - "127.0.0.1:9001:9001"    # Web Dashboard quản trị xem ảnh (chỉ bind localhost bảo mật)

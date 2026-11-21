@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ using System.Threading.RateLimiting;
 using Lavitree.Application.Interfaces;
 using Lavitree.Infrastructure.Persistence;
 using Lavitree.Infrastructure.Services;
+using Lavitree.Api.Security;
 
 // 0. Load .env file (Traverse up to find .env in project or root directory)
 DotNetEnv.Env.TraversePath().Load();
@@ -25,10 +27,16 @@ var envConn = Environment.GetEnvironmentVariable("SUPABASE_CONNECTION_STRING");
 var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD");
 
 // Determine base connection string
+// BUG-43: chỉ máy dev mới được dùng chuỗi kết nối mặc định; production thiếu cấu hình thì dừng khởi động
 var connectionString = !string.IsNullOrWhiteSpace(envConn) && !envConn.Contains("YOUR_PASSWORD_HERE") && !envConn.Contains("[YOUR-DATABASE-PASSWORD]")
     ? envConn
-    : (builder.Configuration.GetConnectionString("DefaultConnection")
-       ?? "Host=localhost;Port=5432;Database=LavitreeDb;Username=postgres;Password=postgres;");
+    : builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    connectionString = builder.Environment.IsDevelopment()
+        ? "Host=localhost;Port=5432;Database=LavitreeDb;Username=postgres;Password=postgres;"
+        : throw new InvalidOperationException("Chưa cấu hình chuỗi kết nối CSDL (SUPABASE_CONNECTION_STRING hoặc ConnectionStrings__DefaultConnection).");
+}
 
 // Replace password placeholder if DB_PASSWORD is provided
 if (!string.IsNullOrWhiteSpace(dbPassword))
@@ -36,6 +44,12 @@ if (!string.IsNullOrWhiteSpace(dbPassword))
     connectionString = connectionString
         .Replace("[YOUR-DATABASE-PASSWORD]", dbPassword)
         .Replace("YOUR_PASSWORD_HERE", dbPassword);
+}
+
+if (!builder.Environment.IsDevelopment()
+    && (connectionString.Contains("[YOUR-DATABASE-PASSWORD]") || connectionString.Contains("YOUR_PASSWORD_HERE")))
+{
+    throw new InvalidOperationException("Chuỗi kết nối CSDL còn mật khẩu mẫu. Đặt SUPABASE_CONNECTION_STRING hoặc DB_PASSWORD.");
 }
 
 builder.Services.AddDbContext<LavitreeDbContext>(options =>
@@ -107,12 +121,6 @@ if (jwtSecretKey.Length < 32)
     throw new InvalidOperationException("JWT_SECRET_KEY phải có độ dài tối thiểu 32 ký tự để đảm bảo an toàn HMAC-SHA256!");
 }
 
-var adminSecretKeyCheck = Environment.GetEnvironmentVariable("ADMIN_SECRET_KEY");
-if (!string.IsNullOrWhiteSpace(adminSecretKeyCheck) && adminSecretKeyCheck.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException("ADMIN_SECRET_KEY không được sử dụng khóa mẫu từ .env.example! Vui lòng cấu hình khóa ngẫu nhiên bảo mật.");
-}
-
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "LavitreeCoreApi";
 var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "LavitreeClients";
 
@@ -132,8 +140,33 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidAudience = jwtAudience,
         ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
+        ClockSkew = TimeSpan.Zero,
+        // BUG-38: chỉ nhận vé ký bằng HMAC-SHA256, không để token tự chọn thuật toán
+        ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256, SecurityAlgorithms.HmacSha256Signature }
     };
+    options.Events = new JwtBearerEvents
+    {
+        // BUG-38: vé còn hạn nhưng tài khoản đã bị xóa hoặc đổi quyền thì không dùng được nữa
+        OnTokenValidated = TokenRevocationCheck.ValidateAsync,
+        // Trả lỗi dạng JSON { detail } giống các API khác, để web hiện đúng thông báo
+        OnChallenge = async context =>
+        {
+            context.HandleResponse();
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { detail = "Yêu cầu đăng nhập (token thiếu, hết hạn hoặc không còn hiệu lực)." });
+        },
+        OnForbidden = async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { detail = "Yêu cầu quyền Quản trị viên (ADMIN) để thực hiện thao tác này." });
+        }
+    };
+});
+
+// BUG-18: một quy tắc chung cho mọi API quản trị, thay cho khóa dùng chung X-Admin-Key
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthPolicies.AdminOnly, policy => policy.RequireAuthenticatedUser().RequireRole("ADMIN"));
 });
 
 // 6. Rate Limiting Configuration (diagnose_policy partitioned per client IP)
@@ -249,6 +282,9 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+
+// BUG-43: tạo MinIO client ngay lúc khởi động để thiếu khóa thì báo lỗi luôn, không đợi tới request khám bệnh đầu tiên
+app.Services.GetRequiredService<IMinioStorageService>();
 
 // 8. HTTP Request Pipeline
 app.UseForwardedHeaders();

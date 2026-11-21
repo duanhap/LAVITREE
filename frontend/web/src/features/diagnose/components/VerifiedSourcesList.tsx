@@ -1,6 +1,7 @@
 import React from 'react';
 import type { VerifiedSource } from '../types';
 import { BookOpen, ExternalLink } from 'lucide-react';
+import { safeHref } from '@/lib/utils';
 
 interface VerifiedSourcesListProps {
   sources: VerifiedSource[];
@@ -24,7 +25,7 @@ export const VerifiedSourcesList: React.FC<VerifiedSourcesListProps> = ({ source
         {sources.map((source, idx) => (
           <a
             key={idx}
-            href={source.url}
+            href={safeHref(source.url)}
             target="_blank"
             rel="noopener noreferrer"
             className="group flex items-start justify-between rounded-xl border border-border bg-card p-3 text-sm hover:border-primary/50 hover:bg-secondary/20 transition-all shadow-xs"

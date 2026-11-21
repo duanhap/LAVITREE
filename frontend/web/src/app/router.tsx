@@ -23,7 +23,6 @@ const AdminKnowledgePage = React.lazy(() => import('@/pages/admin/AdminKnowledge
 const AdminEscalationsPage = React.lazy(() => import('@/pages/admin/AdminEscalationsPage'));
 const AdminInventoryPage = React.lazy(() => import('@/pages/admin/AdminInventoryPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
-const KnowledgeCollectorPage = React.lazy(() => import('@/pages/KnowledgeCollectorPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
 const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
 const ChatPage = React.lazy(() => import('@/pages/ChatPage'));
@@ -177,14 +176,6 @@ export const AppRouter: React.FC = () => {
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
               <AdminImagesPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/admin/knowledge-collector"
-          element={
-            <Suspense fallback={<PageSkeleton variant="list" />}>
-              <KnowledgeCollectorPage />
             </Suspense>
           }
         />

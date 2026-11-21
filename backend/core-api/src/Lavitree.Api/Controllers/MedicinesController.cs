@@ -12,7 +12,8 @@ using Lavitree.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
 using System.Security.Claims;
-using Lavitree.Api.Filters;
+using Lavitree.Api.Security;
+using Microsoft.AspNetCore.Authorization;
 using Lavitree.Infrastructure.Persistence;
 
 namespace Lavitree.Api.Controllers;
@@ -60,7 +61,7 @@ public class MedicinesController : ControllerBase
         [FromQuery] bool allowedOnly = true)
     {
         // Danh sách có thuốc cấm chỉ dành cho Admin; khách, nông dân và Agent chỉ thấy thuốc được phép
-        if (!allowedOnly && !User.IsInRole("ADMIN") && !AdminApiKeyAuthAttribute.HasValidKey(Request))
+        if (!allowedOnly && !User.IsAdmin())
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -408,14 +409,9 @@ public class MedicinesController : ControllerBase
     /// Thêm thuốc/vật tư mới vào kho (Admin) (TASK-15 Pha 3)
     /// </summary>
     [HttpPost]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> CreateMedicine([FromBody] Lavitree.Application.DTOs.CreateProductRequestDto dto)
     {
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
-        if (!isAdmin)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên để thêm sản phẩm vào kho." });
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -584,14 +580,9 @@ public class MedicinesController : ControllerBase
     /// Quản lý kho thuốc (Admin): Bật/tắt IsAllowed, cập nhật PhiDays, giá và tồn kho
     /// </summary>
     [HttpPatch("{id:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateMedicine(int id, [FromBody] UpdateMedicineDto dto)
     {
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
-        if (!isAdmin)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên để cập nhật danh mục thuốc." });
-        }
-
         var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
         if (product == null)
         {

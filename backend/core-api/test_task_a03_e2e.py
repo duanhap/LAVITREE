@@ -59,7 +59,6 @@ if ("supabase.co" in db_conn.lower() or "supabase.com" in db_conn.lower() or "po
 CORE_API_URL = os.environ.get("CORE_API_URL", "http://localhost:5176")
 if CORE_API_URL == "http://localhost:5000":
     CORE_API_URL = "http://localhost:5176"
-ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@lavitree.vn")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
@@ -84,7 +83,7 @@ def log_fail(msg: str):
     failed += 1
     print(f"  -> FAILED: {msg}")
 
-def http_json(method: str, path: str, data: dict = None, token: str = None, admin_key: str = None, timeout: int = 30):
+def http_json(method: str, path: str, data: dict = None, token: str = None, timeout: int = 30):
     url = f"{CORE_API_URL}{path}"
     headers = {"Accept": "application/json"}
     body = None
@@ -93,8 +92,6 @@ def http_json(method: str, path: str, data: dict = None, token: str = None, admi
         body = json.dumps(data).encode("utf-8")
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    if admin_key:
-        headers["X-Admin-Key"] = admin_key
 
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
@@ -173,8 +170,8 @@ try:
         # Sao lưu từ danh sách đầy đủ của Admin (gồm cả thuốc đang khóa bán, ví dụ id 5 mà bài test sẽ PATCH);
         # danh sách công khai không có thuốc bị khóa nên không đủ để khôi phục.
         backup_items = items
-        if admin_token or ADMIN_SECRET_KEY:
-            code_all, data_all = http_json("GET", "/api/v1/medicines/search?allowedOnly=false", token=admin_token, admin_key=ADMIN_SECRET_KEY)
+        if admin_token:
+            code_all, data_all = http_json("GET", "/api/v1/medicines/search?allowedOnly=false", token=admin_token)
             if code_all == 200 and isinstance(data_all, dict) and data_all.get("items"):
                 backup_items = data_all["items"]
         for it in backup_items:
@@ -200,7 +197,7 @@ try:
         "phi_days": 7,
         "stock_quantity": orig_stock1,
         "is_allowed": True
-    }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+    }, token=admin_token)
     if code == 200 and data.get("is_allowed") is True:
         log_success(f"Admin cập nhật kho thuốc thành công: {data.get('name')}, Tồn kho: {data.get('stock_quantity')}")
     else:
@@ -221,7 +218,7 @@ try:
         log_fail(f"Lỗi chặn khách: HTTP {code}, {data}")
 
     test_step(5, "Chặn đặt mua thuốc bị cấm hoặc dừng bán: POST /api/v1/orders")
-    http_json("PATCH", "/api/v1/medicines/5", {"is_allowed": False}, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+    http_json("PATCH", "/api/v1/medicines/5", {"is_allowed": False}, token=admin_token)
     code, data = http_json("POST", "/api/v1/orders", {
         "items": [{"product_id": 5, "quantity": 1}],
         "shipping_address": "Xã Hải Tân, Hải Hậu, Nam Định",
@@ -287,7 +284,7 @@ try:
     http_json("PATCH", f"/api/v1/medicines/{target_race_product_id}", {
         "stock_quantity": 3,
         "is_allowed": True
-    }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+    }, token=admin_token)
 
     # Gửi đồng thời 10 đơn mua thuốc 3 (mỗi đơn mua 1 chai)
     def submit_single_order(seq):
@@ -352,7 +349,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
         "organization": "Bộ phận Kiểm thử Tự động Lavitree",
         "published_date": "2026",
         "article_text": sample_article_text
-    }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+    }, token=admin_token)
 
     ingestion_id = None
     if code == 200 and "ingestion_id" in ingest_res and len(ingest_res.get("paragraphs", [])) >= 4:
@@ -370,7 +367,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
                 {"paragraph_id": "P2", "unit_type": "SYMPTOMS"}
             ],
             "reviewer_notes": "Kiểm thử lưu đoạn nguyên văn E2E"
-        }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+        }, token=admin_token)
 
         if code == 201 and len(commit_res.get("created_source_ids", [])) == 2:
             new_ids = commit_res["created_source_ids"]
@@ -390,7 +387,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
             "source_title": "[BIẾN THỂ URL] Nghiên cứu kiểm soát sương mai",
             "organization": "Bộ phận Kiểm thử Tự động Lavitree",
             "article_text": sample_article_text
-        }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+        }, token=admin_token)
 
         if code == 200 and "ingestion_id" in ingest_var:
             var_ingest_id = ingest_var["ingestion_id"]
@@ -401,7 +398,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
                     {"paragraph_id": "P4", "unit_type": "TREATMENT"},
                     {"paragraph_id": "P1", "unit_type": "CAUSE_CONDITIONS"}
                 ]
-            }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+            }, token=admin_token)
 
             if code == 400:
                 log_success(f"Chống lách luật URL biến thể thành công (HTTP 400): {reject_res.get('detail')}")
@@ -426,7 +423,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
         log_fail(f"Lỗi lấy danh mục tri thức công khai: HTTP {code}")
 
     test_step(16, "Admin xem đầy đủ bài viết chưa duyệt: GET /api/v1/knowledge/sources?isApproved=false")
-    code, admin_sources = http_json("GET", "/api/v1/knowledge/sources?isApproved=false", token=admin_token, admin_key=ADMIN_SECRET_KEY)
+    code, admin_sources = http_json("GET", "/api/v1/knowledge/sources?isApproved=false", token=admin_token)
     if code == 200 and isinstance(admin_sources, list):
         log_success(f"Admin truy cập thành công danh sách bài chưa duyệt ({len(admin_sources)} bài).")
     else:
@@ -450,7 +447,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
         code, app_res = http_json("PATCH", f"/api/v1/knowledge/sources/{target_sid}/approve", {
             "is_approved": True,
             "reviewer_notes": "Kiểm thử duyệt đơn lẻ E2E"
-        }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+        }, token=admin_token)
         if code == 200 and app_res.get("is_manual_approved") is True:
             log_success(f"Duyệt đơn lẻ thành công cho ID {target_sid}. Reindex: {app_res.get('reindex_status')}")
         else:
@@ -512,7 +509,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
             log_fail(f"Chuyển ca thất bại: HTTP {code}, {req_exp}")
 
         test_step(21, "Admin / Bác sĩ xem danh sách ca bệnh & ghi kết luận không đè ghi chú nông dân")
-        code, esc_list = http_json("GET", "/api/v1/diagnose/escalations", token=admin_token, admin_key=ADMIN_SECRET_KEY)
+        code, esc_list = http_json("GET", "/api/v1/diagnose/escalations", token=admin_token)
         if code == 200 and isinstance(esc_list, list) and any(e.get("id") == diag_id for e in esc_list):
             log_success(f"Bác sĩ xem được danh sách ca bệnh ({len(esc_list)} ca), chứa ca vừa chuyển: {diag_id}")
         else:
@@ -521,7 +518,7 @@ Khi bệnh chớm xuất hiện, thực hiện biện pháp quản lý tổng h�
         test_step(22, "Chuyên gia phản hồi hướng dẫn xử lý (bảo tồn ghi chú nông dân)")
         code, rev_res = http_json("PATCH", f"/api/v1/diagnose/{diag_id}/expert-review", {
             "expert_notes": "[Xác nhận kiểm thử tự động] Đã phân tích hình thái lá. Đề xuất tiếp tục theo dõi điều kiện ẩm độ."
-        }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+        }, token=admin_token)
         if code == 200 and "expert_reviewed_at" in rev_res:
             # Kiểm tra xem ghi chú của nông dân có bị ghi đè mất không
             code_h, hist_d = http_json("GET", f"/api/v1/diagnose/history/{diag_id}", token=farmer1_token)
@@ -550,7 +547,7 @@ finally:
         print(f"[*] Đang dọn {len(cleanup_source_ids)} bài viết tri thức kiểm thử...")
         for s_id in cleanup_source_ids:
             try:
-                http_json("DELETE", f"/api/v1/knowledge/sources/{s_id}", token=admin_token, admin_key=ADMIN_SECRET_KEY)
+                http_json("DELETE", f"/api/v1/knowledge/sources/{s_id}", token=admin_token)
             except:
                 pass
         print(f"[✓] Đã dọn dẹp xong các bài viết tri thức thử nghiệm.")
@@ -564,7 +561,7 @@ finally:
                     "stock_quantity": orig_state["stock_quantity"],
                     "is_allowed": orig_state["is_allowed"],
                     "phi_days": orig_state["phi_days"]
-                }, token=admin_token, admin_key=ADMIN_SECRET_KEY)
+                }, token=admin_token)
             except:
                 pass
         print(f"[✓] Đã khôi phục hoàn toàn trạng thái tồn kho và giấy phép lưu hành sản phẩm.")
