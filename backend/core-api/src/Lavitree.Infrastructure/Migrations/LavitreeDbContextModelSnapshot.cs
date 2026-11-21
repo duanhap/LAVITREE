@@ -208,6 +208,10 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("PathogenName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("PathogenType")
                         .IsRequired()
                         .HasColumnType("text");

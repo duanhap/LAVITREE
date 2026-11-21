@@ -393,16 +393,14 @@ export const AdminIngestPage: React.FC = () => {
 
       if (isSectionHeadingBlock(rawBlock)) {
         flush();
+        if (pendingHeading) {
+          out.push(pendingHeading);
+          pendingHeading = '';
+        }
         const prefixMatch = rawBlock.trim().match(/^(#{2,6})\s+/);
         const prefix = prefixMatch ? prefixMatch[1] : '##';
         const headingBody = rawBlock.trim().replace(/^#{2,6}\s+/, '').replace(/\*\*/g, '').trim();
-        if (pendingHeading) {
-          const prevClean = pendingHeading.replace(/^#{2,6}\s+/, '').replace(/:\s*$/, '').trim();
-          const curClean = headingBody.replace(/:\s*$/, '').trim();
-          pendingHeading = `## ${prevClean} - ${curClean}:`;
-        } else {
-          pendingHeading = `${prefix} ${headingBody}`;
-        }
+        pendingHeading = `${prefix} ${headingBody}`;
         return;
       }
 
@@ -436,6 +434,10 @@ export const AdminIngestPage: React.FC = () => {
       currentHasSubItems = isSubItemBlock(b);
     });
     flush();
+    if (pendingHeading) {
+      out.push(pendingHeading);
+      pendingHeading = '';
+    }
 
     return out.join('\n\n');
   };

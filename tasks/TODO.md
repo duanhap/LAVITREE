@@ -96,7 +96,7 @@
 ### 🤝 Việc chung Thành viên A & B:
 - [/] **TASK-S2-BONUS: Dọn việc tồn Sprint 2 & Nghiệm thu chéo TVA – TVB** *(P0 cho nhóm bắt buộc trước deploy)*
   - Trách nhiệm: **Thành viên A** (Core API, Web, hạ tầng) & **Thành viên B** (Agent, RAG, Gemini); người làm không tự nghiệm thu dòng của mình.
-  - Trạng thái: `[/] CHỜ NGHIỆM THU PRODUCTION` (code xong. Còn: BUG-86 sửa Trichoderma, BUG-89 đổi Secret, deploy rồi thử BUG-05/07, BUG-74, BUG-88 trên web thật; BUG-91 chờ quyết định quota Gemini. Việc Android và việc ít quan trọng đã ghi chuyển Sprint 3.)
+  - Trạng thái: `[/] CHỜ NGHIỆM THU PRODUCTION` (code xong. Còn: BUG-89 đổi Secret, deploy rồi thử BUG-74, BUG-88 trên web thật. BUG-05/07, BUG-86 xong; BUG-91 chốt bật trả phí Gemini. Việc Android và việc ít quan trọng đã ghi chuyển Sprint 3.)
   - Đầu ra: Đóng các dòng còn mở của A02/A03 và review 08/11/2026: đổi mật khẩu admin và `JWT_SECRET_KEY` trên production, kiểm tra Secret `ENV_PRODUCTION`, dọn dữ liệu test có thể đã vào Supabase, xác nhận migration, đối chiếu danh mục thuốc (BUG-51), nghiệm thu chéo duyệt/bỏ duyệt → chat và nhập bài với Gemini thật, các lỗi bảo mật và hạ tầng còn lại. Chi tiết: `tasks/sprint-02/task-s2-bonus-hardening-acceptance.md`; mục 3.7 cho Agent: sửa dữ liệu Trichoderma, duyệt tri thức Ca 3–4, benchmark 15/15 với Core thật, tài khoản CSDL chỉ đọc, quota Gemini và mục tiêu thời gian phản hồi. Thêm các việc còn mở của TASK-07/08 (mục 3.7) và TASK-A04 (mục 3.8: build và chạy app Android, Web Chat với Agent thật, `draft_order`).
 
 ---
@@ -152,3 +152,8 @@
   - Trách nhiệm: **Trưởng nhóm** (làm cùng Claude Code)
   - Trạng thái: `[x] DONE` (bản nhẹ; lịch phun / nhắc nhở bản đầy đủ: `docs/architecture/treatment-schedule-design.md`)
   - Đầu ra: Nút "Tạo SP" ở hàng mở modal trích dẫn; gộp đoạn trích nằm trọn trong đoạn khác; chỉ còn 1 nút "Sao chép prompt cho Gemini" (chế độ Dev); prompt mới tổng hợp thông tin tại Việt Nam bám đoạn trích, trả JSON (mô tả chi tiết + phiếu `usage`: liều, buổi, số lần, cách nhau, tối đa lần/vụ, thời tiết, an toàn) và danh sách nguồn + ảnh để chọn; cột `Products.UsageProfile` (jsonb) lưu phiếu cách dùng để làm lịch phun / nhắc nhở ở task sau; "Hướng dẫn sử dụng" ghép tự động theo nhãn cố định cho trợ lý Lavi đọc. Chi tiết: `tasks/sprint-03/task-18-usage-profile-gemini-prompt.md`.
+
+- [x] **TASK-20: Trang chi tiết bệnh trong Sổ tay, dựng từ tri thức đã duyệt (có nguồn)**
+  - Trách nhiệm: **Trưởng nhóm** (giao Gemini làm)
+  - Trạng thái: `[x] DONE`
+  - Đầu ra: Trang `/handbook/:classCode` ghép các đoạn `KnowledgeSources` đã duyệt theo nhãn (Triệu chứng / Nguyên nhân / Phòng ngừa / Xử lý), nguồn tham khảo đánh số; bỏ chữ điền tạm của seeder; cột `Diseases.PathogenName` + trang Admin `/admin/diseases` sửa tác nhân; nút "Xem bệnh này trong Sổ tay" trong Chat (Lavi vẫn trích bài gốc). Chi tiết và thiết kế giao diện: `tasks/sprint-03/task-20-handbook-disease-detail.md`.

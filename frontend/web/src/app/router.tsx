@@ -14,6 +14,7 @@ import { DiagnosePage } from '@/pages/DiagnosePage';
 // Lazy Loaded Pages (BUG-27: Tối ưu bundle size cho mạng đồng ruộng & Admin portal)
 // BUG-27: chỉ trang chủ (Khám lá) nạp ngay; Sổ tay, Đăng nhập/Đăng ký và khung Admin tải khi cần
 const HandbookPage = React.lazy(() => import('@/pages/HandbookPage'));
+const HandbookDiseasePage = React.lazy(() => import('@/pages/HandbookDiseasePage'));
 const LoginPage = React.lazy(() => import('@/pages/LoginPage'));
 const RegisterPage = React.lazy(() => import('@/pages/RegisterPage'));
 const AdminShell = React.lazy(() => import('./AdminShell'));
@@ -21,6 +22,7 @@ const HistoryPage = React.lazy(() => import('@/pages/HistoryPage'));
 const AdminIngestPage = React.lazy(() => import('@/pages/admin/AdminIngestPage'));
 const AdminImagesPage = React.lazy(() => import('@/pages/admin/AdminImagesPage'));
 const AdminKnowledgePage = React.lazy(() => import('@/pages/admin/AdminKnowledgePage'));
+const AdminDiseasesPage = React.lazy(() => import('@/pages/admin/AdminDiseasesPage'));
 const AdminEscalationsPage = React.lazy(() => import('@/pages/admin/AdminEscalationsPage'));
 const AdminInventoryPage = React.lazy(() => import('@/pages/admin/AdminInventoryPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
@@ -66,7 +68,7 @@ export const AppRouter: React.FC = () => {
 
         {/* W-02 & W-03: Sổ tay bệnh học & Chi tiết bệnh */}
         <Route path="/handbook" element={<Suspense fallback={<PageSkeleton variant="cards" />}><HandbookPage /></Suspense>} />
-        <Route path="/handbook/:classCode" element={<Suspense fallback={<PageSkeleton variant="cards" />}><HandbookPage /></Suspense>} />
+        <Route path="/handbook/:classCode" element={<Suspense fallback={<PageSkeleton variant="detail" />}><HandbookDiseasePage /></Suspense>} />
 
         {/* W-07 & W-08: Lịch sử khám bệnh cá nhân & Chi tiết */}
         <Route
@@ -171,6 +173,14 @@ export const AppRouter: React.FC = () => {
           element={
             <Suspense fallback={<PageSkeleton variant="list" />}>
               <AdminKnowledgePage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/diseases"
+          element={
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminDiseasesPage />
             </Suspense>
           }
         />

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import {
   Bot,
@@ -29,12 +30,19 @@ import laviAvatarImg from '@/assets/brand/lavi-avatar-96.webp';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
+  diseaseCode?: string | null;
 }
 
-export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => {
+export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, diseaseCode }) => {
   const isUser = message.role === 'user';
   const [isStepsOpen, setIsStepsOpen] = useState(false);
   const [addingToCartId, setAddingToCartId] = useState<number | null>(null);
+
+  const effectiveDiseaseCode =
+    diseaseCode ||
+    (typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('class_code')
+      : null);
 
   // Thêm thuốc được gợi ý vào giỏ hàng cá nhân (khớp StorePage SSOT)
   const handleAddToCart = async (productId: number, quantity: number = 1) => {
@@ -394,6 +402,23 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
             </div>
           )}
         </div>
+
+        {/* Nút Xem bệnh này trong Sổ tay (TASK-20) */}
+        {!isUser && !message.isStreaming && effectiveDiseaseCode && (
+          <div className="mt-3 pt-2.5 border-t border-border/60 flex items-center justify-end">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs border-primary text-primary hover:bg-primary/10 transition-colors"
+            >
+              <Link to={`/handbook/${encodeURIComponent(effectiveDiseaseCode)}`}>
+                <BookOpen className="w-3.5 h-3.5 mr-1" />
+                Xem bệnh này trong Sổ tay
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

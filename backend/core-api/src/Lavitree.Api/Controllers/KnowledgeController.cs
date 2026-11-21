@@ -2178,19 +2178,15 @@ public class KnowledgeController : ControllerBase
             if (IsSectionHeading(rawBlock))
             {
                 Flush();
+                if (!string.IsNullOrEmpty(pendingHeading))
+                {
+                    output.Add(pendingHeading);
+                    pendingHeading = string.Empty;
+                }
                 var prefixMatch = Regex.Match(rawBlock.Trim(), @"^(#{2,6})\s+");
                 var prefix = prefixMatch.Success ? prefixMatch.Groups[1].Value : "##";
                 var headingBody = Regex.Replace(rawBlock.Trim(), @"^#{2,6}\s+", "").Replace("**", "").Trim();
-                if (!string.IsNullOrEmpty(pendingHeading))
-                {
-                    var prevClean = Regex.Replace(pendingHeading, @"^#{2,6}\s+", "").TrimEnd(':').Trim();
-                    var curClean = headingBody.TrimEnd(':').Trim();
-                    pendingHeading = $"## {prevClean} - {curClean}:";
-                }
-                else
-                {
-                    pendingHeading = $"{prefix} {headingBody}";
-                }
+                pendingHeading = $"{prefix} {headingBody}";
                 continue;
             }
 
@@ -2224,6 +2220,11 @@ public class KnowledgeController : ControllerBase
             currentHasSubItems = IsSubItemBlock(b);
         }
         Flush();
+        if (!string.IsNullOrEmpty(pendingHeading))
+        {
+            output.Add(pendingHeading);
+            pendingHeading = string.Empty;
+        }
 
         return string.Join("\n\n", output);
     }

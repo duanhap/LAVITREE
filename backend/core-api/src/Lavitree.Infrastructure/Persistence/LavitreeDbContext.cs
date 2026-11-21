@@ -138,10 +138,12 @@ public class LavitreeDbContext : DbContext
             .WithMany(p => p.DiseaseProducts)
             .HasForeignKey(dp => dp.ProductId);
 
-        // Disease unique class code
-        modelBuilder.Entity<Disease>()
-            .HasIndex(d => d.ClassCode)
-            .IsUnique();
+        // Disease unique class code and properties
+        modelBuilder.Entity<Disease>(entity =>
+        {
+            entity.HasIndex(d => d.ClassCode).IsUnique();
+            entity.Property(d => d.PathogenName).HasMaxLength(200);
+        });
 
         // User unique email
         modelBuilder.Entity<User>()
