@@ -37,6 +37,11 @@ load_env()
 
 BASE_URL = os.getenv("CORE_API_URL", "http://localhost:5176")
 
+# BUG-79: không chạy trên Supabase / máy chủ thật (test ghi dữ liệu mà API không xóa được)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_db_guard import guard_live_db  # noqa: E402
+guard_live_db(os.path.basename(__file__), BASE_URL)
+
 print("=" * 70)
 print("     KIỂM THỬ TỰ ĐỘNG TASK-A01: AUTH JWT, SECURITY & DAY 1 STUB     ")
 print(f"     Target URL: {BASE_URL}")

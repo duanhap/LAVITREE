@@ -73,7 +73,8 @@ services:
     container_name: lavitree-web-portal
     restart: always
     ports:
-      - "3000:80"
+      # BUG-110: chỉ nginx Ubuntu trên máy chủ (HTTPS) được vào; không mở http://<IP>:3000 ra Internet
+      - "127.0.0.1:3000:8080"
     depends_on:
       - core-api
 
@@ -93,7 +94,8 @@ services:
 
   # 6. Object Storage (Silo S3-Compatible MinIO Drop-in - Public & Open Source)
   minio:
-    image: pgsty/silo:latest
+    # BUG-46: ghim phiên bản (latest ngày 21/11/2026), không tự đổi bản khi deploy
+    image: pgsty/silo:RELEASE.2026-11-12T00-00-00Z
     container_name: lavitree-minio
     restart: always
     command: server /data --console-address ":9001"

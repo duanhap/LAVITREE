@@ -40,25 +40,15 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 load_env(os.path.join(script_dir, ".env"))
 load_env(os.path.join(script_dir, "..", "..", ".env"))
 
-# --- 1. CHỐT CHẶN AN TOÀN: BẢO VỆ CSDL THẬT (SUPABASE) ---
-db_conn = os.environ.get("ConnectionStrings__DefaultConnection") or os.environ.get("SUPABASE_CONNECTION_STRING") or ""
-allow_live = os.environ.get("ALLOW_LIVE_DB_TEST", "").strip().lower() in ("true", "1")
-
-if ("supabase.co" in db_conn.lower() or "supabase.com" in db_conn.lower() or "pooler.supabase.com" in db_conn.lower()) and not allow_live:
-    print("\n" + "!" * 75)
-    print("  [AN TOÀN CSDL] Chuỗi kết nối đang trỏ tới Supabase Cloud!")
-    print("  Theo yêu cầu đánh giá TVA (Mục 1), test_task_a03_e2e.py mặc định TỪ CHỐI")
-    print("  chạy trên Supabase để ngăn chặn ô nhiễm dữ liệu thật.")
-    print("  Để kiểm thử môi trường giả lập/local, hãy dùng DB local hoặc mock.")
-    print("  Nếu muốn chạy có chủ đích trên Supabase với cơ chế teardown tự động:")
-    print("    ALLOW_LIVE_DB_TEST=true python3 test_task_a03_e2e.py")
-    print("!" * 75 + "\n")
-    # Mã 2 = bỏ qua có chủ đích; không dùng 0 để không bị hiểu nhầm là "test đạt"
-    sys.exit(2)
 
 CORE_API_URL = os.environ.get("CORE_API_URL", "http://localhost:5176")
 if CORE_API_URL == "http://localhost:5000":
     CORE_API_URL = "http://localhost:5176"
+
+# --- 1. CHỐT CHẶN AN TOÀN (BUG-79): từ chối Supabase / máy chủ thật, trừ khi ALLOW_LIVE_DB_TEST=true ---
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_db_guard import guard_live_db  # noqa: E402
+guard_live_db(os.path.basename(__file__), CORE_API_URL)
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@lavitree.vn")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 

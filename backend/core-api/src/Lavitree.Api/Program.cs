@@ -94,6 +94,14 @@ builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 
 // 3.5. Register Memory Cache & Weather Service (SSOT: api-contracts.md Mục 3.9)
 builder.Services.AddMemoryCache();
+
+// BUG-47: lỗi không lường trước trả JSON ProblemDetails chuẩn (kèm traceId để tra log), không lộ chi tiết
+builder.Services.AddProblemDetails(options =>
+{
+    // traceId để đối chiếu với log khi người dùng báo lỗi
+    options.CustomizeProblemDetails = ctx =>
+        ctx.ProblemDetails.Extensions["traceId"] = System.Diagnostics.Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier;
+});
 builder.Services.AddHttpClient<IWeatherService, WeatherService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
@@ -287,6 +295,10 @@ var app = builder.Build();
 app.Services.GetRequiredService<IMinioStorageService>();
 
 // 8. HTTP Request Pipeline
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler();
+}
 app.UseForwardedHeaders();
 
 if (app.Environment.IsDevelopment())
@@ -303,6 +315,18 @@ app.UseAuthentication();
 app.UseRateLimiter(); // Đặt sau Authentication để diagnose_policy đọc được tài khoản
 app.UseAuthorization();
 app.MapControllers();
+
+// BUG-48: kiểm tra sống cho deploy / giám sát. Chỉ trả trạng thái, không lộ cấu hình hay lỗi chi tiết.
+app.MapGet("/health", async (LavitreeDbContext db, CancellationToken ct) =>
+{
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    timeout.CancelAfter(TimeSpan.FromSeconds(5));
+    bool dbOk;
+    try { dbOk = await db.Database.CanConnectAsync(timeout.Token); }
+    catch { dbOk = false; }
+    var body = new { status = dbOk ? "ok" : "degraded", database = dbOk ? "ok" : "unreachable" };
+    return dbOk ? Results.Ok(body) : Results.Json(body, statusCode: StatusCodes.Status503ServiceUnavailable);
+}).AllowAnonymous();
 
 // 5. Automatic Database Migration & Seeding (Idempotent - BUG-08)
 using (var scope = app.Services.CreateScope())

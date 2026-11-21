@@ -58,8 +58,16 @@ public class MedicinesController : ControllerBase
     public async Task<IActionResult> Search(
         [FromQuery] string? diseaseCode,
         [FromQuery] bool? requireRainResistant,
-        [FromQuery] bool allowedOnly = true)
+        [FromQuery] bool allowedOnly = true,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
+        // BUG-34: phân trang tùy chọn (pageSize 1–200, mặc định 50); không có page thì trả đủ như trước
+        if (page is < 1 || pageSize is < 1 or > 200)
+        {
+            return BadRequest(new { message = "page phải ≥ 1, pageSize từ 1 đến 200." });
+        }
+
         // Danh sách có thuốc cấm chỉ dành cho Admin; khách, nông dân và Agent chỉ thấy thuốc được phép
         if (!allowedOnly && !User.IsAdmin())
         {
@@ -97,7 +105,7 @@ public class MedicinesController : ControllerBase
                 query = query.Where(p => p.DiseaseProducts.Any(dp => dp.Disease != null && dp.Disease.ClassCode.ToLower() == normCode));
             }
 
-            var dbProducts = await query.ToListAsync();
+            var dbProducts = await query.OrderBy(p => p.Id).ToListAsync(); // thứ tự cố định cho phân trang (BUG-34)
             if (allowedOnly)
             {
                 // Chất bị cấm SAU khi sản phẩm được lưu (thông tư mới) cũng phải loại ngay (TASK-19)
@@ -193,9 +201,18 @@ public class MedicinesController : ControllerBase
             }
         }
 
+        var total = items.Count;
+        if (page.HasValue)
+        {
+            var size = pageSize ?? 50;
+            items = items.Skip((page.Value - 1) * size).Take(size).ToList();
+        }
+
         return Ok(new
         {
-            total = items.Count,
+            total,
+            page,
+            page_size = page.HasValue ? pageSize ?? 50 : (int?)null,
             disease_code = diseaseCode ?? "ALL",
             is_fallback = isFallback,
             items

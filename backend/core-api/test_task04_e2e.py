@@ -7,6 +7,12 @@ import os
 from pathlib import Path
 
 BASE_URL = os.getenv("CORE_API_URL", "http://localhost:5176")
+import sys
+
+# BUG-79: không chạy trên Supabase / máy chủ thật (test ghi dữ liệu mà API không xóa được)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_db_guard import guard_live_db  # noqa: E402
+guard_live_db(os.path.basename(__file__), BASE_URL)
 
 # BUG-18: API quản trị chỉ nhận JWT role ADMIN (đã bỏ khóa dùng chung X-Admin-Key).
 # Mật khẩu đọc từ môi trường, tuyệt đối không hardcode.

@@ -1,0 +1,9 @@
+# BUG-46: không đưa bí mật, cache và test vào image
+.env
+*.env
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+tests/
+test_*.py
+mock_ai_server.py

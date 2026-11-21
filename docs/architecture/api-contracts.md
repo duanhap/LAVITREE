@@ -16,6 +16,8 @@
   - Chỉ nhận `Authorization: Bearer <JWT>` của tài khoản role `ADMIN` (policy `AdminOnly`). Khóa dùng chung `X-Admin-Key` đã bỏ, gửi lên bị bỏ qua.
   - Không token, token sai hoặc hết hạn → `401 { "detail": "..." }`. Có token nhưng không phải Admin → `403 { "detail": "..." }`.
   - JWT chỉ nhận thuật toán `HS256`. Mỗi request kiểm tra tài khoản còn tồn tại và role trong token còn khớp CSDL (đệm 30 giây). Xóa tài khoản hoặc đổi quyền thì token cũ bị từ chối trong tối đa 30 giây.
+- **Lỗi không lường trước (BUG-47)**: Production trả `500` dạng ProblemDetails `{ "type", "title", "status", "traceId" }`, không kèm stack trace; dùng `traceId` để tra log.
+- **Kiểm tra sống (BUG-48)**: `GET /health` (Core, không qua `/api`) → `200 {"status":"ok","database":"ok"}` hoặc `503 {"status":"degraded","database":"unreachable"}`. Workflow deploy chờ `/health` trả 200.
 - **Cấu trúc JSON phản hồi tiêu chuẩn**:
   ```json
   {
@@ -261,7 +263,10 @@
 
 ### 3.3. `GET /api/v1/knowledge/sources` (Kho tri thức bài báo kiểm chứng)
 *Khớp với KnowledgeController.cs hiện có trong backend/core-api*
-- **Query Params**: `modelClass=Tomato___Late_blight`, `page=1`
+- **Query Params** (BUG-31): `modelClass` (string, optional), `search` (string, optional), `isApproved` (bool, chỉ Admin), `page` (int ≥ 1, optional), `pageSize` (1–200, mặc định 50 khi có `page`).
+  - Có `page`: trả đúng trang, thứ tự cố định (mới nhất trước, cùng thời điểm thì theo `id`). Sai giá trị → `400`.
+  - Không có `page`: Admin nhận đủ (trang Duyệt tri thức dùng); khách / nông dân tối đa 500 dòng mới nhất.
+  - Header `X-Total-Count`: tổng số dòng khớp bộ lọc (trước khi cắt trang). Rate limit `public_api_policy`.
 - **Response Body (`200 OK`)**:
   ```json
   {
@@ -291,6 +296,7 @@
   - `diseaseCode` (string, optional, ví dụ `Tomato___Late_blight`)
   - `requireRainResistant` (boolean, optional, mặc định `false`)
   - `allowedOnly` (boolean, optional, mặc định `true`). `false` chỉ dành cho Admin (JWT role `ADMIN`), không có quyền thì `403`.
+  - `page` (int ≥ 1, optional), `pageSize` (1–200, mặc định 50 khi có `page`) (BUG-34). Không có `page` thì trả đủ như trước. Phản hồi thêm `page`, `page_size` (`null` khi không phân trang); `total` luôn là tổng trước khi cắt trang. `id` là số nguyên.
 - **Rate limit**: `PUBLIC_API_RATE_LIMIT_PER_MINUTE` (mặc định 60 request/phút/IP), vượt thì `429`. Agent gửi `X-Internal-Key` hợp lệ nên không bị tính chung vào giới hạn này (áp dụng cả Mục 3.9).
 - **Lỗi CSDL ở Production**: `503`. `is_fallback: true` chỉ xuất hiện khi chạy Development hoặc `ENABLE_DEV_FALLBACK=true`, nghĩa là danh mục mẫu, không phải kho thật.
 - **Response Body (`200 OK`)**:

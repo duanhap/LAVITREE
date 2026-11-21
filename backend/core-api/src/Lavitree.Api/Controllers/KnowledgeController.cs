@@ -21,6 +21,7 @@ using System.Collections.Concurrent;
 using System.Web;
 using Lavitree.Api.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Lavitree.Application.DTOs;
 using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
@@ -331,15 +332,30 @@ public class KnowledgeController : ControllerBase
         });
     }
 
+    // BUG-31: giới hạn số dòng trả về
+    private const int MaxSourcesPageSize = 200;
+    private const int MaxPublicSourcesWithoutPaging = 500;
+
     // 3. GET /api/v1/knowledge/sources
+    // Có page (từ 1) thì trả đúng trang (pageSize 1–200, mặc định 50). Không có page: Admin nhận đủ
+    // (trang Duyệt tri thức cần toàn bộ), khách / nông dân tối đa 500 dòng mới nhất.
+    // Header X-Total-Count luôn cho biết tổng số dòng khớp bộ lọc.
     [HttpGet("sources")]
+    [EnableRateLimiting("public_api_policy")]
     public async Task<IActionResult> GetSources(
         [FromQuery] string? modelClass, 
         [FromQuery] string? search,
         [FromQuery] bool? isApproved,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
         CancellationToken cancellationToken)
     {
         var isAdmin = User.IsAdmin();
+
+        if (page is < 1 || pageSize is < 1 or > MaxSourcesPageSize)
+        {
+            return BadRequest(new { detail = $"page phải ≥ 1, pageSize từ 1 đến {MaxSourcesPageSize}." });
+        }
 
         // Khách/Nông dân không có quyền lọc hoặc xem bài chưa duyệt
         if (!isAdmin && isApproved == false)
@@ -350,6 +366,7 @@ public class KnowledgeController : ControllerBase
         var query = _dbContext.KnowledgeSources
             .Where(s => !s.IsDeleted)
             .OrderByDescending(s => s.CreatedAt)
+            .ThenBy(s => s.Id) // nhiều đoạn cùng thời điểm tạo: cần thứ tự cố định để phân trang không lặp / sót
             .AsNoTracking();
 
         if (!isAdmin)
@@ -372,6 +389,17 @@ public class KnowledgeController : ControllerBase
                                      s.Organization.Contains(search) || 
                                      s.DiseaseName.Contains(search) || 
                                      s.PlantName.Contains(search));
+        }
+
+        Response.Headers["X-Total-Count"] = (await query.CountAsync(cancellationToken)).ToString();
+        if (page.HasValue)
+        {
+            var size = pageSize ?? 50;
+            query = query.Skip((page.Value - 1) * size).Take(size);
+        }
+        else if (!isAdmin)
+        {
+            query = query.Take(MaxPublicSourcesWithoutPaging);
         }
 
         if (!isAdmin)
