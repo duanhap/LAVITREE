@@ -1002,6 +1002,53 @@
 - `status`: `FOUND` (có nguyên văn) | `PARTIAL` (≥ 80% số từ khớp trong một đoạn liền) | `NOT_FOUND` | `NO_QUOTE` (trang mở được, không gửi câu trích) | `FETCH_FAILED` (trang chặn tải / lỗi / hết giờ; Admin tự mở kiểm tra) | `INVALID_URL` (không phải http(s) hoặc trỏ vào mạng nội bộ).
 - `missing_numbers`: con số trong câu trích không có ở đoạn trang gần câu trích nhất (±15 từ). `page_snippet`: đoạn trang gần câu trích nhất (khi khớp ≥ 40%).
 
+### 3.14. Danh mục chất cấm (`BannedSubstances` — TASK-19)
+
+Trạng thái cấm tính từ quyết định mới nhất có `effective_date ≤ hôm nay (giờ VN)`; `effective_date = null` nghĩa là đã hiệu lực, chưa ghi ngày. Mọi thay đổi nạp lại danh mục trong bộ nhớ Core ngay; agent-service đệm 5 phút. So khớp theo từ nguyên vẹn, không phân biệt hoa thường. Ghi: Admin (JWT `ADMIN` hoặc `X-Admin-Key`), sai quyền 401 / 403.
+
+#### 3.14.1. `GET /api/v1/banned-substances` (công khai)
+```json
+{
+  "today": "2026-11-18",
+  "loaded_from_database": true,
+  "terms": [{ "text": "furadan", "substance": "Carbofuran" }],
+  "items": [{
+    "id": 4, "common_name": "Carbofuran", "aliases": ["furadan"], "category": "INSECTICIDE", "note": null,
+    "is_banned": true, "current_legal_document": "Thông tư 75/2025/TT-BNNMT, Phụ lục II", "current_effective_date": null,
+    "upcoming_action": null, "upcoming_effective_date": null, "updated_at": "2026-11-18T00:50:39Z",
+    "decisions": [{ "id": 4, "action": "BAN", "legal_document": "Thông tư 75/2025/TT-BNNMT, Phụ lục II", "effective_date": null,
+                    "source_url": null, "note": "…", "created_at": "…", "created_by": null }]
+  }]
+}
+```
+- `terms`: cụm so khớp của các chất **đang** cấm (agent-service và web dùng). `created_by` chỉ trả cho Admin.
+
+#### 3.14.2. Ghi (Admin)
+| Endpoint | Body | Kết quả |
+|---|---|---|
+| `POST /api/v1/banned-substances` | `{ common_name, aliases[], category, note, decision: { action, legal_document, effective_date, source_url, note } }` | 200 chất mới; 409 trùng tên (không phân biệt hoa thường) |
+| `PATCH /api/v1/banned-substances/{id}` | `{ common_name?, aliases?, category?, note? }` | 200; không đổi trạng thái cấm |
+| `POST /api/v1/banned-substances/{id}/decisions` | `{ action: "BAN" \| "UNBAN", legal_document, effective_date?, source_url?, note? }` | 200 |
+| `DELETE /api/v1/banned-substances/{id}/decisions/{decisionId}` | | 200; gỡ quyết định nhập nhầm (xóa mềm); 400 nếu là quyết định cuối cùng |
+| `DELETE /api/v1/banned-substances/{id}` | | 204; xóa mềm chất nhập nhầm (chất hết bị cấm thì dùng `UNBAN`) |
+
+Kiểm tra: tên và tên khác 3–200 ký tự (tối đa 30 tên khác), `category` ∈ INSECTICIDE / FUNGICIDE / HERBICIDE / RODENTICIDE / OTHER, `legal_document` 3–200 ký tự, `source_url` http(s), ghi chú ≤ 2000 ký tự.
+
+#### 3.14.3. `POST /api/v1/banned-substances/parse-pdf` (Admin, multipart `file`, ≤ 10 MB)
+Đọc PDF danh mục thuốc cấm (PDF có chữ, không OCR) thành bảng nháp, **không lưu**. Kiểm tra chữ ký `%PDF`.
+```json
+{ "legal_document": "Thông tư 75/2025/TT-BNNMT, Phụ lục II", "signed_date": null, "line_count": 44,
+  "warnings": ["Số hiệu văn bản lấy từ tên file (…), hãy kiểm tra lại."],
+  "items": [{ "common_name": "Trichlorfon", "aliases": ["Chlorophos"], "category": "INSECTICIDE", "note": null }] }
+```
+
+#### 3.14.4. `POST /api/v1/banned-substances/import` (Admin, ≤ 300 dòng, cùng một văn bản)
+```json
+{ "action": "BAN", "legal_document": "Thông tư 75/2025/TT-BNNMT, Phụ lục II", "effective_date": null, "source_url": null,
+  "note": null, "dry_run": true, "items": [{ "common_name": "Captan", "aliases": [], "category": "FUNGICIDE" }] }
+```
+Trả `{ dry_run, results: [{ common_name, aliases, category, status, message, existing_id, existing_name }] }` theo đúng thứ tự `items`. `status`: `NEW` (thêm chất), `ADD_DECISION` (chất đã có, ghi thêm quyết định; tên khác mới được gộp), `NO_CHANGE` (đã có quyết định cùng loại theo cùng văn bản), `DUPLICATE`, `INVALID`. Ghép chất đã có theo tên chung, tên khác, hoặc tên sau khi bỏ phần trong ngoặc ("Cadmium compound (Cd)" = "Cadmium compound"). `dry_run = true` (mặc định) không lưu.
+
 ---
 
 ## 4. PHÂN HỆ 3: TÁC TỬ NÔNG NGHIỆP THÔNG MINH (`agent-service:8001`)

@@ -28,9 +28,15 @@ apiClient.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`;
       }
 
-      // Khi gửi FormData (upload file ảnh chẩn đoán), xóa Content-Type để Axios/trình duyệt tự gắn multipart boundary
+      // Khi gửi FormData (upload file ảnh chẩn đoán, file PDF thông tư), xóa Content-Type để Axios/trình duyệt tự gắn multipart boundary
       if (config.data instanceof FormData && config.headers) {
-        delete config.headers['Content-Type'];
+        if (typeof (config.headers as unknown as { delete?: (name: string) => void }).delete === 'function') {
+          (config.headers as unknown as { delete: (name: string) => void }).delete('Content-Type');
+          (config.headers as unknown as { delete: (name: string) => void }).delete('content-type');
+        } else {
+          delete config.headers['Content-Type'];
+          delete config.headers['content-type'];
+        }
       }
     } catch {
       // Bỏ qua lỗi truy cập localStorage (ví dụ trong môi trường bị chặn cookie/storage)

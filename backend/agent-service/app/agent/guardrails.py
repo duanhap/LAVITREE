@@ -2,6 +2,8 @@ import re
 import logging
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
+from app.agent.banned_registry import FALLBACK_TERMS, get_banned_entries, get_banned_terms, legal_basis
+
 logger = logging.getLogger("agent.guardrails")
 
 DRAFT_RECOMMENDATION_TAG = "[DRAFT_RECOMMENDATION]"
@@ -9,28 +11,10 @@ FARMING_SUPPLY_TYPE = "Vật tư canh tác"
 HARVEST_BEFORE_PHI_VIOLATION = "HARVEST_BEFORE_PHI_VIOLATION"
 PHI_WARNING_TITLE = "⛔ NGUY CƠ TỒN DƯ THUỐC BVTV"
 
-# Danh mục hoạt chất và tên thương phẩm thuốc BVTV bị cấm tại Việt Nam
-# NGUỒN:
-# - Danh mục thuốc BVTV cấm sử dụng tại Việt Nam, Thông tư 75/2025/TT-BNNMT (Bộ Nông nghiệp và Môi trường, ký 26/12/2025),
-#   sửa đổi bởi Thông tư 28/2026/TT-BNNMT (hiệu lực 15/8/2026). Văn bản gốc: ppd.gov.vn, thuvienphapluat.vn.
-# - Paraquat và 2,4-D: Quyết định 278/QĐ-BNN-BVTV (2017) loại khỏi danh mục được phép.
-# - Chưa đối chiếu từng dòng của danh sách này với phụ lục của TT 75/2025 (xem BUG-93).
-BANNED_INGREDIENTS = [
-    "paraquat",
-    "pa-ra-quat",
-    "para-quat",
-    "gramoxone",
-    "2,4-d",
-    "2.4-d",
-    "2,4d",
-    "2.4d",
-    "chlorpyrifos",
-    "carbofuran",
-    "glyphosate",
-    "monocrotophos",
-    "methamidophos",
-    "endosulfan"
-]
+# Danh mục chất cấm: lấy từ Core (bảng BannedSubstances, TASK-19) qua banned_registry, Admin cập nhật
+# theo thông tư mới (kể cả bỏ cấm). BANNED_INGREDIENTS chỉ còn là danh sách dự phòng / để benchmark dùng;
+# code chặn luôn gọi get_banned_terms() để có danh sách mới nhất.
+BANNED_INGREDIENTS = [term for term, _ in FALLBACK_TERMS]
 
 # Danh mục các thuốc/hoạt chất hóa học thông dụng và thời gian cách ly tối thiểu (PHI chuẩn)
 # NGUỒN (CHƯA ĐỦ, xem BUG-51/BUG-93):
@@ -79,6 +63,31 @@ _BIOLOGICAL_PATTERN = re.compile(r"trichoderma|bacillus|sinh học|vi sinh", re.
 
 def _contains_term(text: str, term: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text, re.IGNORECASE) is not None
+
+
+def find_banned_substances(text: str) -> List[str]:
+    """Tên chung các chất cấm có trong câu (so theo từ nguyên vẹn), không trùng, theo thứ tự gặp."""
+    found: List[str] = []
+    if not text:
+        return found
+    for term, substance in get_banned_entries():
+        if substance not in found and _contains_term(text, term):
+            found.append(substance)
+    return found
+
+
+def banned_question_warning(substances: List[str]) -> str:
+    """Cảnh báo nêu rõ tên chất cấm người dùng hỏi, kèm căn cứ văn bản nếu có."""
+    parts = []
+    for name in substances:
+        basis = legal_basis(name)
+        parts.append(f"{name} ({basis})" if basis else name)
+    return (
+        f"⛔ CHẤT CẤM: {', '.join(parts)} thuộc danh mục thuốc BVTV CẤM sử dụng tại Việt Nam. "
+        "Không mua, không sử dụng, kể cả hàng tồn trôi nổi ngoài thị trường. "
+        "Nếu đang giữ loại thuốc này, hãy liên hệ cán bộ khuyến nông hoặc Trạm Trồng trọt & BVTV địa phương "
+        "để được hướng dẫn xử lý, và hỏi kỹ sư về thuốc thay thế được phép."
+    )
 
 
 def _medicine_terms(medicine: Dict[str, Any]) -> Set[str]:
@@ -161,10 +170,11 @@ def pre_filter_medicines(
         medicine_type = str(med.get("medicine_type", "Hóa học")).strip()
 
         # 1. Kiểm tra thuốc cấm (quét cả tên thương phẩm lẫn hoạt chất)
+        banned_terms = get_banned_terms()
         is_banned = (
             not is_allowed
-            or any(banned in active_ing for banned in BANNED_INGREDIENTS)
-            or any(banned in name_lower for banned in BANNED_INGREDIENTS)
+            or any(_contains_term(active_ing, banned) for banned in banned_terms)
+            or any(_contains_term(name_lower, banned) for banned in banned_terms)
         )
         if is_banned:
             reason = f"Thuốc '{name}' bị chặn vì thuộc danh mục hóa chất cấm lưu hành tại Việt Nam."
@@ -204,7 +214,8 @@ def post_filter_response(
     harvest_days_left: Optional[int],
     had_phi_violation: bool = False,
     blocked_medicines: Optional[List[Dict[str, Any]]] = None,
-    allowed_medicines: Optional[List[Dict[str, Any]]] = None
+    allowed_medicines: Optional[List[Dict[str, Any]]] = None,
+    user_query: Optional[str] = None
 ) -> str:
     """
     Chốt chặn hậu kiểm bằng Code (Hard Post-Filter):
@@ -227,9 +238,12 @@ def post_filter_response(
         phi_terms.update(UNVERIFIED_CHEMICALS)
     phi_terms -= allowed_terms
 
-    banned_detected = any(_contains_term(response_text, term) for term in BANNED_INGREDIENTS)
+    banned_terms = get_banned_terms()
+    banned_detected = any(_contains_term(response_text, term) for term in banned_terms)
     phi_detected = any(_contains_term(response_text, term) for term in phi_terms)
-    forbidden_terms = phi_terms | set(BANNED_INGREDIENTS)
+    forbidden_terms = phi_terms | set(banned_terms)
+    # Nông dân tự nhắc tới chất cấm ("xịt Furadan được không?"): nói rõ tên chất bị cấm (TASK-19)
+    asked_banned = find_banned_substances(user_query or "")
 
     modified_text = response_text
     if banned_detected or phi_detected:
@@ -247,8 +261,10 @@ def post_filter_response(
 
     warning_blocks = []
 
-    if banned_detected:
-        # Không lặp lại tên hoạt chất cấm trong câu cảnh báo
+    if asked_banned:
+        warning_blocks.append(banned_question_warning(asked_banned))
+    elif banned_detected:
+        # Không lặp lại tên hoạt chất cấm trong câu cảnh báo (tên do AI tự đưa ra, không phải người dùng hỏi)
         warning_blocks.append(
             "⛔ CẢNH BÁO AN TOÀN BẢO VỆ THỰC VẬT: Hệ thống đã gỡ đề xuất có hoạt chất bị cấm "
             "theo quy định của Cục Trồng trọt & BVTV. Tuyệt đối không sử dụng."

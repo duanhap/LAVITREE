@@ -198,6 +198,34 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `CreatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm tạo gợi ý |
 | `ResolvedAt` | `TIMESTAMPTZ` | NULL | Thời điểm Admin xử lý giải quyết |
 
+### Nhóm 4: Danh mục chất cấm (TASK-19, migration `20261118004715_AddBannedSubstances`)
+
+Trạng thái cấm không lưu cứng: tính từ quyết định mới nhất (chưa xóa) có `EffectiveDate ≤ hôm nay (giờ VN)`, để thông tư mới có thể bỏ cấm / cấm lại mà vẫn giữ lịch sử.
+
+#### Bảng `BannedSubstances`
+| Cột | Kiểu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `Id` | `INT` | PK, identity | |
+| `CommonName` | `VARCHAR(200)` | NOT NULL, UNIQUE khi `IsDeleted = false` | Tên chung hoạt chất ("Carbofuran") |
+| `Aliases` | `TEXT[]` | NOT NULL | Tên thương phẩm / cách viết khác ("furadan"), dùng để so khớp |
+| `Category` | `VARCHAR(20)` | DEFAULT 'OTHER', CHECK | 'INSECTICIDE' \| 'FUNGICIDE' \| 'HERBICIDE' \| 'RODENTICIDE' \| 'OTHER' |
+| `Note` | `TEXT` | NULL | |
+| `CreatedAt`, `UpdatedAt`, `IsDeleted` | | | Xóa mềm (chất nhập nhầm) |
+
+#### Bảng `BannedSubstanceDecisions`
+| Cột | Kiểu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `Id` | `INT` | PK, identity | |
+| `BannedSubstanceId` | `INT` | FK → BannedSubstances (CASCADE), INDEX | |
+| `Action` | `VARCHAR(10)` | NOT NULL, CHECK 'BAN' \| 'UNBAN' | Cấm / Bỏ cấm |
+| `LegalDocument` | `VARCHAR(200)` | NOT NULL | Số hiệu văn bản ("Thông tư 75/2025/TT-BNNMT, Phụ lục II") |
+| `EffectiveDate` | `DATE` | NULL | Ngày hiệu lực; NULL = đã hiệu lực, chưa ghi ngày |
+| `SourceUrl` | `VARCHAR(1000)` | NULL | Link văn bản |
+| `Note`, `CreatedBy`, `CreatedAt` | | | Người nhập (email Admin hoặc "admin-key" / "migration") |
+| `IsDeleted` | `BOOLEAN` | | Gỡ quyết định nhập nhầm (giữ dấu vết) |
+
+Dữ liệu khởi tạo trong migration: 31 hoạt chất Phụ lục II TT 75/2025/TT-BNNMT + paraquat, 2,4-D, chlorpyrifos, glyphosate (danh sách cũ, ghi chú cần bổ sung văn bản).
+
 ---
 
 ## 3. CHIẾN LƯỢC SEED DATA (NẠP DỮ LIỆU BAN ĐẦU)

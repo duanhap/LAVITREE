@@ -89,6 +89,9 @@ builder.Services.AddHttpClient<IWeatherService, WeatherService>(client =>
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 
+// Danh mục chất cấm (TASK-19): nạp lại định kỳ để quyết định có ngày hiệu lực tự áp dụng
+builder.Services.AddHostedService<Lavitree.Api.Services.BannedSubstanceRefreshService>();
+
 // 5. Authentication & JWT Bearer Configuration (Fail-Closed: Tối thiểu 32 ký tự, không hardcode secret)
 var jwtSecretKey = Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
     ?? builder.Configuration["Jwt:SecretKey"]
@@ -282,6 +285,16 @@ using (var scope = app.Services.CreateScope())
     }
 
     await LavitreeDbContextSeeder.SeedAsync(dbContext);
+
+    try
+    {
+        await BannedSubstanceRegistry.ReloadAsync(dbContext);
+        Console.WriteLine($"[App] Đã nạp danh mục chất cấm: {BannedSubstanceRegistry.Terms.Count} cụm so khớp.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[App] Không nạp được danh mục chất cấm, dùng danh sách dự phòng: {ex.Message}");
+    }
 }
 
 if (args.Contains("--seed-only"))
