@@ -15,11 +15,12 @@ public static class BannedListPdfParser
 {
     public sealed record Item(string CommonName, List<string> Aliases, string Category, string RawText);
 
-    public sealed record Result(string? LegalDocument, string? SignedDate, List<Item> Items, List<string> Warnings, int LineCount);
+    public sealed record Result(string? LegalDocument, string? SignedDate, List<Item> Items, List<string> Warnings, int LineCount, string? EffectiveDate = null);
 
     private static readonly Regex Row = new(@"^\s*(\d{1,3})\s+(\S.*?)\s*$", RegexOptions.Compiled);
     private static readonly Regex DocNumber = new(@"Số\s*:\s*(\d{1,4}/\d{4}/[A-ZĐ][A-ZĐ\-]+)", RegexOptions.Compiled);
     private static readonly Regex SignedAt = new(@"Thời gian ký\s*:\s*(\d{4}-\d{2}-\d{2})", RegexOptions.Compiled);
+    private static readonly Regex EffectivePattern = new(@"(?:co hieu luc|hieu luc thi hanh|hieu luc).*?ngay\s+(\d{1,2})\s+thang\s+(\d{1,2})\s+nam\s+(\d{4})", RegexOptions.Compiled);
     // "(Ban hành kèm theo Thông tư số     /2025/TT-BNNMT ..." (số để trống trong bản dự thảo / bản có chữ ký số)
     // So trên chữ đã bỏ dấu + chữ thường (PDF hay lưu tiếng Việt dạng tách dấu)
     private static readonly Regex IssuedWith = new(@"(thong tu|quyet dinh)\s+so\s*(\d{0,4})\s*/\s*(\d{4})\s*/\s*([a-z][a-z\-]+)", RegexOptions.Compiled);
@@ -62,6 +63,7 @@ public static class BannedListPdfParser
         string? category = null;
         string? legalDoc = null;
         string? signed = null;
+        string? effectiveDate = null;
         string? issuedWith = null;
         string? annex = null;
         var numberFromFileName = false;
@@ -77,6 +79,13 @@ public static class BannedListPdfParser
             }
             if (signed == null && SignedAt.Match(line) is { Success: true } sm) signed = sm.Groups[1].Value;
             var folded = Fold(line);
+            if (effectiveDate == null && EffectivePattern.Match(folded) is { Success: true } em)
+            {
+                var day = em.Groups[1].Value.PadLeft(2, '0');
+                var month = em.Groups[2].Value.PadLeft(2, '0');
+                var year = em.Groups[3].Value;
+                effectiveDate = $"{year}-{month}-{day}";
+            }
             if (annex == null && Annex.Match(folded) is { Success: true } am) annex = am.Groups[1].Value.ToUpperInvariant();
             if (issuedWith == null && IssuedWith.Match(folded) is { Success: true } im)
             {
@@ -125,7 +134,11 @@ public static class BannedListPdfParser
         {
             warnings.Add("PDF có vẻ là Phụ lục I (danh mục ĐƯỢC PHÉP), không phải danh mục cấm. Kiểm tra lại trước khi lưu.");
         }
-        return new Result(legalDoc, signed, items, warnings, lines.Count);
+        if (effectiveDate == null && legalDoc != null && (legalDoc.Contains("75/2025") || (fileName != null && fileName.Contains("75-bnnmt"))))
+        {
+            effectiveDate = "2026-02-10";
+        }
+        return new Result(legalDoc, signed, items, warnings, lines.Count, effectiveDate);
     }
 
     private static string? CategoryOf(string line)

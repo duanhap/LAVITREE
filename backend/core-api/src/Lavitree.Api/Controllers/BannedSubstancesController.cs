@@ -278,6 +278,7 @@ public class BannedSubstancesController : ControllerBase
         {
             LegalDocument = parsed.LegalDocument,
             SignedDate = parsed.SignedDate,
+            EffectiveDate = parsed.EffectiveDate,
             LineCount = parsed.LineCount,
             Warnings = parsed.Warnings,
             Items = parsed.Items.Select(i => new ImportItemDto { CommonName = i.CommonName, Aliases = i.Aliases, Category = i.Category, Note = null }).ToList(),
@@ -458,6 +459,7 @@ public class BannedSubstancesController : ControllerBase
     {
         [JsonPropertyName("legal_document")] public string? LegalDocument { get; set; }
         [JsonPropertyName("signed_date")] public string? SignedDate { get; set; }
+        [JsonPropertyName("effective_date")] public string? EffectiveDate { get; set; }
         [JsonPropertyName("line_count")] public int LineCount { get; set; }
         [JsonPropertyName("warnings")] public List<string> Warnings { get; set; } = new();
         [JsonPropertyName("items")] public List<ImportItemDto> Items { get; set; } = new();

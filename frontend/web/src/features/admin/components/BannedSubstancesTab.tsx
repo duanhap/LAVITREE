@@ -278,11 +278,20 @@ export const BannedSubstancesTab: React.FC<{ onChanged?: () => void }> = ({ onCh
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await apiClient.post<{ legal_document: string | null; warnings: string[]; items: Omit<ImportRow, 'checked'>[] }>(
-        '/banned-substances/parse-pdf', fd);
+      const res = await apiClient.post<{
+        legal_document: string | null;
+        signed_date: string | null;
+        effective_date: string | null;
+        warnings: string[];
+        items: Omit<ImportRow, 'checked'>[];
+      }>('/banned-substances/parse-pdf', fd);
       setPdfRows(res.data.items.map((i) => ({ ...i, aliases: i.aliases ?? [], checked: true })));
       setPdfWarnings(res.data.warnings);
-      setImportDecision((d) => ({ ...d, legal_document: res.data.legal_document || d.legal_document }));
+      setImportDecision((d) => ({
+        ...d,
+        legal_document: res.data.legal_document || d.legal_document,
+        effective_date: res.data.effective_date || d.effective_date,
+      }));
       setPreview(null);
       if (!res.data.items.length) toast.warning('Không đọc được dòng nào từ PDF.');
     } catch (err) {
@@ -463,11 +472,10 @@ export const BannedSubstancesTab: React.FC<{ onChanged?: () => void }> = ({ onCh
                   }
                 }}
                 onClick={() => fileRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-2.5 my-4 ${
-                  isDragging
+                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-2.5 my-4 ${isDragging
                     ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/20'
                     : 'border-border hover:border-emerald-600/60 hover:bg-muted/40'
-                }`}
+                  }`}
               >
                 {busy ? (
                   <>
@@ -559,6 +567,15 @@ export const BannedSubstancesTab: React.FC<{ onChanged?: () => void }> = ({ onCh
                   {pdfRows.filter((r) => r.checked).length}/{pdfRows.length} dòng được chọn
                   {previewCounts && ` · Thêm mới ${previewCounts.NEW || 0} · Ghi thêm quyết định ${previewCounts.ADD_DECISION || 0} · Không đổi ${previewCounts.NO_CHANGE || 0}${previewCounts.INVALID ? ` · Lỗi ${previewCounts.INVALID}` : ''}`}
                 </div>
+
+                {preview && !preview.some((r) => r.status === 'NEW' || r.status === 'ADD_DECISION') && (
+                  <div className="p-2.5 rounded-lg border border-blue-200 bg-blue-50/70 dark:bg-blue-950/30 dark:border-blue-900 text-blue-800 dark:text-blue-300 text-xs flex items-center gap-2">
+                    <span className="text-base shrink-0">ℹ️</span>
+                    <span>
+                      Toàn bộ {pdfRows.filter((r) => r.checked).length} hoạt chất đã có sẵn trong danh mục theo văn bản này (0 thay đổi mới). Nút <strong>Lưu vào danh mục</strong> chỉ kích hoạt khi có chất mới hoặc có bổ sung tên khác / nhóm.
+                    </span>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -576,10 +593,16 @@ export const BannedSubstancesTab: React.FC<{ onChanged?: () => void }> = ({ onCh
                 <Button
                   type="button"
                   size="sm"
-                  className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
+                  className="h-8 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold disabled:opacity-50"
                   onClick={runImport}
                   disabled={busy || !preview || !preview.some((r) => r.status === 'NEW' || r.status === 'ADD_DECISION')}
-                  title={!preview ? 'Bấm Xem trước trước khi lưu' : undefined}
+                  title={
+                    !preview
+                      ? 'Bấm "Xem trước" để kiểm tra trước khi lưu'
+                      : !preview.some((r) => r.status === 'NEW' || r.status === 'ADD_DECISION')
+                        ? 'Toàn bộ chất đã có trong danh mục theo đúng văn bản này, không có thay đổi mới cần lưu.'
+                        : undefined
+                  }
                 >
                   {busy ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
                   Lưu vào danh mục
