@@ -7,23 +7,23 @@ import os
 from pathlib import Path
 
 BASE_URL = os.getenv("CORE_API_URL", "http://localhost:5176")
+import sys
 
-# Tự động đọc ADMIN_SECRET_KEY từ môi trường hoặc file .env (Tuyệt đối không hardcode)
-ADMIN_KEY = os.getenv("ADMIN_SECRET_KEY")
-if not ADMIN_KEY:
-    for env_candidate in [Path(".env"), Path("../.env"), Path("../../.env")]:
-        if env_candidate.exists():
-            with open(env_candidate, "r", encoding="utf-8") as f:
-                for line in f:
-                    line_s = line.strip()
-                    if line_s.startswith("ADMIN_SECRET_KEY="):
-                        ADMIN_KEY = line_s.split("=", 1)[1].strip().strip('"').strip("'")
-                        break
-        if ADMIN_KEY:
-            break
+# BUG-79: không chạy trên Supabase / máy chủ thật (test ghi dữ liệu mà API không xóa được)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_db_guard import guard_live_db  # noqa: E402
+guard_live_db(os.path.basename(__file__), BASE_URL)
 
-if not ADMIN_KEY:
-    raise RuntimeError("ADMIN_SECRET_KEY không tìm thấy trong biến môi trường hoặc .env! Vui lòng cấu hình biến ADMIN_SECRET_KEY.")
+# BUG-18: API quản trị chỉ nhận JWT role ADMIN (đã bỏ khóa dùng chung X-Admin-Key).
+# Mật khẩu đọc từ môi trường, tuyệt đối không hardcode.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@lavitree.vn")
+ADMIN_PASSWORD = os.getenv("ADMIN_INITIAL_PASSWORD")
+if not ADMIN_PASSWORD:
+    raise RuntimeError("Thiếu ADMIN_INITIAL_PASSWORD trong biến môi trường.")
+
+_login = requests.post(f"{BASE_URL}/api/v1/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+assert _login.status_code == 200, f"Đăng nhập Admin thất bại: HTTP {_login.status_code}"
+ADMIN_HEADERS = {"Authorization": f"Bearer {_login.json()['token']}"}
 
 def create_sample_leaf_image():
     buf = io.BytesIO()
@@ -43,30 +43,30 @@ print("==================================================================")
 print("     KIỂM THỬ TOÀN DIỆN TASK-04: CORE API & BẢO MẬT (SPRINT 1)    ")
 print("==================================================================")
 
-# --- TEST 1: Bảo mật Admin Key (Fail-closed & Timing Attack Protection) ---
-print("\n[TEST 1] Kiểm tra Bảo mật Admin Key trên KnowledgeController...")
+# --- TEST 1: Bảo mật API quản trị (chỉ JWT role ADMIN, BUG-18) ---
+print("\n[TEST 1] Kiểm tra bảo mật API quản trị trên KnowledgeController...")
 
-# 1.1 Không có header X-Admin-Key
+# 1.1 Không đăng nhập
 res1 = requests.get(f"{BASE_URL}/api/v1/knowledge/export")
-print(f" -> 1.1 GET /export (No Key): HTTP {res1.status_code}")
+print(f" -> 1.1 GET /export (không token): HTTP {res1.status_code}")
 assert res1.status_code == 401, f"Expected 401, got {res1.status_code}"
 
-# 1.2 Header X-Admin-Key sai
-res2 = requests.get(f"{BASE_URL}/api/v1/knowledge/export", headers={"X-Admin-Key": "wrong_key_123"})
-print(f" -> 1.2 GET /export (Wrong Key): HTTP {res2.status_code}")
+# 1.2 Khóa cũ X-Admin-Key không còn được chấp nhận
+res2 = requests.get(f"{BASE_URL}/api/v1/knowledge/export", headers={"X-Admin-Key": os.getenv("ADMIN_SECRET_KEY", "old_key")})
+print(f" -> 1.2 GET /export (X-Admin-Key): HTTP {res2.status_code}")
 assert res2.status_code == 401, f"Expected 401, got {res2.status_code}"
 
-# 1.3 Header X-Admin-Key đúng chuẩn
-res3 = requests.get(f"{BASE_URL}/api/v1/knowledge/export", headers={"X-Admin-Key": ADMIN_KEY})
-print(f" -> 1.3 GET /export (Valid Key): HTTP {res3.status_code}, Length: {len(res3.content)} bytes")
+# 1.3 JWT Admin hợp lệ
+res3 = requests.get(f"{BASE_URL}/api/v1/knowledge/export", headers=ADMIN_HEADERS)
+print(f" -> 1.3 GET /export (JWT Admin): HTTP {res3.status_code}, Length: {len(res3.content)} bytes")
 assert res3.status_code == 200, f"Expected 200, got {res3.status_code}"
 assert "Lavitree_Knowledge_Sources" in res3.headers.get("Content-Disposition", "")
 
-# 1.4 POST /sources không có Key
+# 1.4 POST /sources không đăng nhập
 res4 = requests.post(f"{BASE_URL}/api/v1/knowledge/sources", json={})
-print(f" -> 1.4 POST /sources (No Key): HTTP {res4.status_code}")
+print(f" -> 1.4 POST /sources (không token): HTTP {res4.status_code}")
 assert res4.status_code == 401, f"Expected 401, got {res4.status_code}"
-print(" => [PASSED] Bảo mật Admin API Key đạt chuẩn Fail-Closed 100%!")
+print(" => [PASSED] API quản trị chỉ nhận JWT Admin!")
 
 
 # --- TEST 2: Kiểm tra Validation File Upload (HTTP 400 & 422) ---

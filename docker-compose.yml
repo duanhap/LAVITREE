@@ -8,8 +8,11 @@ services:
       dockerfile: Dockerfile
     container_name: lavitree-ai-service
     restart: always
-    env_file:
-      - .env
+    # BUG-44: ai-service nhận ảnh từ Internet nên chỉ được giữ đúng 2 biến nó dùng,
+    # KHÔNG nạp cả file .env (mật khẩu DB, khóa JWT, khóa MinIO/Gemini...).
+    environment:
+      - OOD_ENERGY_THRESHOLD=${OOD_ENERGY_THRESHOLD:-}
+      - ALLOW_MOCK_OOD=${ALLOW_MOCK_OOD:-false}
     ports:
       - "127.0.0.1:8000:8000"
 
@@ -46,19 +49,37 @@ services:
     restart: always
     ports:
       - "127.0.0.1:5000:8080"
-    env_file:
-      - .env
+    # BUG-44: liệt kê đúng các biến Core đọc thay vì nạp cả .env (Core không cần GEMINI_API_KEY,
+    # AGENT_DB_URL, AGENT_DB_PASSWORD...). Thêm biến mới cho Core thì phải khai báo ở đây.
+    # Biến có giá trị mặc định trong code để trống (:-) để code tự dùng mặc định của nó.
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - SUPABASE_CONNECTION_STRING=${SUPABASE_CONNECTION_STRING:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
+      - JWT_ISSUER=${JWT_ISSUER:-LavitreeCoreApi}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-LavitreeClients}
+      - ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD:-}
+      - FORCE_ADMIN_PASSWORD_RESET=${FORCE_ADMIN_PASSWORD_RESET:-false}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY:-${OPENWEATHERMAP_API_KEY:-${WEATHER_API_KEY:-}}}
+      - ENABLE_DEV_FALLBACK=${ENABLE_DEV_FALLBACK:-false}
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:3000}
+      - GUEST_DIAGNOSE_RATE_LIMIT_PER_MINUTE=${GUEST_DIAGNOSE_RATE_LIMIT_PER_MINUTE:-}
+      - AUTH_RATE_LIMIT_PER_MINUTE=${AUTH_RATE_LIMIT_PER_MINUTE:-}
+      - PUBLIC_API_RATE_LIMIT_PER_MINUTE=${PUBLIC_API_RATE_LIMIT_PER_MINUTE:-}
+      - INGEST_MAX_CHUNKS=${INGEST_MAX_CHUNKS:-}
+      - INGEST_MAX_CHUNK_CHARS=${INGEST_MAX_CHUNK_CHARS:-}
+      - INGEST_MAX_RATIO_PERCENT=${INGEST_MAX_RATIO_PERCENT:-}
+      - INGEST_MIN_QUOTA_FLOOR=${INGEST_MIN_QUOTA_FLOOR:-}
       - ConnectionStrings__DefaultConnection=${SUPABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=lavitree;Username=postgres;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set};}
       - AiService__BaseUrl=http://ai-service:8000
       - AgentService__BaseUrl=http://agent-service:8001
       - Minio__Endpoint=minio:9000
       - Minio__PublicUrl=${MINIO_PUBLIC_URL:-http://localhost:3000}
-      - Minio__AccessKey=${MINIO_ACCESS_KEY:-minioadmin}
-      - Minio__SecretKey=${MINIO_SECRET_KEY}
+      - Minio__AccessKey=${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY must be set}
+      - Minio__SecretKey=${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set}
       - Minio__BucketName=${MINIO_BUCKET_NAME:-lavitree-diagnoses}
-      - ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET must be set}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
     depends_on:
@@ -74,7 +95,8 @@ services:
     container_name: lavitree-web-portal
     restart: always
     ports:
-      - "3000:80"
+      # BUG-110: chỉ nginx Ubuntu trên máy chủ (HTTPS) được vào; không mở http://<IP>:3000 ra Internet
+      - "127.0.0.1:3000:8080"
     depends_on:
       - core-api
 
@@ -94,13 +116,14 @@ services:
 
   # 6. Object Storage (Silo S3-Compatible MinIO Drop-in - Public & Open Source)
   minio:
-    image: pgsty/silo:latest
+    # BUG-46: ghim phiên bản (latest ngày 21/11/2026), không tự đổi bản khi deploy
+    image: pgsty/silo:RELEASE.2026-11-12T00-00-00Z
     container_name: lavitree-minio
     restart: always
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY must be set}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set}
     ports:
       - "127.0.0.1:9000:9000"    # S3 API bind localhost bảo mật
       - "127.0.0.1:9001:9001"    # Web Dashboard quản trị xem ảnh (chỉ bind localhost bảo mật)

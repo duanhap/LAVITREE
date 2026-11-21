@@ -21,6 +21,11 @@ import urllib.request
 import urllib.error
 
 CORE_API_URL = os.environ.get("CORE_API_URL", "http://localhost:5176")
+
+# BUG-79: không chạy trên Supabase / máy chủ thật (test ghi dữ liệu mà API không xóa được)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_db_guard import guard_live_db  # noqa: E402
+guard_live_db(os.path.basename(__file__), CORE_API_URL)
 SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "ai-service", "tests", "samples")
 LEAF_PATH = os.path.join(SAMPLES_DIR, "leaf.jpg")
 HAND_PATH = os.path.join(SAMPLES_DIR, "hand.jpg")

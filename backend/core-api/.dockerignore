@@ -1,0 +1,10 @@
+# Không đưa file build cũ, bí mật và test vào image (BUG-40/46)
+**/bin/
+**/obj/
+.env
+**/.env
+*.env
+.vs/
+**/*.user
+test_*.py
+__pycache__/

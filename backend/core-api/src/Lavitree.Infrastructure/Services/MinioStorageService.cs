@@ -21,20 +21,17 @@ public class MinioStorageService : IMinioStorageService
     {
         _logger = logger;
 
-        var endpoint = configuration["Minio:Endpoint"]
-            ?? Environment.GetEnvironmentVariable("MINIO_ENDPOINT")
+        // BUG-78: appsettings.json không ghi sẵn localhost nữa nên MINIO_ENDPOINT / MINIO_PUBLIC_URL trong .env
+        // có hiệu lực khi chạy `dotnet run`. Docker dùng Minio__Endpoint / Minio__PublicUrl.
+        var endpoint = FirstConfigured(configuration["Minio:Endpoint"], Environment.GetEnvironmentVariable("MINIO_ENDPOINT"))
             ?? "localhost:9000";
 
-        var accessKey = configuration["Minio:AccessKey"]
-            ?? Environment.GetEnvironmentVariable("MINIO_ACCESS_KEY")
-            ?? "minioadmin";
+        // BUG-43: "minioadmin" là mật khẩu mặc định ai cũng biết, chỉ dùng khi chạy máy dev.
+        // Production thiếu khóa thì dừng khởi động, không lặng lẽ chạy với khóa yếu.
+        var accessKey = RequireCredential(configuration["Minio:AccessKey"], "MINIO_ACCESS_KEY");
+        var secretKey = RequireCredential(configuration["Minio:SecretKey"], "MINIO_SECRET_KEY");
 
-        var secretKey = configuration["Minio:SecretKey"]
-            ?? Environment.GetEnvironmentVariable("MINIO_SECRET_KEY");
-        if (string.IsNullOrWhiteSpace(secretKey)) secretKey = "minioadmin";
-
-        _publicUrl = configuration["Minio:PublicUrl"]
-            ?? Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL")
+        _publicUrl = FirstConfigured(configuration["Minio:PublicUrl"], Environment.GetEnvironmentVariable("MINIO_PUBLIC_URL"))
             ?? "http://localhost:9000";
 
         // Remove http:// or https:// if provided in endpoint
@@ -51,6 +48,21 @@ public class MinioStorageService : IMinioStorageService
             .WithCredentials(accessKey, secretKey)
             .WithSSL(useSsl)
             .Build();
+    }
+
+    private static string? FirstConfigured(params string?[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
+
+    private static string RequireCredential(string? configured, string envName)
+    {
+        var value = !string.IsNullOrWhiteSpace(configured) ? configured : Environment.GetEnvironmentVariable(envName);
+        if (!string.IsNullOrWhiteSpace(value)) return value;
+
+        var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+        if (string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase)) return "minioadmin";
+
+        throw new InvalidOperationException($"Chưa cấu hình {envName} cho MinIO (không dùng khóa mặc định ngoài môi trường Development).");
     }
 
     public async Task EnsureBucketExistsAsync(string bucketName, CancellationToken cancellationToken = default)

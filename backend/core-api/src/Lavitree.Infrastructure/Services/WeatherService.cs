@@ -60,7 +60,7 @@ public class WeatherService : IWeatherService
         {
             var forecast = await FetchFromOpenWeatherMapAsync(displayLocation, forecastHours, apiKey, cancellationToken);
             // Chỉ cache 1 giờ khi kết quả từ API thời tiết thật thành công
-            _cache.Set(cacheKey, forecast, TimeSpan.FromHours(1));
+            _cache.Set(cacheKey, forecast, CacheOptions(TimeSpan.FromHours(1)));
             _logger.LogInformation("Cached live weather forecast for '{Location}' ({Hours}h) with TTL 1 hour.", displayLocation, forecastHours);
             return forecast;
         }
@@ -71,7 +71,10 @@ public class WeatherService : IWeatherService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "OpenWeatherMap API error for '{Location}'.", displayLocation);
+            // BUG-36: khóa OpenWeather nằm trong URL (?appid=...). Không ghi cả đối tượng exception
+            // (thông báo / InnerException có thể chứa URL); chỉ ghi loại lỗi và thông báo đã che khóa.
+            _logger.LogWarning("OpenWeatherMap API error for '{Location}': {ErrorType}: {Error}",
+                displayLocation, ex.GetType().Name, RedactApiKey(ex.Message, apiKey));
             return SimulateOrThrow(displayLocation, forecastHours, cacheKey);
         }
     }
@@ -91,9 +94,25 @@ public class WeatherService : IWeatherService
 
         var forecast = GenerateSimulatedForecast(location, forecastHours);
         // Dữ liệu giả lập chỉ lưu đệm ngắn hạn (1 phút) để sớm retry kết nối thật
-        _cache.Set(cacheKey, forecast, TimeSpan.FromMinutes(1));
+        _cache.Set(cacheKey, forecast, CacheOptions(TimeSpan.FromMinutes(1)));
         return forecast;
     }
+
+    /// <summary>BUG-36: che khóa API trong chuỗi trước khi ghi log (cả dạng appid=... lẫn chính giá trị khóa).</summary>
+    internal static string RedactApiKey(string? text, string? apiKey)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        var redacted = Regex.Replace(text, @"(appid=)[^&\s""']+", "$1***", RegexOptions.IgnoreCase);
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            redacted = redacted.Replace(apiKey, "***", StringComparison.Ordinal);
+        }
+        return redacted;
+    }
+
+    // BUG-35: cache dùng chung có SizeLimit, mỗi mục tính là 1
+    private static MemoryCacheEntryOptions CacheOptions(TimeSpan ttl) =>
+        new() { AbsoluteExpirationRelativeToNow = ttl, Size = 1 };
 
     private static string MapLocationToOpenWeatherQuery(string location)
     {

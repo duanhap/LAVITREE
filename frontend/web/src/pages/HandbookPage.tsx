@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { formatVND } from '@/lib/format';
+import { safeHref } from '@/lib/utils';
 import {
   BookOpen,
   Search,
@@ -543,9 +544,9 @@ export const HandbookPage: React.FC = () => {
                                 <span className="truncate max-w-[170px]" title={img.credit}>
                                   Ảnh: <strong>{img.credit}</strong>
                                 </span>
-                                {img.source_url && (
+                                {safeHref(img.source_url) && (
                                   <a
-                                    href={img.source_url}
+                                    href={safeHref(img.source_url)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center gap-0.5 text-primary hover:underline font-medium shrink-0"
@@ -699,9 +700,9 @@ export const HandbookPage: React.FC = () => {
                     <span className="italic block text-[11px] mt-0.5">{zoomedImage.license_note}</span>
                   )}
                 </div>
-                {zoomedImage.source_url && (
+                {safeHref(zoomedImage.source_url) && (
                   <a
-                    href={zoomedImage.source_url}
+                    href={safeHref(zoomedImage.source_url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-primary hover:underline font-semibold"

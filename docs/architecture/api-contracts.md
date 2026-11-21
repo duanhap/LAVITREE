@@ -12,6 +12,12 @@
   - `400 Bad Request`: Ảnh không đúng định dạng hoặc thiếu trường bắt buộc.
   - `422 Unprocessable Entity`: Ảnh không thể giải mã thành bitmap tensor.
   - `500 Internal Server Error`: Lỗi máy chủ (có log trace nội bộ).
+- **Xác thực API quản trị (BUG-18, BUG-38)**:
+  - Chỉ nhận `Authorization: Bearer <JWT>` của tài khoản role `ADMIN` (policy `AdminOnly`). Khóa dùng chung `X-Admin-Key` đã bỏ, gửi lên bị bỏ qua.
+  - Không token, token sai hoặc hết hạn → `401 { "detail": "..." }`. Có token nhưng không phải Admin → `403 { "detail": "..." }`.
+  - JWT chỉ nhận thuật toán `HS256`. Mỗi request kiểm tra tài khoản còn tồn tại và role trong token còn khớp CSDL (đệm 30 giây). Xóa tài khoản hoặc đổi quyền thì token cũ bị từ chối trong tối đa 30 giây.
+- **Lỗi không lường trước (BUG-47)**: Production trả `500` dạng ProblemDetails `{ "type", "title", "status", "traceId" }`, không kèm stack trace; dùng `traceId` để tra log.
+- **Kiểm tra sống (BUG-48)**: `GET /health` (Core, không qua `/api`) → `200 {"status":"ok","database":"ok"}` hoặc `503 {"status":"degraded","database":"unreachable"}`. Workflow deploy chờ `/health` trả 200.
 - **Cấu trúc JSON phản hồi tiêu chuẩn**:
   ```json
   {
@@ -146,7 +152,7 @@
         "active_ingredient": "Mancozeb 64% + Metalaxyl-M 4%",
         "price": 65000,
         "unit": "Gói 100g",
-        "image_url": "/images/products/ridomil.jpg"
+        "image_url": ""
       }
     ],
     "verified_sources": [
@@ -257,7 +263,10 @@
 
 ### 3.3. `GET /api/v1/knowledge/sources` (Kho tri thức bài báo kiểm chứng)
 *Khớp với KnowledgeController.cs hiện có trong backend/core-api*
-- **Query Params**: `modelClass=Tomato___Late_blight`, `page=1`
+- **Query Params** (BUG-31): `modelClass` (string, optional), `search` (string, optional), `isApproved` (bool, chỉ Admin), `page` (int ≥ 1, optional), `pageSize` (1–200, mặc định 50 khi có `page`).
+  - Có `page`: trả đúng trang, thứ tự cố định (mới nhất trước, cùng thời điểm thì theo `id`). Sai giá trị → `400`.
+  - Không có `page`: Admin nhận đủ (trang Duyệt tri thức dùng); khách / nông dân tối đa 500 dòng mới nhất.
+  - Header `X-Total-Count`: tổng số dòng khớp bộ lọc (trước khi cắt trang). Rate limit `public_api_policy`.
 - **Response Body (`200 OK`)**:
   ```json
   {
@@ -286,7 +295,8 @@
 - **Query Params**: 
   - `diseaseCode` (string, optional, ví dụ `Tomato___Late_blight`)
   - `requireRainResistant` (boolean, optional, mặc định `false`)
-  - `allowedOnly` (boolean, optional, mặc định `true`). `false` chỉ dành cho Admin (JWT role `ADMIN` hoặc `X-Admin-Key`), không có quyền thì `403`.
+  - `allowedOnly` (boolean, optional, mặc định `true`). `false` chỉ dành cho Admin (JWT role `ADMIN`), không có quyền thì `403`.
+  - `page` (int ≥ 1, optional), `pageSize` (1–200, mặc định 50 khi có `page`) (BUG-34). Không có `page` thì trả đủ như trước. Phản hồi thêm `page`, `page_size` (`null` khi không phân trang); `total` luôn là tổng trước khi cắt trang. `id` là số nguyên.
 - **Rate limit**: `PUBLIC_API_RATE_LIMIT_PER_MINUTE` (mặc định 60 request/phút/IP), vượt thì `429`. Agent gửi `X-Internal-Key` hợp lệ nên không bị tính chung vào giới hạn này (áp dụng cả Mục 3.9).
 - **Lỗi CSDL ở Production**: `503`. `is_fallback: true` chỉ xuất hiện khi chạy Development hoặc `ENABLE_DEV_FALLBACK=true`, nghĩa là danh mục mẫu, không phải kho thật.
 - **Response Body (`200 OK`)**:
@@ -307,7 +317,7 @@
         "is_allowed": true,
         "rain_resistant": true,
         "stock_quantity": 150,
-        "image_url": "/lavitree-diagnoses/products/ridomil-gold.png"
+        "image_url": ""
       },
       {
         "id": 2,
@@ -320,7 +330,7 @@
         "is_allowed": true,
         "rain_resistant": false,
         "stock_quantity": 120,
-        "image_url": "/lavitree-diagnoses/products/antracol.png"
+        "image_url": ""
       },
       {
         "id": 3,
@@ -333,7 +343,7 @@
         "is_allowed": true,
         "rain_resistant": true,
         "stock_quantity": 200,
-        "image_url": "/lavitree-diagnoses/products/trichoderma.png"
+        "image_url": ""
       }
     ]
   }
@@ -341,12 +351,12 @@
 
 ---
 
-  *(Lưu ý về URL ảnh: Backend trả về đường dẫn tương đối `/lavitree-diagnoses/products/...` hoặc tự động tiền tố từ biến môi trường `MINIO_PUBLIC_URL`. Nginx tự động reverse proxy đường dẫn `/lavitree-diagnoses/` sang MinIO container port 9000. Nhờ đó, cả ở localhost lẫn Production server trên AWS EC2 hay domain thật, ảnh đều hiển thị mượt mà không bị lỗi hardcode localhost).*
+  *(Lưu ý về URL ảnh (BUG-37): `image_url` có thể là chuỗi rỗng khi sản phẩm chưa có ảnh; 4 thuốc mẫu trong seed hiện để rỗng vì chưa có ảnh thật (trước đây trỏ tới `/images/products/*.png` không tồn tại, nginx trả trang HTML nên hiện ảnh vỡ). URL đầy đủ `http(s)://...` được trả nguyên; đường dẫn tương đối (vd. `/lavitree-diagnoses/products/x.png` khi ảnh nằm trong MinIO) được Core tiền tố `MINIO_PUBLIC_URL`. Client chỉ hiển thị URL `http(s)`; rỗng hoặc tải lỗi thì hiện icon theo loại thuốc. Admin đặt ảnh qua trang Kho thuốc (`image_url` trong `POST`/`PATCH /api/v1/medicines`). nginx trả `404` cho file không tồn tại dưới `/images/` và `/assets/`).*
 
 ---
 
 ### 3.4.0. `PATCH /api/v1/medicines/{id}` (Cập nhật Tồn kho & Giấy phép Thuốc BVTV — RBAC Admin)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`)
+- **Headers**: `Authorization: Bearer <Admin_JWT>`
 - **Request Body (`application/json`)**:
   ```json
   {
@@ -357,7 +367,7 @@
   }
   ```
 - **Quy tắc Nghiệp vụ**:
-  - Chỉ tài khoản có Role `ADMIN` hoặc yêu cầu kèm `X-Admin-Key` hợp lệ mới được quyền cập nhật. Nông dân (`FARMER`) bị chặn với `403 Forbidden`.
+  - Chỉ tài khoản có Role `ADMIN` mới được quyền cập nhật. Nông dân (`FARMER`) bị chặn với `403 Forbidden`.
   - Hỗ trợ cập nhật từng trường lẻ (partial update: giá, tồn kho, số ngày cách ly PHI, trạng thái cho phép lưu hành).
   - `usage_profile` (TASK-18): không gửi / `null` = giữ nguyên; gửi phiếu = thay toàn bộ; gửi `{}` (phiếu rỗng) = xóa phiếu. Phiếu được chuẩn hóa và kiểm tra như `POST`. Response trả `usage_profile`.
 - **Response Body (`200 OK`)**:
@@ -617,7 +627,7 @@
 ---
 
 ### 3.8.1. `GET /api/v1/diagnose/escalations` (Danh sách Ca bệnh cần Thẩm định — RBAC Admin/Bác sĩ)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`).
+- **Headers**: `Authorization: Bearer <Admin_JWT>`.
 - **Quy tắc Bảo mật**:
   - Yêu cầu xác thực bắt buộc: Chưa đăng nhập trả về `401 Unauthorized`.
   - Tài khoản không có quyền Admin/Bác sĩ trả về `403 Forbidden`.
@@ -642,7 +652,7 @@
 ---
 
 ### 3.8.2. `PATCH /api/v1/diagnose/{id}/expert-review` (Bác sĩ Cây trồng Kết luận Ca bệnh)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`).
+- **Headers**: `Authorization: Bearer <Admin_JWT>`.
 - **Request Body (`application/json`)**:
   ```json
   {
@@ -778,7 +788,7 @@
 ---
 
 ### 3.11.1. `GET /api/v1/knowledge/reindex-status` (Tra cứu Trạng thái Reindex Vector — RBAC Admin)
-- **Headers**: `Authorization: Bearer <Admin_JWT>` (hoặc `X-Admin-Key`)
+- **Headers**: `Authorization: Bearer <Admin_JWT>`
 - **Quy tắc Hoạt động**:
   - Core API proxy tới `GET http://agent-service:8001/internal/reindex-status` với header `X-Internal-Key` nội bộ an toàn.
   - Phục vụ Admin Web Dashboard hiển thị thông điệp thân thiện "Đang đồng bộ vector nền" trong quá trình lập chỉ mục BM25 / ChromaDB.
@@ -1004,7 +1014,7 @@
 
 ### 3.14. Danh mục chất cấm (`BannedSubstances` — TASK-19)
 
-Trạng thái cấm tính từ quyết định mới nhất có `effective_date ≤ hôm nay (giờ VN)`; `effective_date = null` nghĩa là đã hiệu lực, chưa ghi ngày. Mọi thay đổi nạp lại danh mục trong bộ nhớ Core ngay; agent-service đệm 5 phút. So khớp theo từ nguyên vẹn, không phân biệt hoa thường. Ghi: Admin (JWT `ADMIN` hoặc `X-Admin-Key`), sai quyền 401 / 403.
+Trạng thái cấm tính từ quyết định mới nhất có `effective_date ≤ hôm nay (giờ VN)`; `effective_date = null` nghĩa là đã hiệu lực, chưa ghi ngày. Mọi thay đổi nạp lại danh mục trong bộ nhớ Core ngay; agent-service đệm 5 phút. So khớp theo từ nguyên vẹn, không phân biệt hoa thường. Ghi: Admin (JWT `ADMIN`), sai quyền 401 / 403.
 
 #### 3.14.1. `GET /api/v1/banned-substances` (công khai)
 ```json

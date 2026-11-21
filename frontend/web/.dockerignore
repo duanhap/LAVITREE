@@ -1,0 +1,8 @@
+# BUG-46: không đưa node_modules máy dev, bản build cũ và bí mật vào image
+node_modules/
+dist/
+.env
+.env.*
+*.env
+*.log
+tsconfig.tsbuildinfo

@@ -12,7 +12,8 @@ using Lavitree.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
 using System.Security.Claims;
-using Lavitree.Api.Filters;
+using Lavitree.Api.Security;
+using Microsoft.AspNetCore.Authorization;
 using Lavitree.Infrastructure.Persistence;
 
 namespace Lavitree.Api.Controllers;
@@ -57,10 +58,18 @@ public class MedicinesController : ControllerBase
     public async Task<IActionResult> Search(
         [FromQuery] string? diseaseCode,
         [FromQuery] bool? requireRainResistant,
-        [FromQuery] bool allowedOnly = true)
+        [FromQuery] bool allowedOnly = true,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
+        // BUG-34: phân trang tùy chọn (pageSize 1–200, mặc định 50); không có page thì trả đủ như trước
+        if (page is < 1 || pageSize is < 1 or > 200)
+        {
+            return BadRequest(new { message = "page phải ≥ 1, pageSize từ 1 đến 200." });
+        }
+
         // Danh sách có thuốc cấm chỉ dành cho Admin; khách, nông dân và Agent chỉ thấy thuốc được phép
-        if (!allowedOnly && !User.IsInRole("ADMIN") && !AdminApiKeyAuthAttribute.HasValidKey(Request))
+        if (!allowedOnly && !User.IsAdmin())
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -96,7 +105,7 @@ public class MedicinesController : ControllerBase
                 query = query.Where(p => p.DiseaseProducts.Any(dp => dp.Disease != null && dp.Disease.ClassCode.ToLower() == normCode));
             }
 
-            var dbProducts = await query.ToListAsync();
+            var dbProducts = await query.OrderBy(p => p.Id).ToListAsync(); // thứ tự cố định cho phân trang (BUG-34)
             if (allowedOnly)
             {
                 // Chất bị cấm SAU khi sản phẩm được lưu (thông tư mới) cũng phải loại ngay (TASK-19)
@@ -192,9 +201,18 @@ public class MedicinesController : ControllerBase
             }
         }
 
+        var total = items.Count;
+        if (page.HasValue)
+        {
+            var size = pageSize ?? 50;
+            items = items.Skip((page.Value - 1) * size).Take(size).ToList();
+        }
+
         return Ok(new
         {
-            total = items.Count,
+            total,
+            page,
+            page_size = page.HasValue ? pageSize ?? 50 : (int?)null,
             disease_code = diseaseCode ?? "ALL",
             is_fallback = isFallback,
             items
@@ -217,7 +235,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 150,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/ridomil-gold.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Potato___Late_blight" }
             },
             new MedicineItemDto
@@ -232,7 +250,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = false,
                 StockQuantity = 120,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/antracol.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Pepper,_bell___Bacterial_spot" }
             },
             new MedicineItemDto
@@ -247,7 +265,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 200,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/trichoderma.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Late_blight", "Tomato___Early_blight", "Tomato___Target_Spot" }
             },
             new MedicineItemDto
@@ -262,7 +280,7 @@ public class MedicinesController : ControllerBase
                 IsAllowed = true,
                 RainResistant = true,
                 StockQuantity = 80,
-                ImageUrl = FormatImageUrl("/lavitree-diagnoses/products/score.png"),
+                ImageUrl = "", // BUG-37: file ảnh này không tồn tại trong MinIO
                 TargetDiseases = new List<string> { "Tomato___Early_blight", "Corn_(maize)___Common_rust_" }
             },
             new MedicineItemDto
@@ -408,14 +426,9 @@ public class MedicinesController : ControllerBase
     /// Thêm thuốc/vật tư mới vào kho (Admin) (TASK-15 Pha 3)
     /// </summary>
     [HttpPost]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> CreateMedicine([FromBody] Lavitree.Application.DTOs.CreateProductRequestDto dto)
     {
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
-        if (!isAdmin)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên để thêm sản phẩm vào kho." });
-        }
-
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -584,14 +597,9 @@ public class MedicinesController : ControllerBase
     /// Quản lý kho thuốc (Admin): Bật/tắt IsAllowed, cập nhật PhiDays, giá và tồn kho
     /// </summary>
     [HttpPatch("{id:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateMedicine(int id, [FromBody] UpdateMedicineDto dto)
     {
-        var isAdmin = User.IsInRole("ADMIN") || User.HasClaim(ClaimTypes.Role, "ADMIN") || User.HasClaim("role", "ADMIN") || AdminApiKeyAuthAttribute.HasValidKey(Request);
-        if (!isAdmin)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Yêu cầu quyền Quản trị viên để cập nhật danh mục thuốc." });
-        }
-
         var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
         if (product == null)
         {

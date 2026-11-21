@@ -35,6 +35,20 @@ jobs:
           docker compose pull minio postgres || true
           docker compose build core-api web-portal ai-service agent-service
           docker compose up -d --force-recreate --remove-orphans
+
+          # BUG-48: chờ Core API sống và kết nối được CSDL; không được thì báo lỗi kèm log thay vì báo thành công
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:5000/health > /dev/null; then
+              echo "✅ Core API /health OK"
+              break
+            fi
+            if [ "$i" -eq 45 ]; then
+              echo "❌ Core API không lên sau 90 giây. Log gần nhất:"
+              docker compose logs --tail 80 core-api
+              exit 1
+            fi
+            sleep 2
+          done
           
           # Clean up dangling docker images to protect EC2 disk
           docker image prune -f

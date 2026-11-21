@@ -18,7 +18,9 @@ android {
 
         // Địa chỉ Nginx của Lavitree (không gọi thẳng cổng nội bộ 5000/8000/8001).
         // Mặc định: web-portal trên máy host khi chạy emulator (docker compose map 3000:80).
-        // Bản thật: ./gradlew assembleRelease -PlavitreeApiBaseUrl=https://<domain-của-nhóm>/
+        // Bản debug: http://10.0.2.2:3000/ (chỉ debug được phép HTTP, xem src/debug/res/xml/network_security_config.xml).
+        // Bản release luôn HTTPS, mặc định https://lavitree.io.vn/, đổi bằng -PlavitreeReleaseApiBaseUrl=https://... (buildTypes.release).
+        // Máy thật cắm cáp: `adb reverse tcp:3000 tcp:3000` rồi dùng -PlavitreeApiBaseUrl=http://localhost:3000/
         val apiBaseUrl = (project.findProperty("lavitreeApiBaseUrl") as String?) ?: "http://10.0.2.2:3000/"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         vectorDrawables {
@@ -28,6 +30,13 @@ android {
 
     buildTypes {
         release {
+            // BUG-107: bản release chỉ gọi HTTPS (network_security_config chặn HTTP). Truyền lavitreeReleaseApiBaseUrl dạng http://
+            // thì dừng build ngay, không để ra một APK không kết nối được hoặc gửi mật khẩu không mã hóa.
+            val releaseApiBaseUrl = (project.findProperty("lavitreeReleaseApiBaseUrl") as String?) ?: "https://lavitree.io.vn/"
+            require(releaseApiBaseUrl.startsWith("https://")) {
+                "Bản release phải dùng HTTPS: lavitreeReleaseApiBaseUrl=$releaseApiBaseUrl"
+            }
+            buildConfigField("String", "API_BASE_URL", "\"$releaseApiBaseUrl\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

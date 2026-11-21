@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -14,21 +15,32 @@ using System.Threading.RateLimiting;
 using Lavitree.Application.Interfaces;
 using Lavitree.Infrastructure.Persistence;
 using Lavitree.Infrastructure.Services;
+using Lavitree.Api.Security;
 
 // 0. Load .env file (Traverse up to find .env in project or root directory)
 DotNetEnv.Env.TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
+// BUG-36: log của HttpClient ở mức Information ghi nguyên URL request, mà URL OpenWeather chứa khóa (?appid=...).
+// Cố định trong code (không chỉ trong appsettings) để đổi Logging__LogLevel__Default cũng không làm lộ khóa.
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+
 // 1. Database Configuration (PostgreSQL / Supabase)
 var envConn = Environment.GetEnvironmentVariable("SUPABASE_CONNECTION_STRING");
 var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD");
 
 // Determine base connection string
+// BUG-43: chỉ máy dev mới được dùng chuỗi kết nối mặc định; production thiếu cấu hình thì dừng khởi động
 var connectionString = !string.IsNullOrWhiteSpace(envConn) && !envConn.Contains("YOUR_PASSWORD_HERE") && !envConn.Contains("[YOUR-DATABASE-PASSWORD]")
     ? envConn
-    : (builder.Configuration.GetConnectionString("DefaultConnection")
-       ?? "Host=localhost;Port=5432;Database=LavitreeDb;Username=postgres;Password=postgres;");
+    : builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    connectionString = builder.Environment.IsDevelopment()
+        ? "Host=localhost;Port=5432;Database=LavitreeDb;Username=postgres;Password=postgres;"
+        : throw new InvalidOperationException("Chưa cấu hình chuỗi kết nối CSDL (SUPABASE_CONNECTION_STRING hoặc ConnectionStrings__DefaultConnection).");
+}
 
 // Replace password placeholder if DB_PASSWORD is provided
 if (!string.IsNullOrWhiteSpace(dbPassword))
@@ -38,14 +50,23 @@ if (!string.IsNullOrWhiteSpace(dbPassword))
         .Replace("YOUR_PASSWORD_HERE", dbPassword);
 }
 
+if (!builder.Environment.IsDevelopment()
+    && (connectionString.Contains("[YOUR-DATABASE-PASSWORD]") || connectionString.Contains("YOUR_PASSWORD_HERE")))
+{
+    throw new InvalidOperationException("Chuỗi kết nối CSDL còn mật khẩu mẫu. Đặt SUPABASE_CONNECTION_STRING hoặc DB_PASSWORD.");
+}
+
 builder.Services.AddDbContext<LavitreeDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 // 2. Register AI Vision Service HttpClient
 var isContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
-var aiServiceBaseUrl = builder.Configuration["AiService:BaseUrl"]
-    ?? Environment.GetEnvironmentVariable("AI_SERVICE_URL")
-    ?? "http://localhost:8000";
+// BUG-78: appsettings.json không còn ghi sẵn localhost nữa, nên khi chạy `dotnet run` biến AI_SERVICE_URL
+// (trong .env) có hiệu lực. Docker dùng AiService__BaseUrl. Biến để trống coi như chưa đặt.
+var aiServiceBaseUrl = FirstConfigured(
+    builder.Configuration["AiService:BaseUrl"],
+    Environment.GetEnvironmentVariable("AI_SERVICE_URL"),
+    "http://localhost:8000");
 
 // Tự động chuyển localhost sang hostname nội bộ docker khi chạy trong container
 if (isContainer && (aiServiceBaseUrl.Contains("localhost") || aiServiceBaseUrl.Contains("127.0.0.1")))
@@ -60,9 +81,10 @@ builder.Services.AddHttpClient<IAiVisionService, AiVisionService>(client =>
 });
 
 // 2.5. Register Agent Service HttpClient (SSOT: api-contracts.md Mục 4.3 & 4.4)
-var agentServiceBaseUrl = builder.Configuration["AgentService:BaseUrl"]
-    ?? Environment.GetEnvironmentVariable("AGENT_SERVICE_URL")
-    ?? "http://localhost:8001";
+var agentServiceBaseUrl = FirstConfigured(
+    builder.Configuration["AgentService:BaseUrl"],
+    Environment.GetEnvironmentVariable("AGENT_SERVICE_URL"),
+    "http://localhost:8001");
 
 if (isContainer && (agentServiceBaseUrl.Contains("localhost") || agentServiceBaseUrl.Contains("127.0.0.1")))
 {
@@ -79,7 +101,19 @@ builder.Services.AddHttpClient("AgentServiceClient", client =>
 builder.Services.AddSingleton<IMinioStorageService, MinioStorageService>();
 
 // 3.5. Register Memory Cache & Weather Service (SSOT: api-contracts.md Mục 3.9)
-builder.Services.AddMemoryCache();
+// BUG-35: bộ nhớ đệm có trần số mục (mỗi mục Size = 1). Không có trần thì gọi /weather với hàng nghìn
+// địa danh / số giờ khác nhau sẽ làm RAM tăng mãi. Đầy thì mục mới không được lưu và mục cũ bị dọn bớt,
+// Core vẫn trả kết quả bình thường (chỉ không dùng được bản lưu đệm).
+// Mọi lệnh Set vào IMemoryCache PHẢI đặt Size, nếu không .NET báo lỗi khi chạy.
+builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
+
+// BUG-47: lỗi không lường trước trả JSON ProblemDetails chuẩn (kèm traceId để tra log), không lộ chi tiết
+builder.Services.AddProblemDetails(options =>
+{
+    // traceId để đối chiếu với log khi người dùng báo lỗi
+    options.CustomizeProblemDetails = ctx =>
+        ctx.ProblemDetails.Extensions["traceId"] = System.Diagnostics.Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier;
+});
 builder.Services.AddHttpClient<IWeatherService, WeatherService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
@@ -107,12 +141,6 @@ if (jwtSecretKey.Length < 32)
     throw new InvalidOperationException("JWT_SECRET_KEY phải có độ dài tối thiểu 32 ký tự để đảm bảo an toàn HMAC-SHA256!");
 }
 
-var adminSecretKeyCheck = Environment.GetEnvironmentVariable("ADMIN_SECRET_KEY");
-if (!string.IsNullOrWhiteSpace(adminSecretKeyCheck) && adminSecretKeyCheck.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException("ADMIN_SECRET_KEY không được sử dụng khóa mẫu từ .env.example! Vui lòng cấu hình khóa ngẫu nhiên bảo mật.");
-}
-
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "LavitreeCoreApi";
 var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "LavitreeClients";
 
@@ -132,8 +160,33 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidAudience = jwtAudience,
         ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
+        ClockSkew = TimeSpan.Zero,
+        // BUG-38: chỉ nhận vé ký bằng HMAC-SHA256, không để token tự chọn thuật toán
+        ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256, SecurityAlgorithms.HmacSha256Signature }
     };
+    options.Events = new JwtBearerEvents
+    {
+        // BUG-38: vé còn hạn nhưng tài khoản đã bị xóa hoặc đổi quyền thì không dùng được nữa
+        OnTokenValidated = TokenRevocationCheck.ValidateAsync,
+        // Trả lỗi dạng JSON { detail } giống các API khác, để web hiện đúng thông báo
+        OnChallenge = async context =>
+        {
+            context.HandleResponse();
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { detail = "Yêu cầu đăng nhập (token thiếu, hết hạn hoặc không còn hiệu lực)." });
+        },
+        OnForbidden = async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { detail = "Yêu cầu quyền Quản trị viên (ADMIN) để thực hiện thao tác này." });
+        }
+    };
+});
+
+// BUG-18: một quy tắc chung cho mọi API quản trị, thay cho khóa dùng chung X-Admin-Key
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthPolicies.AdminOnly, policy => policy.RequireAuthenticatedUser().RequireRole("ADMIN"));
 });
 
 // 6. Rate Limiting Configuration (diagnose_policy partitioned per client IP)
@@ -250,7 +303,14 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// BUG-43: tạo MinIO client ngay lúc khởi động để thiếu khóa thì báo lỗi luôn, không đợi tới request khám bệnh đầu tiên
+app.Services.GetRequiredService<IMinioStorageService>();
+
 // 8. HTTP Request Pipeline
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler();
+}
 app.UseForwardedHeaders();
 
 if (app.Environment.IsDevelopment())
@@ -267,6 +327,18 @@ app.UseAuthentication();
 app.UseRateLimiter(); // Đặt sau Authentication để diagnose_policy đọc được tài khoản
 app.UseAuthorization();
 app.MapControllers();
+
+// BUG-48: kiểm tra sống cho deploy / giám sát. Chỉ trả trạng thái, không lộ cấu hình hay lỗi chi tiết.
+app.MapGet("/health", async (LavitreeDbContext db, CancellationToken ct) =>
+{
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    timeout.CancelAfter(TimeSpan.FromSeconds(5));
+    bool dbOk;
+    try { dbOk = await db.Database.CanConnectAsync(timeout.Token); }
+    catch { dbOk = false; }
+    var body = new { status = dbOk ? "ok" : "degraded", database = dbOk ? "ok" : "unreachable" };
+    return dbOk ? Results.Ok(body) : Results.Json(body, statusCode: StatusCodes.Status503ServiceUnavailable);
+}).AllowAnonymous();
 
 // 5. Automatic Database Migration & Seeding (Idempotent - BUG-08)
 using (var scope = app.Services.CreateScope())
@@ -304,3 +376,7 @@ if (args.Contains("--seed-only"))
 }
 
 app.Run();
+
+// Giá trị cấu hình đầu tiên khác rỗng (biến môi trường để trống trong docker-compose coi như chưa đặt)
+static string FirstConfigured(params string?[] values) =>
+    values.First(v => !string.IsNullOrWhiteSpace(v))!.Trim();

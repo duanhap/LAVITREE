@@ -35,3 +35,15 @@ REVOKE CREATE ON SCHEMA public FROM lavitree_agent;
 
 GRANT SELECT ON TABLE "KnowledgeSources" TO lavitree_agent; -- Hybrid RAG (TASK-06)
 GRANT SELECT ON TABLE "Products" TO lavitree_agent;         -- export_offline_cache (TASK-07)
+
+-- BUG-89: Supabase bật RLS trên mọi bảng và không có policy, nên role khác postgres đọc ra 0 dòng.
+-- Policy dưới đây chỉ áp dụng cho lavitree_agent (anon/authenticated không bị ảnh hưởng).
+-- Ở Postgres local chưa bật RLS thì policy không có tác dụng, vẫn tạo được.
+DROP POLICY IF EXISTS lavitree_agent_read_approved ON "KnowledgeSources";
+CREATE POLICY lavitree_agent_read_approved ON "KnowledgeSources"
+    FOR SELECT TO lavitree_agent
+    USING ("IsManualApproved" = true AND "IsDeleted" = false); -- chỉ bài đã duyệt (HITL)
+DROP POLICY IF EXISTS lavitree_agent_read_products ON "Products";
+CREATE POLICY lavitree_agent_read_products ON "Products"
+    FOR SELECT TO lavitree_agent
+    USING (true);

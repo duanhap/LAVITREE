@@ -1,0 +1,4 @@
+# BUG-101: gradlew phải giữ LF để chạy được trên Linux/macOS (máy Windows bật core.autocrlf)
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

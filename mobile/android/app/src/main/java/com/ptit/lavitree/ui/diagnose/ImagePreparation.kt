@@ -61,7 +61,8 @@ object ImagePreparation {
                 this.inSampleSize = inSampleSize
             }
 
-            val decodedBitmap: Bitmap? = contentResolver.openInputStream(imageUri)?.use { inputStream ->
+            // BUG-101: `?: return null` đã loại trường hợp không đọc được ảnh, nên kiểu là Bitmap (không null)
+            val decodedBitmap: Bitmap = contentResolver.openInputStream(imageUri)?.use { inputStream ->
                 BitmapFactory.decodeStream(inputStream, null, decodeOptions)
             } ?: return null
 

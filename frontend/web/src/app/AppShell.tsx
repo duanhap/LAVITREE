@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import logoImg from '@/assets/brand/lavitree-logo-64.webp';
+import { AppFooter } from '@/components/common/AppFooter';
 
 interface NavItem {
   name: string;
@@ -56,10 +57,25 @@ export const AppShell: React.FC = () => {
   return (
     <div
       className={cn(
-        'flex flex-col bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary',
+        'flex flex-col bg-background text-foreground antialiased selection:bg-brand-mint/40 selection:text-primary relative',
         isChatRoute ? 'h-dvh overflow-hidden' : 'min-h-screen'
       )}
     >
+      {/* ================= BACKGROUND TECH PATTERN & AMBIENT DECOR ================= */}
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+        {/* Layer 1: Lưới khối vuông vi mạch + đường chéo xanh 45° (Tech Circuit Grid) */}
+        <div className="absolute inset-0 bg-tech-circuit opacity-85 [mask-image:radial-gradient(ellipse_95%_80%_at_50%_25%,#000_30%,transparent_92%)]" />
+
+        {/* Layer 2: Dải vạch chéo xanh nông nghiệp hai bên sườn màn hình */}
+        <div className="hidden lg:block absolute top-0 bottom-0 left-0 w-28 xl:w-36 bg-tech-stripes opacity-40 [mask-image:linear-gradient(to_right,#000,transparent)]" />
+        <div className="hidden lg:block absolute top-0 bottom-0 right-0 w-28 xl:w-36 bg-tech-stripes opacity-40 [mask-image:linear-gradient(to_left,#000,transparent)]" />
+
+        {/* Layer 3: Luồng sáng hào quang sinh học đa sắc dịu nhẹ */}
+        <div className="absolute -top-36 left-1/2 -translate-x-1/2 w-[950px] h-[550px] rounded-full bg-[radial-gradient(ellipse_at_center,rgba(46,107,63,0.12),transparent_70%)] blur-2xl" />
+        <div className="absolute top-[28%] -right-24 w-[500px] h-[500px] rounded-full bg-[radial-gradient(circle_at_center,rgba(166,227,204,0.22),transparent_65%)] blur-3xl" />
+        <div className="absolute top-[65%] -left-24 w-[550px] h-[550px] rounded-full bg-[radial-gradient(circle_at_center,rgba(46,107,63,0.08),transparent_65%)] blur-3xl" />
+      </div>
+
       {/* ================= DESKTOP HEADER (>= 768px) ================= */}
       <header className="sticky top-0 z-40 w-full shrink-0 border-b border-border bg-card/90 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -201,14 +217,17 @@ export const AppShell: React.FC = () => {
       {/* Khi ở trang /chat: Bung full màn hình như Messenger / ChatGPT (không giới hạn max-w) */}
       <main
         className={cn(
-          "flex-1 w-full",
+          "relative z-10 flex-1 w-full",
           isChatRoute
             ? "flex-1 min-h-0 p-0 m-0 max-w-none overflow-hidden pb-16 md:pb-0"
-            : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8"
+            : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6"
         )}
       >
         <Outlet />
       </main>
+
+      {/* ================= CHÂN TRANG (FOOTER) ================= */}
+      {!isChatRoute && <AppFooter />}
 
       {/* ================= MOBILE BOTTOM TAB BAR (< 768px) ================= */}
       {/* Fixed at bottom, 5 items matching screens.md section 3 */}

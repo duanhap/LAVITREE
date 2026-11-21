@@ -21,7 +21,8 @@ public static class LavitreeDbContextSeeder
         var seedDir = ResolveSeedDirectory(customSeedPath);
         if (seedDir == null || !Directory.Exists(seedDir))
         {
-            Console.WriteLine($"[Seeder] WARNING: Seed directory not found. Searched base: {AppContext.BaseDirectory}");
+            // BUG-40: image Docker phải chép thư mục seed; thiếu thì báo lỗi rõ để không tưởng là đã seed xong
+            Console.WriteLine($"[Seeder] ERROR: Không tìm thấy thư mục seed (đã tìm từ {AppContext.BaseDirectory}). CSDL mới sẽ thiếu loài cây, bệnh và sản phẩm mẫu. Kiểm tra Dockerfile có COPY seed.");
             return;
         }
 
@@ -437,7 +438,7 @@ public static class LavitreeDbContextSeeder
                         Price = 65000m,
                         DosageInstruction = "Pha 50g cho bình 16L nước, phun ướt đều mặt lá khi bệnh chớm xuất hiện",
                         StockQuantity = 150,
-                        ImageUrl = "https://lavitree.io.vn/images/products/ridomil-gold.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 7,
                         IsAllowed = true,
                         RainResistant = true,
@@ -454,7 +455,7 @@ public static class LavitreeDbContextSeeder
                         Price = 45000m,
                         DosageInstruction = "Pha 40-50g cho bình 16L nước, phun phòng trừ mốc sương và thán thư",
                         StockQuantity = 120,
-                        ImageUrl = "https://lavitree.io.vn/images/products/antracol.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 7,
                         IsAllowed = true,
                         RainResistant = false,
@@ -471,7 +472,7 @@ public static class LavitreeDbContextSeeder
                         Price = 55000m,
                         DosageInstruction = "Pha 30g cho bình 16L nước hoặc tưới gốc đối kháng nấm bệnh",
                         StockQuantity = 200,
-                        ImageUrl = "https://lavitree.io.vn/images/products/trichoderma.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 0,
                         IsAllowed = true,
                         RainResistant = true,
@@ -488,7 +489,7 @@ public static class LavitreeDbContextSeeder
                         Price = 85000m,
                         DosageInstruction = "Pha 10ml cho bình 16L nước, phun khi vết đốm vừa xuất hiện",
                         StockQuantity = 80,
-                        ImageUrl = "https://lavitree.io.vn/images/products/score.png",
+                        ImageUrl = "", // BUG-37: chưa có ảnh thật; Store hiện icon thay thế
                         PhiDays = 14,
                         IsAllowed = true,
                         RainResistant = true,
@@ -519,12 +520,19 @@ public static class LavitreeDbContextSeeder
 
         var allDiseases = await context.Diseases.ToDictionaryAsync(d => d.ClassCode);
         var productList = new List<(Product prod, List<string> targets)>();
+        // BUG-40: sản phẩm mẫu chỉ thêm vào CSDL mới (bảng Products trống). CSDL đang chạy thật thì không
+        // thêm lại sản phẩm mẫu mà Admin đã đổi tên hoặc xóa (kể cả mẫu thuốc cấm Paraquat).
+        var isFreshProductTable = !await context.Products.AnyAsync();
 
         foreach (var item in sampleProducts)
         {
             var p = item.product;
             var existingProd = await context.Products.FirstOrDefaultAsync(x => x.Name == p.Name);
-            if (existingProd == null)
+            if (existingProd == null && !isFreshProductTable)
+            {
+                Console.WriteLine($"[Seeder] Bỏ qua sản phẩm mẫu {p.Name}: kho đã có dữ liệu do Admin quản lý.");
+            }
+            else if (existingProd == null)
             {
                 context.Products.Add(p);
                 productList.Add((p, item.targetDiseases));

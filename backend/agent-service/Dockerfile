@@ -36,6 +36,8 @@ COPY . .
 
 # Chạy bằng user thường; app/data là nơi duy nhất cần ghi (volume agent_data thừa hưởng quyền này)
 USER lavitree
+# BUG-39: trace_waterfall.json mặc định ghi vào /app (thuộc root) nên báo Permission denied; ghi vào app/data
+ENV TRACE_EXPORT_DIR=/app/app/data
 
 EXPOSE 8001
 

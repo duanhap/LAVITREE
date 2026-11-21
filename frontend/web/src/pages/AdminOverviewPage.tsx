@@ -31,6 +31,9 @@ interface MedicineLite {
   name: string;
   is_allowed: boolean;
   stock_quantity: number;
+  availability?: string;
+  price?: number;
+  medicine_type?: string;
 }
 
 interface EscalationLite {
@@ -94,7 +97,13 @@ export const AdminOverviewPage: React.FC = () => {
   const sourcesPending = data.sources ? data.sources.filter((s) => !s.isManualApproved).length : null;
   const pendingEscalations = data.escalations ? data.escalations.filter((e) => !e.expertReviewedAt) : null;
   const lowStock = data.medicines
-    ? data.medicines.filter((m) => m.is_allowed && m.stock_quantity < LOW_STOCK_THRESHOLD)
+    ? data.medicines.filter((m) => {
+        if (!m.is_allowed) return false;
+        // Bỏ qua các sản phẩm không bán (NOT_SOLD) hoặc có giá = 0 (vật tư kỹ thuật/chỉ tư vấn)
+        if (m.availability?.trim().toUpperCase() === 'NOT_SOLD') return false;
+        if (m.price != null && m.price <= 0) return false;
+        return m.stock_quantity < LOW_STOCK_THRESHOLD;
+      })
     : null;
   const bannedCount = data.medicines ? data.medicines.filter((m) => !m.is_allowed).length : null;
 

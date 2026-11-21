@@ -8,6 +8,7 @@ import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import laviWavingImg from '@/assets/brand/lavi-waving-3d.webp';
 
 interface OrderItemDto {
   id: number;
@@ -148,13 +149,22 @@ export const OrdersPage: React.FC = () => {
           </Button>
         </div>
       ) : orders.length === 0 ? (
-        <div className="p-12 text-center bg-card border border-border rounded-xl space-y-3">
-          <ShoppingBag className="w-12 h-12 mx-auto text-muted-foreground/40" />
-          <h3 className="text-lg font-bold text-foreground">Bạn chưa có đơn hàng nào</h3>
-          <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-            Khám phá danh mục thuốc BVTV sinh học và hữu cơ chính hãng để bảo vệ mùa màng.
-          </p>
-          <Button className="mt-2 bg-emerald-700 hover:bg-emerald-800 text-white" asChild>
+        <div className="p-10 text-center bg-card border border-dashed border-border rounded-2xl space-y-4 max-w-md mx-auto shadow-2xs">
+          <div className="relative mx-auto flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-primary/10 blur-xl scale-75" />
+            <img
+              src={laviWavingImg}
+              alt="Lavi vẫy chào"
+              className="relative w-32 h-32 object-contain mx-auto drop-shadow-sm select-none"
+            />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-foreground">Bạn chưa có đơn hàng nào</h3>
+            <p className="text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
+              Khám phá danh mục thuốc BVTV sinh học và hữu cơ chính hãng theo chuẩn Thông tư 75/2025 để bảo vệ mùa màng.
+            </p>
+          </div>
+          <Button className="mt-2 bg-primary hover:bg-primary-hover text-white h-10 px-6 shadow-xs" asChild>
             <Link to="/store">Mua vật tư ngay</Link>
           </Button>
         </div>

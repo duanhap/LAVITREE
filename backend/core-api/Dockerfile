@@ -16,6 +16,11 @@ RUN dotnet publish "Lavitree.Api.csproj" -c Release -o /app/publish /p:UseAppHos
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+# BUG-40: seeder cần thư mục seed (loài cây, bệnh, sản phẩm mẫu) cạnh Lavitree.Api.dll
+COPY --from=build /src/seed ./seed
+
+# BUG-46: image aspnet có sẵn user thường "app" (UID $APP_UID); cổng 8080 không cần quyền root
+USER $APP_UID
 
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Lavitree.Api.dll"]
