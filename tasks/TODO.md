@@ -55,7 +55,7 @@
 ### 👨‍💻 Phân công Thành viên B (AI Agent Lead):
 - [/] **TASK-06: Tầng Tri thức Hybrid RAG (BM25 + ChromaDB) & Ingestion Pipeline Kiểm định** *(Ưu tiên 1 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (RAG Pipeline) & **Thành viên A** (PostgreSQL Hybrid Schema)
-  - Trạng thái: `[/] IN PROGRESS` (Code B xong, 11/11 test PASS: Recall@3 không lọc = 90% trên 22 bài CSV, độ trễ 145ms. Gemini thật đã chạy được ngày 2026-11-07. Còn: docker compose + Postgres demo, luồng duyệt end-to-end sau khi A làm xong A03)
+  - Trạng thái: `[/] IN PROGRESS` (Code B xong, 11/11 test PASS: Recall@3 không lọc = 90% trên 22 bài CSV, độ trễ 145ms. Docker compose + Postgres đã chạy ở S2-BONUS đợt 5. Còn của B: đo truy vấn chéo Việt–Anh, thử `label-paragraphs` với 3 bài thật + câu chèn lệnh; luồng duyệt / bỏ duyệt → chat là S2-BONUS BUG-74)
   - Đầu ra: Tận dụng trực tiếp dữ liệu tri thức đã duyệt của 5 bệnh demo trong `KnowledgeSources` từ Sprint 1 (mỗi dòng = 1 chunk, metadata gồm `UnitType`, `IsVerbatim`), script `sync_index.py` tự động đồng bộ sang ChromaDB cục bộ + BM25 Okapi, đạt Recall@3 đối chứng $\ge 90\%$, endpoint `POST /internal/knowledge/label-paragraphs` gợi ý nhãn đoạn (chỉ trả số đoạn) hỗ trợ A03, endpoint `/internal/reindex` tự động tái tạo chỉ mục khi Admin duyệt/bỏ duyệt bài.
 - [x] **TASK-05: Thiết lập `backend/agent-service:8001` & Cấu trúc Model Context Protocol (FastMCP Server)** *(Ưu tiên 2 - Tuần 1)*
   - Trách nhiệm: **Thành viên B** (Agent Core) & **Thành viên A** (Core API Data Provider)
@@ -79,24 +79,24 @@
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[x] DONE` (Đã hoàn thành 100%: Auth Controller đăng ký/đăng nhập băm BCrypt, JWT Bearer Token 7 ngày, vá IDOR trên Diagnose, bảo vệ lịch sử cá nhân; đã khắc phục triệt để 11 lỗi chặn Đợt 0, nạp mật khẩu Admin mới, lọc thuốc cấm Paraquat, cập nhật migration DB và đạt 14/14 tests qua `test_task_a01_auth.py`)
   - Đầu ra: `AuthController.cs` đăng ký / đăng nhập (JWT Token, BCrypt, role `FARMER`/`ADMIN`), trích xuất `userId` từ token claims cho các API khám lá (loại bỏ hoàn toàn `userId` từ form-data chống IDOR), cung cấp ngay Stub API Thuốc `GET /api/v1/medicines/search` cho B, nạp seed tự động tài khoản Quản trị `admin@lavitree.vn`.
-- [ ] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
+- [x] **TASK-A02: Hoàn thiện Web Portal Khám lá E2E, Sổ tay Bệnh học & Lịch sử Cá nhân** *(P0 - Tuần 1)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[ ] CHỜ ĐÓNG` (Code đã review ngày 07/11/2026. Còn 3 việc: đổi mật khẩu trong DB thật, xác nhận đã đổi `JWT_SECRET_KEY`, merge phần thời tiết của TASK-05. Chi tiết ở mục 5.8 của file task.)
+  - Trạng thái: `[x] DONE` (đóng 22/11/2026. Mật khẩu admin, `JWT_SECRET_KEY`, phần thời tiết đã xử lý; chạy thời tiết với khóa OpenWeather thật theo dõi ở S2-BONUS BUG-05/07.)
   - Đầu ra: Màn hình Đăng nhập/Đăng ký trên Web (`LoginPage.tsx`, `RegisterPage.tsx`); trang Khám lá (`DiagnosePage.tsx`) hiển thị chẩn đoán, Grad-CAM, IPM; trang Sổ tay bệnh học (`HandbookPage.tsx`); trang Lịch sử cá nhân (`HistoryPage.tsx`) lưu và xem lại các ca khám theo tài khoản (`/history/:id` - W-08).
-- [/] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
+- [x] **TASK-A03: Phân hệ Cửa hàng Vật tư Nông nghiệp & Cổng Admin Quản trị Tri thức** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[/] ACTIVE / ĐANG HOÀN THIỆN SAU ĐÁNH GIÁ TVA` (Đã xử lý 15 lỗi đánh giá: chống oversell atomic, chuẩn hóa URL & lock 4 đoạn, loại bỏ secret hardcode, phân tách bảo mật tri thức công khai, bổ sung giao diện Bác sĩ & ca bệnh khó, dọn sạch dữ liệu test Supabase, cập nhật tài liệu database-schema.md & api-contracts.md)
+  - Trạng thái: `[x] DONE` (đóng 22/11/2026; BUG-51 đối chiếu pháp lý thuốc chấp nhận rủi ro, chuyển Sprint 3. Đã xử lý 15 lỗi đánh giá: chống oversell atomic, chuẩn hóa URL & lock 4 đoạn, loại bỏ secret hardcode, phân tách bảo mật tri thức công khai, bổ sung giao diện Bác sĩ & ca bệnh khó, dọn sạch dữ liệu test Supabase, cập nhật tài liệu database-schema.md & api-contracts.md)
   - Đầu ra: Trang Cửa hàng Lavitree Store xem thuốc, giỏ hàng, đặt hàng COD giả lập (`POST /api/v1/orders`); Chức năng chính Cổng Admin (`AdminDashboard.tsx`): Nhập bài báo dán văn bản + URL (`POST /ingestions`) $\rightarrow$ AI gợi ý nhãn $\rightarrow$ Admin tick tối đa 4 đoạn ngắn ($\le 800$ ký tự) $\rightarrow$ Core lấy chữ từ RAM lưu nguyên văn (`POST /commit` gán `UnitType`, `IsVerbatim = true`, `IsManualApproved = true`), migration C# gỡ unique `(ModelClass, SourceUrl)` và thêm cột, sửa duplicate check trong `KnowledgeController.cs`, bảng quản lý kho thuốc (`IsAllowed`, `PhiDays`), gắn cờ ca bệnh khó `requires_expert`.
-- [/] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
+- [x] **TASK-A04: Tích hợp Khung Chat Web Streaming SSE & Khởi tạo Dự án Android Native** *(P1 - Tuần 2)*
   - Trách nhiệm: **Thành viên A**
-  - Trạng thái: `[/] ACTIVE` (Review 08/11/2026: Web Chat đã sửa và chạy thử với Agent giả lập, chưa chạy với Agent thật; Android chưa build được vì thiếu `gradle-wrapper.jar` — BUG-101. Chi tiết mục 5.2 của file task.)
+  - Trạng thái: `[x] DONE` (đóng 22/11/2026: Web Chat chạy với Agent + Gemini thật qua nginx (S2-BONUS đợt 5); Android `assembleDebug` / `assembleRelease` đạt. Chạy thử app, camera, chat Android chuyển TASK-10.)
   - Đầu ra: Khung Chat Trợ lý AI trên Web Portal nhận stream SSE mượt mà từ Task 08 của B; khởi tạo base project Android Native (`mobile/android/`) bằng Kotlin & Jetpack Compose, dựng trước khung 2 màn hình chính (Khám lá & Chat).
   - Việc chuyển sang từ A02/A03: Đã xử lý triệt để BUG-58, BUG-81 → BUG-85.
 
 ### 🤝 Việc chung Thành viên A & B:
-- [ ] **TASK-S2-BONUS: Dọn việc tồn Sprint 2 & Nghiệm thu chéo TVA – TVB** *(P0 cho nhóm bắt buộc trước deploy)*
+- [/] **TASK-S2-BONUS: Dọn việc tồn Sprint 2 & Nghiệm thu chéo TVA – TVB** *(P0 cho nhóm bắt buộc trước deploy)*
   - Trách nhiệm: **Thành viên A** (Core API, Web, hạ tầng) & **Thành viên B** (Agent, RAG, Gemini); người làm không tự nghiệm thu dòng của mình.
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[/] CHỜ NGHIỆM THU PRODUCTION` (code xong. Còn: BUG-86 sửa Trichoderma, BUG-89 đổi Secret, deploy rồi thử BUG-05/07, BUG-74, BUG-88 trên web thật; BUG-91 chờ quyết định quota Gemini. Việc Android và việc ít quan trọng đã ghi chuyển Sprint 3.)
   - Đầu ra: Đóng các dòng còn mở của A02/A03 và review 08/11/2026: đổi mật khẩu admin và `JWT_SECRET_KEY` trên production, kiểm tra Secret `ENV_PRODUCTION`, dọn dữ liệu test có thể đã vào Supabase, xác nhận migration, đối chiếu danh mục thuốc (BUG-51), nghiệm thu chéo duyệt/bỏ duyệt → chat và nhập bài với Gemini thật, các lỗi bảo mật và hạ tầng còn lại. Chi tiết: `tasks/sprint-02/task-s2-bonus-hardening-acceptance.md`; mục 3.7 cho Agent: sửa dữ liệu Trichoderma, duyệt tri thức Ca 3–4, benchmark 15/15 với Core thật, tài khoản CSDL chỉ đọc, quota Gemini và mục tiêu thời gian phản hồi. Thêm các việc còn mở của TASK-07/08 (mục 3.7) và TASK-A04 (mục 3.8: build và chạy app Android, Web Chat với Agent thật, `draft_order`).
 
 ---
@@ -112,6 +112,7 @@
 - [ ] **TASK-10: Hoàn thiện Android Native App (Kotlin, Jetpack Compose, CameraX)**
   - Trách nhiệm: **Thành viên A**
   - Trạng thái: `[ ] PENDING`
+  - Nhận từ Sprint 2: BUG-104 (chạy app trên emulator), BUG-58 (xoay ảnh EXIF), BUG-102 (camera), BUG-108 (chat SSE, điều hướng), BUG-103.
   - Đầu ra: Ứng dụng di động Native chụp ảnh lá ngoài vườn qua CameraX $\rightarrow$ gọi Core API $\rightarrow$ hiển thị kết quả chẩn đoán và Chat trực tiếp với Agent qua SSE.
 - [ ] **TASK-11: Xây dựng Admin Dashboard quản trị dịch tễ & Màn hình Quan sát (Agent Observability Waterfall Chart)**
   - Trách nhiệm: **Thành viên A & B**
