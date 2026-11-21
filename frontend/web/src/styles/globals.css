@@ -178,3 +178,31 @@ textarea::placeholder {
   0%, 100% { transform: rotate(-2deg); }
   50% { transform: rotate(3deg) translateY(-6px); }
 }
+
+/* =========================================================================
+   HỌA TIẾT CÔNG NGHỆ NÔNG NGHIỆP THÔNG MINH (AGRITECH PATTERNS)
+   Kết hợp khối vuông lưới vi mạch, đường chéo xanh và điểm nút kỹ thuật số
+   ========================================================================= */
+
+/* Lưới khối vuông 96px đa tầng + đường chéo xanh 45° + điểm nút vi mạch */
+.bg-tech-circuit {
+  background-image: url("data:image/svg+xml,%3Csvg width='96' height='96' viewBox='0 0 96 96' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M96 0H0V96' stroke='%232E6B3F' stroke-opacity='0.09' stroke-width='1'/%3E%3Cpath d='M48 0V96M0 48H96' stroke='%232E6B3F' stroke-opacity='0.05' stroke-width='1' stroke-dasharray='4 4'/%3E%3Cpath d='M0 96L96 0' stroke='%232E6B3F' stroke-opacity='0.06' stroke-width='1'/%3E%3Cpath d='M0 48L48 0M48 96L96 48' stroke='%232E6B3F' stroke-opacity='0.04' stroke-width='1' stroke-dasharray='2 3'/%3E%3Ccircle cx='0' cy='0' r='2' fill='%232E6B3F' fill-opacity='0.28'/%3E%3Ccircle cx='96' cy='96' r='2' fill='%232E6B3F' fill-opacity='0.28'/%3E%3Ccircle cx='48' cy='48' r='1.5' fill='%232E6B3F' fill-opacity='0.18'/%3E%3C/svg%3E");
+  background-size: 96px 96px;
+}
+
+/* Dải sọc chéo công nghệ AgriTech (Tech Diagonal Hatching) */
+.bg-tech-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(46, 107, 63, 0.08) 0,
+    rgba(46, 107, 63, 0.08) 2px,
+    transparent 2px,
+    transparent 12px
+  );
+}
+
+/* Lưới khối vuông công nghệ nhỏ 32px */
+.bg-tech-grid-sm {
+  background-image: url("data:image/svg+xml,%3Csvg width='32' height='32' viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M32 0H0V32' stroke='%232E6B3F' stroke-opacity='0.08' stroke-width='1'/%3E%3Ccircle cx='0' cy='0' r='1.2' fill='%232E6B3F' fill-opacity='0.25'/%3E%3C/svg%3E");
+  background-size: 32px 32px;
+}

@@ -31,6 +31,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import laviWavingImg from '@/assets/brand/lavi-waving-3d.webp';
 
 export interface HistoryItem {
   id: string;
@@ -216,20 +217,25 @@ export const HistoryPage: React.FC = () => {
           </Button>
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center space-y-4 max-w-lg mx-auto">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-primary">
-            <Sprout className="h-7 w-7" />
+        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center space-y-4 max-w-md mx-auto shadow-2xs">
+          <div className="relative mx-auto flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-primary/10 blur-xl scale-75" />
+            <img
+              src={laviWavingImg}
+              alt="Lavi vẫy chào"
+              className="relative w-32 h-32 object-contain mx-auto drop-shadow-sm select-none"
+            />
           </div>
           <div className="space-y-1">
             <h3 className="text-lg font-bold text-foreground">Chưa có hồ sơ khám bệnh nào</h3>
-            <p className="text-xs text-muted-foreground">
-              Bạn chưa thực hiện ca chẩn đoán nào trên tài khoản này. Hãy bắt đầu khám bệnh cho cây trồng trong vườn ngay!
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Bạn chưa thực hiện ca chẩn đoán nào trên tài khoản này. Hãy bắt đầu khám bệnh cho cây trồng trong vườn ngay cùng Lavi nhé!
             </p>
           </div>
           <Button
             type="button"
             onClick={() => navigate('/')}
-            className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-6"
+            className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-6 h-10 shadow-xs"
           >
             <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Khám lá cây ngay
           </Button>

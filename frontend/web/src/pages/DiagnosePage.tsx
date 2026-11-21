@@ -14,6 +14,7 @@ import VerifiedSourcesList from '@/features/diagnose/components/VerifiedSourcesL
 import Top3List from '@/features/diagnose/components/Top3List';
 import LeafCropper from '@/features/diagnose/components/LeafCropper';
 import { formatPercent } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -30,14 +31,50 @@ import {
   HelpCircle,
   UserCheck,
   Crop,
+  Zap,
+  Sprout,
+  Leaf,
+  Lightbulb,
+  ShieldCheck,
+  ArrowRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HeroVideoBackground } from '@/components/brand/HeroVideoBackground';
+import { LaviScanVideo } from '@/components/brand/LaviScanVideo';
 import laviHelloImg from '@/assets/brand/lavi-3d-hello-820.webp';
+import laviDoctorScanImg from '@/assets/brand/lavi-doctor-scan.webp';
+import laviHealthyImg from '@/assets/brand/lavi-healthy-thumbsup.webp';
+import laviConfusedImg from '@/assets/brand/lavi-confused-retake.webp';
+import laviDoctorTreatmentImg from '@/assets/brand/lavi-doctor-treatment.webp';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 // Upload và suy luận AI trên mạng yếu cần lâu hơn timeout chung của API
 const DIAGNOSE_TIMEOUT_MS = 90_000;
+
+interface SupportedCropItem {
+  name: string;
+  en: string;
+  desc: string;
+  icon: string;
+  color: string;
+}
+
+const SUPPORTED_CROPS: SupportedCropItem[] = [
+  { name: 'Cà chua', en: 'Tomato', desc: '10 bệnh học', icon: '🍅', color: 'bg-red-50 text-red-600 border border-red-200/60' },
+  { name: 'Khoai tây', en: 'Potato', desc: '3 bệnh học', icon: '🥔', color: 'bg-amber-50 text-amber-700 border border-amber-200/60' },
+  { name: 'Ngô (Bắp)', en: 'Corn', desc: '4 bệnh học', icon: '🌽', color: 'bg-yellow-50 text-yellow-700 border border-yellow-200/60' },
+  { name: 'Cam / Có múi', en: 'Orange', desc: 'Vàng lá Greening', icon: '🍊', color: 'bg-orange-50 text-orange-600 border border-orange-200/60' },
+  { name: 'Dâu tây', en: 'Strawberry', desc: '3 bệnh học', icon: '🍓', color: 'bg-rose-50 text-rose-600 border border-rose-200/60' },
+  { name: 'Ớt chuông', en: 'Pepper bell', desc: '2 bệnh học', icon: '🫑', color: 'bg-emerald-50 text-emerald-600 border border-emerald-200/60' },
+  { name: 'Nho', en: 'Grape', desc: '4 bệnh học', icon: '🍇', color: 'bg-purple-50 text-purple-600 border border-purple-200/60' },
+  { name: 'Táo', en: 'Apple', desc: '4 bệnh học', icon: '🍎', color: 'bg-red-50 text-red-600 border border-red-200/60' },
+  { name: 'Đào', en: 'Peach', desc: '2 bệnh học', icon: '🍑', color: 'bg-orange-50 text-orange-600 border border-orange-200/60' },
+  { name: 'Bí đỏ (Bí ngô)', en: 'Squash', desc: 'Phấn trắng', icon: '🎃', color: 'bg-amber-50 text-amber-600 border border-amber-200/60' },
+  { name: 'Đậu nành', en: 'Soybean', desc: 'Đốm vi khuẩn', icon: '🫘', color: 'bg-stone-50 text-stone-700 border border-stone-200/60' },
+  { name: 'Anh đào (Cherry)', en: 'Cherry', desc: '2 bệnh học', icon: '🍒', color: 'bg-rose-50 text-rose-700 border border-rose-200/60' },
+  { name: 'Mâm xôi', en: 'Raspberry', desc: 'Cây khỏe mạnh', icon: '🫐', color: 'bg-indigo-50 text-indigo-600 border border-indigo-200/60' },
+  { name: 'Việt quất', en: 'Blueberry', desc: 'Cây khỏe mạnh', icon: '🫐', color: 'bg-blue-50 text-blue-600 border border-blue-200/60' },
+];
 
 export const DiagnosePage: React.FC = () => {
   const navigate = useNavigate();
@@ -166,11 +203,16 @@ export const DiagnosePage: React.FC = () => {
   const displayGradcamImage =
     diagnoseData?.visual_evidence?.gradcam_image_url || null;
 
+  const isHealthy = Boolean(
+    diagnoseData?.result?.class_code?.toLowerCase().endsWith('___healthy') ||
+      diagnoseData?.result?.disease_name?.toLowerCase().includes('khỏe mạnh')
+  );
+
   return (
-    <div className="container mx-auto px-4 py-6 md:py-10 max-w-5xl space-y-8">
+    <div className="container mx-auto px-4 py-4 sm:py-6 max-w-5xl space-y-8">
       {/* Khối giới thiệu: nền video lá cây + Lavi 3D (chỉ hiện khi chưa có kết quả) */}
       {!diagnoseData ? (
-        <section className="relative isolate rounded-3xl bg-emerald-950 text-white shadow-lg md:mt-10">
+        <section className="relative isolate rounded-3xl bg-emerald-950 text-white shadow-lg md:mt-1">
           {/* Nền video nằm trong khung bo góc; riêng Lavi được phép tràn lên trên khung */}
           <div className="absolute inset-0 overflow-hidden rounded-3xl">
             <HeroVideoBackground />
@@ -237,8 +279,10 @@ export const DiagnosePage: React.FC = () => {
 
       {/* KHỐI 1: KHUNG TẢI ẢNH NẾU CHƯA CÓ KẾT QUẢ HOẶC ĐANG CHỌN ẢNH MỚI */}
       {!diagnoseData && (
-        <Card className="border border-border bg-card shadow-sm max-w-2xl mx-auto">
-          <CardHeader className="text-center pb-2">
+        <Card className="relative overflow-hidden border border-border/80 bg-card shadow-sm max-w-2xl mx-auto">
+          {/* Dải vạch chéo công nghệ xanh ở đỉnh thẻ */}
+          <div className="h-1.5 w-full bg-tech-stripes border-b border-primary/20" />
+          <CardHeader className="text-center pb-2 pt-5">
             <CardTitle className="text-lg font-bold text-foreground">
               Tải ảnh lá cây để bắt đầu khám
             </CardTitle>
@@ -268,17 +312,27 @@ export const DiagnosePage: React.FC = () => {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-secondary/30 p-8 text-center cursor-pointer hover:border-primary/50 hover:bg-secondary/50 transition-all duration-200"
+                className="group relative overflow-hidden flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-primary/35 bg-linear-to-b from-primary/5 via-secondary/20 to-primary/5 p-8 sm:p-10 text-center cursor-pointer hover:border-primary hover:bg-primary/10 transition-all duration-300 shadow-2xs"
               >
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-card shadow-xs text-primary mb-3">
-                  <UploadCloud className="h-7 w-7" />
+                {/* 4 Góc nhắm mục tiêu quét quang học AI (Scanner Reticle Crosshairs) */}
+                <span className="absolute top-3 left-3 text-primary/40 font-mono text-xs select-none pointer-events-none">+</span>
+                <span className="absolute top-3 right-3 text-primary/40 font-mono text-xs select-none pointer-events-none">+</span>
+                <span className="absolute bottom-3 left-3 text-primary/40 font-mono text-xs select-none pointer-events-none">+</span>
+                <span className="absolute bottom-3 right-3 text-primary/40 font-mono text-xs select-none pointer-events-none">+</span>
+
+                <div className="relative mb-2 flex items-center justify-center">
+                  <LaviScanVideo size="md" />
                 </div>
-                <p className="text-sm font-semibold text-foreground mb-1">
-                  Nhấn để chọn ảnh hoặc kéo thả ảnh vào đây
+                <p className="text-base font-bold text-foreground mb-1 group-hover:text-primary transition-colors">
+                  Nhấn để chọn ảnh hoặc kéo thả ảnh lá vào đây
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  Hỗ trợ chụp trực tiếp từ camera hoặc tải ảnh từ thư viện
+                <p className="text-xs text-muted-foreground max-w-sm mb-3">
+                  Lavi đang sẵn sàng soi kính hiển vi & khoanh vùng tế bào lá nghi bệnh cho bà con
                 </p>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-card border border-border text-[11px] font-medium text-foreground shadow-2xs">
+                  <Camera className="h-3 w-3 text-primary" />
+                  <span>Hỗ trợ chụp camera hoặc tải ảnh JPG, PNG, WEBP (cự ly 15–20cm)</span>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -330,6 +384,27 @@ export const DiagnosePage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Khối quét & phân tích lá của Lavi khi đang gửi chẩn đoán */}
+                {isLoading && (
+                  <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-3.5 animate-pulse shadow-2xs">
+                    <LaviScanVideo size="sm" />
+                    <div className="space-y-1 text-left">
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary" />
+                        </span>
+                        <p className="text-xs sm:text-sm font-bold text-foreground">
+                          Lavi đang soi kính hiển vi AI & phân tích tổn thương...
+                        </p>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Mô hình ResNet-18 đang đối chiếu 38 lớp bệnh học và sinh bản đồ nhiệt Grad-CAM.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {errorMessage && (
                   <Alert variant="destructive" className="py-2.5">
                     <AlertTriangle className="h-4 w-4" />
@@ -372,6 +447,194 @@ export const DiagnosePage: React.FC = () => {
         </Card>
       )}
 
+      {/* CÁC KHỐI THÔNG TIN BỔ TRỢ (Chỉ hiện ở trang chủ khi chưa khám ảnh) */}
+      {!diagnoseData && (
+        <div className="space-y-10 pt-2">
+          {/* 1. QUY TRÌNH KHÁM LÁ 3 BƯỚC */}
+          <section className="space-y-4">
+            <div className="text-center space-y-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                Quy trình đơn giản & chuẩn xác
+              </span>
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+                3 bước khám bệnh cây trồng thông minh
+              </h2>
+              <p className="text-xs sm:text-sm text-muted-foreground max-w-xl mx-auto">
+                Chỉ mất vài giây để nhận diện chính xác bệnh hại và tiếp cận ngay phác đồ điều trị chuẩn
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="group relative overflow-hidden rounded-2xl border border-primary/20 bg-linear-to-b from-card via-card to-emerald-500/5 p-5 shadow-2xs hover:shadow-md hover:-translate-y-1 transition-all duration-300">
+                <div className="flex items-center justify-between mb-3.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-emerald-600 to-emerald-700 text-white font-bold text-xs shadow-xs">
+                    01
+                  </span>
+                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 transition-transform group-hover:scale-110">
+                    <Camera className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
+                    Chụp hoặc tải ảnh lá cây
+                  </h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Chụp cận cảnh mặt lá có biểu hiện bệnh ở khoảng cách 15–20cm, đủ ánh sáng và lá chiếm ≥ 70% khung hình.
+                  </p>
+                </div>
+              </div>
+
+              <div className="group relative overflow-hidden rounded-2xl border border-teal-500/20 bg-linear-to-b from-card via-card to-teal-500/5 p-5 shadow-2xs hover:shadow-md hover:-translate-y-1 transition-all duration-300">
+                <div className="flex items-center justify-between mb-3.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-teal-600 to-teal-700 text-white font-bold text-xs shadow-xs">
+                    02
+                  </span>
+                  <div className="p-2 rounded-xl bg-teal-500/10 text-teal-600 transition-transform group-hover:scale-110">
+                    <Zap className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="font-bold text-sm text-foreground group-hover:text-teal-700 dark:group-hover:text-teal-300 transition-colors">
+                    AI Vision khoanh vùng tổn thương
+                  </h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Mạng nơ-ron ResNet-18 đối chiếu với 38 lớp bệnh, bản đồ nhiệt Grad-CAM chỉ rõ vùng lá nghi bệnh sau ≤ 1.5 giây.
+                  </p>
+                </div>
+              </div>
+
+              <div className="group relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-linear-to-b from-card via-card to-brand-mint-soft/30 p-5 shadow-2xs hover:shadow-md hover:-translate-y-1 transition-all duration-300">
+                <div className="flex items-center justify-between mb-3.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-primary to-emerald-800 text-white font-bold text-xs shadow-xs">
+                    03
+                  </span>
+                  <div className="p-2 rounded-xl bg-primary/10 text-primary transition-transform group-hover:scale-110">
+                    <Sprout className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
+                    Nhận phác đồ & Hỗ trợ kỹ thuật
+                  </h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Xem biện pháp canh tác IPM, thuốc BVTV sinh học/hóa học tuân thủ Thông tư 75, và hỏi thêm Trợ lý Lavi mọi lúc.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* 2. 14 LOÀI CÂY TRỒNG ĐƯỢC HỖ TRỢ */}
+          <section className="relative overflow-hidden rounded-3xl border border-primary/20 bg-linear-to-b from-card via-brand-mint-soft/20 to-card p-6 sm:p-7 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+              <div>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold border border-primary/20 mb-2">
+                  <Leaf className="h-3.5 w-3.5" /> Thư viện nông sản Việt Nam
+                </span>
+                <h2 className="text-lg sm:text-xl font-bold text-foreground">
+                  14 Loài cây trồng phổ biến được hỗ trợ
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Hệ thống được huấn luyện chuyên sâu trên 54.000+ mẫu lá bệnh thực nghiệm và tài liệu khuyến nông Việt Nam
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm" className="h-9 px-4 text-xs font-semibold shrink-0 self-start sm:self-auto border-primary/30 hover:bg-primary/10 hover:text-primary transition-all">
+                <Link to="/handbook">
+                  Xem sổ tay bệnh học <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+              {SUPPORTED_CROPS.map((crop) => (
+                <Link
+                  key={crop.name}
+                  to={`/handbook?plant=${encodeURIComponent(crop.name)}`}
+                  className="group relative flex flex-col items-center justify-center p-3.5 rounded-2xl border border-border/80 bg-card hover:bg-linear-to-b hover:from-card hover:to-primary/5 hover:border-primary/50 hover:shadow-md hover:-translate-y-1 transition-all duration-300 text-center"
+                >
+                  <div className={cn("flex h-11 w-11 items-center justify-center rounded-2xl shadow-2xs mb-2 text-2xl transition-transform duration-300 group-hover:scale-115 group-hover:rotate-3", crop.color)}>
+                    {crop.icon}
+                  </div>
+                  <span className="font-bold text-xs text-foreground group-hover:text-primary transition-colors line-clamp-1">
+                    {crop.name}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground mt-1 px-2 py-0.5 rounded-full bg-secondary/80 font-medium group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                    {crop.desc}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {/* 3. MẸO CHỤP ẢNH & CAM KẾT AN TOÀN NÔNG NGHIỆP */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-linear-to-br from-amber-500/5 via-card to-amber-500/10 p-6 shadow-xs hover:shadow-md transition-shadow">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-linear-to-r from-amber-400 via-amber-500 to-amber-300" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-xl bg-amber-500/15 text-amber-600 shadow-2xs">
+                  <Lightbulb className="h-5 w-5" />
+                </div>
+                <h3 className="text-sm font-bold text-foreground">
+                  Mẹo chụp ảnh chẩn đoán chuẩn xác
+                </h3>
+              </div>
+              <div className="space-y-3 text-xs text-muted-foreground">
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Chụp khoảng cách <strong className="font-semibold text-foreground bg-amber-500/10 px-1 py-0.5 rounded text-amber-800 dark:text-amber-300">15–20cm</strong>, giữ diện tích lá chiếm từ <strong className="font-semibold text-foreground bg-amber-500/10 px-1 py-0.5 rounded text-amber-800 dark:text-amber-300">≥ 70%</strong> khung hình.
+                  </span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Ưu tiên chọn mặt lá có biểu hiện <strong className="font-semibold text-foreground">đốm bệnh, vết thán thư hoặc vết cháy</strong> rõ nét nhất dưới ánh sáng tự nhiên.
+                  </span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Sử dụng tính năng <strong className="font-semibold text-foreground bg-amber-500/10 px-1 py-0.5 rounded text-amber-800 dark:text-amber-300">Cắt lá (Crop)</strong> tích hợp sẵn để loại bỏ nền đất, bóng râm và vật thể gây nhiễu.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-linear-to-br from-primary/5 via-card to-brand-mint-soft/40 p-6 shadow-xs hover:shadow-md transition-shadow">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-linear-to-r from-emerald-500 via-teal-500 to-brand-mint" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-xl bg-primary/15 text-primary shadow-2xs">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <h3 className="text-sm font-bold text-foreground">
+                  Cam kết An toàn Nông nghiệp Lavitree
+                </h3>
+              </div>
+              <div className="space-y-3 text-xs text-muted-foreground">
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-status-ok shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="font-semibold text-foreground">100% Thuốc BVTV an toàn</strong>: Tuân thủ nghiêm ngặt danh mục <span className="inline-block bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded text-[11px]">Thông tư 75/2025/TT-BNNMT</span>.
+                  </span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-status-ok shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="font-semibold text-foreground">Thời gian cách ly (PHI)</strong> minh bạch, bắt buộc cho mọi thuốc sinh học & hóa học để bảo đảm vệ sinh an toàn thực phẩm.
+                  </span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-status-ok shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="font-semibold text-foreground">Trợ lý AI Lavi</strong> đồng hành 24/7 giải đáp thắc mắc và hướng dẫn chi tiết quy trình bón phân/phun thuốc.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KHỐI 2: HIỂN THỊ KẾT QUẢ CHẨN ĐOÁN (Tuân thủ thứ tự screens.md mục 4) */}
       {diagnoseData && (
         <div className="space-y-6">
@@ -410,17 +673,25 @@ export const DiagnosePage: React.FC = () => {
 
           {/* TRƯỜNG HỢP ẢNH NGOẠI LAI (is_ood = true): CHỈ cảnh báo + nút chụp lại */}
           {diagnoseData.is_ood ? (
-            <Card className="border-border bg-card shadow-sm p-6 text-center space-y-4">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-status-ood-bg text-status-ood">
-                <AlertTriangle className="h-7 w-7" />
+            <Card className="border-border bg-card shadow-sm p-8 text-center space-y-5">
+              <div className="relative mx-auto flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-status-ood-bg/50 blur-xl scale-75" />
+                <img
+                  src={laviConfusedImg}
+                  alt="Lavi bối rối chưa nhận diện được lá"
+                  className="relative w-36 h-36 object-contain mx-auto drop-shadow-md select-none"
+                />
               </div>
-              <div className="space-y-1">
-                <h3 className="text-lg font-bold text-foreground">
-                  Không nhận diện được lá cây trồng
+              <div className="space-y-2 max-w-lg mx-auto">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-status-ood-bg text-status-ood text-xs font-bold">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Không nhận diện được lá cây trồng
+                </div>
+                <h3 className="text-xl font-bold text-foreground">
+                  Lavi chưa nhìn rõ lá cây trên ảnh này rồi!
                 </h3>
-                <p className="text-sm text-muted-foreground max-w-lg mx-auto">
+                <p className="text-sm text-muted-foreground leading-relaxed">
                   {diagnoseData.warning ||
-                    'Ảnh nằm ngoài phạm vi 38 lớp cây trồng được hỗ trợ (OOD). Vui lòng không chụp vật thể lạ hoặc ảnh mờ mất nét.'}
+                    'Ảnh có thể bị mờ, góc chụp quá xa hoặc chụp nhầm vật thể lạ. Bà con đưa camera cách mặt lá khoảng 15–20cm, lấy nét rõ vào vết bệnh và chụp lại giúp Lavi nhé!'}
                 </p>
               </div>
 
@@ -428,7 +699,7 @@ export const DiagnosePage: React.FC = () => {
                 <Button
                   type="button"
                   onClick={handleReset}
-                  className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-6"
+                  className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-6 h-10 shadow-sm"
                 >
                   <Camera className="h-4 w-4 mr-2" /> Chụp lại trong khung ngắm 15–20cm
                 </Button>
@@ -437,6 +708,33 @@ export const DiagnosePage: React.FC = () => {
           ) : (
             /* TRƯỜNG HỢP IN-DISTRIBUTION (Ảnh nhận diện hợp lệ) */
             <div className="space-y-6">
+              {/* BANNER CHÚC MỪNG NẾU CÂY KHỎE MẠNH */}
+              {isHealthy && (
+                <Card className="border-status-ok/40 bg-status-ok-bg/30 shadow-xs overflow-hidden">
+                  <div className="p-6 md:p-8 flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
+                    <div className="relative shrink-0">
+                      <div className="absolute inset-0 rounded-full bg-status-ok/20 blur-xl scale-90" />
+                      <img
+                        src={laviHealthyImg}
+                        alt="Lavi chúc mừng cây khỏe mạnh"
+                        className="relative w-32 h-32 object-contain drop-shadow-md select-none"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-status-ok/20 text-status-ok text-xs font-bold">
+                        <CheckCircle2 className="h-4 w-4" /> Cây trồng hoàn toàn khỏe mạnh
+                      </div>
+                      <h3 className="text-xl sm:text-2xl font-extrabold text-foreground tracking-tight">
+                        Tuyệt vời! Không phát hiện dấu hiệu bệnh hại trên phiến lá
+                      </h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-xl">
+                        Hệ thống phân tích cho thấy phiến lá xanh tươi, sắc tố tế bào đồng nhất và không có triệu chứng nấm, vi khuẩn hay virus. Bà con hãy tiếp tục duy trì chế độ chăm sóc và tưới tiêu hợp lý nhé!
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
               {/* 3. TÊN BỆNH TOP-1, CÂY TRỒNG, SEVERITY & ĐỘ TIN CẬY */}
               {diagnoseData.result && (
                 <Card className="border-border bg-card shadow-xs overflow-hidden">
@@ -521,10 +819,32 @@ export const DiagnosePage: React.FC = () => {
                 </Card>
               )}
 
-              {/* 5. PHÁC ĐỒ XỬ LÝ CHUẨN IPM */}
-              <Card className="border-border bg-card shadow-xs p-5 md:p-6">
-                <TreatmentSteps steps={diagnoseData.treatment_guidelines} />
-              </Card>
+              {/* 5. PHÁC ĐỒ XỬ LÝ CHUẨN IPM CÙNG BÁC SĨ LAVI */}
+              {diagnoseData.treatment_guidelines && diagnoseData.treatment_guidelines.length > 0 && (
+                <Card className="border-border bg-card shadow-xs overflow-hidden">
+                  <div className="bg-linear-to-r from-primary/10 via-brand-mint-soft/50 to-transparent p-5 md:p-6 border-b border-border/60 flex flex-col sm:flex-row items-center sm:items-start gap-4">
+                    <img
+                      src={laviDoctorTreatmentImg}
+                      alt="Bác sĩ cây trồng Lavi"
+                      className="w-20 h-20 sm:w-24 sm:h-24 object-contain shrink-0 drop-shadow-sm select-none"
+                    />
+                    <div className="space-y-1 text-center sm:text-left">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-bold">
+                        <Sparkles className="h-3.5 w-3.5" /> Bác sĩ Lavi chỉ định phác đồ
+                      </div>
+                      <h3 className="text-base sm:text-lg font-bold text-foreground">
+                        Phác đồ can thiệp IPM {diagnoseData.result ? `cho ${diagnoseData.result.plant_name} bị ${diagnoseData.result.disease_name}` : ''}
+                      </h3>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Ưu tiên các biện pháp canh tác và chế phẩm sinh học trước khi dùng thuốc hóa học. Luôn đảm bảo thời gian cách ly (PHI) an toàn.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="p-5 md:p-6">
+                    <TreatmentSteps steps={diagnoseData.treatment_guidelines} />
+                  </div>
+                </Card>
+              )}
 
               {/* 6. VẬT TƯ & THUỐC BVTV GỢI Ý */}
               <Card className="border-border bg-card shadow-xs p-5 md:p-6">

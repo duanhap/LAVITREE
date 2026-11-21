@@ -23,6 +23,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFo
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { safeHref } from '@/lib/utils';
+import laviConfusedImg from '@/assets/brand/lavi-confused-retake.webp';
 import { Textarea } from '@/components/ui/textarea';
 
 interface ProductItem {
@@ -214,7 +215,7 @@ export const StorePage: React.FC = () => {
   const filteredProducts = products.filter((p) => {
     if (!p.is_allowed) return false;
 
-    if (onlySellingFilter && (p.availability === 'NOT_SOLD' || p.stock_quantity <= 0)) {
+    if (onlySellingFilter && (p.availability?.toUpperCase() === 'NOT_SOLD' || p.price <= 0 || p.stock_quantity <= 0)) {
       return false;
     }
 
@@ -398,11 +399,10 @@ export const StorePage: React.FC = () => {
             size="sm"
             variant={onlySellingFilter ? 'default' : 'outline'}
             onClick={() => setOnlySellingFilter(!onlySellingFilter)}
-            className={`h-7 px-2.5 text-xs rounded-full ${
-              onlySellingFilter
-                ? 'bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-700'
-                : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
-            }`}
+            className={`h-7 px-2.5 text-xs rounded-full ${onlySellingFilter
+              ? 'bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-700'
+              : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
+              }`}
           >
             Chỉ hàng đang bán
           </Button>
@@ -412,11 +412,10 @@ export const StorePage: React.FC = () => {
             size="sm"
             variant={phiFilter ? 'default' : 'outline'}
             onClick={() => setPhiFilter(!phiFilter)}
-            className={`h-7 px-2.5 text-xs rounded-full ${
-              phiFilter
-                ? 'bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-700'
-                : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
-            }`}
+            className={`h-7 px-2.5 text-xs rounded-full ${phiFilter
+              ? 'bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-700'
+              : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
+              }`}
           >
             <Clock className="w-3 h-3 mr-1" />
             PHI ≤ 3 ngày (An toàn cận thu hoạch)
@@ -427,11 +426,10 @@ export const StorePage: React.FC = () => {
             size="sm"
             variant={rainFilter ? 'default' : 'outline'}
             onClick={() => setRainFilter(!rainFilter)}
-            className={`h-7 px-2.5 text-xs rounded-full ${
-              rainFilter
-                ? 'bg-cyan-700 text-white hover:bg-cyan-800 border-cyan-700'
-                : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
-            }`}
+            className={`h-7 px-2.5 text-xs rounded-full ${rainFilter
+              ? 'bg-cyan-700 text-white hover:bg-cyan-800 border-cyan-700'
+              : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
+              }`}
           >
             Chống rửa trôi khi mưa ẩm
           </Button>
@@ -529,8 +527,8 @@ export const StorePage: React.FC = () => {
                         isFarmingSupply
                           ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300'
                           : isBio
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                          : 'bg-blue-50 text-blue-800 border-blue-300'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                            : 'bg-blue-50 text-blue-800 border-blue-300'
                       }
                     >
                       {isFarmingSupply ? (
@@ -656,10 +654,22 @@ export const StorePage: React.FC = () => {
           {/* Danh sách món trong giỏ */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {cart.length === 0 ? (
-              <div className="text-center py-16 text-muted-foreground space-y-3">
-                <ShoppingBag className="w-12 h-12 mx-auto text-muted-foreground/40" />
-                <p className="text-sm">Giỏ hàng của bạn đang trống.</p>
-                <Button variant="outline" size="sm" onClick={() => setIsCartOpen(false)}>
+              <div className="text-center py-12 text-muted-foreground space-y-4">
+                <div className="relative mx-auto flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full bg-primary/10 blur-xl scale-75" />
+                  <img
+                    src={laviConfusedImg}
+                    alt="Giỏ hàng trống"
+                    className="relative w-28 h-28 object-contain mx-auto drop-shadow-xs select-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">Giỏ hàng của bạn đang trống</p>
+                  <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+                    Chưa có chế phẩm hay thuốc BVTV nào được chọn.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setIsCartOpen(false)} className="border-border text-xs">
                   Xem sản phẩm ngay
                 </Button>
               </div>
