@@ -1204,7 +1204,13 @@ export const AdminIngestPage: React.FC = () => {
       const res = await apiClient.get<KnowledgeImageItem[]>('/knowledge/images', {
         params: { source_url: url.trim() },
       });
-      setArticleImages(res.data || []);
+      // Lọc phòng thủ phía client: Chỉ nhận đúng ảnh có source_url trùng với bài viết hiện tại
+      const targetClean = url.trim().replace(/\/+$/, '');
+      const list = (res.data || []).filter((img) => {
+        const imgUrlClean = (img.source_url || '').trim().replace(/\/+$/, '');
+        return imgUrlClean === targetClean;
+      });
+      setArticleImages(list);
     } catch {
       // ignore
     } finally {

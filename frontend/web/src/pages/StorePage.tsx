@@ -6,7 +6,7 @@ import * as z from 'zod';
 import {
   ShoppingBag, Search, Filter, CheckCircle2,
   AlertTriangle, Plus, Minus, Trash2, ArrowRight, Truck,
-  Clock, Package, Leaf, FlaskConical, X, ShoppingCart
+  Clock, Package, Leaf, FlaskConical, X, ShoppingCart, ZoomIn
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
@@ -22,7 +22,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { safeHref } from '@/lib/utils';
+import { cn, safeHref } from '@/lib/utils';
 import laviConfusedImg from '@/assets/brand/lavi-confused-retake.webp';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -61,23 +61,57 @@ type CheckoutFormData = z.infer<typeof checkoutSchema>;
 
 // BUG-37: ảnh sản phẩm. Không có ảnh, đường dẫn không phải http(s) hoặc tải lỗi (file không tồn tại)
 // thì hiện icon theo loại thuốc, giữ nguyên chiều cao để các thẻ thẳng hàng.
-const ProductThumb: React.FC<{ product: ProductItem; isBio: boolean; isFarmingSupply: boolean }> = ({ product, isBio, isFarmingSupply }) => {
+const ProductThumb: React.FC<{
+  product: ProductItem;
+  isBio: boolean;
+  isFarmingSupply: boolean;
+  onPreview?: (src: string, name: string) => void;
+}> = ({ product, isBio, isFarmingSupply, onPreview }) => {
   const src = safeHref(product.image_url);
   const [failed, setFailed] = useState(false);
   const Icon = isFarmingSupply ? Package : isBio ? Leaf : FlaskConical;
+  const canPreview = !!src && !failed && !!onPreview;
+
   return (
-    <div className="h-32 w-full bg-muted/40 border-b border-border flex items-center justify-center overflow-hidden">
+    <div
+      role={canPreview ? "button" : undefined}
+      tabIndex={canPreview ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (canPreview && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onPreview(src!, product.name);
+        }
+      }}
+      className={cn(
+        "h-48 sm:h-52 w-full bg-white dark:bg-muted/20 border-b border-border flex items-center justify-center overflow-hidden relative group select-none",
+        canPreview && "cursor-pointer"
+      )}
+      onClick={() => {
+        if (canPreview && src) {
+          onPreview(src, product.name);
+        }
+      }}
+      title={canPreview ? "Bấm để xem ảnh lớn" : undefined}
+    >
       {src && !failed ? (
-        <img
-          src={src}
-          alt={product.name}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          className="h-full w-full object-contain p-2"
-          onError={() => setFailed(true)}
-        />
+        <>
+          <img
+            src={src}
+            alt={product.name}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            className="h-full w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
+            onError={() => setFailed(true)}
+          />
+          {canPreview && (
+            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-semibold backdrop-blur-[1px]">
+              <ZoomIn className="w-4 h-4" />
+              <span>Xem ảnh lớn</span>
+            </div>
+          )}
+        </>
       ) : (
-        <Icon className="w-10 h-10 text-muted-foreground/50" aria-label="Chưa có ảnh sản phẩm" />
+        <Icon className="w-12 h-12 text-muted-foreground/40" aria-label="Chưa có ảnh sản phẩm" />
       )}
     </div>
   );
@@ -88,6 +122,9 @@ export const StorePage: React.FC = () => {
   const initialDisease = searchParams.get('disease') || '';
   const { user } = useAuth();
   const cartStorageKey = user?.id ? `lavitree_cart_${user.id}` : 'lavitree_cart_guest';
+
+  // State preview ảnh phóng to
+  const [previewImage, setPreviewImage] = useState<{ src: string; name: string } | null>(null);
 
   // State danh mục
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -518,7 +555,12 @@ export const StorePage: React.FC = () => {
 
             return (
               <Card key={p.id} className="flex flex-col overflow-hidden hover:shadow-md transition-shadow border-border bg-card">
-                <ProductThumb product={p} isBio={isBio} isFarmingSupply={isFarmingSupply} />
+                <ProductThumb
+                  product={p}
+                  isBio={isBio}
+                  isFarmingSupply={isFarmingSupply}
+                  onPreview={(src, name) => setPreviewImage({ src, name })}
+                />
                 <CardHeader className="p-4 pb-2 space-y-2">
                   <div className="flex items-center justify-between gap-1 flex-wrap">
                     <Badge
@@ -575,11 +617,7 @@ export const StorePage: React.FC = () => {
                   )}
                 </CardHeader>
 
-                <CardContent className="p-4 pt-1 flex-1 flex flex-col justify-between space-y-3">
-                  <p className="text-xs text-muted-foreground line-clamp-2 bg-muted/30 p-2 rounded-md border border-border/50">
-                    {p.dosage_instruction}
-                  </p>
-
+                <CardContent className="p-4 pt-1 flex-1 flex flex-col justify-end space-y-3">
                   <div className="flex items-center justify-between pt-2 border-t border-border/60">
                     <div>
                       <div className="text-lg font-extrabold text-emerald-800">
@@ -634,6 +672,30 @@ export const StorePage: React.FC = () => {
           })}
         </div>
       )}
+
+      {/* Lightbox xem ảnh sản phẩm đầy đủ */}
+      <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
+        <DialogContent className="max-w-xl sm:max-w-2xl p-4 sm:p-6 bg-card border-border">
+          <DialogHeader className="mb-2">
+            <DialogTitle className="text-base sm:text-lg font-bold text-foreground line-clamp-2">
+              {previewImage?.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Ảnh bao bì và nhãn thuốc bảo vệ thực vật chính hãng
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="w-full flex items-center justify-center bg-white dark:bg-muted/30 rounded-xl p-3 sm:p-6 border border-border/60 overflow-hidden min-h-[300px] max-h-[70vh]">
+            {previewImage && (
+              <img
+                src={previewImage.src}
+                alt={previewImage.name}
+                className="max-h-[65vh] w-auto max-w-full object-contain rounded-lg drop-shadow-sm select-none"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Cart Drawer (Sheet) */}
       <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
