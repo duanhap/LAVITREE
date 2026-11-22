@@ -280,17 +280,17 @@ export const ChatPage: React.FC = () => {
     : 'Làm sao để thuốc không bị mưa rửa trôi sau khi phun?';
   const quickQuestions = diseaseNameVi
     ? [
-        `Bệnh ${diseaseNameVi} do nấm hay vi khuẩn gây ra, lây lan thế nào?`,
-        `Xử lý ${diseaseNameVi} thế nào khi còn ít ngày nữa là thu hoạch?`,
-        `Có chế phẩm sinh học nào dùng được cho bệnh ${diseaseNameVi} không?`,
-        weatherQuestion,
-      ]
+      `Bệnh ${diseaseNameVi} do nấm hay vi khuẩn gây ra, lây lan thế nào?`,
+      `Xử lý ${diseaseNameVi} thế nào khi còn ít ngày nữa là thu hoạch?`,
+      `Có chế phẩm sinh học nào dùng được cho bệnh ${diseaseNameVi} không?`,
+      weatherQuestion,
+    ]
     : [
-        'Lá cà chua có đốm nâu, viền vàng là bị bệnh gì?',
-        'Phân biệt bệnh sương mai và bệnh đốm vòng trên cà chua thế nào?',
-        'Trước khi thu hoạch bao lâu thì phải ngưng phun thuốc?',
-        weatherQuestion,
-      ];
+      'Lá cà chua có đốm nâu, viền vàng là bị bệnh gì?',
+      'Phân biệt bệnh sương mai và bệnh đốm vòng trên cà chua thế nào?',
+      'Trước khi thu hoạch bao lâu thì phải ngưng phun thuốc?',
+      weatherQuestion,
+    ];
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
@@ -609,7 +609,13 @@ export const ChatPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              messages.map(msg => <ChatMessageItem key={msg.id} message={msg} />)
+              messages.map(msg => (
+                <ChatMessageItem
+                  key={msg.id}
+                  message={msg}
+                  diseaseCode={contextParams.current_disease_code || classCodeParam}
+                />
+              ))
             )}
           </div>
         </div>

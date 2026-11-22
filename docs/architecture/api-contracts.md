@@ -387,19 +387,22 @@
 
 ### 3.4.1. `GET /api/v1/diseases` (Danh mục Sổ tay Bệnh học & Cây trồng)
 *Phục vụ màn hình W-07 Sổ tay Bệnh học 14 loài cây & 40 danh mục chẩn đoán chuẩn Khuyến nông*
-- **Query Params**: `plantId` (GUID, optional), `search` (string, optional)
+- **Query Params**: `plantId` (GUID/int, optional), `search` (string, optional)
 - **Response Body (`200 OK`)**:
   ```json
   [
     {
-      "id": "22222222-0000-0000-0000-000000000001",
-      "plant_id": "11111111-0000-0000-0000-000000000001",
+      "id": 1,
+      "plant_id": 1,
       "plant_name": "Táo",
       "class_code": "Apple___Apple_scab",
       "common_name_vi": "Bệnh vảy táo (Scab)",
+      "pathogen_type": "Nấm",
+      "pathogen_name": "Venturia inaequalis",
+      "approved_knowledge_count": 6,
       "symptoms": "Vết bệnh hình tròn màu ô liu hoặc nâu nhung trên mặt lá...",
       "prevention": "Thu gom lá rụng, cắt tỉa cành thông thoáng, phun thuốc phòng định kỳ.",
-      "severity_level": "Trung bình"
+      "severity_level": 2
     }
   ]
   ```
@@ -409,32 +412,66 @@
 - **Response Body (`200 OK`)**:
   ```json
   {
-    "id": "22222222-0000-0000-0000-000000000010",
+    "id": 10,
     "plant_name": "Cà chua",
     "class_code": "Tomato___Late_blight",
     "common_name_vi": "Bệnh mốc sương (Late blight)",
+    "pathogen_type": "Nấm",
+    "pathogen_name": "Phytophthora infestans",
     "symptoms": "Vết bệnh úng nước màu nâu xám trên mép lá, mặt dưới có lớp mốc trắng...",
+    "capture_tip": "Chụp cận cảnh 15–20cm, giữ lá chiếm từ 70% khung hình trở lên...",
     "prevention": "Chọn giống kháng, trồng luống cao thoát nước, luân canh cây trồng khác họ cà.",
-    "severity_level": "Nghiêm trọng",
-    "treatment_guidelines": [
+    "severity_level": 3,
+    "treatment_plans": [
       {
         "step_order": 1,
         "action_title": "Biện pháp Canh tác & Cơ học",
-        "instructions": "Cắt tỉa lá bệnh, tiêu hủy xa vườn."
+        "instructions": "Cắt tỉa lá bệnh, tiêu hủy xa vườn.",
+        "isolation_days": null
       }
     ],
-    "recommended_products": [
+    "products": [
       {
-        "id": "11111111-2222-3333-4444-555555555551",
+        "id": 1,
         "name": "Ridomil Gold 68WG",
         "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
         "price": 65000,
-        "phi_days": 7,
-        "is_allowed": true
+        "image_url": "https://...",
+        "dosage_instruction": "Pha 50g cho bình 16 lít nước"
       }
     ]
   }
   ```
+
+### 3.4.3. `PATCH /api/v1/diseases/{id}` (Cập nhật Tác nhân & Tên khoa học Bệnh học - Admin Only - TASK-20)
+*Cho phép Quản trị viên cập nhật phân loại tác nhân và tên khoa học chuẩn Latin từ các nghiên cứu/bài báo đã kiểm duyệt.*
+- **Headers**: `Authorization: Bearer <Admin JWT>`
+- **Request Body**:
+  ```json
+  {
+    "pathogen_type": "Nấm",
+    "pathogen_name": "Phytophthora infestans"
+  }
+  ```
+  *Ràng buộc*:
+  - `pathogen_type`: Bắt buộc. Chỉ chấp nhận một trong 5 giá trị: `"Nấm"`, `"Vi khuẩn"`, `"Virus"`, `"Nhện hại"`, `"Khỏe mạnh"`.
+  - `pathogen_name`: Chuỗi ký tự tối đa 200 ký tự, không chứa `<` hoặc `>`, chuỗi rỗng chuyển thành `null`.
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "id": 10,
+    "class_code": "Tomato___Late_blight",
+    "plant_name": "Cà chua",
+    "common_name_vi": "Bệnh mốc sương (Late blight)",
+    "pathogen_type": "Nấm",
+    "pathogen_name": "Phytophthora infestans",
+    "updated_at": "2026-11-22T00:30:00Z"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: `pathogen_type` không hợp lệ hoặc `pathogen_name` chứa ký tự nguy hiểm / vượt quá 200 ký tự.
+  - `401 Unauthorized` / `403 Forbidden`: Người dùng không có quyền Admin.
+  - `404 Not Found`: Không tìm thấy bệnh với `id` yêu cầu.
 
 ---
 

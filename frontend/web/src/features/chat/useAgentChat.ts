@@ -319,6 +319,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
                     draft_order: finalDraftOrder,
                     total_latency_ms: finalLatency,
                     isStreaming: eventName !== 'final_answer',
+                    receivedFinal: receivedFinal,
                   };
                 }
                 return updated;

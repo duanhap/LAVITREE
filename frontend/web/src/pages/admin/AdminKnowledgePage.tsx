@@ -49,18 +49,38 @@ import {
 } from '@/features/admin/lib';
 import { useDiseaseOptions } from '@/features/admin/hooks/useDiseaseOptions';
 
+const KNOWLEDGE_FILTERS_STORAGE_KEY = 'lavitree_admin_knowledge_filters';
+
+interface SavedKnowledgeFilters {
+  plant?: string;
+  diseaseClass?: string;
+  origin?: 'ALL' | 'Việt Nam' | 'Quốc tế';
+  approval?: 'ALL' | 'APPROVED' | 'PENDING';
+  search?: string;
+  page?: number;
+}
+
+const getSavedKnowledgeFilters = (): SavedKnowledgeFilters | null => {
+  try {
+    const raw = sessionStorage.getItem(KNOWLEDGE_FILTERS_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+};
+
 export const AdminKnowledgePage: React.FC = () => {
   const navigate = useNavigate();
   const { diseases, uniquePlants } = useDiseaseOptions();
+  const savedFilters = useMemo(() => getSavedKnowledgeFilters(), []);
 
   // ==================== STATE DUYỆT TRI THỨC ==================== 
   const [sources, setSources] = useState<KnowledgeSourceItem[]>([]);
   const [loadingSources, setLoadingSources] = useState<boolean>(false);
-  const [sourceFilterPlant, setSourceFilterPlant] = useState<string>('ALL');
-  const [sourceFilterClass, setSourceFilterClass] = useState<string>('ALL');
-  const [sourceOriginFilter, setSourceOriginFilter] = useState<'ALL' | 'Việt Nam' | 'Quốc tế'>('ALL');
-  const [sourceApprovalFilter, setSourceApprovalFilter] = useState<'ALL' | 'APPROVED' | 'PENDING'>('ALL');
-  const [sourceSearch, setSourceSearch] = useState<string>('');
+  const [sourceFilterPlant, setSourceFilterPlant] = useState<string>(savedFilters?.plant || 'ALL');
+  const [sourceFilterClass, setSourceFilterClass] = useState<string>(savedFilters?.diseaseClass || 'ALL');
+  const [sourceOriginFilter, setSourceOriginFilter] = useState<'ALL' | 'Việt Nam' | 'Quốc tế'>(savedFilters?.origin || 'ALL');
+  const [sourceApprovalFilter, setSourceApprovalFilter] = useState<'ALL' | 'APPROVED' | 'PENDING'>(savedFilters?.approval || 'ALL');
+  const [sourceSearch, setSourceSearch] = useState<string>(savedFilters?.search || '');
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeSourceItem | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -68,9 +88,26 @@ export const AdminKnowledgePage: React.FC = () => {
   const [deletingArticle, setDeletingArticle] = useState<boolean>(false);
   const [deleteBatchModalOpen, setDeleteBatchModalOpen] = useState<boolean>(false);
   const [deletingBatch, setDeletingBatch] = useState<boolean>(false);
-  const [curationPage, setCurationPage] = useState<number>(1);
+  const [curationPage, setCurationPage] = useState<number>(savedFilters?.page || 1);
   const [curationPageSize, setCurationPageSize] = useState<number>(10);
   const [batchActionLoading, setBatchActionLoading] = useState<boolean>(false);
+
+  // Lưu trạng thái bộ lọc vào sessionStorage khi người dùng thay đổi
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        KNOWLEDGE_FILTERS_STORAGE_KEY,
+        JSON.stringify({
+          plant: sourceFilterPlant,
+          diseaseClass: sourceFilterClass,
+          origin: sourceOriginFilter,
+          approval: sourceApprovalFilter,
+          search: sourceSearch,
+          page: curationPage,
+        })
+      );
+    } catch {}
+  }, [sourceFilterPlant, sourceFilterClass, sourceOriginFilter, sourceApprovalFilter, sourceSearch, curationPage]);
 
   // Badge hiển thị xuất xứ bài báo (Việt Nam / Nước ngoài)
   const renderOriginPill = (scope: 'Việt Nam' | 'Quốc tế', compact = false) => (

@@ -43,7 +43,8 @@ Lưu 14 loài cây mục tiêu của Lavitree (Cà chua, Khoai tây, Ngô, Táo,
 | `PlantId` | `INT` | FK $\rightarrow$ PlantCategories | Thuộc loài cây nào |
 | `ClassCode` | `VARCHAR(100)` | UNIQUE, NOT NULL | Mã nhãn Model (Ví dụ: `Tomato___Late_blight`) |
 | `CommonNameVi` | `VARCHAR(150)` | NOT NULL | Tên bệnh tiếng Việt ("Bệnh mốc sương cà chua") |
-| `PathogenType` | `VARCHAR(50)` | NOT NULL | Tác nhân: Nấm / Vi khuẩn / Virus / Khỏe mạnh |
+| `PathogenType` | `VARCHAR(50)` | NOT NULL | Tác nhân: Nấm / Vi khuẩn / Virus / Nhện hại / Khỏe mạnh |
+| `PathogenName` | `VARCHAR(200)` | NULL | Tên khoa học tác nhân (*Latin*, ví dụ: *Phytophthora infestans*) (TASK-20) |
 | `Symptoms` | `TEXT` | NOT NULL | Triệu chứng nhận diện bề mặt lá |
 | `Prevention` | `TEXT` | NOT NULL | Biện pháp canh tác phòng ngừa |
 | `SeverityLevel` | `INT` | DEFAULT 2 | Mức độ nghiêm trọng (1: Nhẹ, 2: Vừa, 3: Nguy hiểm) |

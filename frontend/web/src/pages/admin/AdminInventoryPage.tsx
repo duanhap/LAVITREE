@@ -18,6 +18,7 @@ import {
   ImageOff,
   Pencil,
   Ban,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -322,6 +323,38 @@ export const AdminInventoryPage: React.FC = () => {
       } else {
         await fetchSuggestions();
       }
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  const handleDeleteSuggestion = async (suggestionId: number, mentionText: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn gợi ý "${mentionText}" khỏi danh sách?`)) {
+      return;
+    }
+    try {
+      await apiClient.delete(`/knowledge/product-suggestions/${suggestionId}`);
+      toast.success(`Đã xóa gợi ý "${mentionText}".`);
+      const norm = mentionText.trim().toLowerCase();
+      setSuggestions((prev) => prev.filter((s) => s.mention_text.trim().toLowerCase() !== norm));
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  const handleCleanDismissedSuggestions = async () => {
+    const dismissedCount = suggestions.filter((s) => s.status === 'DISMISSED').length;
+    if (dismissedCount === 0) {
+      toast.info('Không có gợi ý đã bỏ qua nào cần dọn dẹp.');
+      return;
+    }
+    if (!window.confirm(`Bạn có chắc chắn muốn dọn sạch ${dismissedCount} gợi ý đang ở trạng thái "Đã bỏ qua"?`)) {
+      return;
+    }
+    try {
+      const res = await apiClient.delete<{ message: string; deleted_count: number }>('/knowledge/product-suggestions/dismissed');
+      toast.success(res.data?.message || `Đã dọn sạch ${dismissedCount} gợi ý.`);
+      setSuggestions((prev) => prev.filter((s) => s.status !== 'DISMISSED'));
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -1037,16 +1070,30 @@ export const AdminInventoryPage: React.FC = () => {
                 </div>
               </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchSuggestions}
-                disabled={loadingSuggestions}
-                className="h-9 bg-card border-border hover:bg-muted text-xs shrink-0"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loadingSuggestions ? 'animate-spin' : ''}`} />
-                Làm mới gợi ý
-              </Button>
+              <div className="flex items-center gap-2">
+                {suggestions.some((s) => s.status === 'DISMISSED') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCleanDismissedSuggestions}
+                    className="h-9 bg-card border-border hover:bg-destructive/10 hover:text-destructive text-xs shrink-0"
+                    title="Xóa vĩnh viễn tất cả các gợi ý đã được đánh dấu Bỏ qua"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1 text-destructive" />
+                    Dọn gợi ý đã bỏ qua ({suggestions.filter((s) => s.status === 'DISMISSED').length})
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchSuggestions}
+                  disabled={loadingSuggestions}
+                  className="h-9 bg-card border-border hover:bg-muted text-xs shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loadingSuggestions ? 'animate-spin' : ''}`} />
+                  Làm mới gợi ý
+                </Button>
+              </div>
             </div>
 
             <Card className="border-border bg-card shadow-xs overflow-hidden">
@@ -1257,14 +1304,35 @@ export const AdminInventoryPage: React.FC = () => {
                                     size="sm"
                                     variant="ghost"
                                     onClick={() => handleDismissSuggestion(actionItem.id)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                    className="h-7 px-1.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 text-[11px]"
                                     title={`Bỏ qua cả ${group.count} gợi ý này`}
                                   >
                                     <X className="w-3.5 h-3.5" />
                                   </Button>
+
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteSuggestion(actionItem.id, group.mentionText)}
+                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                    title={`Xóa vĩnh viễn cả ${group.count} gợi ý này`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
                                 </div>
                               ) : (
-                                <span className="text-[11px] text-muted-foreground">Đã xử lý ({group.count})</span>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <span className="text-[11px] text-muted-foreground">Đã xử lý ({group.count})</span>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteSuggestion(actionItem.id, group.mentionText)}
+                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                    title={`Xóa vĩnh viễn cả ${group.count} gợi ý này`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -1446,14 +1514,35 @@ export const AdminInventoryPage: React.FC = () => {
                                     size="sm"
                                     variant="ghost"
                                     onClick={() => handleDismissSuggestion(sug.id)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                    className="h-7 px-1.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 text-[11px]"
                                     title="Bỏ qua gợi ý này"
                                   >
                                     <X className="w-3.5 h-3.5" />
                                   </Button>
+
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteSuggestion(sug.id, sug.mention_text)}
+                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                    title="Xóa vĩnh viễn gợi ý này"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
                                 </div>
                               ) : (
-                                <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteSuggestion(sug.id, sug.mention_text)}
+                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
+                                    title="Xóa vĩnh viễn gợi ý này"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
                               )}
                             </td>
                           </tr>
