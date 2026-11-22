@@ -99,7 +99,7 @@ public class CommitSelectionDto
     public string ParagraphId { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "Loại nội dung (unit_type) không được để trống.")]
-    [RegularExpression(@"^(SYMPTOMS|CAUSE_CONDITIONS|PREVENTION|TREATMENT)$", ErrorMessage = "unit_type phải thuộc: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT.")]
+    [RegularExpression(@"^(SYMPTOMS|CAUSE_CONDITIONS|PREVENTION|TREATMENT|SUMMARY)$", ErrorMessage = "unit_type phải thuộc: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT, SUMMARY.")]
     [JsonPropertyName("unit_type")]
     public string UnitType { get; set; } = string.Empty;
 

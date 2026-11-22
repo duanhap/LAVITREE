@@ -619,10 +619,19 @@ public class KnowledgeController : ControllerBase
 
     private static readonly HashSet<string> VerbatimUnitTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "SYMPTOMS", "CAUSE_CONDITIONS", "PREVENTION", "TREATMENT"
+        "SYMPTOMS", "CAUSE_CONDITIONS", "PREVENTION", "TREATMENT", "SUMMARY"
     };
 
     private static string CollapseWhitespace(string text) => Regex.Replace(text, @"\s+", " ").Trim();
+
+    private static string NormalizeMultilineText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var normalized = Regex.Replace(text.Trim(), @"\r\n?", "\n");
+        normalized = Regex.Replace(normalized, @"[ \t]+", " ");
+        normalized = Regex.Replace(normalized, @"[ \t]*\n[ \t]*", "\n");
+        return normalized.Trim();
+    }
 
     private static string ContentTypeForUnit(string unitType) => unitType switch
     {
@@ -630,6 +639,7 @@ public class KnowledgeController : ControllerBase
         "CAUSE_CONDITIONS" => "Nguyên nhân & Điều kiện phát sinh",
         "PREVENTION" => "Biện pháp phòng ngừa",
         "TREATMENT" => "Biện pháp điều trị",
+        "SUMMARY" => "Tóm tắt / Tổng quan",
         _ => unitType
     };
 
@@ -890,7 +900,7 @@ public class KnowledgeController : ControllerBase
             {
                 if (!VerbatimUnitTypes.Contains(unit))
                 {
-                    return BadRequest(new { detail = $"Loại nội dung '{dto.UnitType}' không hợp lệ. Chỉ chấp nhận: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT." });
+                    return BadRequest(new { detail = $"Loại nội dung '{dto.UnitType}' không hợp lệ. Chỉ chấp nhận: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT, SUMMARY." });
                 }
                 if (!string.Equals(source.UnitType, unit, StringComparison.OrdinalIgnoreCase))
                 {
@@ -1275,6 +1285,14 @@ public class KnowledgeController : ControllerBase
                 p.SuggestedUnitType = labelItem.UnitType;
                 p.Mentions = labelItem.Mentions ?? new List<MentionDto>();
             }
+            else
+            {
+                // Heuristic nhận diện FAQ / Tóm tắt câu hỏi thường gặp khi AI không trả về nhãn riêng
+                if (Regex.IsMatch(p.Text, @"(câu\s*hỏi\s*thường\s*gặp|thắc\s*mắc|faq|hỏi\s*đáp|\?[\s\S]*\?.*-->|\?\s*$)", RegexOptions.IgnoreCase))
+                {
+                    p.SuggestedUnitType = "SUMMARY";
+                }
+            }
         }
 
         // Ưu tiên: Nếu Admin đã điền ở Bước 1 thì dùng của Admin, ngược lại lấy gợi ý từ Agent
@@ -1378,7 +1396,7 @@ public class KnowledgeController : ControllerBase
 
         var allowedUnitTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "SYMPTOMS", "CAUSE_CONDITIONS", "PREVENTION", "TREATMENT"
+            "SYMPTOMS", "CAUSE_CONDITIONS", "PREVENTION", "TREATMENT", "SUMMARY"
         };
 
         var selectedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1386,7 +1404,7 @@ public class KnowledgeController : ControllerBase
         {
             if (!allowedUnitTypes.Contains(sel.UnitType))
             {
-                return BadRequest(new { detail = $"Loại nội dung '{sel.UnitType}' không hợp lệ. Chỉ chấp nhận: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT." });
+                return BadRequest(new { detail = $"Loại nội dung '{sel.UnitType}' không hợp lệ. Chỉ chấp nhận: SYMPTOMS, CAUSE_CONDITIONS, PREVENTION, TREATMENT, SUMMARY." });
             }
 
             if (!selectedIds.Add(sel.ParagraphId))
@@ -1427,15 +1445,15 @@ public class KnowledgeController : ControllerBase
 
             if (!string.IsNullOrWhiteSpace(sel.CustomText))
             {
-                chosenText = CollapseWhitespace(sel.CustomText);
-                if (!CollapseWhitespace(para.Text).Contains(chosenText, StringComparison.Ordinal))
+                chosenText = NormalizeMultilineText(sel.CustomText);
+                if (!CollapseWhitespace(para.Text).Contains(CollapseWhitespace(chosenText), StringComparison.Ordinal))
                 {
                     return BadRequest(new { detail = $"Nội dung đoạn '{sel.ParagraphId}' không khớp nguyên văn với đoạn {baseId} của bài báo (không được sửa chữ, quy định Điều 25 Luật SHTT)." });
                 }
             }
             else
             {
-                chosenText = para.Text;
+                chosenText = NormalizeMultilineText(para.Text);
             }
             chosenMentions = sel.Mentions ?? (isSplitPart ? null : para.Mentions) ?? new List<MentionDto>();
 
