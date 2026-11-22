@@ -67,6 +67,7 @@ export const TreatmentSection: React.FC<TreatmentSectionProps> = ({
                     e.preventDefault();
                     onRefClick(p.refIndex);
                   }}
+                  aria-label={`Nguồn số ${p.refIndex}`}
                   className="inline-flex items-center align-super ml-1.5 px-1 py-0.2 rounded text-[11px] font-bold text-primary bg-primary/10 hover:bg-primary hover:text-white transition-colors cursor-pointer"
                 >
                   [{p.refIndex}]

@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { toast } from 'sonner';
 
 import type {
@@ -50,6 +51,9 @@ export const HandbookDiseasePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isNotFound, setIsNotFound] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Lỗi riêng khi tải tri thức: không được hiển thị nhầm thành "chưa có tài liệu" (spec 5.4)
+  const [knowledgeError, setKnowledgeError] = useState<unknown>(null);
+  const [isRetryingKnowledge, setIsRetryingKnowledge] = useState<boolean>(false);
 
   // Trạng thái lọc ảnh triệu chứng và ảnh phóng to
   const [selectedImagePart, setSelectedImagePart] = useState<string>('ALL');
@@ -72,12 +76,14 @@ export const HandbookDiseasePage: React.FC = () => {
     setIsLoading(true);
     setIsNotFound(false);
     setErrorMessage(null);
+    setKnowledgeError(null);
 
     try {
       const [diseaseRes, sourcesRes, imagesRes] = await Promise.allSettled([
         apiClient.get<DiseaseDetailResponse>(`/diseases/by-class/${encodeURIComponent(decodedClassCode)}`),
         apiClient.get<PublicKnowledgeSource[]>(`/knowledge/sources`, {
-          params: { modelClass: decodedClassCode, page: 1, pageSize: 200 },
+          // isApproved=true: Admin đăng nhập cũng chỉ thấy bài đã duyệt, giống nông dân
+        params: { modelClass: decodedClassCode, isApproved: true, page: 1, pageSize: 200 },
         }),
         apiClient.get<KnowledgeImageItem[]>(`/knowledge/images`, {
           params: { modelClass: decodedClassCode },
@@ -105,8 +111,9 @@ export const HandbookDiseasePage: React.FC = () => {
           : [];
         setSources(list);
       } else {
-        // Lỗi riêng phần tri thức không làm đổ vỡ cả trang bệnh
-        console.warn('[HandbookDiseasePage] Không tải được sources:', sourcesRes.reason);
+        // Lỗi riêng phần tri thức không làm đổ vỡ cả trang bệnh, nhưng phải báo lỗi + cho thử lại
+        setSources([]);
+        setKnowledgeError(sourcesRes.reason);
       }
 
       if (imagesRes.status === 'fulfilled') {
@@ -122,6 +129,25 @@ export const HandbookDiseasePage: React.FC = () => {
       setErrorMessage(getErrorMessage(err));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Chỉ tải lại phần tri thức (nút "Thử lại" khi API tri thức lỗi)
+  const reloadKnowledge = async () => {
+    if (!decodedClassCode || isRetryingKnowledge) return;
+    setIsRetryingKnowledge(true);
+    try {
+      const res = await apiClient.get<PublicKnowledgeSource[]>(`/knowledge/sources`, {
+        // isApproved=true: Admin đăng nhập cũng chỉ thấy bài đã duyệt, giống nông dân
+        params: { modelClass: decodedClassCode, isApproved: true, page: 1, pageSize: 200 },
+      });
+      const raw = res.data;
+      setSources(Array.isArray(raw) ? raw : Array.isArray((raw as any)?.items) ? (raw as any).items : []);
+      setKnowledgeError(null);
+    } catch (err) {
+      setKnowledgeError(err);
+    } finally {
+      setIsRetryingKnowledge(false);
     }
   };
 
@@ -282,12 +308,16 @@ export const HandbookDiseasePage: React.FC = () => {
       />
 
       {/* Thanh mục lục cho thiết bị di động */}
+      {/* Chỉ dùng trên mobile/tablet; desktop đã có cột phụ bên phải (tránh hiện 2 mục lục).
+          `contents` giữ thanh chip sticky theo trang thay vì theo khung bọc. */}
       {tocItems.length > 0 && (
-        <DiseaseToc
-          items={tocItems}
-          classCode={disease.classCode}
-          captureTip={disease.captureTip}
-        />
+        <div className="contents lg:hidden">
+          <DiseaseToc
+            items={tocItems}
+            classCode={disease.classCode}
+            captureTip={disease.captureTip}
+          />
+        </div>
       )}
 
       {/* Bố cục 2 cột (Desktop): Nội dung chính (trái) + Cột phụ dính (phải) */}
@@ -295,7 +325,15 @@ export const HandbookDiseasePage: React.FC = () => {
         {/* ================= CỘT NỘI DUNG CHÍNH ================= */}
         <div className="space-y-10 min-w-0">
           {/* TRƯỜNG HỢP 0 ĐOẠN ĐÃ DUYỆT: Hiển thị EmptyState trung thực */}
-          {!hasApprovedKnowledge ? (
+          {knowledgeError ? (
+            <ErrorState
+              title="Không tải được tài liệu của bệnh này"
+              error={knowledgeError}
+              onRetry={reloadKnowledge}
+              retryText={isRetryingKnowledge ? 'Đang tải lại…' : 'Thử lại'}
+              className="my-0 max-w-none"
+            />
+          ) : !hasApprovedKnowledge ? (
             <div className="rounded-2xl border border-border bg-card p-6 md:p-8 text-center space-y-4 shadow-2xs">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary">
                 <FileSearch className="h-6 w-6" />
@@ -500,7 +538,7 @@ export const HandbookDiseasePage: React.FC = () => {
                         </p>
                       )}
                       <div className="pt-2 border-t border-border/50">
-                        <Button asChild variant="outline" size="sm" className="w-full text-xs font-semibold h-8 border-border hover:bg-primary/10 hover:text-primary">
+                        <Button asChild variant="outline" size="sm" className="w-full text-xs font-semibold h-10 lg:h-8 border-border hover:bg-primary/10 hover:text-primary">
                           <Link to="/store">
                             <ShoppingBag className="h-3 w-3 mr-1.5" />
                             Xem trong cửa hàng

@@ -210,7 +210,7 @@ Chạy trên Postgres local + Core local + web dev/compose (không Supabase).
 - [x] Chat mở từ `/chat?class_code=Tomato___Late_blight`: sau câu trả lời có nút "Xem bệnh này trong Sổ tay" → đúng trang; khối nguồn của chat vẫn là link bài gốc.
 - [x] Thử đoạn tri thức chứa `<script>alert(1)</script>` và `sourceUrl = javascript:alert(1)` trên DB local → hiển thị dạng chữ, không chạy, không có link.
 - [x] Mobile 375px: không tràn ngang, thanh chip mục lục cuộn được, nút bấm ≥ 40px. Desktop 1440px: cột phụ dính khi cuộn.
-- [x] `npx tsc --noEmit`, `npm run build`, `npm run test` nếu có test cho `buildDiseaseArticle.ts` đạt; không có lỗi console; không vi phạm CSP khi chạy qua nginx.
+- [/] `npx tsc --noEmit`, `npm run build`, `npm run test` nếu có test cho `buildDiseaseArticle.ts` đạt; không có lỗi console; không vi phạm CSP khi chạy qua nginx. **(tsc, build, không lỗi console: đạt. Chưa có test đơn vị cho `buildDiseaseArticle.ts`; chưa chạy qua nginx để kiểm CSP — làm khi chạy compose / deploy.)**
 - [x] Cập nhật `database-schema.md` (cột mới), `api-contracts.md` (trường mới ở 3.4.1 / 3.4.2, API `PATCH /diseases/{id}`), `WORKLOG.md`, mục 7 của file này.
 
 ## 7. NHẬT KÝ THỰC HIỆN
@@ -220,6 +220,8 @@ Chạy trên Postgres local + Core local + web dev/compose (không Supabase).
 | 22/11/2026 | Tạo task, thiết kế giao diện | Claude Code theo yêu cầu trưởng nhóm | — |
 | 22/11/2026 | Triển khai Backend (cột `PathogenName`, migration `AddDiseasePathogenName`, `PATCH /diseases/{id}`, bổ sung trường `GET /diseases` & `GET /by-class`) | Gemini Assistant | `dotnet build` 0 lỗi 0 cảnh báo; migration sẵn sàng |
 | 22/11/2026 | Triển khai Frontend (`buildDiseaseArticle.ts`, components Sổ tay, `HandbookDiseasePage.tsx`, cập nhật `HandbookPage.tsx`, `ChatMessageItem.tsx`, `AdminDiseasesPage.tsx`, `AdminShell.tsx`, `router.tsx`) | Gemini Assistant | `npm run build` thành công 100%, 0 lỗi TypeScript |
+| 22/11/2026 | Nghiệm thu lần 1 (đọc code + build) | Claude Code | `dotnet build`, `tsc`, `npm run build` đạt; code đúng spec phần lớn. Lỗi: tải tri thức thất bại vẫn hiện "Chưa có tài liệu" (spec 5.4 yêu cầu `ErrorState` + Thử lại). Các tiêu chí chạy thật (bỏ duyệt, XSS, 375px, Chat) **chưa có bằng chứng chạy**, cần chạy lại. Sự cố: migration `AddDiseasePathogenName` đã vào Supabase do DotNetEnv đè chuỗi DB local (xem WORKLOG 22/11 18:30). |
+| 22/11/2026 | Sửa lỗi + nghiệm thu lần 2 (chạy thật) | Claude Code | Core chạy từ bản copy ngoài repo, DB test local (đã xác nhận migration vào DB local). Playwright + API `t20.js`: **48/48 PASS**. Lỗi đã sửa: (1) tải tri thức lỗi hiện nhầm "Chưa có tài liệu" → `ErrorState` + Thử lại; (2) Admin đăng nhập xem Sổ tay thấy cả đoạn **chưa duyệt** (thiếu `isApproved=true`) → bỏ duyệt không biến mất; sửa cả hộp thoại Admin; (3) desktop hiện 2 mục lục + 2 nút + 2 mẹo chụp ảnh; (4) thanh chip mobile không dính khi cuộn; (5) nút Sổ tay hiện cả trên tin báo lỗi của Chat → chỉ hiện khi có `final_answer`; (6) nút cao < 40px trên mobile; (7) hiện mã lớp mô hình (trái quy ước TASK-09); (8) nút nguồn mục Xử lý thiếu `aria-label`. Kèm `Program.cs`: `DotNetEnv.Env.NoClobber()` (thử với `.env` giả: biến môi trường vẫn thắng). Đã xóa dữ liệu thử XSS khỏi DB local. |
 
 ## 8. NGOÀI PHẠM VI (không làm trong task này)
 

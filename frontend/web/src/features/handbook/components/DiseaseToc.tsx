@@ -56,7 +56,8 @@ export const DiseaseToc: React.FC<DiseaseTocProps> = ({
   };
 
   return (
-    <div className="space-y-5">
+    // Mobile: `contents` để thanh chip sticky theo trang (khung bọc chỉ cao bằng thanh chip thì sticky không có tác dụng)
+    <div className="contents lg:block lg:space-y-5">
       {/* ================= DESKTOP TOC (STICKY) ================= */}
       <div className="hidden lg:block space-y-4">
         {/* Hộp mục lục */}
@@ -128,7 +129,7 @@ export const DiseaseToc: React.FC<DiseaseTocProps> = ({
                 key={item.id}
                 type="button"
                 onClick={(e) => scrollToSection(e, item.id)}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                className={`shrink-0 inline-flex items-center min-h-10 rounded-full px-3.5 text-xs font-medium transition-all ${
                   isActive
                     ? 'bg-primary text-white shadow-2xs'
                     : 'bg-secondary text-muted-foreground hover:text-foreground'

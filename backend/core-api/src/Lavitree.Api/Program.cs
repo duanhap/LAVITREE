@@ -18,7 +18,9 @@ using Lavitree.Infrastructure.Services;
 using Lavitree.Api.Security;
 
 // 0. Load .env file (Traverse up to find .env in project or root directory)
-DotNetEnv.Env.TraversePath().Load();
+// NoClobber: biến môi trường đã đặt sẵn (docker compose, test local) được ưu tiên hơn file .env.
+// Không có NoClobber thì file .env (chuỗi Supabase) đè chuỗi DB local và Core tự chạy migration lên production.
+DotNetEnv.Env.NoClobber().TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
 

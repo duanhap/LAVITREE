@@ -118,8 +118,9 @@ export const AdminDiseasesPage: React.FC = () => {
       const res = await apiClient.get<{ items?: any[] } | any[]>('/knowledge/sources', {
         params: {
           modelClass: disease.classCode,
+          isApproved: true, // chỉ đối chiếu với đoạn đã duyệt
           page: 1,
-          pageSize: 20,
+          pageSize: 200,
         },
       });
       const rawList = Array.isArray(res.data)

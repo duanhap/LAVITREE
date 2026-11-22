@@ -84,7 +84,7 @@ export const DiseaseHeader: React.FC<DiseaseHeaderProps> = ({
           variant="ghost"
           size="sm"
           onClick={() => navigate('/handbook')}
-          className="h-7 px-2 -ml-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+          className="h-10 lg:h-7 px-2 -ml-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           <span>Về Sổ tay</span>
@@ -119,9 +119,7 @@ export const DiseaseHeader: React.FC<DiseaseHeaderProps> = ({
           {pathogenType}
         </Badge>
         {severityBadge}
-        <span className="font-mono text-[11px] text-muted-foreground/80 px-2 py-0.5 rounded bg-secondary/60">
-          {classCode}
-        </span>
+        {/* Không hiện mã lớp mô hình cho người dùng (quy ước TASK-09) */}
       </div>
 
       {/* Tiêu đề chính h1 */}

@@ -404,7 +404,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
         </div>
 
         {/* Nút Xem bệnh này trong Sổ tay (TASK-20) */}
-        {!isUser && !message.isStreaming && effectiveDiseaseCode && (
+        {!isUser && !message.isStreaming && message.receivedFinal && effectiveDiseaseCode && (
           <div className="mt-3 pt-2.5 border-t border-border/60 flex items-center justify-end">
             <Button
               asChild
