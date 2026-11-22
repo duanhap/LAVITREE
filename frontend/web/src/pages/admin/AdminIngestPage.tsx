@@ -164,6 +164,13 @@ export const AdminIngestPage: React.FC = () => {
   const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
   const [newImageFilePreviews, setNewImageFilePreviews] = useState<string[]>([]);
   const [newImageUrl, setNewImageUrl] = useState<string>('');
+  const parsedImageUrls = React.useMemo(() => {
+    if (!newImageUrl.trim()) return [];
+    return newImageUrl
+      .split(/[\n,]+/)
+      .map((u) => u.trim())
+      .filter((u) => isSafeHttpUrl(u));
+  }, [newImageUrl]);
   const [newImageClass, setNewImageClass] = useState<string>('');
   const [newImagePlantPart, setNewImagePlantPart] = useState<string>('LEAF');
   const [newImageCaption, setNewImageCaption] = useState<string>('');
@@ -729,7 +736,7 @@ export const AdminIngestPage: React.FC = () => {
       if (!dateText) {
         const dateCandidates = Array.from(
           doc.querySelectorAll(
-            'time:not(.updated):not(.modified-date), [itemprop="datePublished"], .date, .post-date, .publish-date, .detail-time, .article-date, .entry-date, .article-details small, .media small, .media-body small, .post-meta small, small.text-muted, .time-post-article'
+            'time:not(.updated):not(.modified-date), [itemprop="datePublished"], .date, .post-date, .publish-date, .detail-time, .article-date, .entry-date, .article-details small, .media small, .media-body small, .post-meta small, small.text-muted, .time-post-article, .lbPublishedDate'
           )
         );
         for (const el of dateCandidates) {
@@ -769,15 +776,30 @@ export const AdminIngestPage: React.FC = () => {
         }
       }
 
-      // Loại bỏ thẻ rác, menu, header (trừ header chứa h1 bài), footer, quảng cáo
+      // Unwrap các form bọc nội dung (như DotNetNuke / ASP.NET dùng form#Form bọc toàn bộ body)
+      // Chỉ loại bỏ các form rác (tìm kiếm, đăng ký nhận tin) nếu không chứa nội dung chính bài viết
+      doc.querySelectorAll('form').forEach((f) => {
+        if (
+          f.id === 'Form' ||
+          f.id.toLowerCase().includes('form') ||
+          f.querySelector('article, h1, h2, h3, .post-content, .detail-post, .detail-content, p')
+        ) {
+          f.replaceWith(...Array.from(f.childNodes));
+        } else {
+          f.remove();
+        }
+      });
+
+      // Loại bỏ thẻ rác, menu, header (trừ header chứa h1 bài), footer, quảng cáo, bộ đọc audio
       const junkSelectors = [
-        'script', 'style', 'nav', 'footer', 'aside', 'form', 'iframe', 'noscript', 'svg',
+        'script', 'style', 'nav', 'footer', 'aside', 'iframe', 'noscript', 'svg', 'audio',
         '.menu', '.navbar', '.sidebar', '.ad', '.ads', '.advertisement',
         '.social-share', '.share-buttons', '.share', '.comment', '.comments',
         '.related', '.related-posts', '.related-publications', '.breadcrumb',
         '.hotline', '.contact-info', '.skip-link', '.visually-hidden', '.sr-only',
         '.newsletter', '.subscribe', '.cookie-banner', '.legal-disclaimer', '.disclaimer',
         'figcaption', '.wp-caption-text', '.image-caption', '.caption',
+        '[id*="ReadVoice"]', '[id*="Voice"]', '.audio-player', '.voice-player',
         '[aria-hidden="true"]', '[role="navigation"]', '[role="banner"]', '[role="complementary"]'
       ];
       junkSelectors.forEach((sel) => {
@@ -806,6 +828,7 @@ export const AdminIngestPage: React.FC = () => {
       const candidates = [
         doc.querySelector('article'),
         doc.querySelector('[role="main"], main'),
+        doc.querySelector('.detail-post'),
         doc.querySelector('.detail-content'),
         doc.querySelector('.post-content'),
         doc.querySelector('.post-detail'),
@@ -1126,7 +1149,7 @@ export const AdminIngestPage: React.FC = () => {
         const res = await apiClient.post<{ url: string; html: string }>(
           '/knowledge/fetch-url',
           { url: targetUrl },
-          { timeout: 15000 }
+          { timeout: 45000 }
         );
         if (res.data?.html) {
           html = res.data.html;
@@ -1144,7 +1167,7 @@ export const AdminIngestPage: React.FC = () => {
       if (!html && import.meta.env.DEV && !coreRejected) {
         try {
           const devRes = await fetch(`/__dev/fetch-url?url=${encodeURIComponent(targetUrl)}`, {
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(45000),
           });
           const ct = devRes.headers.get('content-type') || '';
           if (devRes.ok && ct.includes('application/json')) {
@@ -3507,15 +3530,17 @@ export const AdminIngestPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={openAddImageModal}
-                        className="h-8 px-3 text-xs gap-1.5 font-bold bg-emerald-700 hover:bg-emerald-800 text-white shrink-0 shadow-2xs"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Thêm ảnh triệu chứng</span>
-                      </Button>
+                      {articleImages.length > 0 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={openAddImageModal}
+                          className="h-8 px-3 text-xs gap-1.5 font-bold bg-emerald-700 hover:bg-emerald-800 text-white shrink-0 shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Thêm ảnh triệu chứng</span>
+                        </Button>
+                      )}
                     </div>
 
                     {/* Danh sách ảnh hoặc trạng thái cảnh báo trống */}
@@ -3541,10 +3566,10 @@ export const AdminIngestPage: React.FC = () => {
                           type="button"
                           size="sm"
                           onClick={openAddImageModal}
-                          className="mt-1 h-7.5 px-3.5 text-xs gap-1.5 font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
+                          className="mt-1 h-8 px-4 text-xs gap-1.5 font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>+ Thêm ảnh triệu chứng ngay</span>
+                          <span>Thêm ảnh triệu chứng ngay</span>
                         </Button>
                       </div>
                     ) : (
@@ -4955,18 +4980,18 @@ export const AdminIngestPage: React.FC = () => {
       {/* DIALOG THÊM ẢNH TRIỆU CHỨNG BỆNH CHO BÀI VIẾT (TẠI CHỖ, KHÔNG CHUYỂN TRANG) */}
       {/* ========================================================================================= */}
       <Dialog open={addImageModalOpen} onOpenChange={setAddImageModalOpen}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
             <DialogTitle className="flex items-center gap-2 text-base font-bold text-emerald-950 dark:text-emerald-300">
               <Camera className="w-5 h-5 text-emerald-700" />
               <span>Thêm ảnh triệu chứng cho bài viết</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogDescription className="text-xs text-muted-foreground mt-0.5">
               Tải ảnh lên từ máy tính hoặc dán URL hình ảnh từ bài viết để đính kèm vào kho tri thức của bài này.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3.5 py-1 text-xs">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 text-xs">
             {/* URL nguồn bài viết liên kết */}
             <div className="p-2.5 rounded-lg bg-muted/40 border border-border/80 flex items-center justify-between gap-2">
               <div className="truncate">
@@ -4988,154 +5013,219 @@ export const AdminIngestPage: React.FC = () => {
               )}
             </div>
 
-            {/* Chế độ nạp ảnh */}
-            <div className="flex items-center gap-2 p-1 bg-muted/50 rounded-lg border border-border">
-              <button
-                type="button"
-                onClick={() => setNewImageMode('FILE')}
-                className={`flex-1 py-1.5 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                  newImageMode === 'FILE'
-                    ? 'bg-background text-emerald-700 shadow-2xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <UploadCloud className="w-3.5 h-3.5" />
-                <span>Tải tệp từ máy tính</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setNewImageMode('URL')}
-                className={`flex-1 py-1.5 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                  newImageMode === 'URL'
-                    ? 'bg-background text-emerald-700 shadow-2xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <LinkIcon className="w-3.5 h-3.5" />
-                <span>Dán đường dẫn URL ảnh</span>
-              </button>
+            {/* Chọn bộ phận cây bằng 4 nút thân thiện (như AdminImagesPage) */}
+            <div>
+              <label className="font-semibold text-foreground block mb-1.5">
+                1. Bộ phận cây nhiễm bệnh *
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { id: 'LEAF', label: 'Lá cây' },
+                  { id: 'FRUIT', label: 'Hoa / Quả' },
+                  { id: 'STEM', label: 'Thân / Cành' },
+                  { id: 'WHOLE_PLANT', label: 'Toàn cây' },
+                ].map((part) => (
+                  <button
+                    key={part.id}
+                    type="button"
+                    onClick={() => setNewImagePlantPart(part.id)}
+                    className={`rounded-lg py-2 px-2 text-xs font-semibold border transition-all text-center ${
+                      newImagePlantPart === part.id
+                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                        : 'bg-muted/40 text-foreground border-border hover:bg-muted'
+                    }`}
+                  >
+                    {part.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Nhập tệp hoặc URL */}
-            {newImageMode === 'FILE' ? (
-              <div className="space-y-2">
-                <label className="font-semibold text-foreground block">
-                  Chọn tệp ảnh (jpg, png, webp) *
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleImageFileChange}
-                  className="w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-800 hover:file:bg-emerald-100 cursor-pointer border border-dashed border-border rounded-lg p-2 bg-muted/20"
-                />
-                {newImageFilePreviews.length > 0 && (
-                  <div className="grid grid-cols-4 gap-2 pt-1">
-                    {newImageFilePreviews.map((src, idx) => (
-                      <div key={idx} className="relative aspect-4/3 rounded-md overflow-hidden border border-border bg-black/5">
-                        <img src={src} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewImageFiles((prev) => prev.filter((_, i) => i !== idx));
-                            setNewImageFilePreviews((prev) => prev.filter((_, i) => i !== idx));
-                          }}
-                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center shadow"
-                          title="Bỏ tệp này"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {/* Chuyên đề / Bệnh liên kết */}
+            <div>
+              <label className="font-semibold text-foreground block mb-1">
+                2. Chuyên đề / Bệnh liên kết *
+              </label>
+              <select
+                value={newImageClass}
+                onChange={(e) => setNewImageClass(e.target.value)}
+                className="w-full px-2.5 py-2 bg-background border border-border rounded-lg text-xs font-medium"
+              >
+                <option value="">-- Chọn bệnh / chuyên đề --</option>
+                {diseases.map((d) => (
+                  <option key={d.classCode} value={d.classCode}>
+                    {d.plantName} - {formatTopicLabel(d.commonNameVi, d.classCode)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Nguồn cung cấp ảnh: Tab Dán URL & Tải file */}
+            <div className="space-y-2 rounded-xl border border-border p-3.5 bg-muted/20">
+              <label className="font-semibold text-foreground block">
+                3. Nguồn cung cấp ảnh *
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewImageMode('URL')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
+                    newImageMode === 'URL'
+                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                      : 'bg-background text-foreground border-border hover:bg-muted'
+                  }`}
+                >
+                  <LinkIcon className="w-3.5 h-3.5" />
+                  <span>Dán link HTTPS ảnh</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewImageMode('FILE')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
+                    newImageMode === 'FILE'
+                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                      : 'bg-background text-foreground border-border hover:bg-muted'
+                  }`}
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>Tải ảnh từ máy tính</span>
+                </button>
               </div>
-            ) : (
-              <div className="space-y-1">
-                <label className="font-semibold text-foreground block">
-                  Đường dẫn URL hình ảnh *
+
+              {newImageMode === 'URL' ? (
+                <div className="space-y-2 pt-1">
+                  <Textarea
+                    placeholder="Dán 1 hoặc nhiều link HTTPS ảnh (mỗi link 1 dòng)...&#10;https://example.com/anh1.jpg&#10;https://example.com/anh2.jpg"
+                    value={newImageUrl}
+                    onChange={(e) => setNewImageUrl(e.target.value)}
+                    rows={3}
+                    className="text-xs bg-background font-mono"
+                  />
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>Hỗ trợ dán nhiều URL cùng lúc, mỗi dòng một URL.</span>
+                    {parsedImageUrls.length > 0 && (
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                        Đã nhận diện {parsedImageUrls.length} ảnh
+                      </span>
+                    )}
+                  </div>
+
+                  {/* LIVE PREVIEW ẢNH KHI DÁN URL */}
+                  {parsedImageUrls.length > 0 && (
+                    <div className="p-2.5 rounded-lg border border-border bg-background/80 space-y-1.5">
+                      <div className="text-[11px] font-semibold text-muted-foreground">
+                        Xem trước ({parsedImageUrls.length} ảnh từ link):
+                      </div>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1">
+                        {parsedImageUrls.map((url, idx) => (
+                          <div
+                            key={idx}
+                            className="relative aspect-4/3 rounded-lg overflow-hidden border border-border bg-muted/30 shadow-2xs"
+                          >
+                            <img
+                              src={url}
+                              alt={`Ảnh URL ${idx + 1}`}
+                              referrerPolicy="no-referrer"
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                const el = e.target as HTMLImageElement;
+                                el.style.opacity = '0.3';
+                              }}
+                            />
+                            <div className="absolute top-1 left-1 bg-black/70 text-white text-[9px] px-1.5 py-0.2 rounded font-bold">
+                              #{idx + 1}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  <Input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    onChange={handleImageFileChange}
+                    className="text-xs bg-background cursor-pointer"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Định dạng hỗ trợ: JPG, PNG, WebP. Có thể chọn nhiều tệp cùng lúc.
+                  </p>
+
+                  {/* PREVIEW TỆP ẢNH TẢI LÊN */}
+                  {newImageFilePreviews.length > 0 && (
+                    <div className="p-2.5 rounded-lg border border-border bg-background/80 space-y-1.5">
+                      <div className="text-[11px] font-semibold text-muted-foreground">
+                        Xem trước ({newImageFilePreviews.length} tệp đã chọn):
+                      </div>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1">
+                        {newImageFilePreviews.map((src, idx) => (
+                          <div
+                            key={idx}
+                            className="relative aspect-4/3 rounded-lg overflow-hidden border border-border bg-muted/30 shadow-2xs"
+                          >
+                            <img src={src} alt={`Preview ${idx + 1}`} className="h-full w-full object-cover" />
+                            <div className="absolute top-1 left-1 bg-black/70 text-white text-[9px] px-1.5 py-0.2 rounded font-bold">
+                              #{idx + 1}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewImageFiles((prev) => prev.filter((_, i) => i !== idx));
+                                setNewImageFilePreviews((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center shadow"
+                              title="Bỏ tệp này"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Mô tả / chú thích triệu chứng: Dạng Textarea có thể xuống dòng */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="font-semibold text-foreground">
+                  4. Chú thích / Mô tả triệu chứng *
                 </label>
-                <Textarea
-                  value={newImageUrl}
-                  onChange={(e) => setNewImageUrl(e.target.value)}
-                  placeholder="https://example.com/anh-trieu-chung-1.jpg&#10;https://example.com/anh-trieu-chung-2.jpg"
-                  rows={3}
-                  className="text-xs font-mono"
-                />
-                <span className="text-[11px] text-muted-foreground">
-                  Có thể dán nhiều URL, mỗi dòng một URL hình ảnh.
+                <span className="text-[10px] text-muted-foreground">
+                  {newImageCaption.length}/300 ký tự
                 </span>
               </div>
-            )}
-
-            {/* Phân loại chuyên đề & bộ phận */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="font-semibold text-foreground block mb-1">
-                  Chuyên đề / Bệnh liên kết *
-                </label>
-                <select
-                  value={newImageClass}
-                  onChange={(e) => setNewImageClass(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                >
-                  <option value="">-- Chọn bệnh / chuyên đề --</option>
-                  {diseases.map((d) => (
-                    <option key={d.classCode} value={d.classCode}>
-                      {d.plantName} - {formatTopicLabel(d.commonNameVi, d.classCode)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="font-semibold text-foreground block mb-1">
-                  Bộ phận cây bị bệnh *
-                </label>
-                <select
-                  value={newImagePlantPart}
-                  onChange={(e) => setNewImagePlantPart(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
-                >
-                  <option value="LEAF">Lá (LEAF)</option>
-                  <option value="FRUIT">Quả (FRUIT)</option>
-                  <option value="STEM">Thân / Cành (STEM)</option>
-                  <option value="WHOLE_PLANT">Toàn cây (WHOLE_PLANT)</option>
-                </select>
-              </div>
+              <Textarea
+                placeholder="Ví dụ: Vết đốm sương mai màu nâu đen xuất hiện ở rìa lá, mặt dưới có lớp nấm trắng mịn trong điều kiện ẩm ướt."
+                value={newImageCaption}
+                onChange={(e) => setNewImageCaption(e.target.value)}
+                maxLength={300}
+                rows={2}
+                className="text-xs resize-y"
+              />
             </div>
 
-            {/* Chú thích & Nguồn */}
-            <div className="space-y-2">
-              <div>
-                <label className="font-semibold text-foreground block mb-1">
-                  Mô tả / Chú thích ảnh
-                </label>
-                <Input
-                  type="text"
-                  value={newImageCaption}
-                  onChange={(e) => setNewImageCaption(e.target.value)}
-                  placeholder="Ví dụ: Vết đốm hình tròn đồng tâm, có quầng vàng xung quanh viền lá"
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-foreground block mb-1">
-                  Nguồn / Đơn vị bản quyền
-                </label>
-                <Input
-                  type="text"
-                  value={newImageCredit}
-                  onChange={(e) => setNewImageCredit(e.target.value)}
-                  placeholder="Cơ quan / Viện BVTV / Nguồn bài viết"
-                  className="text-xs"
-                />
-              </div>
+            {/* Nguồn / Bản quyền */}
+            <div>
+              <label className="font-semibold text-foreground block mb-1">
+                5. Nguồn / Tác giả sở hữu ảnh *
+              </label>
+              <Input
+                type="text"
+                value={newImageCredit}
+                onChange={(e) => setNewImageCredit(e.target.value)}
+                placeholder="Cơ quan / Viện BVTV / Nguồn bài viết"
+                className="text-xs bg-background"
+              />
             </div>
           </div>
 
-          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-end gap-2 shrink-0">
             <Button
               type="button"
               variant="outline"
@@ -5148,7 +5238,7 @@ export const AdminIngestPage: React.FC = () => {
             <Button
               type="button"
               size="sm"
-              disabled={submittingImage || !newImageClass || (newImageMode === 'FILE' ? newImageFiles.length === 0 : !newImageUrl.trim())}
+              disabled={submittingImage || !newImageClass || (newImageMode === 'FILE' ? newImageFiles.length === 0 : parsedImageUrls.length === 0)}
               onClick={handleCreateArticleImage}
               className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1.5"
             >
@@ -5172,29 +5262,31 @@ export const AdminIngestPage: React.FC = () => {
       {/* DIALOG XEM PHÓNG TO ẢNH TRIỆU CHỨNG */}
       {/* ========================================================================================= */}
       <Dialog open={!!previewingImage} onOpenChange={(open) => !open && setPreviewingImage(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-bold text-foreground">
+        <DialogContent className="sm:max-w-xl w-[95vw] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
+            <DialogTitle className="text-sm sm:text-base font-bold text-foreground">
               {previewingImage?.caption || 'Xem ảnh triệu chứng bệnh'}
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground flex items-center gap-2">
+            <DialogDescription className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
               <span>Mã ảnh #{previewingImage?.id}</span>
               <span>•</span>
-              <span className="font-semibold text-emerald-700">{previewingImage?.plant_name} - {previewingImage?.disease_name}</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                {previewingImage?.plant_name} — {previewingImage?.disease_name}
+              </span>
             </DialogDescription>
           </DialogHeader>
 
           {previewingImage && (
-            <div className="space-y-3 pt-1">
-              <div className="relative max-h-[60vh] overflow-hidden rounded-lg bg-black/5 flex items-center justify-center border border-border">
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="relative max-h-[360px] overflow-hidden rounded-xl bg-muted/40 flex items-center justify-center border border-border p-2">
                 <img
                   src={previewingImage.image_url}
                   alt={previewingImage.caption || 'Ảnh triệu chứng'}
-                  className="max-h-[60vh] w-auto max-w-full object-contain mx-auto"
+                  className="max-h-[340px] w-auto max-w-full object-contain mx-auto rounded-lg shadow-2xs"
                 />
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs p-3 bg-muted/30 rounded-lg border border-border/60">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs p-3 bg-muted/30 rounded-xl border border-border/60">
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Bộ phận:</span>
                   <span className="font-semibold text-foreground">{getPlantPartLabel(previewingImage.plant_part)}</span>
@@ -5207,7 +5299,7 @@ export const AdminIngestPage: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Trạng thái:</span>
-                  <span className="font-semibold text-emerald-700">Đã duyệt</span>
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">Đã duyệt</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Ảnh gốc:</span>
@@ -5225,7 +5317,7 @@ export const AdminIngestPage: React.FC = () => {
             </div>
           )}
 
-          <DialogFooter className="flex items-center justify-between sm:justify-between pt-2">
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-between sm:justify-between shrink-0">
             {previewingImage && (
               <Button
                 type="button"
@@ -5236,7 +5328,7 @@ export const AdminIngestPage: React.FC = () => {
                   setPreviewingImage(null);
                   setDeleteImageTarget(target);
                 }}
-                className="gap-1.5 text-xs"
+                className="gap-1.5 text-xs h-9 px-3.5 font-medium"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Gỡ ảnh này</span>
@@ -5247,7 +5339,7 @@ export const AdminIngestPage: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={() => setPreviewingImage(null)}
-              className="text-xs"
+              className="text-xs h-9 px-4 font-medium"
             >
               Đóng
             </Button>
@@ -5258,39 +5350,50 @@ export const AdminIngestPage: React.FC = () => {
       {/* ========================================================================================= */}
       {/* DIALOG XÁC NHẬN GỠ ẢNH TRIỆU CHỨNG */}
       {/* ========================================================================================= */}
-      <Dialog open={!!deleteImageTarget} onOpenChange={(open) => !open && setDeleteImageTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-rose-600 text-base">
-              <AlertTriangle className="w-5 h-5" />
+      <Dialog open={!!deleteImageTarget} onOpenChange={(open) => !open && !deletingImage && setDeleteImageTarget(null)}>
+        <DialogContent className="sm:max-w-md w-[95vw] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-rose-600 text-base font-bold">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
               <span>Xác nhận gỡ ảnh triệu chứng</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground pt-1">
-              Bạn có chắc chắn muốn gỡ ảnh #{deleteImageTarget?.id} (bộ phận {deleteImageTarget ? getPlantPartLabel(deleteImageTarget.plant_part) : ''}) khỏi bài viết này? Hành động này sẽ xóa ảnh khỏi kho tri thức.
+            <DialogDescription className="text-xs text-muted-foreground mt-1">
+              Bạn có chắc chắn muốn gỡ ảnh #{deleteImageTarget?.id} ({deleteImageTarget ? `bộ phận ${getPlantPartLabel(deleteImageTarget.plant_part)}` : ''}) khỏi bài viết này?
             </DialogDescription>
           </DialogHeader>
 
           {deleteImageTarget && (
-            <div className="flex items-center gap-3 p-2 bg-muted/30 rounded-lg border border-border/80 my-1">
-              <img
-                src={deleteImageTarget.image_url}
-                alt="Thumbnail"
-                className="w-14 h-14 object-cover rounded-md border border-border shrink-0"
-              />
-              <div className="text-xs space-y-0.5 overflow-hidden">
-                <p className="font-semibold truncate text-foreground">{deleteImageTarget.caption || 'Ảnh không có chú thích'}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{deleteImageTarget.credit || 'Khuyết nguồn'}</p>
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-xl border border-border">
+                <img
+                  src={deleteImageTarget.image_url}
+                  alt="Thumbnail"
+                  className="w-16 h-16 object-cover rounded-lg border border-border shrink-0 shadow-2xs"
+                />
+                <div className="text-xs space-y-1 min-w-0 flex-1">
+                  <p className="font-semibold text-foreground line-clamp-2 leading-snug">
+                    {deleteImageTarget.caption || 'Ảnh không có chú thích'}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Nguồn: {deleteImageTarget.credit || 'Khuyết nguồn'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 p-2.5 text-[11px] text-rose-800 dark:text-rose-300">
+                ⚠️ <strong>Lưu ý:</strong> Hành động này sẽ xóa ảnh khỏi kho tri thức và không thể khôi phục lại.
               </div>
             </div>
           )}
 
-          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-end gap-2.5 shrink-0">
             <Button
               type="button"
               variant="outline"
               size="sm"
               disabled={deletingImage}
               onClick={() => setDeleteImageTarget(null)}
+              className="text-xs h-9 px-4 font-medium"
             >
               Hủy
             </Button>
@@ -5300,7 +5403,7 @@ export const AdminIngestPage: React.FC = () => {
               size="sm"
               disabled={deletingImage}
               onClick={handleDeleteArticleImage}
-              className="gap-1.5"
+              className="gap-1.5 text-xs h-9 px-4 font-semibold shadow-xs"
             >
               {deletingImage ? (
                 <>

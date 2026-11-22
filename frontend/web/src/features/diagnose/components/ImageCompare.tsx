@@ -5,12 +5,14 @@ interface ImageCompareProps {
   originalUrl: string;
   gradcamUrl?: string | null;
   altText?: string;
+  showDescription?: boolean;
 }
 
 export const ImageCompare: React.FC<ImageCompareProps> = ({
   originalUrl,
   gradcamUrl,
   altText = 'Ảnh lá cây chẩn đoán',
+  showDescription = true,
 }) => {
   const [sliderPosition, setSliderPosition] = useState<number>(50); // 0 to 100%
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -130,10 +132,12 @@ export const ImageCompare: React.FC<ImageCompareProps> = ({
       </div>
 
       {/* Chú giải bắt buộc theo SSOT screens.md mục 4 */}
-      <div className="rounded-lg bg-secondary/60 p-2.5 text-center text-xs text-muted-foreground border border-border/50">
-        <span className="font-semibold text-foreground">💡 Chú thích: </span>
-        Vùng màu đỏ là nơi mô hình AI chú ý nhiều nhất, không phải ranh giới chính xác của vết bệnh. Dùng chuột/ngón tay kéo thanh trượt để so sánh.
-      </div>
+      {showDescription && (
+        <div className="rounded-lg bg-secondary/60 p-2.5 text-center text-xs text-muted-foreground border border-border/50">
+          <span className="font-semibold text-foreground">💡 Chú thích: </span>
+          Vùng màu đỏ là nơi mô hình AI chú ý nhiều nhất, không phải ranh giới chính xác của vết bệnh. Dùng chuột/ngón tay kéo thanh trượt để so sánh.
+        </div>
+      )}
     </div>
   );
 };

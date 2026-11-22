@@ -868,46 +868,67 @@ export const AdminImagesPage: React.FC = () => {
           if (!open && !deletingImage) setDeleteImageTarget(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Gỡ ảnh triệu chứng này?</DialogTitle>
-            <DialogDescription className="text-xs">
+        <DialogContent className="sm:max-w-md w-[95vw] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-rose-600 text-base font-bold">
+              <Trash2 className="w-5 h-5 text-rose-600 shrink-0" />
+              <span>Gỡ ảnh triệu chứng này?</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-1">
               Ảnh sẽ được đánh dấu xóa và không còn hiển thị trên Sổ tay bệnh học. Nếu muốn tạm ẩn, bạn có thể chọn "Bỏ duyệt" thay vì xóa.
             </DialogDescription>
           </DialogHeader>
 
           {deleteImageTarget && (
-            <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3 text-xs">
-              <div className="relative aspect-4/3 w-full rounded-lg overflow-hidden bg-muted max-w-[200px] mx-auto">
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-xl border border-border">
                 <img
                   src={deleteImageTarget.image_url}
                   alt={deleteImageTarget.caption}
-                  className="h-full w-full object-cover"
+                  className="w-16 h-16 object-cover rounded-lg border border-border shrink-0 shadow-2xs"
                 />
+                <div className="text-xs space-y-1 min-w-0 flex-1">
+                  <p className="font-semibold text-primary truncate">
+                    {deleteImageTarget.plant_name} — {deleteImageTarget.disease_name}
+                  </p>
+                  <p className="italic text-muted-foreground line-clamp-2 leading-snug">
+                    "{deleteImageTarget.caption}"
+                  </p>
+                </div>
               </div>
-              <p className="font-semibold text-foreground text-center">
-                {deleteImageTarget.plant_name} — {deleteImageTarget.disease_name}
-              </p>
-              <p className="italic text-muted-foreground text-center">"{deleteImageTarget.caption}"</p>
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-end gap-2.5 shrink-0">
             <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={() => setDeleteImageTarget(null)}
               disabled={deletingImage}
+              className="text-xs h-9 px-4 font-medium"
             >
               Hủy
             </Button>
             <Button
+              type="button"
               variant="destructive"
               size="sm"
               onClick={handleDeleteImage}
               disabled={deletingImage}
+              className="gap-1.5 text-xs h-9 px-4 font-semibold shadow-xs"
             >
-              {deletingImage ? 'Đang gỡ...' : 'Xóa ảnh'}
+              {deletingImage ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Đang gỡ...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xác nhận xóa ảnh</span>
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -915,11 +936,11 @@ export const AdminImagesPage: React.FC = () => {
 
       {/* DIALOG PHÓNG TO ẢNH TRONG ADMIN */}
       <Dialog open={previewingImage !== null} onOpenChange={(open) => !open && setPreviewingImage(null)}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="sm:max-w-xl w-[95vw] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
           {previewingImage && (
-            <div className="space-y-4">
-              <DialogHeader className="space-y-1 text-left">
-                <div className="flex items-center gap-2">
+            <>
+              <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative text-left shrink-0">
+                <div className="flex items-center gap-2 mb-1">
                   <Badge variant="outline" className="text-xs font-semibold">
                     {previewingImage.plant_part === 'LEAF'
                       ? 'Lá'
@@ -934,40 +955,65 @@ export const AdminImagesPage: React.FC = () => {
                     {previewingImage.plant_name} — {previewingImage.disease_name}
                   </span>
                 </div>
-                <DialogTitle className="text-base font-bold text-foreground">
+                <DialogTitle className="text-sm sm:text-base font-bold text-foreground leading-snug">
                   {previewingImage.caption}
                 </DialogTitle>
                 <DialogDescription className="sr-only">Chi tiết ảnh triệu chứng</DialogDescription>
               </DialogHeader>
 
-              <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl bg-black/5 border border-border">
-                <img
-                  src={previewingImage.image_url}
-                  alt={previewingImage.caption}
-                  className="h-full w-full object-contain"
-                />
+              <div className="p-4 sm:p-5 space-y-3">
+                <div className="relative max-h-[360px] w-full overflow-hidden rounded-xl bg-muted/40 border border-border flex items-center justify-center p-2">
+                  <img
+                    src={previewingImage.image_url}
+                    alt={previewingImage.caption}
+                    className="max-h-[340px] w-auto max-w-full object-contain mx-auto rounded-lg shadow-2xs"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-1 border-t border-border/60">
+                  <div>
+                    Nguồn/Bản quyền: <strong className="text-foreground">{previewingImage.credit}</strong>
+                    {previewingImage.license_note && (
+                      <span className="italic block text-[11px] mt-0.5">{previewingImage.license_note}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <a
+                      href={previewingImage.image_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground font-medium"
+                    >
+                      <span>Xem ảnh gốc</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                    {previewingImage.source_url && (
+                      <a
+                        href={previewingImage.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline font-semibold"
+                      >
+                        <span>Xem bài báo nguồn</span>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-2 border-t border-border">
-                <div>
-                  Nguồn/Bản quyền: <strong className="text-foreground">{previewingImage.credit}</strong>
-                  {previewingImage.license_note && (
-                    <span className="italic block text-[11px] mt-0.5">{previewingImage.license_note}</span>
-                  )}
-                </div>
-                {previewingImage.source_url && (
-                  <a
-                    href={previewingImage.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline font-semibold"
-                  >
-                    <span>Xem bài báo nguồn</span>
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                )}
-              </div>
-            </div>
+              <DialogFooter className="p-3 sm:p-4 border-t border-border/60 bg-muted/20 flex items-center justify-end shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPreviewingImage(null)}
+                  className="text-xs h-9 px-4 font-medium"
+                >
+                  Đóng
+                </Button>
+              </DialogFooter>
+            </>
           )}
         </DialogContent>
       </Dialog>

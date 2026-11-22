@@ -1049,13 +1049,13 @@ public class KnowledgeController : ControllerBase
 
     /// <summary>
     /// Tải HTML từ URL công khai, chống SSRF (chặn IP nội bộ lúc kết nối, kiểm tra lại từng lần chuyển hướng,
-    /// tối đa 3 lần), tối đa 2 MB, hết giờ 15 giây. Dùng chung cho fetch-url và verify-quotes.
+    /// tối đa 3 lần), tối đa 2 MB, hết giờ 45 giây. Dùng chung cho fetch-url và verify-quotes.
     /// ErrorStatus: 400 = URL không an toàn, 422 = trang không tải được.
     /// </summary>
     private async Task<SafeFetchResult> FetchPublicHtmlAsync(Uri currentUri, CancellationToken cancellationToken)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        cts.CancelAfter(TimeSpan.FromSeconds(45));
 
         using var handler = new SocketsHttpHandler
         {
@@ -1096,7 +1096,7 @@ public class KnowledgeController : ControllerBase
 
         using var httpClient = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(15)
+            Timeout = TimeSpan.FromSeconds(45)
         };
 
         try
@@ -1182,7 +1182,7 @@ public class KnowledgeController : ControllerBase
         }
         catch (OperationCanceledException)
         {
-            return new SafeFetchResult(null, null, 422, "Hết thời gian chờ tải trang web (15s). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
+            return new SafeFetchResult(null, null, 422, "Hết thời gian chờ tải trang web (45s). Vui lòng mở trang gốc và nhấn Ctrl+A, Ctrl+C để copy thủ công.");
         }
     }
 
