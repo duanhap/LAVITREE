@@ -93,8 +93,17 @@ export function getErrorMessage(error: unknown): string {
     const status = axiosError.response?.status;
     const responseData = axiosError.response?.data;
 
-    // Ưu tiên thông báo chi tiết từ backend nếu có dạng chuỗi dễ hiểu
-    const serverMessage = responseData?.detail || responseData?.message || responseData?.error;
+    // Ưu tiên thông báo chi tiết từ backend nếu có dạng chuỗi dễ hiểu hoặc lỗi ModelState
+    let serverMessage = responseData?.detail || responseData?.message || responseData?.error;
+    if (!serverMessage && responseData && typeof responseData === 'object' && 'errors' in responseData) {
+      const errorsObj = (responseData as { errors?: Record<string, string[]> }).errors;
+      if (errorsObj && typeof errorsObj === 'object') {
+        const firstKey = Object.keys(errorsObj)[0];
+        if (firstKey && Array.isArray(errorsObj[firstKey]) && errorsObj[firstKey].length > 0) {
+          serverMessage = errorsObj[firstKey][0];
+        }
+      }
+    }
 
     if (status === 400) {
       return serverMessage || 'Dữ liệu gửi lên không hợp lệ hoặc vượt dung lượng cho phép (10MB).';

@@ -157,3 +157,13 @@
   - Trách nhiệm: **Trưởng nhóm** (giao Gemini làm)
   - Trạng thái: `[x] DONE`
   - Đầu ra: Trang `/handbook/:classCode` ghép các đoạn `KnowledgeSources` đã duyệt theo nhãn (Triệu chứng / Nguyên nhân / Phòng ngừa / Xử lý), nguồn tham khảo đánh số; bỏ chữ điền tạm của seeder; cột `Diseases.PathogenName` + trang Admin `/admin/diseases` sửa tác nhân; nút "Xem bệnh này trong Sổ tay" trong Chat (Lavi vẫn trích bài gốc). Chi tiết và thiết kế giao diện: `tasks/sprint-03/task-20-handbook-disease-detail.md`.
+
+- [ ] **TASK-21: Trang chi tiết sản phẩm cho Admin (thông tin + bệnh áp dụng kèm căn cứ)**
+  - Trách nhiệm: **Trưởng nhóm** (giao Gemini làm)
+  - Trạng thái: `[ ] TODO`
+  - Đầu ra: Trang riêng `/admin/inventory/products/:id` (không popup), 2 tab: "Thông tin sản phẩm" (sửa `Product`) và "Bệnh áp dụng & căn cứ" (theo từng bệnh: công tắc khuyên dùng, bài báo đã nhắc thuốc, chừa ô "Cách dùng cho bệnh này" cho TASK-22; công tắc khuyên dùng, chỉ cho "Gỡ khỏi sản phẩm" với gợi ý); API `GET /medicines/{id}`, `GET /medicines/{id}/evidence`, `POST /knowledge/product-suggestions/{id}/unlink`; component dùng lại cho trang cửa hàng và trang "thuốc cho bệnh" sau này. Chi tiết và thiết kế giao diện: `tasks/sprint-03/task-21-admin-product-detail-page.md`.
+
+- [ ] **TASK-22: Phiếu cách dùng thuốc theo từng bệnh (`ProductUsageRules`)**
+  - Trách nhiệm: **Trưởng nhóm** (giao Gemini làm). Phụ thuộc: TASK-21 xong trước
+  - Trạng thái: `[ ] TODO`
+  - Đầu ra: Bảng `ProductUsageRules` + migration (local), 5 API `/medicines/{id}/usage-rules`; ô "Cách dùng cho bệnh này" trong dòng bệnh ở Tab 2 trang chi tiết sản phẩm sửa được (tạo từ phiếu chung, sửa, xóa, đánh dấu đã đối chiếu nhãn), đặt cạnh căn cứ bài báo. `Products.UsageProfile` giữ làm phiếu chung. Là bước 1–3 lộ trình `docs/architecture/treatment-schedule-design.md`. Nhóm cần quyết: có cho Lavi đọc phiếu theo bệnh trong task này không. Chi tiết: `tasks/sprint-03/task-22-usage-rules-per-disease.md`.

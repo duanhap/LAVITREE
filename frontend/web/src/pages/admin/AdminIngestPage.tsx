@@ -1523,9 +1523,14 @@ export const AdminIngestPage: React.FC = () => {
       const initialMap: Record<string, { selected: boolean; unitType: string; diseaseClass?: string }> = {};
 
       finalParagraphs.forEach((p) => {
+        const isFaqOrSummary =
+          /^(câu\s*hỏi|thắc\s*mắc|faq|tóm\s*lại|tổng\s*kết|lời\s*kết)\b/i.test(p.text.trim()) ||
+          /(câu\s*hỏi\s*thường\s*gặp|hỏi\s*đáp)/i.test(p.text) ||
+          (/\?[\s\S]*\?/.test(p.text) && /(bệnh|cây|trị|phòng|thuốc)/i.test(p.text));
+
         initialMap[p.id] = {
           selected: false,
-          unitType: p.suggested_unit_type || 'SYMPTOMS',
+          unitType: p.suggested_unit_type || (isFaqOrSummary ? 'SUMMARY' : 'SYMPTOMS'),
           diseaseClass: defaultClassForNewParas,
         };
       });
@@ -1688,9 +1693,14 @@ export const AdminIngestPage: React.FC = () => {
       const currentClass = prev[baseId]?.diseaseClass || ingestClass;
       delete next[baseId];
       newParas.forEach((np) => {
+        const isFaqOrSummary =
+          /^(câu\s*hỏi|thắc\s*mắc|faq|tóm\s*lại|tổng\s*kết|lời\s*kết)\b/i.test(np.text.trim()) ||
+          /(câu\s*hỏi\s*thường\s*gặp|hỏi\s*đáp)/i.test(np.text) ||
+          (/\?[\s\S]*\?/.test(np.text) && /(bệnh|cây|trị|phòng|thuốc)/i.test(np.text));
+
         next[np.id] = {
           selected: false,
-          unitType: splitTargetPara.suggested_unit_type || 'SYMPTOMS',
+          unitType: splitTargetPara.suggested_unit_type || (isFaqOrSummary ? 'SUMMARY' : 'SYMPTOMS'),
           diseaseClass: currentClass,
         };
       });
@@ -1945,7 +1955,9 @@ export const AdminIngestPage: React.FC = () => {
   };
 
   const renderInlineMarkdownWithHighlight = (line: string, paraId: string | null) => {
-    const boldSegments = line.split(/(\*\*[^*\n]+\*\*)/g);
+    // Xóa triệt để mọi dấu thăng Markdown thừa (ví dụ "### " hay "## ") lọt vào nội dung chữ
+    const cleanedLine = line.replace(/(?:^|\s)#{1,6}\s+/g, ' ');
+    const boldSegments = cleanedLine.split(/(\*\*[^*\n]+\*\*)/g);
     return (
       <>
         {boldSegments.map((seg, idx) => {
@@ -1956,56 +1968,202 @@ export const AdminIngestPage: React.FC = () => {
               </strong>
             );
           }
-          return <React.Fragment key={idx}>{applyMentionHighlight(seg, paraId)}</React.Fragment>;
+          // Dọn sạch mọi ký tự ** mồ côi nếu có trong phân đoạn chữ thường
+          const plainText = seg.replace(/\*\*/g, '');
+          if (!plainText) return null;
+          return <React.Fragment key={idx}>{applyMentionHighlight(plainText, paraId)}</React.Fragment>;
         })}
       </>
     );
   };
 
+  // Hàm tách đoạn văn thành các dòng hiển thị thông minh, tự động nhận diện gạch đầu dòng, câu hỏi FAQ và tiêu đề dính liền
+  const splitTextIntoDisplayLines = (text: string): string[] => {
+    if (!text) return [];
+    let normalized = text;
+    // 0. Tách khi gặp ký hiệu heading Markdown (###, ##, #) bị dính sau dấu câu hoặc khoảng trắng
+    // Ví dụ: "...cà chua: ### Biện pháp sinh học:..." hoặc "...hóa học: ## Khi bệnh phát triển..."
+    normalized = normalized.replace(/([.:?!;]|\s)\s*(#{1,6}\s+)/g, '$1\n$2');
+    normalized = normalized.replace(/(#{1,6}\s+[^:\n]{3,80}:)\s*([A-ZÀ-Ỹ])/g, '$1\n$2');
+
+    // 0b. Tách tiêu đề mục kết thúc bằng dấu hai chấm khi dính liền với câu hỏi in đậm (**Câu hỏi?**)
+    normalized = normalized.replace(/(^|[\n\r])([^:\n\-•*+]{5,90}:)\s*(\*{1,2}[A-ZÀ-Ỹ0-9])/g, '$1$2\n$3');
+
+    // 1. Sau bất kỳ dấu hỏi chấm (?) nào kèm đóng ngoặc kép/sao (**, *, ") -> Ngắt dòng ngay
+    // Đảm bảo không bao giờ cắt lìa dấu đóng in đậm ** hoặc làm câu trả lời bị dính chung một dòng với câu hỏi
+    normalized = normalized.replace(/\?(\*{1,2}|_{1,2}|["'”’])?\s*/g, '?$1\n');
+
+    // 2. Trước bất kỳ câu hỏi nào kết thúc bằng (?) -> Tách dòng khỏi câu dẫn hoặc câu trả lời phía trước
+    normalized = normalized.replace(/([.:!;])\s*(?=(?:\*{1,2}|_{1,2})?[^?\n]{3,150}\?)/g, '$1\n');
+
+    // 3. Tách các gạch đầu dòng / bullet / số thứ tự bị dính liền vào cùng dòng
+    // Ví dụ: "...hằng ngày. - Chọn giống..." hoặc "...hằng ngày. • Làm đất..." hoặc "...đầu. + Luân canh..."
+    normalized = normalized.replace(/([.:?!;])\s*([-•*+]\s+)/g, '$1\n$2');
+    normalized = normalized.replace(/([.:?!;])\s*(\d+[.)/]\s+)/g, '$1\n$2');
+
+    // 4. Tách mũi tên / gạch trả lời FAQ: "--> Thường phát triển..." hoặc "-> Chủ yếu..."
+    normalized = normalized.replace(/([.:?!;?])\s*(-->|->|=>)\s*/g, '$1\n$2 ');
+
+    // 5. Tách tiêu đề mục kết thúc bằng dấu hai chấm (chỉ khi không phải gạch đầu dòng)
+    normalized = normalized.replace(/(^|[\n\r])([^:\n\-•*+]{5,90}:)\s*([A-ZÀ-Ỹ0-9])/g, '$1$2\n$3');
+
+    // 6. Tách đoạn kết bài / chuyển ý / lời khuyên kết luận
+    normalized = normalized.replace(/([.:?!])\s+(Qua bài viết|Tổng kết|Tóm lại|Lời kết|Như vậy|Để lựa chọn|Bệnh [^.:\n]{3,50} là một trong những|Nơi cung cấp)\b/gi, '$1\n$2');
+
+    return normalized
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !/^(\*{1,3}|_{1,3})$/.test(l));
+  };
+
+  // Huy hiệu hiển thị loại nội dung đoạn trích thân thiện và trực quan
+  const renderUnitTypeBadge = (unitType?: string) => {
+    const norm = (unitType || 'SYMPTOMS').toUpperCase();
+    switch (norm) {
+      case 'PREVENTION':
+        return (
+          <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+            Phòng ngừa
+          </span>
+        );
+      case 'CAUSE_CONDITIONS':
+        return (
+          <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+            Nguyên nhân & ĐK
+          </span>
+        );
+      case 'SYMPTOMS':
+        return (
+          <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+            Triệu chứng
+          </span>
+        );
+      case 'TREATMENT':
+        return (
+          <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Điều trị / Trị bệnh
+          </span>
+        );
+      case 'SUMMARY':
+        return (
+          <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+            Tổng quan / FAQ
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border font-mono">
+            {norm}
+          </span>
+        );
+    }
+  };
+
   // Hiển thị đoạn văn chuẩn cấu trúc (tiêu đề mục, gạch đầu dòng, chữ in đậm) và hỗ trợ highlight cụm từ
   const renderParagraphWithHighlight = (paraId: string, text: string) => {
-    const lines = text.split(/\r?\n/);
+    const lines = splitTextIntoDisplayLines(text);
     return (
-      <>
+      <div className="space-y-1">
         {lines.map((rawLine, idx) => {
           const trimmed = rawLine.trim();
-          if (!trimmed) return null;
+          if (!trimmed || /^(\*{1,3}|_{1,3})$/.test(trimmed)) return null;
 
+          // 1. Heading cấp 1 (# Tiêu đề)
           const h1Match = trimmed.match(/^#\s+(.+)$/);
           if (h1Match) {
             return (
-              <span key={idx} className="block font-bold not-italic text-emerald-950 text-[13px] mb-1">
+              <h4 key={idx} className="font-bold text-emerald-950 text-sm mb-1 pb-1 border-b border-emerald-100">
                 {renderInlineMarkdownWithHighlight(h1Match[1], paraId)}
-              </span>
+              </h4>
             );
           }
 
+          // 2. Heading cấp 2-6 (## Tiêu đề con)
           const headingMatch = trimmed.match(/^#{2,6}\s+(.+)$/);
           if (headingMatch) {
             return (
-              <span key={idx} className="block font-bold not-italic text-emerald-900 mb-1">
+              <h5 key={idx} className="font-bold text-emerald-900 text-xs sm:text-[13px] mt-2 mb-1">
                 {renderInlineMarkdownWithHighlight(headingMatch[1], paraId)}
-              </span>
+              </h5>
             );
           }
 
-          const bulletMatch = trimmed.match(/^(?:[-•*+])\s+(.+)$/);
-          if (bulletMatch) {
+          // 3. Thẻ danh mục trong ngoặc vuông: "[Kỹ thuật canh tác & chăm sóc]: Hướng dẫn..."
+          const tagMatch = trimmed.match(/^(\[[^\]\n]+\]:?)\s*(.*)$/);
+          if (tagMatch) {
             return (
-              <span key={idx} className="block pl-2 my-0.5">
-                <span className="text-emerald-700 font-bold not-italic mr-1.5">•</span>
-                {renderInlineMarkdownWithHighlight(bulletMatch[1], paraId)}
-              </span>
+              <div key={idx} className="my-1 text-xs text-foreground/90 leading-relaxed">
+                <span className="inline-block font-semibold text-emerald-800 bg-emerald-100/70 border border-emerald-300/60 rounded px-1.5 py-0.5 mr-1.5 text-[11px]">
+                  {tagMatch[1].replace(/:$/, '')}
+                </span>
+                <span>{renderInlineMarkdownWithHighlight(tagMatch[2], paraId)}</span>
+              </div>
             );
           }
 
+          // 4. Tiêu đề mục kết thúc bằng dấu hai chấm (không phải bullet): "Biện pháp phòng ngừa...:" hoặc "Điều kiện thuận lợi...:"
+          const isSectionHeader = !trimmed.startsWith('-') && !trimmed.startsWith('•') && !trimmed.startsWith('*') && (
+            /^(?:(?:\d+|[IVX]+|[a-zđ])[.)]\s*)?[A-ZÀ-Ỹ][^.!?\n]{3,90}:$/.test(trimmed) ||
+            /^(?:Biện pháp|Phòng trừ|Phòng ngừa|Điều trị|Cách trị|Triệu chứng|Dấu hiệu|Nguyên nhân|Đặc điểm|Tác hại|Điều kiện|Quy trình|Kỹ thuật|Lưu ý|Câu hỏi|Hướng dẫn)\b.*:$/i.test(trimmed)
+          );
+          if (isSectionHeader) {
+            return (
+              <div key={idx} className="font-bold text-emerald-900 text-xs sm:text-[13px] mt-2 mb-1 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                <span className="flex-1">{renderInlineMarkdownWithHighlight(trimmed, paraId)}</span>
+              </div>
+            );
+          }
+
+          // 4b. Câu hỏi FAQ kết thúc bằng dấu hỏi (?): "Bệnh có gây chết cây không?" hoặc "1. Bệnh thường xuất hiện khi nào?"
+          const plainForCheck = trimmed.replace(/[*_#]/g, '').trim();
+          const isQuestion = plainForCheck.endsWith('?') || /^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)?[A-ZÀ-Ỹ][^.:\n]{3,120}\?$/.test(plainForCheck);
+          if (isQuestion) {
+            // Tách sạch các ký tự in đậm ** bao bọc câu hỏi vì thẻ Hỏi đã được thiết kế font đậm riêng
+            const displayQuestionText = trimmed.replace(/^\*{1,2}\s*/, '').replace(/\s*\*{1,2}$/, '');
+            return (
+              <div key={idx} className="font-semibold text-emerald-950 text-xs sm:text-[13px] mt-2.5 mb-1 flex items-start gap-1.5 bg-emerald-50/80 dark:bg-emerald-950/20 px-2.5 py-1.5 rounded-md border border-emerald-200/80 shadow-2xs">
+                <span className="font-bold text-emerald-800 text-[10px] bg-emerald-200/70 px-1.5 py-0.5 rounded shrink-0 mt-0.5">Hỏi</span>
+                <span className="flex-1 text-emerald-900 font-medium">{renderInlineMarkdownWithHighlight(displayQuestionText, paraId)}</span>
+              </div>
+            );
+          }
+
+          // 5. Gạch đầu dòng / bullet / số thứ tự / mũi tên trả lời:
+          const bulletMatch = trimmed.match(/^(?:[-•*+]|\d+[.)]|-->|->)\s+(.+)$/);
+          if (bulletMatch) {
+            const content = bulletMatch[1];
+            // Tách nhãn in đậm ở đầu gạch đầu dòng (ví dụ: "Chọn giống kháng bệnh: Ưu tiên...")
+            const subLabelMatch = content.match(/^([A-ZÀ-Ỹa-zà-ỹ0-9\s/&,–-]+?:\s*)(.*)$/);
+            if (subLabelMatch && !content.startsWith('**')) {
+              return (
+                <div key={idx} className="flex items-start gap-1.5 pl-2 my-1 text-xs text-foreground/90 leading-relaxed">
+                  <span className="text-emerald-700 font-bold shrink-0 mt-0.5">•</span>
+                  <span className="flex-1">
+                    <strong className="font-semibold text-emerald-950">{subLabelMatch[1]}</strong>
+                    {renderInlineMarkdownWithHighlight(subLabelMatch[2], paraId)}
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <div key={idx} className="flex items-start gap-1.5 pl-2 my-1 text-xs text-foreground/90 leading-relaxed">
+                <span className="text-emerald-700 font-bold shrink-0 mt-0.5">•</span>
+                <span className="flex-1">
+                  {renderInlineMarkdownWithHighlight(content, paraId)}
+                </span>
+              </div>
+            );
+          }
+
+          // 6. Dòng văn bản bình thường
           return (
-            <span key={idx} className="block my-0.5">
-              {renderInlineMarkdownWithHighlight(rawLine, paraId)}
-            </span>
+            <p key={idx} className="my-1 text-xs text-foreground/90 leading-relaxed">
+              {renderInlineMarkdownWithHighlight(trimmed, paraId)}
+            </p>
           );
         })}
-      </>
+      </div>
     );
   };
 
@@ -2617,6 +2775,7 @@ export const AdminIngestPage: React.FC = () => {
               <option value="CAUSE_CONDITIONS">Nguyên nhân (CAUSE_CONDITIONS)</option>
               <option value="PREVENTION">Phòng ngừa (PREVENTION)</option>
               <option value="TREATMENT">Điều trị (TREATMENT)</option>
+              <option value="SUMMARY">Tổng quan / FAQ (SUMMARY)</option>
             </select>
 
             <select
@@ -3277,20 +3436,21 @@ export const AdminIngestPage: React.FC = () => {
                       ) : editRows.length === 0 ? (
                         <p className="text-muted-foreground text-center py-6">Bài viết chưa có đoạn trích nào. Hãy chuyển sang Tab 2 để nạp đoạn.</p>
                       ) : (
-                        <div className={editViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-3.5' : 'space-y-3'}>
+                        <div className={editViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'space-y-3.5'}>
                           {editRows.map((row, rIdx) => {
                             const isRowSelected = selectedEditRowIds.includes(row.id);
                             return (
                               <div
                                 key={row.id}
-                                className={`p-3.5 rounded-xl border flex flex-col justify-between gap-2.5 shadow-2xs transition-all ${isRowSelected
-                                    ? 'border-emerald-500 bg-emerald-50/25 ring-1 ring-emerald-500/30'
-                                    : 'border-border bg-background hover:border-emerald-200'
+                                className={`p-4 rounded-xl border flex flex-col justify-between gap-3 shadow-xs transition-all duration-150 ${isRowSelected
+                                    ? 'border-emerald-500 bg-emerald-50/30 ring-2 ring-emerald-500/20'
+                                    : 'border-border bg-card hover:border-emerald-300 hover:shadow-sm'
                                   }`}
                               >
-                                <div className="space-y-2">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="flex flex-wrap items-center gap-1.5">
+                                <div className="space-y-2.5">
+                                  {/* Hàng 1: Checkbox, Thứ tự đoạn, Loại trích dẫn, Loại nội dung, Trạng thái & Thao tác nhanh */}
+                                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60">
+                                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                       <input
                                         type="checkbox"
                                         checked={isRowSelected}
@@ -3304,16 +3464,87 @@ export const AdminIngestPage: React.FC = () => {
                                         className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600 cursor-pointer shrink-0"
                                         title="Tick chọn để duyệt hoặc xóa đoạn này"
                                       />
-                                      <span className="font-bold text-emerald-800 font-mono text-xs">Đoạn #{rIdx + 1}</span>
-                                      <Badge variant="outline" className={row.isVerbatim ? 'text-emerald-800 border-emerald-300 bg-emerald-50 text-[10px]' : 'text-slate-700 border-slate-300 bg-slate-50 text-[10px]'}>
-                                        {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt'}
+                                      <span className="font-bold text-emerald-900 font-mono text-xs bg-emerald-100/70 text-emerald-800 px-2 py-0.5 rounded-md shrink-0">
+                                        Đoạn #{rIdx + 1}
+                                      </span>
+                                      <Badge
+                                        variant="outline"
+                                        className={`text-[10px] px-1.5 py-0 font-medium ${row.isVerbatim
+                                            ? 'text-emerald-700 border-emerald-300 bg-emerald-50/60'
+                                            : 'text-amber-800 border-amber-300 bg-amber-50/70'
+                                          }`}
+                                      >
+                                        {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt tổng hợp'}
                                       </Badge>
+                                      {row.isVerbatim ? (
+                                        <select
+                                          value={(row.unitType || 'SYMPTOMS').toUpperCase()}
+                                          onChange={(e) => updateSavedUnit(row, { unit_type: e.target.value })}
+                                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-background cursor-pointer hover:border-emerald-500 transition-colors shadow-2xs"
+                                          title="Bấm để đổi phân loại nội dung cho đoạn trích này"
+                                        >
+                                          <option value="SYMPTOMS">Triệu chứng</option>
+                                          <option value="CAUSE_CONDITIONS">Nguyên nhân & ĐK</option>
+                                          <option value="PREVENTION">Phòng ngừa</option>
+                                          <option value="TREATMENT">Điều trị</option>
+                                          <option value="SUMMARY">Tổng quan / FAQ</option>
+                                        </select>
+                                      ) : (
+                                        row.unitType && row.unitType.toUpperCase() !== 'SUMMARY' ? (
+                                          renderUnitTypeBadge(row.unitType)
+                                        ) : null
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      {row.isManualApproved ? (
+                                        <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-semibold gap-1 px-2 py-0.5 shadow-2xs">
+                                          <Check className="w-3 h-3" />
+                                          <span>Đã duyệt</span>
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] font-semibold gap-1 px-2 py-0.5">
+                                          <Clock className="w-3 h-3" />
+                                          <span>Chờ duyệt</span>
+                                        </Badge>
+                                      )}
+
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant={row.isManualApproved ? 'outline' : 'default'}
+                                        onClick={() => handleToggleApproveSingleSource(row.id, row.isManualApproved)}
+                                        className={`h-6 px-2 text-[11px] font-medium transition-colors ${row.isManualApproved
+                                            ? 'text-muted-foreground hover:text-amber-700 hover:border-amber-300'
+                                            : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                          }`}
+                                      >
+                                        {row.isManualApproved ? 'Bỏ duyệt' : 'Duyệt'}
+                                      </Button>
+
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleDeleteSingleSource(row.id)}
+                                        className="h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                        title="Xóa đoạn này khỏi bài viết"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  {/* Hàng 2: Chọn chuyên đề bệnh hại & Độ dài ký tự */}
+                                  <div className="flex items-center justify-between gap-2 text-xs">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                      <span className="text-muted-foreground font-medium text-[11px] shrink-0">Chuyên đề:</span>
                                       <select
                                         value={row.modelClass}
                                         onChange={(e) => updateSavedUnit(row, { model_class: e.target.value })}
-                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border bg-background cursor-pointer max-w-[190px] truncate ${isHealthyTopic(row.diseaseName, row.modelClass)
-                                            ? 'text-sky-900 border-sky-300 bg-sky-50/50'
-                                            : 'text-emerald-900 border-emerald-300 bg-emerald-50/50'
+                                        className={`px-2 py-1 rounded-md text-xs font-semibold border bg-background cursor-pointer max-w-[280px] truncate transition-colors focus:ring-1 focus:ring-emerald-500 ${isHealthyTopic(row.diseaseName, row.modelClass)
+                                            ? 'text-sky-900 border-sky-300 bg-sky-50/50 hover:bg-sky-50'
+                                            : 'text-emerald-950 border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50'
                                           }`}
                                         title="Bấm để đổi chuyên đề / bệnh hại cho đoạn trích này"
                                       >
@@ -3323,48 +3554,14 @@ export const AdminIngestPage: React.FC = () => {
                                           </option>
                                         ))}
                                       </select>
-                                      <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border border-border">
-                                        {row.unitType || 'SYMPTOMS'}
-                                      </span>
-                                      {row.isManualApproved ? (
-                                        <Badge className="bg-emerald-700 text-white text-[10px] gap-1">
-                                          <Check className="w-3 h-3" />
-                                          <span>Đã duyệt</span>
-                                        </Badge>
-                                      ) : (
-                                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] gap-1">
-                                          <Clock className="w-3 h-3" />
-                                          <span>Chờ duyệt</span>
-                                        </Badge>
-                                      )}
-                                      <span className="text-[11px] text-muted-foreground">{row.evidenceText.length} ký tự</span>
                                     </div>
-
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant={row.isManualApproved ? 'outline' : 'default'}
-                                        onClick={() => handleToggleApproveSingleSource(row.id, row.isManualApproved)}
-                                        className={`h-7 px-2.5 text-xs font-semibold ${row.isManualApproved ? 'text-muted-foreground hover:text-destructive' : 'bg-emerald-700 hover:bg-emerald-800 text-white'}`}
-                                      >
-                                        {row.isManualApproved ? 'Bỏ duyệt' : 'Duyệt đoạn này'}
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => handleDeleteSingleSource(row.id)}
-                                        className="h-7 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive gap-1"
-                                        title="Xóa đoạn này khỏi bài viết"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        <span>Xóa</span>
-                                      </Button>
-                                    </div>
+                                    <span className="text-[11px] text-muted-foreground font-mono shrink-0">
+                                      {row.evidenceText.length.toLocaleString('vi-VN')} ký tự
+                                    </span>
                                   </div>
 
-                                  <div className="text-xs text-foreground/90 pl-3 border-l-2 border-emerald-500/60 leading-relaxed space-y-0.5 overflow-y-auto max-h-64">
+                                  {/* Hàng 3: Hộp nội dung văn bản định dạng đẹp với viền xanh trái */}
+                                  <div className="rounded-lg bg-muted/20 dark:bg-muted/10 border border-border/60 p-3 pl-3.5 border-l-4 border-l-emerald-600 shadow-2xs max-h-72 overflow-y-auto space-y-1">
                                     {renderParagraphWithHighlight(row.id, row.evidenceText)}
                                   </div>
                                 </div>
