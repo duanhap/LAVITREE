@@ -123,6 +123,7 @@ export const AdminInventoryPage: React.FC = () => {
   // Dialog liên kết gợi ý với sản phẩm có sẵn
   const [linkingSuggestion, setLinkingSuggestion] = useState<ProductSuggestionItem | null>(null);
   const [selectedLinkMedId, setSelectedLinkMedId] = useState<number | ''>('');
+  const [linkProductSearch, setLinkProductSearch] = useState<string>('');
   const [linkingLoading, setLinkingLoading] = useState<boolean>(false);
 
   // Dialog thêm thuốc / vật tư mới (từ gợi ý hoặc thêm thủ công)
@@ -241,6 +242,92 @@ export const AdminInventoryPage: React.FC = () => {
     const q = medSearch.toLowerCase();
     return m.name.toLowerCase().includes(q) || (m.active_ingredient && m.active_ingredient.toLowerCase().includes(q));
   });
+
+  // Thuật toán đề xuất & xếp hạng sản phẩm gần giống từ khóa bài báo lên đầu (TASK-15 Gán sản phẩm)
+  const rankedLinkMedicines = useMemo(() => {
+    if (!linkingSuggestion) return [];
+
+    const mentionRaw = (linkingSuggestion.mention_text || '').trim().toLowerCase();
+    const diseaseRaw = (linkingSuggestion.disease_name || '').trim().toLowerCase();
+    const plantRaw = (linkingSuggestion.plant_name || '').trim().toLowerCase();
+    const searchRaw = linkProductSearch.trim().toLowerCase();
+
+    // Lọc bỏ hoạt chất bị cấm
+    const allowed = medicines.filter(
+      (m) => !isIngredientBanned(m.name) && !isIngredientBanned(m.active_ingredient || '')
+    );
+
+    const scored = allowed.map((m) => {
+      const name = (m.name || '').toLowerCase();
+      const ingredient = (m.active_ingredient || '').toLowerCase();
+      const dosage = (m.dosage_instruction || '').toLowerCase();
+      const type = (m.medicine_type || '').toLowerCase();
+
+      let score = 0;
+      let isKeywordMatch = false;
+
+      if (mentionRaw) {
+        if (ingredient.includes(mentionRaw)) {
+          score += 100;
+          isKeywordMatch = true;
+        } else if (name.includes(mentionRaw)) {
+          score += 80;
+          isKeywordMatch = true;
+        } else {
+          const words = mentionRaw.split(/[\s,+/]+/).filter((w) => w.length >= 3);
+          for (const w of words) {
+            if (ingredient.includes(w)) {
+              score += 35;
+              isKeywordMatch = true;
+            } else if (name.includes(w)) {
+              score += 25;
+              isKeywordMatch = true;
+            }
+          }
+        }
+      }
+
+      if (diseaseRaw && (dosage.includes(diseaseRaw) || (m.target_diseases && m.target_diseases.some((d) => d.toLowerCase().includes(diseaseRaw))))) {
+        score += 20;
+      }
+      if (plantRaw && dosage.includes(plantRaw)) {
+        score += 10;
+      }
+
+      let matchesSearch = true;
+      if (searchRaw) {
+        matchesSearch =
+          name.includes(searchRaw) ||
+          ingredient.includes(searchRaw) ||
+          type.includes(searchRaw) ||
+          dosage.includes(searchRaw) ||
+          String(m.id).includes(searchRaw);
+      }
+
+      return {
+        medicine: m,
+        score,
+        isKeywordMatch,
+        matchesSearch,
+      };
+    });
+
+    return scored
+      .filter((item) => item.matchesSearch)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.medicine.name.localeCompare(b.medicine.name, 'vi');
+      });
+  }, [linkingSuggestion, medicines, linkProductSearch]);
+
+  useEffect(() => {
+    if (linkingSuggestion && !selectedLinkMedId) {
+      const topMatch = rankedLinkMedicines.find((item) => item.score >= 70);
+      if (topMatch) {
+        setSelectedLinkMedId(topMatch.medicine.id);
+      }
+    }
+  }, [linkingSuggestion, rankedLinkMedicines, selectedLinkMedId]);
 
   const fetchSuggestions = async () => {
     try {
@@ -1571,58 +1658,205 @@ export const AdminInventoryPage: React.FC = () => {
       {/* ========================================================================================= */}
       {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
       {/* ========================================================================================= */}
-      <Dialog open={!!linkingSuggestion} onOpenChange={() => setLinkingSuggestion(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <LinkIcon className="w-4 h-4 text-emerald-700" />
+      {/* ========================================================================= */}
+      {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
+      {/* ========================================================================= */}
+      <Dialog open={!!linkingSuggestion} onOpenChange={() => { setLinkingSuggestion(null); setLinkProductSearch(''); }}>
+        <DialogContent className="sm:max-w-2xl lg:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 flex items-center justify-center shrink-0">
+                <LinkIcon className="w-4 h-4" />
+              </div>
               <span>Gắn gợi ý vào sản phẩm trong kho</span>
             </DialogTitle>
-            <DialogDescription className="text-xs">
-              Liên kết cụm từ trích xuất "{linkingSuggestion?.mention_text}" với sản phẩm đang có trong danh mục để trợ lý Lavi tự động gợi ý sản phẩm này khi gặp triệu chứng tương ứng.
+            <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+              Liên kết cụm từ trích xuất <strong className="text-emerald-700 dark:text-emerald-400">"{linkingSuggestion?.mention_text}"</strong> với sản phẩm kho để trợ lý Lavi tự động đề xuất cho nông dân.
             </DialogDescription>
           </DialogHeader>
 
           {linkingSuggestion && (
-            <div className="space-y-3 py-2 text-xs">
-              <div className="p-2.5 bg-muted/40 rounded-lg border border-border space-y-1">
-                <div>Cây – Bệnh: <strong>{linkingSuggestion.plant_name} – {linkingSuggestion.disease_name}</strong></div>
-                <div>Từ khóa bài báo: <span className="font-bold text-primary">{linkingSuggestion.mention_text}</span></div>
-                <div className="line-clamp-2 text-muted-foreground italic">"{linkingSuggestion.evidence_text}"</div>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 text-xs">
+              {/* Thẻ tóm tắt ngữ cảnh từ khóa bài báo */}
+              <div className="p-3 bg-muted/40 rounded-xl border border-border/80 space-y-1.5 shadow-2xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <span className="text-muted-foreground">Cây – Bệnh hại: </span>
+                    <strong className="text-foreground">{linkingSuggestion.plant_name} – {linkingSuggestion.disease_name}</strong>
+                  </div>
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-300 text-[11px] font-bold">
+                    Từ khóa: {linkingSuggestion.mention_text}
+                  </Badge>
+                </div>
+                {linkingSuggestion.evidence_text && (
+                  <div className="text-[11px] text-muted-foreground italic bg-background/60 p-2 rounded-lg border border-border/40 line-clamp-2">
+                    "{linkingSuggestion.evidence_text}"
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="font-semibold block mb-1">Chọn sản phẩm trong kho để liên kết *</label>
-                <select
-                  value={selectedLinkMedId}
-                  onChange={(e) => setSelectedLinkMedId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-2.5 py-2 bg-background border border-border rounded-lg text-xs"
-                >
-                  <option value="">-- Chọn sản phẩm phù hợp --</option>
-                  {medicines
-                    .filter((m) => !isIngredientBanned(m.name) && !isIngredientBanned(m.active_ingredient || ''))
-                    .map((m) => (
-                      <option key={m.id} value={m.id}>
-                        #{m.id} - {m.name} ({m.medicine_type}{m.active_ingredient ? ` - ${m.active_ingredient}` : ''})
-                      </option>
-                    ))}
-                </select>
+              {/* Ô tìm kiếm sản phẩm trong kho */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-foreground text-xs block">
+                    Chọn sản phẩm trong kho để liên kết *
+                  </label>
+                  <span className="text-[11px] text-muted-foreground">
+                    Hiển thị <strong>{rankedLinkMedicines.length}</strong> sản phẩm hợp lệ
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    value={linkProductSearch}
+                    onChange={(e) => setLinkProductSearch(e.target.value)}
+                    placeholder="Tìm theo tên sản phẩm, hoạt chất, loại thuốc..."
+                    className="pl-9 pr-8 text-xs h-9 bg-background"
+                  />
+                  {linkProductSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setLinkProductSearch('')}
+                      className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground p-0.5"
+                      title="Xóa tìm kiếm"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Danh sách thẻ sản phẩm dạng Item đầy đủ ảnh & mô tả */}
+              <div className="space-y-2">
+                {rankedLinkMedicines.length === 0 ? (
+                  <div className="p-8 text-center border-2 border-dashed border-border rounded-xl space-y-2">
+                    <Package className="w-8 h-8 text-muted-foreground mx-auto opacity-50" />
+                    <p className="font-semibold text-foreground">Không tìm thấy sản phẩm phù hợp</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Thử tìm từ khóa khác hoặc bấm nút "Tạo sản phẩm mới từ gợi ý này" bên ngoài danh sách.
+                    </p>
+                  </div>
+                ) : (
+                  rankedLinkMedicines.map(({ medicine: m, isKeywordMatch }) => {
+                    const isSelected = selectedLinkMedId === m.id;
+                    return (
+                      <div
+                        key={m.id}
+                        onClick={() => setSelectedLinkMedId(m.id)}
+                        className={`group relative p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3.5 ${
+                          isSelected
+                            ? 'border-emerald-600 bg-emerald-50/60 dark:bg-emerald-950/30 ring-2 ring-emerald-500/30 shadow-xs'
+                            : 'border-border bg-card hover:border-emerald-400 hover:bg-muted/30'
+                        }`}
+                      >
+                        {/* Ảnh sản phẩm đàng hoàng */}
+                        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border border-border/80 bg-muted/40 shrink-0 flex items-center justify-center relative shadow-2xs">
+                          {m.image_url ? (
+                            <img
+                              src={m.image_url}
+                              alt={m.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <Package className="w-7 h-7 text-muted-foreground/40" />
+                          )}
+                          <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] px-1 py-0.2 rounded font-mono font-bold">
+                            #{m.id}
+                          </span>
+                        </div>
+
+                        {/* Thông tin sản phẩm */}
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="outline" className="text-[10px] py-0 px-1.5 font-medium border-border">
+                              {m.medicine_type}
+                            </Badge>
+
+                            {isKeywordMatch && (
+                              <Badge className="bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border-amber-300 text-[10px] py-0 px-1.5 font-bold gap-1 shadow-2xs">
+                                <Sparkles className="w-3 h-3 text-amber-600" />
+                                <span>Gợi ý phù hợp nhất</span>
+                              </Badge>
+                            )}
+                          </div>
+
+                          <h4 className="font-bold text-foreground text-sm leading-snug line-clamp-1 group-hover:text-emerald-700 transition-colors">
+                            {m.name}
+                          </h4>
+
+                          <div className="text-[11px] text-muted-foreground">
+                            <span className="text-foreground/70">Hoạt chất: </span>
+                            <span className="font-semibold text-emerald-800 dark:text-emerald-400">
+                              {m.active_ingredient || 'Chế phẩm sinh học / Không có hoạt chất hóa học'}
+                            </span>
+                          </div>
+
+                          <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed" title={m.dosage_instruction}>
+                            {m.dosage_instruction || 'Chưa cập nhật mô tả hướng dẫn sử dụng'}
+                          </p>
+                        </div>
+
+                        {/* Nút check chọn */}
+                        <div className="shrink-0 self-center pl-1">
+                          <div
+                            className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                              isSelected
+                                ? 'bg-emerald-700 text-white shadow-2xs scale-105'
+                                : 'border-2 border-border group-hover:border-emerald-500'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" size="sm" onClick={() => setLinkingSuggestion(null)} disabled={linkingLoading}>
-              Hủy
-            </Button>
-            <Button
-              size="sm"
-              disabled={linkingLoading || !selectedLinkMedId}
-              onClick={handleLinkSuggestion}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
-            >
-              {linkingLoading ? 'Đang liên kết...' : 'Xác nhận liên kết'}
-            </Button>
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-between sm:justify-between shrink-0">
+            <div className="text-[11px] text-muted-foreground truncate max-w-[50%]">
+              {selectedLinkMedId ? (
+                <span>
+                  Đã chọn: <strong className="text-emerald-700 dark:text-emerald-400 font-semibold">{medicines.find((m) => m.id === selectedLinkMedId)?.name}</strong>
+                </span>
+              ) : (
+                <span className="italic text-amber-700 dark:text-amber-400">Chưa chọn sản phẩm nào</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setLinkingSuggestion(null); setLinkProductSearch(''); }}
+                disabled={linkingLoading}
+              >
+                Hủy
+              </Button>
+              <Button
+                size="sm"
+                disabled={linkingLoading || !selectedLinkMedId}
+                onClick={handleLinkSuggestion}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
+              >
+                {linkingLoading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                    <span>Đang liên kết...</span>
+                  </>
+                ) : (
+                  'Xác nhận liên kết'
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
