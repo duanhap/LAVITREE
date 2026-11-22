@@ -1367,7 +1367,7 @@ public class KnowledgeController : ControllerBase
         }
 
         var maxChunks = GetIngestConfigInt("INGEST_MAX_CHUNKS", "KnowledgeIngestion:MaxChunks", 30, 1, 100);
-        var maxChunkChars = GetIngestConfigInt("INGEST_MAX_CHUNK_CHARS", "KnowledgeIngestion:MaxChunkChars", 3000, 100, 10000);
+        var maxChunkChars = GetIngestConfigInt("INGEST_MAX_CHUNK_CHARS", "KnowledgeIngestion:MaxChunkChars", 5000, 100, 10000);
         var maxRatioPercent = GetIngestConfigInt("INGEST_MAX_RATIO_PERCENT", "KnowledgeIngestion:MaxRatioPercent", 90, 10, 100);
         var minQuotaFloor = GetIngestConfigInt("INGEST_MIN_QUOTA_FLOOR", "KnowledgeIngestion:MinQuotaFloor", 20000, 500, 50000);
 
@@ -1908,8 +1908,8 @@ public class KnowledgeController : ControllerBase
 
         try
         {
-            // Gửi các đoạn <= 2000 ký tự (khớp schema Agent) để các đoạn dài 801-1500 ký tự hoặc cần tách vẫn được AI gán nhãn và trích xuất mentions
-            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 2000).ToList();
+            // Gửi các đoạn <= 5000 ký tự (khớp schema Agent) để các đoạn dài hoặc cần tách vẫn được AI gán nhãn và trích xuất mentions
+            var eligibleParagraphs = paragraphs.Where(p => p.Text.Length <= 5000).ToList();
             if (eligibleParagraphs.Count == 0)
             {
                 return (labelMap, metadata);

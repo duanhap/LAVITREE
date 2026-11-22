@@ -103,7 +103,7 @@ public class CommitSelectionDto
     [JsonPropertyName("unit_type")]
     public string UnitType { get; set; } = string.Empty;
 
-    [MaxLength(1500, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 1500 ký tự.")]
+    [MaxLength(5000, ErrorMessage = "Nội dung đoạn trích dẫn không được vượt quá 5.000 ký tự.")]
     [JsonPropertyName("custom_text")]
     public string? CustomText { get; set; }
 
@@ -204,7 +204,7 @@ public class UpdateSourceUnitRequestDto
     [JsonPropertyName("model_class")]
     public string? ModelClass { get; set; }
 
-    [MaxLength(4000, ErrorMessage = "Đoạn tóm tắt không được vượt quá 4.000 ký tự.")]
+    [MaxLength(5000, ErrorMessage = "Đoạn trích dẫn không được vượt quá 5.000 ký tự.")]
     [JsonPropertyName("evidence_text")]
     public string? EvidenceText { get; set; }
 }
