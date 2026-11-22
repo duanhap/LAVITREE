@@ -85,7 +85,7 @@ function devFetchUrlPlugin(): Plugin {
             upstreamRes = await fetch(currentUri.toString(), {
               method: 'GET',
               redirect: 'manual',
-              signal: AbortSignal.timeout(15000),
+              signal: AbortSignal.timeout(45000),
               headers: {
                 'User-Agent':
                   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',

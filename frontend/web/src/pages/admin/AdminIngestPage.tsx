@@ -736,7 +736,7 @@ export const AdminIngestPage: React.FC = () => {
       if (!dateText) {
         const dateCandidates = Array.from(
           doc.querySelectorAll(
-            'time:not(.updated):not(.modified-date), [itemprop="datePublished"], .date, .post-date, .publish-date, .detail-time, .article-date, .entry-date, .article-details small, .media small, .media-body small, .post-meta small, small.text-muted, .time-post-article'
+            'time:not(.updated):not(.modified-date), [itemprop="datePublished"], .date, .post-date, .publish-date, .detail-time, .article-date, .entry-date, .article-details small, .media small, .media-body small, .post-meta small, small.text-muted, .time-post-article, .lbPublishedDate'
           )
         );
         for (const el of dateCandidates) {
@@ -776,15 +776,30 @@ export const AdminIngestPage: React.FC = () => {
         }
       }
 
-      // Loại bỏ thẻ rác, menu, header (trừ header chứa h1 bài), footer, quảng cáo
+      // Unwrap các form bọc nội dung (như DotNetNuke / ASP.NET dùng form#Form bọc toàn bộ body)
+      // Chỉ loại bỏ các form rác (tìm kiếm, đăng ký nhận tin) nếu không chứa nội dung chính bài viết
+      doc.querySelectorAll('form').forEach((f) => {
+        if (
+          f.id === 'Form' ||
+          f.id.toLowerCase().includes('form') ||
+          f.querySelector('article, h1, h2, h3, .post-content, .detail-post, .detail-content, p')
+        ) {
+          f.replaceWith(...Array.from(f.childNodes));
+        } else {
+          f.remove();
+        }
+      });
+
+      // Loại bỏ thẻ rác, menu, header (trừ header chứa h1 bài), footer, quảng cáo, bộ đọc audio
       const junkSelectors = [
-        'script', 'style', 'nav', 'footer', 'aside', 'form', 'iframe', 'noscript', 'svg',
+        'script', 'style', 'nav', 'footer', 'aside', 'iframe', 'noscript', 'svg', 'audio',
         '.menu', '.navbar', '.sidebar', '.ad', '.ads', '.advertisement',
         '.social-share', '.share-buttons', '.share', '.comment', '.comments',
         '.related', '.related-posts', '.related-publications', '.breadcrumb',
         '.hotline', '.contact-info', '.skip-link', '.visually-hidden', '.sr-only',
         '.newsletter', '.subscribe', '.cookie-banner', '.legal-disclaimer', '.disclaimer',
         'figcaption', '.wp-caption-text', '.image-caption', '.caption',
+        '[id*="ReadVoice"]', '[id*="Voice"]', '.audio-player', '.voice-player',
         '[aria-hidden="true"]', '[role="navigation"]', '[role="banner"]', '[role="complementary"]'
       ];
       junkSelectors.forEach((sel) => {
@@ -813,6 +828,7 @@ export const AdminIngestPage: React.FC = () => {
       const candidates = [
         doc.querySelector('article'),
         doc.querySelector('[role="main"], main'),
+        doc.querySelector('.detail-post'),
         doc.querySelector('.detail-content'),
         doc.querySelector('.post-content'),
         doc.querySelector('.post-detail'),
@@ -1133,7 +1149,7 @@ export const AdminIngestPage: React.FC = () => {
         const res = await apiClient.post<{ url: string; html: string }>(
           '/knowledge/fetch-url',
           { url: targetUrl },
-          { timeout: 15000 }
+          { timeout: 45000 }
         );
         if (res.data?.html) {
           html = res.data.html;
@@ -1151,7 +1167,7 @@ export const AdminIngestPage: React.FC = () => {
       if (!html && import.meta.env.DEV && !coreRejected) {
         try {
           const devRes = await fetch(`/__dev/fetch-url?url=${encodeURIComponent(targetUrl)}`, {
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(45000),
           });
           const ct = devRes.headers.get('content-type') || '';
           if (devRes.ok && ct.includes('application/json')) {
