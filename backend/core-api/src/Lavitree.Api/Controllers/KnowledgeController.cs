@@ -1727,8 +1727,20 @@ public class KnowledgeController : ControllerBase
         var item = await _dbContext.KnowledgeSources.FindAsync(id);
         if (item == null) return NotFound(new { message = "Không tìm thấy nguồn dữ liệu." });
 
+        var now = DateTime.UtcNow;
         item.IsDeleted = true;
-        item.UpdatedAt = DateTime.UtcNow;
+        item.UpdatedAt = now;
+
+        // Cascade xóa mềm các gợi ý vật tư liên kết với đoạn trích này
+        var relatedSuggestions = await _dbContext.ProductSuggestions
+            .Where(ps => ps.KnowledgeSourceId == id && !ps.IsDeleted)
+            .ToListAsync();
+        foreach (var s in relatedSuggestions)
+        {
+            s.IsDeleted = true;
+            s.UpdatedAt = now;
+        }
+
         await _dbContext.SaveChangesAsync();
 
         await TriggerReindexAsync(item.Id.ToString(), "delete");
@@ -1760,6 +1772,16 @@ public class KnowledgeController : ControllerBase
         {
             item.IsDeleted = true;
             item.UpdatedAt = now;
+        }
+
+        // Cascade xóa mềm các gợi ý vật tư liên kết với các đoạn trích bị xóa
+        var relatedSuggestions = await _dbContext.ProductSuggestions
+            .Where(ps => ids.Contains(ps.KnowledgeSourceId) && !ps.IsDeleted)
+            .ToListAsync();
+        foreach (var s in relatedSuggestions)
+        {
+            s.IsDeleted = true;
+            s.UpdatedAt = now;
         }
 
         await _dbContext.SaveChangesAsync();
@@ -2089,11 +2111,18 @@ public class KnowledgeController : ControllerBase
         var plain = StripMarkdownInline(trimmed);
         if (plain.Length < 3 || plain.Length > 90 || HeadingStarterExclusionRegex.IsMatch(plain)) return false;
 
+        // Câu hỏi kết thúc bằng '?' không phải là Section Heading (là câu hỏi FAQ hoặc ý con)
+        if (Regex.IsMatch(plain, @"\?\s*$")) return false;
+
+        // Mục đánh số phụ như 1.1, 3.2, 4.1 hoặc a), b) là ý con, không phải Section Heading chính
+        if (Regex.IsMatch(plain, @"^(?:\d+\.\d+|[a-zđ][.)])\s+\S", RegexOptions.IgnoreCase)) return false;
+
         var withoutTrailingColon = plain.TrimEnd();
         var endsWithColon = withoutTrailingColon.EndsWith(':')
             && !withoutTrailingColon[..^1].Contains(':')
             && !Regex.IsMatch(plain, @"\.\s+\S");
-        var numberedHeading = Regex.IsMatch(plain, @"^(\d+(\.\d+)*|[IVX]+|[a-zđ])[.)]\s+\S", RegexOptions.IgnoreCase)
+        // Chỉ nhận các đề mục lớn: "1.", "2/", "I.", "II."
+        var numberedHeading = Regex.IsMatch(plain, @"^(\d+|[IVX]+)[.)/]\s+[A-ZÀ-Ỹ\d]", RegexOptions.IgnoreCase)
             && !plain.EndsWith('.');
         return endsWithColon || numberedHeading || CommonHeadingWordsRegex.IsMatch(plain);
     }
@@ -2102,12 +2131,24 @@ public class KnowledgeController : ControllerBase
     {
         var trimmed = b.Trim();
         if (string.IsNullOrEmpty(trimmed) || Regex.IsMatch(trimmed, @"^#{1,6}\s+")) return false;
-        if (Regex.IsMatch(trimmed, @"^[•\-*+]\s+\S")) return true;
-        if (trimmed.Length <= 265 && Regex.IsMatch(trimmed, @"^(?:[•\-*+]\s*)?(?:\*\*)?(?:\d+[.)]\s*)?[^:.\n!?*]{2,60}(?:\*\*)?:\s*(?:\*\*)?\s*\S"))
+        // Dấu gạch đầu dòng, bullet, mũi tên trả lời: -, *, +, •, -->, ->, =>
+        if (Regex.IsMatch(trimmed, @"^(?:[•\-*+]|--?>|==?>)\s*\S")) return true;
+        // Tiêu đề con kết thúc bằng dấu hai chấm (vd: "- 3.1 Triệu chứng:", "Biện pháp canh tác:")
+        if (trimmed.Length <= 400 && Regex.IsMatch(trimmed, @"^(?:[•\-*+]|--?>|==?>\s*)?(?:\*\*)?(?:\d+(\.\d+)*[.)/]?\s*)?[^:.\n!?*]{2,80}(?:\*\*)?:\s*(?:\*\*)?\s*\S?"))
         {
             return true;
         }
-        return trimmed.Length <= 340 && Regex.IsMatch(trimmed, @"^(?:[•\-*+]\s*)?(?:\*\*)?[^\n?*]{6,120}\?(?:\*\*)?\s*\n?\s*\S");
+        // Câu hỏi FAQ hoặc ý con kết thúc bằng '?' (vd: "1. Bệnh thường xuất hiện khi nào?", "Có thể phòng bằng hữu cơ không?")
+        if (trimmed.Length <= 500 && Regex.IsMatch(trimmed, @"^(?:(?:\d+(\.\d+)*[.)]|[a-zđ][.)])\s*)?(?:\*\*)?[^\n*]{4,150}\?(?:\*\*)?"))
+        {
+            return true;
+        }
+        // Mục đánh số con như 3.1, 4.2 hoặc a), b)
+        if (trimmed.Length <= 400 && Regex.IsMatch(trimmed, @"^(?:\d+\.\d+|[a-zđ][.)])\s+\S", RegexOptions.IgnoreCase))
+        {
+            return true;
+        }
+        return false;
     }
 
     private static string FormatSubItemMarkdown(string b)
@@ -2115,7 +2156,7 @@ public class KnowledgeController : ControllerBase
         var trimmed = b.Trim();
         if (trimmed.Contains('\n') || Regex.IsMatch(trimmed, @"^#{1,6}\s+")) return trimmed;
         if (trimmed.StartsWith("• ")) return $"- {trimmed[2..]}";
-        if (Regex.IsMatch(trimmed, @"^([-*+]\s+|\d+[.)]\s+)")) return trimmed;
+        if (Regex.IsMatch(trimmed, @"^([-*+]\s+|\d+[.)]\s+|--?>\s+)")) return trimmed;
         if (trimmed.Length <= 265 && !trimmed.Contains("**"))
         {
             var m = Regex.Match(trimmed, @"^([^:.\n!?*]{2,60}):\s+(\S[\s\S]*)$");
@@ -2205,8 +2246,8 @@ public class KnowledgeController : ControllerBase
                 var startsWithHeading = Regex.IsMatch(b, @"^#{1,6}\s+");
                 var sub = IsSubItemBlock(b);
                 var shouldMerge = !startsWithHeading && (IsIncompleteLeadIn(currentGroup)
-                    || (sub && (currentGroup.Length <= 500 || currentHasSubItems))
-                    || (currentGroup.Length < 200 && b.Length < 200));
+                    || (sub && (currentGroup.Length <= 800 || currentHasSubItems))
+                    || (currentGroup.Length < 350 && b.Length < 350));
                 if (shouldMerge && currentGroup.Length + 1 + b.Length <= maxGroupChars)
                 {
                     currentGroup = $"{currentGroup}\n{b}";
@@ -2644,10 +2685,28 @@ public class KnowledgeController : ControllerBase
         [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
+        // 1. Tự động đồng bộ soft-delete các gợi ý mồ côi (nếu đoạn trích liên quan đã bị xóa mềm hoặc xóa hẳn trước đó)
+        var orphanedSuggestions = await _dbContext.ProductSuggestions
+            .Include(ps => ps.KnowledgeSource)
+            .Where(ps => !ps.IsDeleted && (ps.KnowledgeSource == null || ps.KnowledgeSource.IsDeleted))
+            .ToListAsync(cancellationToken);
+
+        if (orphanedSuggestions.Count > 0)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var os in orphanedSuggestions)
+            {
+                os.IsDeleted = true;
+                os.UpdatedAt = now;
+            }
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        // 2. Chỉ truy vấn các gợi ý còn hiệu lực VÀ đoạn trích bằng chứng còn tồn tại (chưa bị xóa)
         var query = _dbContext.ProductSuggestions
             .Include(ps => ps.KnowledgeSource)
             .Include(ps => ps.Product)
-            .Where(ps => !ps.IsDeleted)
+            .Where(ps => !ps.IsDeleted && ps.KnowledgeSource != null && !ps.KnowledgeSource.IsDeleted)
             .AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(model_class) && model_class != "ALL")
@@ -2815,5 +2874,68 @@ public class KnowledgeController : ControllerBase
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return Ok(new { message = $"Đã bỏ qua gợi ý '{suggestion.MentionText}' (áp dụng cho {sameSuggestions.Count} đoạn)." });
+    }
+
+    // 6.4. DELETE /api/v1/knowledge/product-suggestions/{id}
+    [HttpDelete("product-suggestions/{id:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> DeleteProductSuggestion(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var suggestion = await _dbContext.ProductSuggestions
+            .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
+
+        if (suggestion == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
+        }
+
+        // Tự động xóa mềm cho tất cả các bản ghi có cùng mention_text
+        var targetMention = suggestion.MentionText.Trim().ToLower();
+        var sameSuggestions = await _dbContext.ProductSuggestions
+            .Where(ps => !ps.IsDeleted && ps.MentionText.Trim().ToLower() == targetMention)
+            .ToListAsync(cancellationToken);
+
+        if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
+        {
+            sameSuggestions.Add(suggestion);
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var s in sameSuggestions)
+        {
+            s.IsDeleted = true;
+            s.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Ok(new { message = $"Đã xóa gợi ý '{suggestion.MentionText}' ({sameSuggestions.Count} bản ghi) thành công." });
+    }
+
+    // 6.5. DELETE /api/v1/knowledge/product-suggestions/dismissed
+    [HttpDelete("product-suggestions/dismissed")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> DeleteDismissedProductSuggestions(CancellationToken cancellationToken = default)
+    {
+        var targetList = await _dbContext.ProductSuggestions
+            .Include(ps => ps.KnowledgeSource)
+            .Where(ps => !ps.IsDeleted && (ps.Status == "DISMISSED" || ps.KnowledgeSource == null || ps.KnowledgeSource.IsDeleted))
+            .ToListAsync(cancellationToken);
+
+        if (targetList.Count == 0)
+        {
+            return Ok(new { message = "Không có gợi ý đã bỏ qua hoặc mồ côi nào cần dọn dẹp.", deleted_count = 0 });
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var s in targetList)
+        {
+            s.IsDeleted = true;
+            s.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Ok(new { message = $"Đã dọn dẹp thành công {targetList.Count} gợi ý (bao gồm đã bỏ qua và mồ côi từ đoạn trích đã xóa).", deleted_count = targetList.Count });
     }
 }
