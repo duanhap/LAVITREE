@@ -88,7 +88,7 @@ public class KnowledgeController : ControllerBase
         string GuidanceNotes
     );
 
-    private static readonly List<ClassMetadata> All38Classes = new()
+    public static readonly List<ClassMetadata> All38Classes = new()
     {
         // 🌾 ĐỢT 1: CÂY TRỒNG NÔNG NGHIỆP CHỦ LỰC TẠI VIỆT NAM (16 LỚP)
         new("Tomato___Late_blight", "Cà chua", "Bệnh mốc sương / sương mai cà chua", 1, "Đợt 1: Cây chủ lực", false, 
@@ -1207,54 +1207,64 @@ public class KnowledgeController : ControllerBase
             return BadRequest(new { detail = "Văn bản bài báo không được vượt quá 50.000 ký tự." });
         }
 
-        // Gom tiêu đề mục, câu dẫn kết thúc bằng dấu ':' hoặc '?' và các ý con cùng mục trước khi tách đoạn
-        var coalescedText = CoalesceArticleParagraphs(dto.ArticleText);
-        // Tách article_text đã gom thành các đoạn theo dòng trống (\n\s*\n)
-        var rawParagraphs = Regex.Split(coalescedText, @"\r?\n\s*\r?\n");
-        var validParagraphs = new List<ParagraphDto>();
-        int pIndex = 1;
+        // 1. Ưu tiên AI Semantic Segmentation: Gọi Gemini trong Agent Service để đọc toàn bài
+        // và tự động cắt thành các khối tri thức hoàn chỉnh (giữ tiêu đề, danh sách, FAQ, gán unit_type & mentions)
+        var (aiSegments, aiMetadata) = await RequestAgentSegmentationAsync(dto.ModelClass, dto.ArticleText, dto.SourceUrl);
 
-        // Tiêu đề mục ngắn ("Biện pháp hóa học:", "4. Biện pháp quản lý", "Disease Cycle") được ghép vào đoạn ngay sau
-        // để không mất ngữ cảnh; dòng ngắn và dòng siêu dữ liệu đơn thuần (< 240 ký tự) không đẩy vào danh sách đoạn
-        // vì BuildArticleMetaContext(dto.ArticleText) đã gửi ngữ cảnh đầu/cuối bài qua META_CONTEXT cho Agent Service.
-        string? pendingHeading = null;
-        foreach (var raw in rawParagraphs)
+        List<ParagraphDto> validParagraphs;
+        bool aiAvailable = false;
+        AgentSuggestedMetadata? agentMetadata = null;
+
+        if (aiSegments != null && aiSegments.Count > 0)
         {
-            var cleaned = Regex.Replace(raw.Trim(), @"[ \t]+", " ");
-            if (cleaned.Length == 0 || IsContactOrAdNoise(cleaned)) continue;
-            if (Regex.IsMatch(cleaned, @"^#\s+\S") && !cleaned.Contains('\n') && !Regex.IsMatch(cleaned, @"[.!?]$") && cleaned.Length < 180)
+            validParagraphs = aiSegments;
+            agentMetadata = aiMetadata;
+            aiAvailable = true;
+        }
+        else
+        {
+            // Fallback khi AI bận/lỗi/timeout: Dùng bộ quy tắc cắt cục bộ an toàn
+            var coalescedText = CoalesceArticleParagraphs(dto.ArticleText);
+            var rawParagraphs = Regex.Split(coalescedText, @"\r?\n\s*\r?\n");
+            validParagraphs = new List<ParagraphDto>();
+            int pIndex = 1;
+            string? pendingHeading = null;
+            foreach (var raw in rawParagraphs)
             {
-                continue;
-            }
+                var cleaned = Regex.Replace(raw.Trim(), @"[ \t]+", " ");
+                if (cleaned.Length == 0 || IsContactOrAdNoise(cleaned)) continue;
+                if (Regex.IsMatch(cleaned, @"^#\s+\S") && !cleaned.Contains('\n') && !Regex.IsMatch(cleaned, @"[.!?]$") && cleaned.Length < 180)
+                {
+                    continue;
+                }
 
-            if (cleaned.Length < 40)
-            {
-                if (IsSectionHeading(cleaned))
+                if (cleaned.Length < 40)
                 {
-                    pendingHeading = cleaned;
+                    if (IsSectionHeading(cleaned))
+                    {
+                        pendingHeading = cleaned;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if (IsStandaloneMetadataBlock(cleaned))
-            {
-                continue;
-            }
-            if (pendingHeading != null)
-            {
-                if (Regex.IsMatch(pendingHeading, @"^#{2,6}\s+"))
+                if (IsStandaloneMetadataBlock(cleaned))
                 {
-                    cleaned = $"{pendingHeading}\n{cleaned}";
+                    continue;
                 }
-                else
+                if (pendingHeading != null)
                 {
-                    cleaned = pendingHeading.EndsWith(':') || pendingHeading.EndsWith('.') || pendingHeading.EndsWith('!') || pendingHeading.EndsWith('?')
-                        ? $"{pendingHeading} {cleaned}"
-                        : $"{pendingHeading}: {cleaned}";
+                    if (Regex.IsMatch(pendingHeading, @"^#{2,6}\s+"))
+                    {
+                        cleaned = $"{pendingHeading}\n{cleaned}";
+                    }
+                    else
+                    {
+                        cleaned = pendingHeading.EndsWith(':') || pendingHeading.EndsWith('.') || pendingHeading.EndsWith('!') || pendingHeading.EndsWith('?')
+                            ? $"{pendingHeading} {cleaned}"
+                            : $"{pendingHeading}: {cleaned}";
+                    }
+                    pendingHeading = null;
                 }
-                pendingHeading = null;
-            }
 
-            {
                 validParagraphs.Add(new ParagraphDto
                 {
                     Id = $"P{pIndex++}",
@@ -1267,30 +1277,31 @@ public class KnowledgeController : ControllerBase
                     break;
                 }
             }
-        }
 
-        if (validParagraphs.Count == 0)
-        {
-            return BadRequest(new { detail = "Văn bản bài báo không có đoạn nào đạt độ dài tối thiểu (>= 40 ký tự)." });
-        }
-
-        // Gọi Agent Service để AI gợi ý nhãn theo số đoạn & trích xuất metadata (timeout 35s, graceful fallback)
-        var (labelMap, agentMetadata) = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs, dto.ArticleText);
-        bool aiAvailable = labelMap.Count > 0 || agentMetadata != null;
-
-        foreach (var p in validParagraphs)
-        {
-            if (labelMap.TryGetValue(p.Id, out var labelItem))
+            if (validParagraphs.Count == 0)
             {
-                p.SuggestedUnitType = labelItem.UnitType;
-                p.Mentions = labelItem.Mentions ?? new List<MentionDto>();
+                return BadRequest(new { detail = "Văn bản bài báo không có đoạn nào đạt độ dài tối thiểu (>= 40 ký tự)." });
             }
-            else
+
+            // Gọi Agent Service để gán nhãn cho các đoạn quy tắc
+            var (labelMap, fallbackMeta) = await RequestAgentLabelingAsync(dto.ModelClass, validParagraphs, dto.ArticleText);
+            aiAvailable = labelMap.Count > 0 || fallbackMeta != null;
+            agentMetadata = fallbackMeta;
+
+            foreach (var p in validParagraphs)
             {
-                // Heuristic nhận diện FAQ / Tóm tắt câu hỏi thường gặp khi AI không trả về nhãn riêng
-                if (Regex.IsMatch(p.Text, @"(câu\s*hỏi\s*thường\s*gặp|thắc\s*mắc|faq|hỏi\s*đáp|\?[\s\S]*\?.*-->|\?\s*$)", RegexOptions.IgnoreCase))
+                if (labelMap.TryGetValue(p.Id, out var labelItem))
                 {
-                    p.SuggestedUnitType = "SUMMARY";
+                    p.SuggestedUnitType = labelItem.UnitType;
+                    p.Mentions = labelItem.Mentions ?? new List<MentionDto>();
+                }
+                else
+                {
+                    // Heuristic nhận diện FAQ / Tóm tắt câu hỏi thường gặp khi AI không trả về nhãn riêng
+                    if (Regex.IsMatch(p.Text, @"(câu\s*hỏi\s*thường\s*gặp|thắc\s*mắc|faq|hỏi\s*đáp|\?[\s\S]*\?.*-->|\?\s*$)", RegexOptions.IgnoreCase))
+                    {
+                        p.SuggestedUnitType = "SUMMARY";
+                    }
                 }
             }
         }
@@ -1916,6 +1927,75 @@ public class KnowledgeController : ControllerBase
         return contextText.Length > 1800 ? contextText[..1800] : contextText;
     }
 
+    private async Task<(List<ParagraphDto>? Segments, AgentSuggestedMetadata? Metadata)> RequestAgentSegmentationAsync(
+        string? modelClass,
+        string rawArticleText,
+        string? sourceUrl = null)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(rawArticleText) || rawArticleText.Length < 30)
+            {
+                return (null, null);
+            }
+
+            var httpClient = _httpClientFactory.CreateClient("AgentServiceClient");
+            var internalKey = GetInternalApiKey();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+            var reqPayload = new AgentSegmentArticleRequest
+            {
+                ModelClass = modelClass,
+                ArticleText = rawArticleText,
+                SourceUrl = sourceUrl
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/knowledge/segment-article")
+            {
+                Content = JsonContent.Create(reqPayload)
+            };
+            request.Headers.Add("X-Internal-Key", internalKey);
+
+            var response = await httpClient.SendAsync(request, cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                var resDto = await response.Content.ReadFromJsonAsync<AgentSegmentArticleResponse>(cancellationToken: cts.Token);
+                if (resDto?.Segments != null && resDto.Segments.Count > 0)
+                {
+                    var segments = new List<ParagraphDto>();
+                    int idx = 1;
+                    foreach (var s in resDto.Segments)
+                    {
+                        var text = s.Text.Trim();
+                        if (string.IsNullOrEmpty(text)) continue;
+                        segments.Add(new ParagraphDto
+                        {
+                            Id = !string.IsNullOrWhiteSpace(s.Id) ? s.Id : $"P{idx++}",
+                            Text = text,
+                            SuggestedUnitType = !string.IsNullOrWhiteSpace(s.UnitType) ? s.UnitType.ToUpperInvariant() : "SUMMARY",
+                            Mentions = s.Mentions ?? new List<MentionDto>()
+                        });
+                    }
+                    if (segments.Count > 0)
+                    {
+                        _logger.LogInformation("Agent service successfully segmented article into {Count} semantic chunks", segments.Count);
+                        return (segments, resDto.Metadata);
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Agent service segment-article returned status code {StatusCode}. Falling back to rule-based segmentation.", response.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Timeout or error calling agent-service /internal/knowledge/segment-article. Falling back to rule-based segmentation.");
+        }
+
+        return (null, null);
+    }
+
     private async Task<(Dictionary<string, AgentParagraphLabel> LabelMap, AgentSuggestedMetadata? Metadata)> RequestAgentLabelingAsync(
         string? modelClass,
         List<ParagraphDto> paragraphs,
@@ -2144,28 +2224,18 @@ public class KnowledgeController : ControllerBase
         // Câu hỏi kết thúc bằng '?' không phải là Section Heading
         if (IsQuestionOrFaqBlock(trimmed)) return false;
 
-        // Mục đánh số phụ như 1.1, 4.1. hoặc a), b) là sub-heading
-        if (IsNumberedSubHeading(trimmed)) return false;
-
         var plain = StripMarkdownInline(trimmed);
-        if (plain.Length < 3 || plain.Length > 120 || HeadingStarterExclusionRegex.IsMatch(plain)) return false;
+        if (plain.Length < 3 || plain.Length > 140 || HeadingStarterExclusionRegex.IsMatch(plain)) return false;
 
-        // Chỉ nhận đề mục lớn: H2 (##)
-        if (Regex.IsMatch(trimmed, @"^##\s+\S")) return true;
-
-        // H3 (###) chỉ là Section Heading nếu KHÔNG phải mục con có số thập phân
-        if (Regex.IsMatch(trimmed, @"^###\s+\S"))
-        {
-            if (Regex.IsMatch(trimmed, @"^###\s+(?:\d+\.\d+\.?|[a-zđ][.)])\s+", RegexOptions.IgnoreCase)) return false;
-            return true;
-        }
+        // Mọi đề mục H2 (##) và H3 (###) đều là Section Heading
+        if (Regex.IsMatch(trimmed, @"^#{2,6}\s+\S")) return true;
 
         var withoutTrailingColon = plain.TrimEnd();
         var endsWithColon = withoutTrailingColon.EndsWith(':')
             && !withoutTrailingColon[..^1].Contains(':')
             && !Regex.IsMatch(plain, @"\.\s+\S");
-        // Chỉ nhận các đề mục lớn: "1.", "2/", "I.", "II."
-        var numberedHeading = Regex.IsMatch(plain, @"^(\d+|[IVX]+)[.)/]\s+[A-ZÀ-Ỹ\d]", RegexOptions.IgnoreCase)
+        // Đề mục có số: "1.", "1.1", "2/", "I.", "II.", "a)"
+        var numberedHeading = Regex.IsMatch(plain, @"^(\d+(\.\d+)*|[IVX]+|[a-zđ])[.)/]\s+[A-ZÀ-Ỹ\d]", RegexOptions.IgnoreCase)
             && !plain.EndsWith('.');
         return endsWithColon || numberedHeading || CommonHeadingWordsRegex.IsMatch(plain);
     }
@@ -2174,9 +2244,11 @@ public class KnowledgeController : ControllerBase
     {
         var trimmed = b.Trim();
         if (string.IsNullOrEmpty(trimmed)) return false;
+        // Bullet points, gạch đầu dòng, dấu mũi tên
         if (Regex.IsMatch(trimmed, @"^(?:[•\-*+]|--?>|==?>)\s*\S")) return true;
         if (IsQuestionOrFaqBlock(trimmed)) return true;
-        if (IsNumberedSubHeading(trimmed)) return true;
+        // Tiêu đề mục (như 1.1, 1.2 hoặc ### ...) KHÔNG phải là sub-item để tránh bị gom vào đuôi đoạn trước!
+        if (IsSectionHeading(trimmed)) return false;
         if (trimmed.Length <= 400 && Regex.IsMatch(trimmed, @"^(?:[•\-*+]|--?>|==?>\s*)?(?:\*\*)?(?:\d+(\.\d+)*[.)/]?\s*)?[^:.\n!?*]{2,80}(?:\*\*)?:\s*(?:\*\*)?\s*\S?"))
         {
             return true;
@@ -2721,6 +2793,7 @@ public class KnowledgeController : ControllerBase
         [FromQuery] string? kind = null,
         [FromQuery] string? status = null,
         [FromQuery] string? search = null,
+        [FromQuery] int? productId = null,
         CancellationToken cancellationToken = default)
     {
         // 1. Tự động đồng bộ soft-delete các gợi ý mồ côi (nếu đoạn trích liên quan đã bị xóa mềm hoặc xóa hẳn trước đó)
@@ -2746,6 +2819,11 @@ public class KnowledgeController : ControllerBase
             .Include(ps => ps.Product)
             .Where(ps => !ps.IsDeleted && ps.KnowledgeSource != null && !ps.KnowledgeSource.IsDeleted)
             .AsNoTracking();
+
+        if (productId.HasValue)
+        {
+            query = query.Where(ps => ps.ProductId == productId.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(model_class) && model_class != "ALL")
         {
@@ -2876,6 +2954,66 @@ public class KnowledgeController : ControllerBase
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return Ok(new { message = $"Đã gắn gợi ý '{suggestion.MentionText}' (áp dụng cho {sameSuggestions.Count} đoạn) với sản phẩm '{product.Name}' thành công." });
+    }
+
+    // 6.2b. POST /api/v1/knowledge/product-suggestions/{id:int}/unlink (TASK-21)
+    [HttpPost("product-suggestions/{id:int}/unlink")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> UnlinkProductSuggestion(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var suggestion = await _dbContext.ProductSuggestions
+            .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
+
+        if (suggestion == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy gợi ý hoặc gợi ý đã bị xóa." });
+        }
+
+        if (suggestion.Status != "LINKED" && suggestion.Status != "ADDED")
+        {
+            return Conflict(new { detail = $"Gợi ý này chưa được gắn vào sản phẩm nào (trạng thái hiện tại: {suggestion.Status})." });
+        }
+
+        var targetProductId = suggestion.ProductId;
+        var targetKnowledgeSourceId = suggestion.KnowledgeSourceId;
+        var targetModelClass = suggestion.ModelClass;
+
+        // Đặt mọi gợi ý cùng KnowledgeSourceId và cùng ProductId về Status = "PENDING", ProductId = null, ResolvedAt = null
+        var sameLinked = await _dbContext.ProductSuggestions
+            .Where(ps => !ps.IsDeleted && ps.KnowledgeSourceId == targetKnowledgeSourceId && ps.ProductId == targetProductId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var s in sameLinked)
+        {
+            s.Status = "PENDING";
+            s.ProductId = null;
+            s.ResolvedAt = null;
+            s.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // Đếm số căn cứ còn lại của bệnh đó cho sản phẩm này
+        int remainingEvidence = 0;
+        if (targetProductId.HasValue && !string.IsNullOrWhiteSpace(targetModelClass))
+        {
+            remainingEvidence = await _dbContext.ProductSuggestions
+                .Where(ps => !ps.IsDeleted 
+                          && ps.ProductId == targetProductId.Value 
+                          && ps.ModelClass == targetModelClass 
+                          && (ps.Status == "LINKED" || ps.Status == "ADDED"))
+                .Select(ps => ps.KnowledgeSourceId)
+                .Distinct()
+                .CountAsync(cancellationToken);
+        }
+
+        return Ok(new
+        {
+            message = "Đã gỡ gợi ý khỏi sản phẩm và đưa về trạng thái chờ xử lý.",
+            remaining_evidence_for_disease = remainingEvidence
+        });
     }
 
     // 6.3. POST /api/v1/knowledge/product-suggestions/{id}/dismiss

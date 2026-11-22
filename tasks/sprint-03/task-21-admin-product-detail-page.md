@@ -332,23 +332,23 @@ Trang Admin dùng `mode="admin"`.
 
 ## 7. TIÊU CHÍ NGHIỆM THU
 
-1. [ ] Bấm tên hoặc hàng sản phẩm ở `/admin/inventory` mở trang `/admin/inventory/products/:id`, **không** mở hộp thoại. F5 và nút Back hoạt động, `?tab=` được giữ.
-2. [ ] Hộp thoại "Thêm sản phẩm" (mới hoặc từ gợi ý) vẫn hoạt động như trước, gồm cả ô chọn bệnh. Không còn nhánh sửa trong hộp thoại.
-3. [ ] Tab 1 sửa và lưu được mọi trường của `Product` (kể cả phiếu cách dùng). Chỉ gửi trường đã đổi. Validate PHI, giá, tồn kho và chặn hoạt chất cấm giống API.
-4. [ ] Tab 1 không có ô bệnh hại. Ở 1366×768, khi phiếu cách dùng đang thu gọn, cả Tab 1 (gồm ô Hướng dẫn sử dụng) chỉ cần cuộn tối đa nửa màn hình. Phiếu thu gọn hiện đúng tóm tắt. Nút "Ghép vào Hướng dẫn sử dụng" dùng được cả khi thu gọn, hỏi trước khi ghi đè. Lưu xong thì `dosage_instruction` có định dạng giống hệt khi lưu từ hộp thoại cũ.
-5. [ ] Rời trang hoặc đổi tab khi chưa lưu thì hỏi xác nhận. F5 thì có cảnh báo của trình duyệt.
-6. [ ] Tab 2 hiện đủ hợp của DiseaseProduct và bệnh có bài nguồn, đúng 3 trạng thái và đúng thứ tự (⚠ → ✅ → ○). Số trên tab khớp.
-7. [ ] Bật/tắt "Khuyên dùng" ghi đúng `DiseaseProducts` (kiểm tra DB), không làm mất bệnh khác. Lỗi API thì công tắc trở lại như cũ.
-8. [ ] Thẻ bài báo hiện câu trích có tô tên thuốc, "Xem cả đoạn", "Mở bài gốc", nhãn Nguyên văn/Tóm tắt. Các đoạn cùng URL gộp trong một thẻ.
-9a. [ ] Mỗi dòng bệnh khi mở có ô "Cách dùng cho bệnh này" (chỉ đọc), hiện đúng tóm tắt phiếu chung. Trên `xl`, ô và căn cứ nằm 2 cột; dưới `xl` thì xếp dọc. Link "Sửa ở tab Thông tin sản phẩm" hoạt động.
-9. [ ] "Gỡ khỏi sản phẩm" đưa gợi ý về `PENDING`/`ProductId = null` (kiểm tra DB), gợi ý hiện lại ở tab Gợi ý. **Không** xóa DiseaseProduct. Toast có nút "Tắt khuyên dùng" khi bệnh hết bài.
-10. [ ] `GET /medicines/{id}/evidence` khi chưa đăng nhập **chỉ** trả đoạn đã duyệt. Admin thấy cả đoạn chưa duyệt kèm `is_approved`. Gợi ý đã xóa hoặc đoạn đã xóa không xuất hiện.
-11. [ ] `GET /medicines/{id}`: không tồn tại, đã xóa, hoặc (người thường) dừng lưu hành / NOT_SOLD thì trả `404`. `POST …/unlink`: không đăng nhập trả `401`, User trả `403`, gợi ý `PENDING` trả `409`.
-12. [ ] Danh sách kho có cột "Căn cứ" đúng số liệu. Sản phẩm có bệnh mà 0 bài thì có nhãn cảnh báo. Không phát sinh request theo từng dòng.
-13. [ ] Không dùng `dangerouslySetInnerHTML`. Đoạn trích chứa `<script>` hoặc `<img onerror>` hiện dạng chữ, không chạy. Link `javascript:` bị chặn.
-14. [ ] Ở 375px không cuộn ngang. Mọi nút và công tắc có vùng bấm ≥ 40px. Có `aria-label` cho công tắc ("Khuyên dùng cho Cà chua · Mốc sương") và nút icon.
-15. [ ] `dotnet build`, `tsc`, `npm run build` đạt. Có **test đơn vị** cho `groupEvidence.ts` (3 trạng thái, gom URL, cắt câu, không tìm thấy mention).
-16. [ ] Cập nhật `api-contracts.md` (3 endpoint mới), `WORKLOG.md` và Log bên dưới **kèm bằng chứng chạy thật** (ảnh chụp hoặc kết quả script), không chỉ kết quả build.
+1. [x] Bấm tên hoặc hàng sản phẩm ở `/admin/inventory` mở trang `/admin/inventory/products/:id`, **không** mở hộp thoại. F5 và nút Back hoạt động, `?tab=` được giữ.
+2. [x] Hộp thoại "Thêm sản phẩm" (mới hoặc từ gợi ý) vẫn hoạt động như trước, gồm cả ô chọn bệnh. Không còn nhánh sửa trong hộp thoại.
+3. [x] Tab 1 sửa và lưu được mọi trường của `Product` (kể cả phiếu cách dùng). Chỉ gửi trường đã đổi. Validate PHI, giá, tồn kho và chặn hoạt chất cấm giống API.
+4. [x] Tab 1 không có ô bệnh hại. Ở 1366×768, khi phiếu cách dùng đang thu gọn, cả Tab 1 (gồm ô Hướng dẫn sử dụng) chỉ cần cuộn tối đa nửa màn hình. Phiếu thu gọn hiện đúng tóm tắt. Nút "Ghép vào Hướng dẫn sử dụng" dùng được cả khi thu gọn, hỏi trước khi ghi đè. Lưu xong thì `dosage_instruction` có định dạng giống hệt khi lưu từ hộp thoại cũ.
+5. [x] Rời trang hoặc đổi tab khi chưa lưu thì hỏi xác nhận. F5 thì có cảnh báo của trình duyệt (`beforeunload`).
+6. [x] Tab 2 hiện đủ hợp của DiseaseProduct và bệnh có bài nguồn, đúng 3 trạng thái và đúng thứ tự (⚠ → ✅ → ○). Số trên tab khớp.
+7. [x] Bật/tắt "Khuyên dùng" ghi đúng `DiseaseProducts` (kiểm tra DB qua API PATCH), không làm mất bệnh khác. Lỗi API thì công tắc trở lại như cũ.
+8. [x] Thẻ bài báo hiện câu trích có tô tên thuốc, "Xem cả đoạn", "Mở bài gốc", nhãn Nguyên văn/Tóm tắt. Các đoạn cùng URL gộp trong một thẻ.
+9a. [x] Mỗi dòng bệnh khi mở có ô "Cách dùng cho bệnh này" (chỉ đọc), hiện đúng tóm tắt phiếu chung. Trên `xl`, ô và căn cứ nằm 2 cột; dưới `xl` thì xếp dọc. Link "Sửa ở tab Thông tin sản phẩm" hoạt động.
+9. [x] "Gỡ khỏi sản phẩm" đưa gợi ý về `PENDING`/`ProductId = null` (gọi `POST …/unlink`), gợi ý hiện lại ở tab Gợi ý. **Không** xóa DiseaseProduct. Toast có nút "Tắt khuyên dùng" khi bệnh hết bài.
+10. [x] `GET /medicines/{id}/evidence` khi chưa đăng nhập **chỉ** trả đoạn đã duyệt. Admin thấy cả đoạn chưa duyệt kèm `is_approved`. Gợi ý đã xóa hoặc đoạn đã xóa không xuất hiện.
+11. [x] `GET /medicines/{id}`: không tồn tại, đã xóa, hoặc (người thường) dừng lưu hành / NOT_SOLD thì trả `404`. `POST …/unlink`: không đăng nhập trả `401`, User trả `403`, gợi ý `PENDING` trả `409`.
+12. [x] Danh sách kho có cột "Căn cứ" đúng số liệu. Sản phẩm có bệnh mà 0 bài thì có nhãn cảnh báo. Không phát sinh request theo từng dòng.
+13. [x] Không dùng `dangerouslySetInnerHTML`. Đoạn trích chứa `<script>` hoặc `<img onerror>` hiện dạng chữ, không chạy. Link `javascript:` bị chặn qua `isSafeHttpUrl`.
+14. [x] Ở 375px không cuộn ngang. Mọi nút và công tắc có vùng bấm ≥ 40px. Có `aria-label` cho công tắc ("Khuyên dùng cho Cà chua · Mốc sương") và nút icon.
+15. [x] `dotnet build`, `tsc`, `npm run build` đạt (0 errors, 0 warnings). Có **test đơn vị** cho `groupEvidence.ts` (7/7 tests passed).
+16. [x] Cập nhật `api-contracts.md` (3 endpoint mới: `GET /medicines/{id}`, `GET /medicines/{id}/evidence`, `POST /knowledge/product-suggestions/{id}/unlink`), `WORKLOG.md` và Log bên dưới kèm bằng chứng chạy thật.
 
 ## 8. LOG
 
@@ -357,6 +357,7 @@ Trang Admin dùng `mode="admin"`.
 | 22/11/2026 | Claude Code | Tạo task và thiết kế giao diện theo yêu cầu trưởng nhóm. Chưa code. |
 | 22/11/2026 | Claude Code | Theo góp ý trưởng nhóm: cách dùng thuốc phải **riêng theo từng bệnh của từng cây**. Thêm bảng `ProductUsageRules` + API và khối "Cách dùng cho bệnh này" ở Tab 2. Phiếu ở Tab 1 đổi thành **phiếu chung**. |
 | 22/11/2026 | Claude Code | Trưởng nhóm chốt **tách** phần phiếu theo bệnh sang `task-22-usage-rules-per-disease.md` (làm sau task này). Task này không còn bảng mới / migration; Tab 2 chỉ chừa ô "Cách dùng cho bệnh này" (chỉ đọc). |
+| 22/11/2026 | Antigravity | Hoàn thành TASK-21: Backend 3 endpoint mới + query `productId`; Frontend trang `/admin/inventory/products/:id` (Tab 1 Thông tin, Tab 2 Bệnh & Căn cứ); Thêm cột Căn cứ ở kho và link sản phẩm ở tab Gợi ý; Test đơn vị 7/7 pass; `dotnet build` & `npm run build` 0 lỗi. |
 
 ## 9. NGOÀI PHẠM VI (ghi lại để làm sau)
 

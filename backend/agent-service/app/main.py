@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.rag.schema import LabelParagraphsRequest
+from app.rag.schema import LabelParagraphsRequest, SegmentArticleRequest
 from app.rag.pipeline import get_rag_pipeline
 from app.rag.reindex_worker import ReindexCoordinator
 from app.rag.sync_index import sync_knowledge_index
@@ -139,6 +139,33 @@ def label_paragraphs(payload: LabelParagraphsRequest):
                 "mentions": [m.model_dump() for m in s.mentions],
             }
             for s in res.suggestions
+        ],
+        "metadata": res.metadata.model_dump() if res.metadata else None
+    }
+
+@app.post("/internal/knowledge/segment-article", dependencies=[Depends(check_internal_auth)])
+def segment_article(payload: SegmentArticleRequest):
+    """
+    POST /internal/knowledge/segment-article
+    AI Semantic Segmentation & Labeling:
+    Đọc toàn bài viết nông nghiệp và tự động chia thành các đoạn tri thức chuẩn (semantic chunks),
+    đồng thời gán nhãn unit_type, trích xuất mentions và metadata trong 1 lượt gọi duy nhất.
+    """
+    res = get_rag_pipeline().segment_and_label_article(payload)
+    if not res.ai_available or not res.segments:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI segmentation is unavailable"
+        )
+    return {
+        "segments": [
+            {
+                "id": s.id,
+                "text": s.text,
+                "unit_type": s.unit_type,
+                "mentions": [m.model_dump() for m in s.mentions],
+            }
+            for s in res.segments
         ],
         "metadata": res.metadata.model_dump() if res.metadata else None
     }

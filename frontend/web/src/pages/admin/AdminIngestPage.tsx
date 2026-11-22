@@ -306,23 +306,6 @@ export const AdminIngestPage: React.FC = () => {
       return /^(?:\d+\.\d+\.?|[a-zđ][.)])\s+\S/i.test(plain) && plain.length <= 140;
     };
 
-    const isSubItemBlock = (b: string): boolean => {
-      const trimmed = b.trim();
-      if (!trimmed) return false;
-      // Dấu gạch đầu dòng, bullet, mũi tên trả lời: -, *, +, •, -->, ->, =>
-      if (/^(?:[•\-*+]|--?>|==?>)\s*\S/.test(trimmed)) return true;
-      if (isQuestionOrFaqBlock(trimmed)) return true;
-      if (isNumberedSubHeading(trimmed)) return true;
-      // Tiêu đề con kết thúc bằng dấu hai chấm (vd: "- 3.1 Triệu chứng:", "Biện pháp canh tác:")
-      if (
-        trimmed.length <= 400 &&
-        /^(?:[•\-*+]|--?>|==?>\s*)?(?:\*\*)?(?:\d+(\.\d+)*[.)/]?\s*)?[^:.\n!?*]{2,80}(?:\*\*)?:\s*(?:\*\*)?\s*\S?/.test(trimmed)
-      ) {
-        return true;
-      }
-      return false;
-    };
-
     const isSectionHeadingBlock = (b: string): boolean => {
       const trimmed = b.trim();
       if (!trimmed || trimmed.includes('\n') || isStandaloneMetadataLine(trimmed) || /^#\s+\S/.test(trimmed)) {
@@ -332,11 +315,8 @@ export const AdminIngestPage: React.FC = () => {
       // Câu hỏi FAQ kết thúc bằng '?' không phải là Major Section Heading
       if (isQuestionOrFaqBlock(trimmed)) return false;
 
-      // Mục số phụ như 1.1, 4.2 hoặc a), b) là sub-heading
-      if (isNumberedSubHeading(trimmed)) return false;
-
       const plain = stripMd(trimmed);
-      if (plain.length < 3 || plain.length > 120) return false;
+      if (plain.length < 3 || plain.length > 140) return false;
       if (
         /^(đây là|đó là|biện pháp này|cách này|khi |nếu |dù |mặc dù |ngoài ra|tuy nhiên|do đó|vì vậy|trong bài|dưới đây là)(?=\s|$)/i.test(
           plain
@@ -345,25 +325,37 @@ export const AdminIngestPage: React.FC = () => {
         return false;
       }
 
-      // Chỉ nhận đề mục lớn: H2 (##) hoặc các mục lớn không có số thập phân con
-      if (/^##\s+\S/.test(trimmed)) {
-        return true;
-      }
-
-      // H3 (###) chỉ là Major Section Heading nếu KHÔNG phải là mục con (4.1, a))
-      if (/^###\s+\S/.test(trimmed)) {
-        if (/^###\s+(?:\d+\.\d+\.?|[a-zđ][.)])\s+/i.test(trimmed)) return false;
+      // Mọi đề mục Markdown H2..H6 đều là Section Heading
+      if (/^#{2,6}\s+\S/.test(trimmed)) {
         return true;
       }
 
       const endsWithColon = /:\s*$/.test(plain) && plain.replace(/:\s*$/, '').indexOf(':') === -1 && !/\.\s+\S/.test(plain);
-      // Chỉ nhận các đề mục lớn: "1.", "2/", "I.", "II."
-      const numberedHeading = /^(\d+|[IVX]+)[.)/]\s+[A-ZÀ-Ỹ\d]/i.test(plain) && !/\.\s*$/.test(plain);
+      // Đề mục có số: "1.", "1.1", "2/", "I.", "II.", "a)"
+      const numberedHeading = /^(\d+(\.\d+)*|[IVX]+|[a-zđ])[.)/]\s+[A-ZÀ-Ỹ\d]/i.test(plain) && !/\.\s*$/.test(plain);
       const commonHeading =
         /^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|điều\s+kiện\s+phát\s+sinh|vòng\s+đời|tác\s+hại|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+phòng\s+ngừa|biện\s+pháp\s+quản\s+lý|cách\s+trị|phòng\s+ngừa|điều\s+trị|câu\s+hỏi\s+thường\s+gặp)$/i.test(
           plain.replace(/:\s*$/, '')
         );
       return endsWithColon || numberedHeading || commonHeading;
+    };
+
+    const isSubItemBlock = (b: string): boolean => {
+      const trimmed = b.trim();
+      if (!trimmed) return false;
+      // Dấu gạch đầu dòng, bullet, mũi tên trả lời: -, *, +, •, -->, ->, =>
+      if (/^(?:[•\-*+]|--?>|==?>)\s*\S/.test(trimmed)) return true;
+      if (isQuestionOrFaqBlock(trimmed)) return true;
+      // Tiêu đề mục (như 1.1, 1.2 hoặc ### ...) KHÔNG phải là sub-item để tránh bị gom vào đuôi đoạn trước!
+      if (isSectionHeadingBlock(trimmed)) return false;
+      // Tiêu đề con kết thúc bằng dấu hai chấm (vd: "- 3.1 Triệu chứng:", "Biện pháp canh tác:")
+      if (
+        trimmed.length <= 400 &&
+        /^(?:[•\-*+]|--?>|==?>\s*)?(?:\*\*)?(?:\d+(\.\d+)*[.)/]?\s*)?[^:.\n!?*]{2,80}(?:\*\*)?:\s*(?:\*\*)?\s*\S?/.test(trimmed)
+      ) {
+        return true;
+      }
+      return false;
     };
 
     const formatSubItemMarkdown = (b: string): string => {

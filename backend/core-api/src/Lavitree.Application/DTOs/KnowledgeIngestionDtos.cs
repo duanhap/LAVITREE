@@ -282,6 +282,42 @@ public class AgentLabelParagraphsResponse
     public AgentSuggestedMetadata? Metadata { get; set; }
 }
 
+public class AgentSegmentArticleRequest
+{
+    [JsonPropertyName("article_text")]
+    public string ArticleText { get; set; } = string.Empty;
+
+    [JsonPropertyName("model_class")]
+    public string? ModelClass { get; set; }
+
+    [JsonPropertyName("source_url")]
+    public string? SourceUrl { get; set; }
+}
+
+public class AgentSegmentArticleResponse
+{
+    [JsonPropertyName("segments")]
+    public List<AgentSegmentItem> Segments { get; set; } = new();
+
+    [JsonPropertyName("metadata")]
+    public AgentSuggestedMetadata? Metadata { get; set; }
+}
+
+public class AgentSegmentItem
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+
+    [JsonPropertyName("unit_type")]
+    public string UnitType { get; set; } = "SUMMARY";
+
+    [JsonPropertyName("mentions")]
+    public List<MentionDto>? Mentions { get; set; }
+}
+
 public class AgentParagraphLabel
 {
     [JsonPropertyName("id")]
