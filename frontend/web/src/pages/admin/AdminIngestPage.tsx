@@ -5262,29 +5262,31 @@ export const AdminIngestPage: React.FC = () => {
       {/* DIALOG XEM PHÓNG TO ẢNH TRIỆU CHỨNG */}
       {/* ========================================================================================= */}
       <Dialog open={!!previewingImage} onOpenChange={(open) => !open && setPreviewingImage(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-bold text-foreground">
+        <DialogContent className="sm:max-w-xl w-[95vw] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
+            <DialogTitle className="text-sm sm:text-base font-bold text-foreground">
               {previewingImage?.caption || 'Xem ảnh triệu chứng bệnh'}
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground flex items-center gap-2">
+            <DialogDescription className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
               <span>Mã ảnh #{previewingImage?.id}</span>
               <span>•</span>
-              <span className="font-semibold text-emerald-700">{previewingImage?.plant_name} - {previewingImage?.disease_name}</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                {previewingImage?.plant_name} — {previewingImage?.disease_name}
+              </span>
             </DialogDescription>
           </DialogHeader>
 
           {previewingImage && (
-            <div className="space-y-3 pt-1">
-              <div className="relative max-h-[60vh] overflow-hidden rounded-lg bg-black/5 flex items-center justify-center border border-border">
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="relative max-h-[360px] overflow-hidden rounded-xl bg-muted/40 flex items-center justify-center border border-border p-2">
                 <img
                   src={previewingImage.image_url}
                   alt={previewingImage.caption || 'Ảnh triệu chứng'}
-                  className="max-h-[60vh] w-auto max-w-full object-contain mx-auto"
+                  className="max-h-[340px] w-auto max-w-full object-contain mx-auto rounded-lg shadow-2xs"
                 />
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs p-3 bg-muted/30 rounded-lg border border-border/60">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs p-3 bg-muted/30 rounded-xl border border-border/60">
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Bộ phận:</span>
                   <span className="font-semibold text-foreground">{getPlantPartLabel(previewingImage.plant_part)}</span>
@@ -5297,7 +5299,7 @@ export const AdminIngestPage: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Trạng thái:</span>
-                  <span className="font-semibold text-emerald-700">Đã duyệt</span>
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">Đã duyệt</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground block text-[11px]">Ảnh gốc:</span>
@@ -5315,7 +5317,7 @@ export const AdminIngestPage: React.FC = () => {
             </div>
           )}
 
-          <DialogFooter className="flex items-center justify-between sm:justify-between pt-2">
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-between sm:justify-between shrink-0">
             {previewingImage && (
               <Button
                 type="button"
@@ -5326,7 +5328,7 @@ export const AdminIngestPage: React.FC = () => {
                   setPreviewingImage(null);
                   setDeleteImageTarget(target);
                 }}
-                className="gap-1.5 text-xs"
+                className="gap-1.5 text-xs h-9 px-3.5 font-medium"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Gỡ ảnh này</span>
@@ -5337,7 +5339,7 @@ export const AdminIngestPage: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={() => setPreviewingImage(null)}
-              className="text-xs"
+              className="text-xs h-9 px-4 font-medium"
             >
               Đóng
             </Button>
@@ -5348,39 +5350,50 @@ export const AdminIngestPage: React.FC = () => {
       {/* ========================================================================================= */}
       {/* DIALOG XÁC NHẬN GỠ ẢNH TRIỆU CHỨNG */}
       {/* ========================================================================================= */}
-      <Dialog open={!!deleteImageTarget} onOpenChange={(open) => !open && setDeleteImageTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-rose-600 text-base">
-              <AlertTriangle className="w-5 h-5" />
+      <Dialog open={!!deleteImageTarget} onOpenChange={(open) => !open && !deletingImage && setDeleteImageTarget(null)}>
+        <DialogContent className="sm:max-w-md w-[95vw] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-rose-600 text-base font-bold">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
               <span>Xác nhận gỡ ảnh triệu chứng</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground pt-1">
-              Bạn có chắc chắn muốn gỡ ảnh #{deleteImageTarget?.id} (bộ phận {deleteImageTarget ? getPlantPartLabel(deleteImageTarget.plant_part) : ''}) khỏi bài viết này? Hành động này sẽ xóa ảnh khỏi kho tri thức.
+            <DialogDescription className="text-xs text-muted-foreground mt-1">
+              Bạn có chắc chắn muốn gỡ ảnh #{deleteImageTarget?.id} ({deleteImageTarget ? `bộ phận ${getPlantPartLabel(deleteImageTarget.plant_part)}` : ''}) khỏi bài viết này?
             </DialogDescription>
           </DialogHeader>
 
           {deleteImageTarget && (
-            <div className="flex items-center gap-3 p-2 bg-muted/30 rounded-lg border border-border/80 my-1">
-              <img
-                src={deleteImageTarget.image_url}
-                alt="Thumbnail"
-                className="w-14 h-14 object-cover rounded-md border border-border shrink-0"
-              />
-              <div className="text-xs space-y-0.5 overflow-hidden">
-                <p className="font-semibold truncate text-foreground">{deleteImageTarget.caption || 'Ảnh không có chú thích'}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{deleteImageTarget.credit || 'Khuyết nguồn'}</p>
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-xl border border-border">
+                <img
+                  src={deleteImageTarget.image_url}
+                  alt="Thumbnail"
+                  className="w-16 h-16 object-cover rounded-lg border border-border shrink-0 shadow-2xs"
+                />
+                <div className="text-xs space-y-1 min-w-0 flex-1">
+                  <p className="font-semibold text-foreground line-clamp-2 leading-snug">
+                    {deleteImageTarget.caption || 'Ảnh không có chú thích'}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Nguồn: {deleteImageTarget.credit || 'Khuyết nguồn'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 p-2.5 text-[11px] text-rose-800 dark:text-rose-300">
+                ⚠️ <strong>Lưu ý:</strong> Hành động này sẽ xóa ảnh khỏi kho tri thức và không thể khôi phục lại.
               </div>
             </div>
           )}
 
-          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-end gap-2.5 shrink-0">
             <Button
               type="button"
               variant="outline"
               size="sm"
               disabled={deletingImage}
               onClick={() => setDeleteImageTarget(null)}
+              className="text-xs h-9 px-4 font-medium"
             >
               Hủy
             </Button>
@@ -5390,7 +5403,7 @@ export const AdminIngestPage: React.FC = () => {
               size="sm"
               disabled={deletingImage}
               onClick={handleDeleteArticleImage}
-              className="gap-1.5"
+              className="gap-1.5 text-xs h-9 px-4 font-semibold shadow-xs"
             >
               {deletingImage ? (
                 <>

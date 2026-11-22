@@ -1,28 +1,21 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Crop, ImagePlus, Maximize } from 'lucide-react';
+import { Crop, ImagePlus, Maximize, Square, RectangleHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /**
  * Bước cắt ảnh trước khi khám (W-01).
- * Mô hình chỉ học trên ảnh lá tách nền và resize thẳng về 224x224, nên:
- * - nền (đất, tay, lá khác) làm kết quả sai → người dùng khoanh đúng chiếc lá;
- * - khung cắt khóa tỉ lệ 1:1 để ảnh không bị bóp méo khi resize.
+ * Cho phép kéo tự do chiều ngang, chiều dọc hoặc các góc theo hình dáng chiếc lá,
+ * loại bỏ đất, tay và lá khác để mô hình nhận diện chính xác nhất.
  */
 
 interface CropRect {
   x: number;
   y: number;
-  size: number; // đơn vị: pixel của ảnh gốc
+  width: number;
+  height: number;
 }
 
-type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se';
-
-const CORNER_SIGNS: Record<Exclude<DragMode, 'move'>, [number, number]> = {
-  nw: [-1, -1],
-  ne: [1, -1],
-  sw: [-1, 1],
-  se: [1, 1],
-};
+type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e';
 
 const OUTPUT_MAX_EDGE = 1600;
 const KEY_STEP_RATIO = 0.02;
@@ -30,20 +23,40 @@ const KEY_STEP_RATIO = 0.02;
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
 function defaultCrop(w: number, h: number): CropRect {
-  const size = Math.round(Math.min(w, h) * 0.9);
-  return { x: Math.round((w - size) / 2), y: Math.round((h - size) / 2), size };
+  const width = Math.round(w * 0.85);
+  const height = Math.round(h * 0.85);
+  return {
+    x: Math.round((w - width) / 2),
+    y: Math.round((h - height) / 2),
+    width,
+    height,
+  };
 }
 
 async function cropToFile(file: File, crop: CropRect): Promise<File> {
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
   try {
-    const out = Math.min(crop.size, OUTPUT_MAX_EDGE);
+    const maxDim = Math.max(crop.width, crop.height);
+    const scaleFactor = Math.min(1, OUTPUT_MAX_EDGE / maxDim);
+    const outW = Math.max(64, Math.round(crop.width * scaleFactor));
+    const outH = Math.max(64, Math.round(crop.height * scaleFactor));
+
     const canvas = document.createElement('canvas');
-    canvas.width = out;
-    canvas.height = out;
+    canvas.width = outW;
+    canvas.height = outH;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('canvas');
-    ctx.drawImage(bitmap, crop.x, crop.y, crop.size, crop.size, 0, 0, out, out);
+    ctx.drawImage(
+      bitmap,
+      Math.max(0, Math.round(crop.x)),
+      Math.max(0, Math.round(crop.y)),
+      Math.max(1, Math.round(crop.width)),
+      Math.max(1, Math.round(crop.height)),
+      0,
+      0,
+      outW,
+      outH
+    );
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
     if (!blob) throw new Error('toBlob');
     const baseName = file.name.replace(/\.[^.]+$/, '') || 'leaf';
@@ -102,26 +115,43 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
     measure();
   };
 
-  const minSize = natural ? Math.max(64, Math.round(Math.min(natural.w, natural.h) * 0.1)) : 64;
-
   const applyDrag = (mode: DragMode, start: CropRect, dx: number, dy: number): CropRect => {
     if (!natural) return start;
     const { w, h } = natural;
+    const minDim = Math.max(48, Math.round(Math.min(w, h) * 0.08));
+
     if (mode === 'move') {
       return {
-        size: start.size,
-        x: clamp(start.x + dx, 0, w - start.size),
-        y: clamp(start.y + dy, 0, h - start.size),
+        width: start.width,
+        height: start.height,
+        x: clamp(start.x + dx, 0, w - start.width),
+        y: clamp(start.y + dy, 0, h - start.height),
       };
     }
-    const [sx, sy] = CORNER_SIGNS[mode];
-    // Góc đối diện đứng yên; khung lớn/nhỏ theo hướng kéo trội hơn để giữ hình vuông
-    const ax = sx > 0 ? start.x : start.x + start.size;
-    const ay = sy > 0 ? start.y : start.y + start.size;
-    const grow = Math.abs(dx) > Math.abs(dy) ? sx * dx : sy * dy;
-    const maxSize = Math.min(sx > 0 ? w - ax : ax, sy > 0 ? h - ay : ay);
-    const size = clamp(start.size + grow, Math.min(minSize, maxSize), maxSize);
-    return { size, x: sx > 0 ? ax : ax - size, y: sy > 0 ? ay : ay - size };
+
+    let { x, y, width, height } = start;
+
+    // Kéo ngang (Trái hoặc Phải)
+    if (mode.includes('w')) {
+      const right = start.x + start.width;
+      const newX = clamp(start.x + dx, 0, right - minDim);
+      x = newX;
+      width = right - newX;
+    } else if (mode.includes('e')) {
+      width = clamp(start.width + dx, minDim, w - start.x);
+    }
+
+    // Kéo dọc (Trên hoặc Dưới)
+    if (mode.includes('n')) {
+      const bottom = start.y + start.height;
+      const newY = clamp(start.y + dy, 0, bottom - minDim);
+      y = newY;
+      height = bottom - newY;
+    } else if (mode.includes('s')) {
+      height = clamp(start.height + dy, minDim, h - start.y);
+    }
+
+    return { x, y, width, height };
   };
 
   const onPointerDown = (mode: DragMode) => (e: React.PointerEvent) => {
@@ -144,6 +174,17 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
     dragRef.current = null;
   };
 
+  const setSquareCrop = () => {
+    if (!crop || !natural) return;
+    const { w, h } = natural;
+    const size = Math.round(Math.min(crop.width, crop.height));
+    const centerX = crop.x + crop.width / 2;
+    const centerY = crop.y + crop.height / 2;
+    const x = clamp(Math.round(centerX - size / 2), 0, w - size);
+    const y = clamp(Math.round(centerY - size / 2), 0, h - size);
+    setCrop({ x, y, width: size, height: size });
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!crop || !natural) return;
     const step = Math.max(4, Math.round(Math.min(natural.w, natural.h) * KEY_STEP_RATIO));
@@ -156,12 +197,12 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
     if (moves[e.key]) {
       e.preventDefault();
       setCrop(applyDrag('move', crop, ...moves[e.key]));
-    } else if (e.key === '+' || e.key === '=' || e.key === '-') {
+    } else if (e.key === '+' || e.key === '=') {
       e.preventDefault();
-      const delta = e.key === '-' ? -step : step;
-      // Đổi kích thước quanh tâm khung
-      const grown = applyDrag('se', crop, delta / 2, delta / 2);
-      setCrop(applyDrag('move', grown, -(grown.size - crop.size) / 2, -(grown.size - crop.size) / 2));
+      setCrop(applyDrag('se', crop, step, step));
+    } else if (e.key === '-') {
+      e.preventDefault();
+      setCrop(applyDrag('se', crop, -step, -step));
     }
   };
 
@@ -179,20 +220,16 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
   };
 
   const box = crop
-    ? { left: crop.x * scale, top: crop.y * scale, width: crop.size * scale, height: crop.size * scale }
+    ? {
+        left: crop.x * scale,
+        top: crop.y * scale,
+        width: crop.width * scale,
+        height: crop.height * scale,
+      }
     : null;
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-primary/20 bg-brand-mint-soft/50 px-4 py-3 text-sm text-foreground">
-        <p className="font-semibold text-primary flex items-center gap-1.5">
-          <Crop className="h-4 w-4" /> Khoanh đúng một chiếc lá bị bệnh
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-          Kéo khung để di chuyển, kéo các góc để phóng to hoặc thu nhỏ. Cắt bớt đất, tay và lá khác giúp Lavi nhận diện chính xác hơn.
-        </p>
-      </div>
-
+    <div className="space-y-3">
       <div className="flex justify-center rounded-xl border border-border bg-neutral-900 p-2">
         <div
           className="relative inline-block select-none touch-none overflow-hidden"
@@ -208,14 +245,14 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
               onLoad={handleLoad}
               onError={() => setError('Không đọc được ảnh này. Hãy chọn ảnh khác.')}
               draggable={false}
-              className="block max-h-[60vh] max-w-full"
+              className="block max-h-[52vh] max-w-full"
             />
           )}
 
           {box && (
             <div
               role="group"
-              aria-label="Khung cắt ảnh. Dùng phím mũi tên để di chuyển, phím cộng trừ để đổi kích thước"
+              aria-label="Khung cắt ảnh. Kéo cạnh hoặc góc để thay đổi kích thước ngang dọc"
               tabIndex={0}
               onKeyDown={onKeyDown}
               onPointerDown={onPointerDown('move')}
@@ -228,7 +265,43 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
                   <div key={i} className="border border-white/25" />
                 ))}
               </div>
-              {(Object.keys(CORNER_SIGNS) as Array<keyof typeof CORNER_SIGNS>).map((corner) => (
+
+              {/* 4 Cạnh kéo dãn (Edges) */}
+              <span
+                onPointerDown={onPointerDown('n')}
+                aria-hidden="true"
+                className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-6 w-12 flex items-center justify-center cursor-ns-resize"
+                title="Kéo co giãn chiều dọc"
+              >
+                <span className="h-1.5 w-7 rounded-full bg-white border border-primary shadow-xs" />
+              </span>
+              <span
+                onPointerDown={onPointerDown('s')}
+                aria-hidden="true"
+                className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 h-6 w-12 flex items-center justify-center cursor-ns-resize"
+                title="Kéo co giãn chiều dọc"
+              >
+                <span className="h-1.5 w-7 rounded-full bg-white border border-primary shadow-xs" />
+              </span>
+              <span
+                onPointerDown={onPointerDown('w')}
+                aria-hidden="true"
+                className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 h-12 w-6 flex items-center justify-center cursor-ew-resize"
+                title="Kéo co giãn chiều ngang"
+              >
+                <span className="h-7 w-1.5 rounded-full bg-white border border-primary shadow-xs" />
+              </span>
+              <span
+                onPointerDown={onPointerDown('e')}
+                aria-hidden="true"
+                className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 h-12 w-6 flex items-center justify-center cursor-ew-resize"
+                title="Kéo co giãn chiều ngang"
+              >
+                <span className="h-7 w-1.5 rounded-full bg-white border border-primary shadow-xs" />
+              </span>
+
+              {/* 4 Góc kéo (Corners) */}
+              {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
                 <span
                   key={corner}
                   onPointerDown={onPointerDown(corner)}
@@ -240,7 +313,7 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
                     corner === 'nw' || corner === 'se' ? 'cursor-nwse-resize' : 'cursor-nesw-resize',
                   ].join(' ')}
                 >
-                  <span className="h-4 w-4 rounded-full border-2 border-primary bg-white shadow" />
+                  <span className="h-4 w-4 rounded-full border-2 border-primary bg-white shadow-sm" />
                 </span>
               ))}
             </div>
@@ -250,26 +323,35 @@ export const LeafCropper: React.FC<LeafCropperProps> = ({ file, onConfirm, onCho
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" onClick={onChooseAnother} disabled={isSaving} className="h-11">
-          <ImagePlus className="mr-1.5 h-4 w-4" /> Chọn ảnh khác
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" onClick={onChooseAnother} disabled={isSaving} className="h-10 text-xs">
+          <ImagePlus className="mr-1.5 h-3.5 w-3.5" /> Chọn ảnh khác
         </Button>
         <Button
           type="button"
           variant="outline"
           onClick={() => natural && setCrop(defaultCrop(natural.w, natural.h))}
           disabled={!natural || isSaving}
-          className="h-11"
+          className="h-10 text-xs"
         >
-          <Maximize className="mr-1.5 h-4 w-4" /> Đặt lại khung
+          <Maximize className="mr-1.5 h-3.5 w-3.5" /> Toàn lá (Tự do)
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={setSquareCrop}
+          disabled={!crop || isSaving}
+          className="h-10 text-xs"
+        >
+          <Square className="mr-1.5 h-3.5 w-3.5" /> Khung vuông 1:1
         </Button>
         <Button
           type="button"
           onClick={handleConfirm}
           disabled={!crop || isSaving}
-          className="h-11 flex-1 min-w-[10rem] bg-primary hover:bg-primary-hover text-white font-semibold"
+          className="h-10 flex-1 min-w-[10rem] bg-primary hover:bg-primary-hover text-white font-semibold text-xs"
         >
-          <Crop className="mr-1.5 h-4 w-4" /> {isSaving ? 'Đang cắt...' : 'Cắt và dùng ảnh này'}
+          <Crop className="mr-1.5 h-3.5 w-3.5" /> {isSaving ? 'Đang cắt...' : 'Dùng khung ảnh này'}
         </Button>
       </div>
     </div>
