@@ -235,6 +235,54 @@ export const formatUsageLines = (p: UsageProfile, phiDays?: number | null, isSup
 export const formatUsageText = (p: UsageProfile, phiDays?: number | null, isSupply = false): string =>
   formatUsageLines(p, phiDays, isSupply).join('\n');
 
+/** Tóm tắt 1 dòng ngắn gọn của phiếu cách dùng chung (TASK-21) */
+export const formatUsageProfileSummary = (p: UsageProfile | null | undefined): string => {
+  if (!p || isUsageEmpty(p)) return 'Chưa có phiếu, chỉ điền khi nguồn ghi rõ số.';
+  const parts: string[] = [];
+
+  // Liều lượng
+  if (p.dose_amount !== null && p.dose_unit) {
+    if (p.water_liters !== null) {
+      parts.push(`${p.dose_amount} ${p.dose_unit} / ${p.water_liters} lít`);
+    } else {
+      parts.push(`${p.dose_amount} ${p.dose_unit}`);
+    }
+  } else if (p.dose_per_area && (p.dose_per_area.min !== null || p.dose_per_area.max !== null)) {
+    const range = p.dose_per_area.min === p.dose_per_area.max || p.dose_per_area.max === null
+      ? `${p.dose_per_area.min}`
+      : `${p.dose_per_area.min}–${p.dose_per_area.max}`;
+    parts.push(`${range} ${p.dose_per_area.unit || ''}`.trim());
+  } else if (p.dose_text) {
+    parts.push(p.dose_text);
+  }
+
+  // Cách dùng
+  if (p.method) parts.push(p.method);
+
+  // Buổi
+  if (p.time_of_day && p.time_of_day.length > 0) parts.push(p.time_of_day.join(', '));
+
+  // Cách nhau
+  if (p.interval_days && (p.interval_days.min !== null || p.interval_days.max !== null)) {
+    const range = p.interval_days.min === p.interval_days.max || p.interval_days.max === null
+      ? `${p.interval_days.min}`
+      : `${p.interval_days.min}–${p.interval_days.max}`;
+    parts.push(`cách ${range} ngày`);
+  }
+
+  // Tối đa lần / vụ
+  if (p.max_applications_per_season !== null) {
+    parts.push(`tối đa ${p.max_applications_per_season} lần/vụ`);
+  }
+
+  // Tránh mưa
+  if (p.avoid_rain_hours !== null && p.avoid_rain_hours > 0) {
+    parts.push(`tránh mưa ${p.avoid_rain_hours} giờ`);
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : 'Chưa có phiếu, chỉ điền khi nguồn ghi rõ số.';
+};
+
 /** Phiếu gửi lên API: null nếu rỗng. */
 export const usageProfileForApi = (p: UsageProfile | null | undefined): UsageProfile | null =>
   !p || isUsageEmpty(p) ? null : { ...p, version: USAGE_PROFILE_VERSION };

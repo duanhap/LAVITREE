@@ -794,4 +794,153 @@ public class MedicinesController : ControllerBase
             updated_at = product.UpdatedAt
         });
     }
+
+    /// <summary>
+    /// GET /api/v1/medicines/{id:int}
+    /// Lấy chi tiết một sản phẩm (TASK-21)
+    /// </summary>
+    [HttpGet("{id:int}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetById(int id)
+    {
+        var product = await _dbContext.Products
+            .Include(p => p.DiseaseProducts)
+                .ThenInclude(dp => dp.Disease)
+                    .ThenInclude(d => d.Plant)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm hoặc sản phẩm đã bị xóa." });
+        }
+
+        var isAdmin = User.IsAdmin();
+        if (!isAdmin)
+        {
+            if (!product.IsAllowed || product.Availability == "NOT_SOLD" || IsBannedIngredient(product.Name) || IsBannedIngredient(product.ActiveIngredient))
+            {
+                return NotFound(new { detail = "Sản phẩm không khả dụng hoặc đã dừng kinh doanh." });
+            }
+        }
+
+        var targetDiseases = product.DiseaseProducts
+            .Where(dp => dp.Disease != null)
+            .Select(dp => dp.Disease!.ClassCode)
+            .ToList();
+
+        var diseases = product.DiseaseProducts
+            .Where(dp => dp.Disease != null)
+            .Select(dp => new
+            {
+                class_code = dp.Disease!.ClassCode,
+                disease_name = dp.Disease.CommonNameVi,
+                plant_name = dp.Disease.Plant?.Name ?? string.Empty
+            })
+            .ToList();
+
+        return Ok(new
+        {
+            id = product.Id,
+            name = product.Name,
+            active_ingredient = product.ActiveIngredient,
+            medicine_type = product.MedicineType,
+            price = product.Price,
+            dosage_instruction = product.DosageInstruction,
+            phi_days = product.PhiDays,
+            is_allowed = product.IsAllowed,
+            rain_resistant = product.RainResistant,
+            stock_quantity = product.StockQuantity,
+            availability = product.Availability ?? "IN_STOCK",
+            info_source_url = product.InfoSourceUrl,
+            image_url = FormatImageUrl(product.ImageUrl ?? ""),
+            usage_profile = product.UsageProfile,
+            target_diseases = targetDiseases,
+            diseases = diseases
+        });
+    }
+
+    /// <summary>
+    /// GET /api/v1/medicines/{id:int}/evidence
+    /// Lấy danh sách căn cứ tài liệu của sản phẩm (TASK-21)
+    /// </summary>
+    [HttpGet("{id:int}/evidence")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetEvidence(int id, [FromQuery] string? diseaseCode)
+    {
+        var productExists = await _dbContext.Products.AnyAsync(p => p.Id == id && !p.IsDeleted);
+        if (!productExists)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm." });
+        }
+
+        var isAdmin = User.IsAdmin();
+
+        var query = _dbContext.ProductSuggestions
+            .Include(ps => ps.KnowledgeSource)
+            .Where(ps => ps.ProductId == id
+                      && (ps.Status == "LINKED" || ps.Status == "ADDED")
+                      && !ps.IsDeleted
+                      && ps.KnowledgeSource != null
+                      && !ps.KnowledgeSource.IsDeleted);
+
+        if (!isAdmin)
+        {
+            query = query.Where(ps => ps.KnowledgeSource!.IsManualApproved);
+        }
+
+        if (!string.IsNullOrWhiteSpace(diseaseCode))
+        {
+            var norm = diseaseCode.Trim().ToLower();
+            query = query.Where(ps => ps.ModelClass.ToLower() == norm);
+        }
+
+        var rawList = await query.ToListAsync();
+
+        // Gộp trùng: nếu cùng KnowledgeSourceId và cùng ModelClass có nhiều gợi ý cho cùng sản phẩm, chỉ trả 1 dòng (lấy suggestion_id nhỏ nhất)
+        var deduplicated = rawList
+            .GroupBy(ps => new { ps.KnowledgeSourceId, ps.ModelClass })
+            .Select(g => g.OrderBy(ps => ps.Id).First())
+            .ToList();
+
+        // Nạp thông tin tên bệnh và cây trồng
+        var classCodes = deduplicated.Select(ps => ps.ModelClass).Distinct().ToList();
+        var diseases = await _dbContext.Diseases
+            .Include(d => d.Plant)
+            .Where(d => classCodes.Contains(d.ClassCode))
+            .ToDictionaryAsync(d => d.ClassCode, StringComparer.OrdinalIgnoreCase);
+
+        var results = deduplicated.Select(ps =>
+        {
+            diseases.TryGetValue(ps.ModelClass, out var d);
+            var classMeta = KnowledgeController.All38Classes.FirstOrDefault(c => c.ModelClass == ps.ModelClass);
+            var diseaseName = d?.CommonNameVi ?? classMeta?.DiseaseName ?? ps.ModelClass;
+            var plantName = d?.Plant?.Name ?? classMeta?.PlantName ?? "Cây trồng";
+
+            return new
+            {
+                suggestion_id = ps.Id,
+                knowledge_source_id = ps.KnowledgeSourceId,
+                model_class = ps.ModelClass,
+                disease_name = diseaseName,
+                plant_name = plantName,
+                mention_text = ps.MentionText,
+                unit_type = ps.KnowledgeSource?.UnitType ?? "TREATMENT",
+                evidence_text = ps.KnowledgeSource?.EvidenceText ?? string.Empty,
+                is_verbatim = ps.KnowledgeSource?.IsVerbatim ?? false,
+                source_url = ps.KnowledgeSource?.SourceUrl ?? string.Empty,
+                source_title = ps.KnowledgeSource?.SourceTitle ?? string.Empty,
+                organization = ps.KnowledgeSource?.Organization ?? string.Empty,
+                published_date = ps.KnowledgeSource?.PublishedDate,
+                is_approved = ps.KnowledgeSource?.IsManualApproved ?? false,
+                status = ps.Status
+            };
+        })
+        .OrderBy(r => r.model_class)
+        .ThenByDescending(r => r.is_approved)
+        .ThenByDescending(r => r.published_date)
+        .ToList();
+
+        return Ok(results);
+    }
 }

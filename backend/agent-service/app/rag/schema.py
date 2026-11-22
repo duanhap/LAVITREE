@@ -62,3 +62,19 @@ class LabelParagraphsResponse(BaseModel):
     suggestions: List[SuggestedParagraph] = Field(default_factory=list)
     metadata: Optional[SuggestedMetadata] = None
     ai_suggestion_available: bool = True
+
+class SegmentItem(BaseModel):
+    id: str = Field(..., description="Mã định danh đoạn P1, P2...")
+    text: str = Field(..., min_length=1, max_length=10000, description="Nội dung đoạn trích hoàn chỉnh")
+    unit_type: str = Field(default="SUMMARY", description="SYMPTOMS | CAUSE_CONDITIONS | PREVENTION | TREATMENT | SUMMARY")
+    mentions: List[MentionItem] = Field(default_factory=list)
+
+class SegmentArticleRequest(BaseModel):
+    article_text: str = Field(..., min_length=10, max_length=50000, description="Toàn bộ nội dung văn bản bài báo thô hoặc markdown")
+    model_class: Optional[str] = Field(default=None, max_length=100, description="Mã bệnh (tùy chọn)")
+    source_url: Optional[str] = Field(default=None, max_length=1000, description="URL bài viết gốc")
+
+class SegmentArticleResponse(BaseModel):
+    segments: List[SegmentItem] = Field(default_factory=list)
+    metadata: Optional[SuggestedMetadata] = None
+    ai_available: bool = True

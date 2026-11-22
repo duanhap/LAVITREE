@@ -14,7 +14,7 @@ import {
   UserCheck, AlertTriangle, Check, X, Clock, HelpCircle, Eye, Code2, Trash2,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, Sparkles, Image as ImageIcon, ImageOff,
   Plus, UploadCloud, Link as LinkIcon, ZoomIn, Scissors, BookOpen, ArrowRight, ArrowLeft, Edit3, Globe, Copy,
-  LayoutGrid, List
+  LayoutGrid, List, Camera
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ArticleEditor } from '@/features/admin/components/ArticleEditor';
@@ -48,6 +48,16 @@ import {
   formatTopicLabel,
   isHealthyTopic,
 } from '@/features/admin/lib';
+
+const getPlantPartLabel = (part: string) => {
+  switch (part) {
+    case 'LEAF': return 'Lá';
+    case 'FRUIT': return 'Quả';
+    case 'STEM': return 'Thân / Cành';
+    case 'WHOLE_PLANT': return 'Toàn cây';
+    default: return part || 'Lá';
+  }
+};
 
 const SECTION_COPY: Record<string, { title: string; description: string }> = {
   ingestion: {
@@ -139,6 +149,25 @@ export const AdminIngestPage: React.FC = () => {
   const [showMetaEditPanel, setShowMetaEditPanel] = useState<boolean>(false);
   const [articleTopics, setArticleTopics] = useState<string[]>([]);
   const [selectedTopicToAdd, setSelectedTopicToAdd] = useState<string>('');
+
+  // Quản lý ảnh triệu chứng đính kèm bài viết (Tab 1)
+  const [articleImages, setArticleImages] = useState<KnowledgeImageItem[]>([]);
+  const [loadingArticleImages, setLoadingArticleImages] = useState<boolean>(false);
+  const [addImageModalOpen, setAddImageModalOpen] = useState<boolean>(false);
+  const [previewingImage, setPreviewingImage] = useState<KnowledgeImageItem | null>(null);
+  const [deleteImageTarget, setDeleteImageTarget] = useState<KnowledgeImageItem | null>(null);
+  const [deletingImage, setDeletingImage] = useState<boolean>(false);
+  const [submittingImage, setSubmittingImage] = useState<boolean>(false);
+
+  // Form thêm ảnh mới
+  const [newImageMode, setNewImageMode] = useState<'FILE' | 'URL'>('FILE');
+  const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
+  const [newImageFilePreviews, setNewImageFilePreviews] = useState<string[]>([]);
+  const [newImageUrl, setNewImageUrl] = useState<string>('');
+  const [newImageClass, setNewImageClass] = useState<string>('');
+  const [newImagePlantPart, setNewImagePlantPart] = useState<string>('LEAF');
+  const [newImageCaption, setNewImageCaption] = useState<string>('');
+  const [newImageCredit, setNewImageCredit] = useState<string>('');
 
   // Highlight cụm từ trích xuất (mention tag)
   const [highlightedMention, setHighlightedMention] = useState<{ paraId: string; text: string } | null>(null);
@@ -260,6 +289,16 @@ export const AdminIngestPage: React.FC = () => {
     );
   };
 
+  // Nhận diện dòng chỉ chứa số thứ tự đơn lẻ, bullet đơn độc hoặc marker ('1.', '2.', '4.', '1.1', '• 4.', '**4.**', 'IV.')
+  const isPureNumberMarker = (text: string): boolean => {
+    if (!text) return false;
+    const stripped = text
+      .trim()
+      .replace(/^[•\-*+–—\s\u00A0\u200B]+/, '')
+      .replace(/[\s\u00A0\u200B*_#]/g, '');
+    return /^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]?$/i.test(stripped);
+  };
+
   // Gom tiêu đề mục, câu dẫn kết thúc bằng dấu ':' hoặc '?' và các ý con ngắn cùng mục thành đoạn hoàn chỉnh chuẩn Markdown (tối đa ~1.600 ký tự)
   const coalesceArticleParagraphs = (rawText: string): string => {
     if (!rawText) return '';
@@ -306,21 +345,16 @@ export const AdminIngestPage: React.FC = () => {
       return /^(?:\d+\.\d+\.?|[a-zđ][.)])\s+\S/i.test(plain) && plain.length <= 140;
     };
 
-    const isSubItemBlock = (b: string): boolean => {
+    // Nhận diện các tiểu mục biện pháp (Biện pháp canh tác:, Biện pháp sinh học:, Biện pháp hóa học...)
+    // để gom chung vào khối "Biện pháp phòng trừ / điều trị", tránh bị cắt vụn thành từng đoạn lẻ
+    const isSubMeasureHeading = (b: string): boolean => {
       const trimmed = b.trim();
-      if (!trimmed) return false;
-      // Dấu gạch đầu dòng, bullet, mũi tên trả lời: -, *, +, •, -->, ->, =>
-      if (/^(?:[•\-*+]|--?>|==?>)\s*\S/.test(trimmed)) return true;
-      if (isQuestionOrFaqBlock(trimmed)) return true;
-      if (isNumberedSubHeading(trimmed)) return true;
-      // Tiêu đề con kết thúc bằng dấu hai chấm (vd: "- 3.1 Triệu chứng:", "Biện pháp canh tác:")
-      if (
-        trimmed.length <= 400 &&
-        /^(?:[•\-*+]|--?>|==?>\s*)?(?:\*\*)?(?:\d+(\.\d+)*[.)/]?\s*)?[^:.\n!?*]{2,80}(?:\*\*)?:\s*(?:\*\*)?\s*\S?/.test(trimmed)
-      ) {
-        return true;
-      }
-      return false;
+      if (trimmed.includes('\n')) return false;
+      const plain = stripMd(trimmed);
+      return (
+        /^(?:###\s*)?(?:[-•*+–—]\s*)?(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*)?(?:biện pháp|kỹ thuật|phương pháp)\s+(?:canh tác|sinh học|hóa học|vật lý|cơ giới|thủ công|chăm sóc|bảo vệ|sử dụng|giống|xử lý)\b/i.test(plain) ||
+        /^(?:###\s*)?(?:[-•*+–—]\s*)?(?:lưu ý|hướng dẫn|nguyên tắc)\s+(?:khi\s+phun|khi\s+dùng|sử dụng|canh tác)\b/i.test(plain)
+      );
     };
 
     const isSectionHeadingBlock = (b: string): boolean => {
@@ -332,11 +366,11 @@ export const AdminIngestPage: React.FC = () => {
       // Câu hỏi FAQ kết thúc bằng '?' không phải là Major Section Heading
       if (isQuestionOrFaqBlock(trimmed)) return false;
 
-      // Mục số phụ như 1.1, 4.2 hoặc a), b) là sub-heading
-      if (isNumberedSubHeading(trimmed)) return false;
+      // Các tiểu mục như "Biện pháp sinh học:", "Biện pháp canh tác:" không được coi là Section Break độc lập
+      if (isSubMeasureHeading(trimmed)) return false;
 
       const plain = stripMd(trimmed);
-      if (plain.length < 3 || plain.length > 120) return false;
+      if (plain.length < 3 || plain.length > 140) return false;
       if (
         /^(đây là|đó là|biện pháp này|cách này|khi |nếu |dù |mặc dù |ngoài ra|tuy nhiên|do đó|vì vậy|trong bài|dưới đây là)(?=\s|$)/i.test(
           plain
@@ -345,20 +379,14 @@ export const AdminIngestPage: React.FC = () => {
         return false;
       }
 
-      // Chỉ nhận đề mục lớn: H2 (##) hoặc các mục lớn không có số thập phân con
-      if (/^##\s+\S/.test(trimmed)) {
-        return true;
-      }
-
-      // H3 (###) chỉ là Major Section Heading nếu KHÔNG phải là mục con (4.1, a))
-      if (/^###\s+\S/.test(trimmed)) {
-        if (/^###\s+(?:\d+\.\d+\.?|[a-zđ][.)])\s+/i.test(trimmed)) return false;
+      // Mọi đề mục Markdown H2..H6 đều là Section Heading
+      if (/^#{2,6}\s+\S/.test(trimmed)) {
         return true;
       }
 
       const endsWithColon = /:\s*$/.test(plain) && plain.replace(/:\s*$/, '').indexOf(':') === -1 && !/\.\s+\S/.test(plain);
-      // Chỉ nhận các đề mục lớn: "1.", "2/", "I.", "II."
-      const numberedHeading = /^(\d+|[IVX]+)[.)/]\s+[A-ZÀ-Ỹ\d]/i.test(plain) && !/\.\s*$/.test(plain);
+      // Đề mục có số: "1.", "1.1", "2/", "I.", "II.", "a)"
+      const numberedHeading = /^(\d+(\.\d+)*|[IVX]+|[a-zđ])[.)/]\s+[A-ZÀ-Ỹ\d]/i.test(plain) && !/\.\s*$/.test(plain);
       const commonHeading =
         /^(introduction|symptoms(\s+and\s+signs)?|signs(\s+and\s+symptoms)?|disease\s+cycle|causal\s+agent|pathogen|management|control|chemical\s+control|cultural\s+control|biological\s+control|diagnostic\s+procedures|prevention|treatment|summary|overview|giới\s+thiệu|triệu\s+chứng(\s+và\s+dấu\s+hiệu)?|dấu\s+hiệu\s+nhận\s+biết|nguyên\s+nhân(\s+và\s+điều\s+kiện\s+phát\s+sinh)?|đặc\s+điểm\s+phát\s+sinh|điều\s+kiện\s+phát\s+sinh|vòng\s+đời|tác\s+hại|biện\s+pháp\s+phòng\s+trừ|biện\s+pháp\s+phòng\s+ngừa|biện\s+pháp\s+quản\s+lý|cách\s+trị|phòng\s+ngừa|điều\s+trị|câu\s+hỏi\s+thường\s+gặp)$/i.test(
           plain.replace(/:\s*$/, '')
@@ -366,11 +394,34 @@ export const AdminIngestPage: React.FC = () => {
       return endsWithColon || numberedHeading || commonHeading;
     };
 
+    const isSubItemBlock = (b: string): boolean => {
+      const trimmed = b.trim();
+      if (!trimmed) return false;
+      // Dấu gạch đầu dòng, bullet, mũi tên trả lời: -, *, +, •, -->, ->, =>
+      if (/^(?:[•\-*+]|--?>|==?>)\s*\S/.test(trimmed)) return true;
+      if (isQuestionOrFaqBlock(trimmed)) return true;
+      if (isSubMeasureHeading(trimmed)) return true;
+      // Tiêu đề mục (như 1.1, 1.2 hoặc ### ...) KHÔNG phải là sub-item để tránh bị gom vào đuôi đoạn trước!
+      if (isSectionHeadingBlock(trimmed)) return false;
+      // Tiêu đề con kết thúc bằng dấu hai chấm (vd: "- 3.1 Triệu chứng:", "Biện pháp canh tác:")
+      if (
+        trimmed.length <= 400 &&
+        /^(?:[•\-*+]|--?>|==?>\s*)?(?:\*\*)?(?:\d+(\.\d+)*[.)/]?\s*)?[^:.\n!?*]{2,80}(?:\*\*)?:\s*(?:\*\*)?\s*\S?/.test(trimmed)
+      ) {
+        return true;
+      }
+      return false;
+    };
+
     const formatSubItemMarkdown = (b: string): string => {
       const trimmed = b.trim();
       if (trimmed.includes('\n')) return trimmed;
       if (/^•\s+/.test(trimmed)) return trimmed.replace(/^•\s+/, '- ');
       if (/^[-*+]\s+/.test(trimmed) || /^\d+[.)]\s+/.test(trimmed) || /^--?>\s+/.test(trimmed)) return trimmed;
+      if (isSubMeasureHeading(trimmed)) {
+        const cleanMeasure = trimmed.replace(/^#{1,6}\s+/, '').replace(/^[-•*+–—]\s*/, '').replace(/\*\*/g, '').trim();
+        return `### ${cleanMeasure.endsWith(':') ? cleanMeasure : `${cleanMeasure}:`}`;
+      }
       if (trimmed.length <= 265 && !trimmed.includes('**') && !/^#{1,6}\s+/.test(trimmed)) {
         const colonMatch = trimmed.match(/^([^:.\n!?*]{2,60}):\s+(\S[\s\S]*)$/);
         if (colonMatch) {
@@ -423,6 +474,8 @@ export const AdminIngestPage: React.FC = () => {
     };
 
     rawBlocks.forEach((rawBlock, idx) => {
+      const trimmedBlock = rawBlock.trim();
+      if (!trimmedBlock || isPureNumberMarker(trimmedBlock)) return;
       if (isStrayCaptionOrPromo(rawBlock, idx)) return;
 
       if (isStandaloneMetadataLine(rawBlock) || isTitleHeaderBlock(rawBlock, idx)) {
@@ -468,7 +521,7 @@ export const AdminIngestPage: React.FC = () => {
           !startsWithHeading &&
           (leadIn ||
             isShortFaqPair ||
-            (sub && (currentGroup.length <= 1100 || currentHasSubItems)) ||
+            (sub && (currentGroup.length <= 1800 || currentHasSubItems)) ||
             (currentGroup.length < 450 && b.length < 450));
         if (shouldMerge && currentGroup.length + 1 + b.length <= MAX_GROUP_CHARS) {
           currentGroup = `${currentGroup}\n${b}`;
@@ -854,6 +907,9 @@ export const AdminIngestPage: React.FC = () => {
           const t = extractTextWithSpacing(b);
           if (!t || isNoise(t)) return;
 
+          // Bỏ qua các thẻ chỉ chứa duy nhất số thứ tự đơn lẻ: "1.", "2.", "4.", "1.1", "1/"
+          if (isPureNumberMarker(t)) return;
+
           // Bỏ qua <p> là chú thích ảnh (chỉ bọc <em>/<i> hoặc nằm ngay sau <img>/<figure>, ngắn < 95 ký tự và không có dấu câu)
           if (b.tagName === 'P') {
             const empText = Array.from(b.querySelectorAll('em, i'))
@@ -879,9 +935,10 @@ export const AdminIngestPage: React.FC = () => {
             if (onlyLink && t.length < 60 && !/[.!?]/.test(t)) return;
             if (t.length < 12) return;
 
-            const mdBody = extractInlineMarkdown(b).replace(/^[•\-*+]\s+/, '').trim();
-            const bulletLine = /^-?\s*\d+[.)]\s+/.test(mdBody)
-              ? mdBody.replace(/^-\s+/, '')
+            const mdBody = extractInlineMarkdown(b).replace(/^(?:[-•*+–—]\s*)+/, '').trim();
+            if (!mdBody || isPureNumberMarker(mdBody)) return;
+            const bulletLine = /^\d+[.)]\s+/.test(mdBody)
+              ? mdBody
               : `- ${mdBody.replace(/\n+/g, ' ')}`;
 
             if (bulletLine.length <= 360) {
@@ -988,6 +1045,7 @@ export const AdminIngestPage: React.FC = () => {
 
   const resetArticleState = () => {
     setIngestionResult(null);
+    setArticleImages([]);
     setSelectedParagraphs({});
     setDismissedAiFields({});
     setActiveAiPopoverField(null);
@@ -1138,6 +1196,163 @@ export const AdminIngestPage: React.FC = () => {
     }
   };
 
+  // ==================== QUẢN LÝ ẢNH TRIỆU CHỨNG BỆNH CỦA BÀI VIẾT ====================
+  const fetchArticleImages = async (url: string) => {
+    if (!url || !isSafeHttpUrl(url)) return;
+    try {
+      setLoadingArticleImages(true);
+      const res = await apiClient.get<KnowledgeImageItem[]>('/knowledge/images', {
+        params: { source_url: url.trim() },
+      });
+      // Lọc phòng thủ phía client: Chỉ nhận đúng ảnh có source_url trùng với bài viết hiện tại
+      const targetClean = url.trim().replace(/\/+$/, '');
+      const list = (res.data || []).filter((img) => {
+        const imgUrlClean = (img.source_url || '').trim().replace(/\/+$/, '');
+        return imgUrlClean === targetClean;
+      });
+      setArticleImages(list);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingArticleImages(false);
+    }
+  };
+
+  const openAddImageModal = () => {
+    const targetUrl = (editUrl || ingestUrl || '').trim();
+    const targetClass = ingestClass || editOriginalMeta.modelClass || (articleTopics.length > 0 ? articleTopics[0] : '');
+    const targetCredit = ingestOrg || editOriginalMeta.org || '';
+
+    setNewImageClass(targetClass);
+    setNewImageCredit(targetCredit);
+    setNewImageCaption('');
+    setNewImagePlantPart('LEAF');
+    setNewImageMode('FILE');
+    setNewImageFiles([]);
+    setNewImageFilePreviews([]);
+    setNewImageUrl('');
+    setAddImageModalOpen(true);
+  };
+
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      setNewImageFiles(files);
+      const previews = files.map((f) => URL.createObjectURL(f));
+      setNewImageFilePreviews(previews);
+    }
+  };
+
+  const handleCreateArticleImage = async () => {
+    const currentUrl = (editUrl || ingestUrl || '').trim();
+    if (!currentUrl) {
+      toast.error('Bài viết chưa có URL nguồn. Vui lòng kiểm tra lại URL bài viết.');
+      return;
+    }
+    if (!newImageClass) {
+      toast.error('Vui lòng chọn chuyên đề / mã bệnh cho ảnh.');
+      return;
+    }
+
+    try {
+      setSubmittingImage(true);
+      let successCount = 0;
+      const createdImages: KnowledgeImageItem[] = [];
+
+      if (newImageMode === 'URL') {
+        const urlsToProcess = newImageUrl
+          .split(/[\n,]+/)
+          .map((u) => u.trim())
+          .filter((u) => u.length > 0);
+
+        if (urlsToProcess.length === 0) {
+          toast.error('Vui lòng nhập ít nhất 1 URL hình ảnh hợp lệ.');
+          setSubmittingImage(false);
+          return;
+        }
+
+        for (const url of urlsToProcess) {
+          try {
+            const formData = new FormData();
+            formData.append('ModelClass', newImageClass);
+            formData.append('SourceUrl', currentUrl);
+            formData.append('Caption', newImageCaption.trim());
+            formData.append('PlantPart', newImagePlantPart);
+            formData.append('Credit', newImageCredit.trim());
+            formData.append('IsManualApproved', 'true');
+            formData.append('ImageUrl', url);
+
+            const res = await apiClient.post<KnowledgeImageItem>('/knowledge/images', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            createdImages.push(res.data);
+            successCount++;
+          } catch (err) {
+            console.error('Lỗi lưu ảnh URL:', url, err);
+          }
+        }
+      } else {
+        if (newImageFiles.length === 0) {
+          toast.error('Vui lòng chọn ít nhất 1 tệp ảnh từ thiết bị để tải lên.');
+          setSubmittingImage(false);
+          return;
+        }
+
+        for (const f of newImageFiles) {
+          try {
+            const formData = new FormData();
+            formData.append('ModelClass', newImageClass);
+            formData.append('SourceUrl', currentUrl);
+            formData.append('Caption', newImageCaption.trim());
+            formData.append('PlantPart', newImagePlantPart);
+            formData.append('Credit', newImageCredit.trim());
+            formData.append('IsManualApproved', 'true');
+            formData.append('File', f);
+
+            const res = await apiClient.post<KnowledgeImageItem>('/knowledge/images', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            createdImages.push(res.data);
+            successCount++;
+          } catch (err) {
+            console.error('Lỗi tải tệp ảnh:', f.name, err);
+          }
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Đã thêm thành công ${successCount} ảnh triệu chứng cho bài viết!`);
+        setArticleImages((prev) => [...createdImages, ...prev]);
+        setAddImageModalOpen(false);
+        setNewImageUrl('');
+        setNewImageFiles([]);
+        setNewImageFilePreviews([]);
+        setNewImageCaption('');
+      } else {
+        toast.error('Không thể lưu ảnh nào. Vui lòng kiểm tra lại URL hoặc định dạng tệp ảnh.');
+      }
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setSubmittingImage(false);
+    }
+  };
+
+  const handleDeleteArticleImage = async () => {
+    if (!deleteImageTarget) return;
+    try {
+      setDeletingImage(true);
+      await apiClient.delete(`/knowledge/images/${deleteImageTarget.id}`);
+      setArticleImages((prev) => prev.filter((img) => img.id !== deleteImageTarget.id));
+      toast.success('Đã gỡ ảnh triệu chứng khỏi bài viết.');
+      setDeleteImageTarget(null);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setDeletingImage(false);
+    }
+  };
+
   // ==================== SỬA BÀI ĐÃ LƯU ====================
   const loadArticleForEdit = async (url: string, keepForm = false) => {
     if (!isSafeHttpUrl(url)) {
@@ -1159,6 +1374,7 @@ export const AdminIngestPage: React.FC = () => {
       setSummaryDrafts(Object.fromEntries(rows.filter((r) => !r.isVerbatim).map((r) => [r.id, r.evidenceText])));
       const canonicalUrl = isSafeHttpUrl(res.data.source_url) ? res.data.source_url.trim() : url.trim();
       setEditUrl(canonicalUrl);
+      fetchArticleImages(canonicalUrl);
       const first = rows[0];
       if (first) {
         const rawOrg = first.organization || '';
@@ -1237,6 +1453,7 @@ export const AdminIngestPage: React.FC = () => {
     setIngestClass('');
     setSelectedPlant('');
     setIngestionResult(null);
+    setArticleImages([]);
     setSelectedParagraphs({});
     setEditSubTab('approved');
     setShowMetaEditPanel(false);
@@ -1893,7 +2110,8 @@ export const AdminIngestPage: React.FC = () => {
       if (editUrl) {
         // Ở lại chế độ sửa, nạp lại danh sách đoạn đã lưu và chuyển sang Tab 1
         setIngestionResult(null);
-        setSelectedParagraphs({});
+        setArticleImages([]);
+    setSelectedParagraphs({});
         setIngestText('');
         setEditSubTab('approved');
         await loadArticleForEdit(editUrl, true);
@@ -1986,6 +2204,9 @@ export const AdminIngestPage: React.FC = () => {
     normalized = normalized.replace(/([.:?!;]|\s)\s*(#{1,6}\s+)/g, '$1\n$2');
     normalized = normalized.replace(/(#{1,6}\s+[^:\n]{3,80}:)\s*([A-ZÀ-Ỹ])/g, '$1\n$2');
 
+    // 0a. Chuẩn hóa double bullets "- - ", "• - ", "- • " thành 1 bullet duy nhất "- "
+    normalized = normalized.replace(/(^|[\n\r])\s*(?:[-•*+]\s+)+([-•*+]\s+)/g, '$1$2');
+
     // 0b. Tách tiêu đề mục kết thúc bằng dấu hai chấm khi dính liền với câu hỏi in đậm (**Câu hỏi?**)
     normalized = normalized.replace(/(^|[\n\r])([^:\n\-•*+]{5,90}:)\s*(\*{1,2}[A-ZÀ-Ỹ0-9])/g, '$1$2\n$3');
 
@@ -2010,10 +2231,40 @@ export const AdminIngestPage: React.FC = () => {
     // 6. Tách đoạn kết bài / chuyển ý / lời khuyên kết luận
     normalized = normalized.replace(/([.:?!])\s+(Qua bài viết|Tổng kết|Tóm lại|Lời kết|Như vậy|Để lựa chọn|Bệnh [^.:\n]{3,50} là một trong những|Nơi cung cấp)\b/gi, '$1\n$2');
 
+    // Kiểm tra xem đoạn văn có dãy số thứ tự nối tiếp nhau hay không (ví dụ có 1. và 2., hoặc 2. và 3.)
+    const findNumbers = (str: string): number[] => {
+      const matches = str.match(/(?:^|[\n\r]|\s)(\d+)[.)/]\s+[A-ZÀ-Ỹ]/g) || [];
+      return matches.map((m) => parseInt(m.replace(/\D/g, ''), 10)).filter((n) => !isNaN(n));
+    };
+    const seqNums = findNumbers(normalized);
+    const hasSequentialNumbers = seqNums.some((num, i) => i > 0 && num === seqNums[i - 1] + 1);
+
     return normalized
       .split(/\r?\n/)
       .map((l) => l.trim())
-      .filter((l) => l && !/^(\*{1,3}|_{1,3})$/.test(l));
+      .filter((l) => {
+        if (!l || /^(\*{1,3}|_{1,3})$/.test(l)) return false;
+        // Bỏ hoàn toàn các dòng chỉ chứa số thứ tự đơn lẻ: '1.', '2.', '3.', '4.', '1.1', '1/', 'a.', '• 4.', '**4.**'
+        if (isPureNumberMarker(l)) return false;
+        return true;
+      })
+      .map((l) => {
+        let cleaned = l;
+        // Chuẩn hóa gạch đầu dòng kép lặp lại: "• - " hoặc "- - " hoặc "- – " -> "- "
+        cleaned = cleaned.replace(/^(?:[-•*+–—]\s+)+([-•*+–—]\s+)/, '$1');
+        cleaned = cleaned.replace(/^[-•*+–—]\s+[-•*+–—]\s+/, '- ');
+
+        // Bỏ số thứ tự trước câu hỏi FAQ (ví dụ: "1. Bệnh thường xuất hiện khi nào?" -> "Bệnh thường xuất hiện khi nào?")
+        if (cleaned.endsWith('?') || /\?\s*$/.test(cleaned)) {
+          cleaned = cleaned.replace(/^(?:\*{1,2})?(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*|(?:câu|hỏi)\s*\d+[:.]\s*)(?:\*{1,2})?/i, '');
+        } else if (!hasSequentialNumbers) {
+          // Nếu cả đoạn trích không có danh sách số thứ tự liên tiếp (như 1. rồi 2.):
+          // Loại bỏ tiền tố số mồ côi (1., 4., 1.1) ở đầu đề mục để đoạn trích tự nhiên, ví dụ: "4. Biện pháp phòng trừ..." -> "Biện pháp phòng trừ..."
+          cleaned = cleaned.replace(/^((?:[-•*+–—]\s+)?)(?:\*{1,2})?(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s+(?:\*{1,2})?([A-ZÀ-Ỹ])/i, '$1$2');
+        }
+        return cleaned.trim();
+      })
+      .filter((l) => Boolean(l) && !isPureNumberMarker(l));
   };
 
   // Huy hiệu hiển thị loại nội dung đoạn trích thân thiện và trực quan
@@ -2067,13 +2318,15 @@ export const AdminIngestPage: React.FC = () => {
         {lines.map((rawLine, idx) => {
           const trimmed = rawLine.trim();
           if (!trimmed || /^(\*{1,3}|_{1,3})$/.test(trimmed)) return null;
+          if (isPureNumberMarker(trimmed)) return null;
 
           // 1. Heading cấp 1 (# Tiêu đề)
           const h1Match = trimmed.match(/^#\s+(.+)$/);
           if (h1Match) {
+            const h1Text = h1Match[1].replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
             return (
               <h4 key={idx} className="font-bold text-emerald-950 text-sm mb-1 pb-1 border-b border-emerald-100">
-                {renderInlineMarkdownWithHighlight(h1Match[1], paraId)}
+                {renderInlineMarkdownWithHighlight(h1Text, paraId)}
               </h4>
             );
           }
@@ -2081,9 +2334,10 @@ export const AdminIngestPage: React.FC = () => {
           // 2. Heading cấp 2-6 (## Tiêu đề con)
           const headingMatch = trimmed.match(/^#{2,6}\s+(.+)$/);
           if (headingMatch) {
+            const hText = headingMatch[1].replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
             return (
               <h5 key={idx} className="font-bold text-emerald-900 text-xs sm:text-[13px] mt-2 mb-1">
-                {renderInlineMarkdownWithHighlight(headingMatch[1], paraId)}
+                {renderInlineMarkdownWithHighlight(hText, paraId)}
               </h5>
             );
           }
@@ -2101,16 +2355,17 @@ export const AdminIngestPage: React.FC = () => {
             );
           }
 
-          // 4. Tiêu đề mục kết thúc bằng dấu hai chấm (không phải bullet): "Biện pháp phòng ngừa...:" hoặc "Điều kiện thuận lợi...:"
-          const isSectionHeader = !trimmed.startsWith('-') && !trimmed.startsWith('•') && !trimmed.startsWith('*') && (
-            /^(?:(?:\d+|[IVX]+|[a-zđ])[.)]\s*)?[A-ZÀ-Ỹ][^.!?\n]{3,90}:$/.test(trimmed) ||
-            /^(?:Biện pháp|Phòng trừ|Phòng ngừa|Điều trị|Cách trị|Triệu chứng|Dấu hiệu|Nguyên nhân|Đặc điểm|Tác hại|Điều kiện|Quy trình|Kỹ thuật|Lưu ý|Câu hỏi|Hướng dẫn)\b.*:$/i.test(trimmed)
+          // 4. Tiêu đề mục kết thúc bằng dấu hai chấm (kể cả khi có tiền tố gạch đầu dòng do parse HTML):
+          const cleanHeadingText = trimmed.replace(/^[-•*+–—]\s+/, '').replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
+          const isSectionHeader = (
+            /^[A-ZÀ-Ỹ][^.!?\n]{3,90}:$/.test(cleanHeadingText) ||
+            /^(?:Biện pháp|Phòng trừ|Phòng ngừa|Điều trị|Cách trị|Triệu chứng|Dấu hiệu|Nguyên nhân|Đặc điểm|Tác hại|Điều kiện|Quy trình|Kỹ thuật|Lưu ý|Câu hỏi|Hướng dẫn)\b.*:$/i.test(cleanHeadingText)
           );
           if (isSectionHeader) {
             return (
               <div key={idx} className="font-bold text-emerald-900 text-xs sm:text-[13px] mt-2 mb-1 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
-                <span className="flex-1">{renderInlineMarkdownWithHighlight(trimmed, paraId)}</span>
+                <span className="flex-1">{renderInlineMarkdownWithHighlight(cleanHeadingText, paraId)}</span>
               </div>
             );
           }
@@ -2119,8 +2374,12 @@ export const AdminIngestPage: React.FC = () => {
           const plainForCheck = trimmed.replace(/[*_#]/g, '').trim();
           const isQuestion = plainForCheck.endsWith('?') || /^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)?[A-ZÀ-Ỹ][^.:\n]{3,120}\?$/.test(plainForCheck);
           if (isQuestion) {
-            // Tách sạch các ký tự in đậm ** bao bọc câu hỏi vì thẻ Hỏi đã được thiết kế font đậm riêng
-            const displayQuestionText = trimmed.replace(/^\*{1,2}\s*/, '').replace(/\s*\*{1,2}$/, '');
+            // Tách sạch các ký tự in đậm ** và số thứ tự 1., 2., Câu 1... bao bọc câu hỏi
+            const displayQuestionText = trimmed
+              .replace(/^\*{1,2}\s*/, '')
+              .replace(/\s*\*{1,2}$/, '')
+              .replace(/^(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*|(?:câu|hỏi)\s*\d+[:.]\s*)/i, '')
+              .trim();
             return (
               <div key={idx} className="font-semibold text-emerald-950 text-xs sm:text-[13px] mt-2.5 mb-1 flex items-start gap-1.5 bg-emerald-50/80 dark:bg-emerald-950/20 px-2.5 py-1.5 rounded-md border border-emerald-200/80 shadow-2xs">
                 <span className="font-bold text-emerald-800 text-[10px] bg-emerald-200/70 px-1.5 py-0.5 rounded shrink-0 mt-0.5">Hỏi</span>
@@ -2130,9 +2389,12 @@ export const AdminIngestPage: React.FC = () => {
           }
 
           // 5. Gạch đầu dòng / bullet / số thứ tự / mũi tên trả lời:
-          const bulletMatch = trimmed.match(/^(?:[-•*+]|\d+[.)]|-->|->)\s+(.+)$/);
+          const bulletMatch = trimmed.match(/^(?:[-•*+–—]|\d+[.)]|-->|->)\s+(.+)$/);
           if (bulletMatch) {
-            const content = bulletMatch[1];
+            let content = bulletMatch[1].trim();
+            // Khử triệt để mọi dấu gạch đầu dòng, dấu trừ, en-dash, em-dash, bullet thừa còn sót lại ở đầu:
+            content = content.replace(/^(?:[-•*+–—]\s*)+/, '').trim();
+            if (!content || isPureNumberMarker(content)) return null;
             // Tách nhãn in đậm ở đầu gạch đầu dòng (ví dụ: "Chọn giống kháng bệnh: Ưu tiên...")
             const subLabelMatch = content.match(/^([A-ZÀ-Ỹa-zà-ỹ0-9\s/&,–-]+?:\s*)(.*)$/);
             if (subLabelMatch && !content.startsWith('**')) {
@@ -2896,7 +3158,7 @@ export const AdminIngestPage: React.FC = () => {
                   <TabsList className="grid grid-cols-2 max-w-md bg-muted/60 p-1">
                     <TabsTrigger value="approved" className="gap-2 text-xs py-1.5 font-semibold">
                       <BookOpen className="w-4 h-4 text-emerald-700" />
-                      <span>1. Xem &amp; Sửa chi tiết ({editRows.length} đoạn)</span>
+                      <span>1. Xem &amp; Sửa chi tiết ({editRows.length} đoạn{articleImages.length > 0 ? ` · ${articleImages.length} ảnh` : ''})</span>
                     </TabsTrigger>
                     <TabsTrigger value="reparse" className="gap-2 text-xs py-1.5 font-semibold">
                       <Sparkles className="w-4 h-4 text-emerald-700" />
@@ -3213,6 +3475,156 @@ export const AdminIngestPage: React.FC = () => {
                       </div>
                     );
                   })()}
+
+                  {/* ========================================================================= */}
+                  {/* KHỐI ẢNH TRIỆU CHỨNG BỆNH ĐÍNH KÈM BÀI VIẾT (Tab 1 nổi bật, trực quan) */}
+                  {/* ========================================================================= */}
+                  <div className="bg-card border border-border rounded-xl shadow-xs p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-border/60">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 flex items-center justify-center shrink-0">
+                          <Camera className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-foreground">
+                              Ảnh triệu chứng bệnh
+                            </h3>
+                            <Badge
+                              variant={articleImages.length > 0 ? 'secondary' : 'outline'}
+                              className={
+                                articleImages.length > 0
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300 text-[11px] font-bold px-2 py-0.5'
+                                  : 'bg-amber-50 text-amber-800 border-amber-300 text-[11px] font-semibold px-2 py-0.5'
+                              }
+                            >
+                              {articleImages.length > 0 ? `${articleImages.length} ảnh đã nạp` : 'Chưa có ảnh'}
+                            </Badge>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            Ảnh minh họa triệu chứng bệnh thực tế từ bài báo, dùng để đối chứng và hiển thị trực quan cho nông dân.
+                          </p>
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={openAddImageModal}
+                        className="h-8 px-3 text-xs gap-1.5 font-bold bg-emerald-700 hover:bg-emerald-800 text-white shrink-0 shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm ảnh triệu chứng</span>
+                      </Button>
+                    </div>
+
+                    {/* Danh sách ảnh hoặc trạng thái cảnh báo trống */}
+                    {loadingArticleImages ? (
+                      <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-700" />
+                        <span>Đang tải danh sách ảnh triệu chứng...</span>
+                      </div>
+                    ) : articleImages.length === 0 ? (
+                      <div className="border-2 border-dashed border-amber-300 dark:border-amber-700/60 bg-amber-50/50 dark:bg-amber-950/10 rounded-xl p-4 sm:p-5 text-center flex flex-col items-center justify-center gap-2">
+                        <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-700 flex items-center justify-center">
+                          <ImageIcon className="w-5 h-5" />
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="text-xs sm:text-sm font-bold text-amber-950 dark:text-amber-200">
+                            Bài viết này chưa nạp ảnh triệu chứng bệnh!
+                          </div>
+                          <p className="text-[11px] text-amber-800 dark:text-amber-300/90 max-w-md">
+                            Hãy nạp từ 1–3 ảnh chụp lá, quả hoặc thân cây bị bệnh từ bài báo để làm phong phú kho tri thức và hỗ trợ bà con nhận diện bệnh trực quan.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={openAddImageModal}
+                          className="mt-1 h-7.5 px-3.5 text-xs gap-1.5 font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Thêm ảnh triệu chứng ngay</span>
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-1">
+                        {articleImages.map((img) => (
+                          <div
+                            key={img.id}
+                            className="group relative flex flex-col bg-muted/20 border border-border/80 hover:border-emerald-500 rounded-lg overflow-hidden transition-all duration-200 shadow-2xs hover:shadow-xs"
+                          >
+                            <div
+                              className="relative aspect-4/3 w-full bg-muted/50 overflow-hidden cursor-pointer"
+                              onClick={() => setPreviewingImage(img)}
+                            >
+                              <img
+                                src={img.image_url}
+                                alt={img.caption || 'Ảnh triệu chứng'}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                loading="lazy"
+                              />
+                              <div className="absolute top-1.5 left-1.5">
+                                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-black/70 text-white backdrop-blur-xs">
+                                  {getPlantPartLabel(img.plant_part)}
+                                </span>
+                              </div>
+
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPreviewingImage(img);
+                                  }}
+                                  className="w-7 h-7 rounded-full bg-white/90 text-foreground hover:bg-white flex items-center justify-center shadow"
+                                  title="Xem ảnh phóng to"
+                                >
+                                  <ZoomIn className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteImageTarget(img);
+                                  }}
+                                  className="w-7 h-7 rounded-full bg-rose-600 text-white hover:bg-rose-700 flex items-center justify-center shadow"
+                                  title="Gỡ ảnh này"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="p-2 flex flex-col justify-between flex-1 space-y-1">
+                              <p className="text-[11px] font-medium text-foreground line-clamp-1 leading-snug" title={img.caption || 'Không có chú thích'}>
+                                {img.caption || <span className="text-muted-foreground italic">Chưa có chú thích</span>}
+                              </p>
+                              <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5 border-t border-border/40">
+                                <span className="truncate max-w-[70%]" title={img.credit || ''}>
+                                  {img.credit || 'Khuyết nguồn'}
+                                </span>
+                                <span className="text-emerald-700 font-semibold shrink-0">
+                                  #{img.id}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+
+                        <button
+                          type="button"
+                          onClick={openAddImageModal}
+                          className="flex flex-col items-center justify-center min-h-[120px] aspect-4/3 rounded-lg border-2 border-dashed border-border hover:border-emerald-600 hover:bg-emerald-50/30 text-muted-foreground hover:text-emerald-700 transition-colors p-3 gap-1.5 text-center group"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-muted group-hover:bg-emerald-100 flex items-center justify-center">
+                            <Plus className="w-4 h-4" />
+                          </div>
+                          <span className="text-[11px] font-semibold">Thêm ảnh khác</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Card chứa danh sách các đoạn trích & trạng thái duyệt toàn bộ */}
                   <Card className="border-border bg-card shadow-xs">
@@ -3622,19 +4034,16 @@ export const AdminIngestPage: React.FC = () => {
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    const p = new URLSearchParams();
-                                    if (selectedPlant) p.set('plant', selectedPlant);
-                                    if (ingestClass) p.set('classCode', ingestClass);
-                                    if (editUrl || ingestUrl) p.set('sourceUrl', editUrl || ingestUrl);
-                                    if (ingestOrg) p.set('credit', ingestOrg);
-                                    p.set('add', 'true');
-                                    navigate(`/admin/images?${p.toString()}`);
-                                  }}
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                                  onClick={openAddImageModal}
+                                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300 transition-colors"
                                 >
-                                  <ImageIcon className="w-3.5 h-3.5" />
-                                  <span>Thêm ảnh triệu chứng từ bài này</span>
+                                  <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                                  <span>Thêm ảnh triệu chứng bài này</span>
+                                  {articleImages.length > 0 && (
+                                    <span className="px-1.5 py-0.2 bg-emerald-600 text-white rounded-full text-[10px] font-bold">
+                                      {articleImages.length}
+                                    </span>
+                                  )}
                                 </button>
                               </div>
                             </div>
@@ -4073,19 +4482,16 @@ export const AdminIngestPage: React.FC = () => {
                         </span>
                         <button
                           type="button"
-                          onClick={() => {
-                            const p = new URLSearchParams();
-                            if (selectedPlant) p.set('plant', selectedPlant);
-                            if (ingestClass) p.set('classCode', ingestClass);
-                            if (ingestUrl) p.set('sourceUrl', ingestUrl);
-                            if (ingestOrg) p.set('credit', ingestOrg);
-                            p.set('add', 'true');
-                            navigate(`/admin/images?${p.toString()}`);
-                          }}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                          onClick={openAddImageModal}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300 transition-colors"
                         >
-                          <ImageIcon className="w-3.5 h-3.5" />
+                          <Camera className="w-3.5 h-3.5 text-emerald-700" />
                           <span>Thêm ảnh triệu chứng từ bài này</span>
+                          {articleImages.length > 0 && (
+                            <span className="px-1.5 py-0.2 bg-emerald-600 text-white rounded-full text-[10px] font-bold">
+                              {articleImages.length}
+                            </span>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -4540,6 +4946,373 @@ export const AdminIngestPage: React.FC = () => {
               className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
             >
               Xác nhận chia thành {selectedCutIndices.length + 1} đoạn
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================================= */}
+      {/* DIALOG THÊM ẢNH TRIỆU CHỨNG BỆNH CHO BÀI VIẾT (TẠI CHỖ, KHÔNG CHUYỂN TRANG) */}
+      {/* ========================================================================================= */}
+      <Dialog open={addImageModalOpen} onOpenChange={setAddImageModalOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-emerald-950 dark:text-emerald-300">
+              <Camera className="w-5 h-5 text-emerald-700" />
+              <span>Thêm ảnh triệu chứng cho bài viết</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Tải ảnh lên từ máy tính hoặc dán URL hình ảnh từ bài viết để đính kèm vào kho tri thức của bài này.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3.5 py-1 text-xs">
+            {/* URL nguồn bài viết liên kết */}
+            <div className="p-2.5 rounded-lg bg-muted/40 border border-border/80 flex items-center justify-between gap-2">
+              <div className="truncate">
+                <span className="font-semibold text-foreground">Bài viết liên kết: </span>
+                <span className="text-muted-foreground font-mono text-[11px]" title={editUrl || ingestUrl || ''}>
+                  {editUrl || ingestUrl || 'Chưa có URL'}
+                </span>
+              </div>
+              {isSafeHttpUrl(editUrl || ingestUrl) && (
+                <a
+                  href={(editUrl || ingestUrl)!.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-700 hover:text-emerald-800 shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>Mở bài</span>
+                </a>
+              )}
+            </div>
+
+            {/* Chế độ nạp ảnh */}
+            <div className="flex items-center gap-2 p-1 bg-muted/50 rounded-lg border border-border">
+              <button
+                type="button"
+                onClick={() => setNewImageMode('FILE')}
+                className={`flex-1 py-1.5 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                  newImageMode === 'FILE'
+                    ? 'bg-background text-emerald-700 shadow-2xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Tải tệp từ máy tính</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewImageMode('URL')}
+                className={`flex-1 py-1.5 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                  newImageMode === 'URL'
+                    ? 'bg-background text-emerald-700 shadow-2xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <LinkIcon className="w-3.5 h-3.5" />
+                <span>Dán đường dẫn URL ảnh</span>
+              </button>
+            </div>
+
+            {/* Nhập tệp hoặc URL */}
+            {newImageMode === 'FILE' ? (
+              <div className="space-y-2">
+                <label className="font-semibold text-foreground block">
+                  Chọn tệp ảnh (jpg, png, webp) *
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageFileChange}
+                  className="w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-800 hover:file:bg-emerald-100 cursor-pointer border border-dashed border-border rounded-lg p-2 bg-muted/20"
+                />
+                {newImageFilePreviews.length > 0 && (
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    {newImageFilePreviews.map((src, idx) => (
+                      <div key={idx} className="relative aspect-4/3 rounded-md overflow-hidden border border-border bg-black/5">
+                        <img src={src} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewImageFiles((prev) => prev.filter((_, i) => i !== idx));
+                            setNewImageFilePreviews((prev) => prev.filter((_, i) => i !== idx));
+                          }}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center shadow"
+                          title="Bỏ tệp này"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="font-semibold text-foreground block">
+                  Đường dẫn URL hình ảnh *
+                </label>
+                <Textarea
+                  value={newImageUrl}
+                  onChange={(e) => setNewImageUrl(e.target.value)}
+                  placeholder="https://example.com/anh-trieu-chung-1.jpg&#10;https://example.com/anh-trieu-chung-2.jpg"
+                  rows={3}
+                  className="text-xs font-mono"
+                />
+                <span className="text-[11px] text-muted-foreground">
+                  Có thể dán nhiều URL, mỗi dòng một URL hình ảnh.
+                </span>
+              </div>
+            )}
+
+            {/* Phân loại chuyên đề & bộ phận */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="font-semibold text-foreground block mb-1">
+                  Chuyên đề / Bệnh liên kết *
+                </label>
+                <select
+                  value={newImageClass}
+                  onChange={(e) => setNewImageClass(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                >
+                  <option value="">-- Chọn bệnh / chuyên đề --</option>
+                  {diseases.map((d) => (
+                    <option key={d.classCode} value={d.classCode}>
+                      {d.plantName} - {formatTopicLabel(d.commonNameVi, d.classCode)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-semibold text-foreground block mb-1">
+                  Bộ phận cây bị bệnh *
+                </label>
+                <select
+                  value={newImagePlantPart}
+                  onChange={(e) => setNewImagePlantPart(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-background border border-border rounded text-xs font-medium"
+                >
+                  <option value="LEAF">Lá (LEAF)</option>
+                  <option value="FRUIT">Quả (FRUIT)</option>
+                  <option value="STEM">Thân / Cành (STEM)</option>
+                  <option value="WHOLE_PLANT">Toàn cây (WHOLE_PLANT)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Chú thích & Nguồn */}
+            <div className="space-y-2">
+              <div>
+                <label className="font-semibold text-foreground block mb-1">
+                  Mô tả / Chú thích ảnh
+                </label>
+                <Input
+                  type="text"
+                  value={newImageCaption}
+                  onChange={(e) => setNewImageCaption(e.target.value)}
+                  placeholder="Ví dụ: Vết đốm hình tròn đồng tâm, có quầng vàng xung quanh viền lá"
+                  className="text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-foreground block mb-1">
+                  Nguồn / Đơn vị bản quyền
+                </label>
+                <Input
+                  type="text"
+                  value={newImageCredit}
+                  onChange={(e) => setNewImageCredit(e.target.value)}
+                  placeholder="Cơ quan / Viện BVTV / Nguồn bài viết"
+                  className="text-xs"
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAddImageModalOpen(false)}
+              disabled={submittingImage}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={submittingImage || !newImageClass || (newImageMode === 'FILE' ? newImageFiles.length === 0 : !newImageUrl.trim())}
+              onClick={handleCreateArticleImage}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1.5"
+            >
+              {submittingImage ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Đang tải lên...</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tải lên &amp; Lưu vào bài viết</span>
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================================= */}
+      {/* DIALOG XEM PHÓNG TO ẢNH TRIỆU CHỨNG */}
+      {/* ========================================================================================= */}
+      <Dialog open={!!previewingImage} onOpenChange={(open) => !open && setPreviewingImage(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold text-foreground">
+              {previewingImage?.caption || 'Xem ảnh triệu chứng bệnh'}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground flex items-center gap-2">
+              <span>Mã ảnh #{previewingImage?.id}</span>
+              <span>•</span>
+              <span className="font-semibold text-emerald-700">{previewingImage?.plant_name} - {previewingImage?.disease_name}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewingImage && (
+            <div className="space-y-3 pt-1">
+              <div className="relative max-h-[60vh] overflow-hidden rounded-lg bg-black/5 flex items-center justify-center border border-border">
+                <img
+                  src={previewingImage.image_url}
+                  alt={previewingImage.caption || 'Ảnh triệu chứng'}
+                  className="max-h-[60vh] w-auto max-w-full object-contain mx-auto"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs p-3 bg-muted/30 rounded-lg border border-border/60">
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Bộ phận:</span>
+                  <span className="font-semibold text-foreground">{getPlantPartLabel(previewingImage.plant_part)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Nguồn trích dẫn:</span>
+                  <span className="font-semibold text-foreground truncate block" title={previewingImage.credit}>
+                    {previewingImage.credit || 'Khuyết'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Trạng thái:</span>
+                  <span className="font-semibold text-emerald-700">Đã duyệt</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Ảnh gốc:</span>
+                  <a
+                    href={previewingImage.image_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    <span>Mở tab mới</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-between sm:justify-between pt-2">
+            {previewingImage && (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  const target = previewingImage;
+                  setPreviewingImage(null);
+                  setDeleteImageTarget(target);
+                }}
+                className="gap-1.5 text-xs"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Gỡ ảnh này</span>
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPreviewingImage(null)}
+              className="text-xs"
+            >
+              Đóng
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================================= */}
+      {/* DIALOG XÁC NHẬN GỠ ẢNH TRIỆU CHỨNG */}
+      {/* ========================================================================================= */}
+      <Dialog open={!!deleteImageTarget} onOpenChange={(open) => !open && setDeleteImageTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600 text-base">
+              <AlertTriangle className="w-5 h-5" />
+              <span>Xác nhận gỡ ảnh triệu chứng</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground pt-1">
+              Bạn có chắc chắn muốn gỡ ảnh #{deleteImageTarget?.id} (bộ phận {deleteImageTarget ? getPlantPartLabel(deleteImageTarget.plant_part) : ''}) khỏi bài viết này? Hành động này sẽ xóa ảnh khỏi kho tri thức.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteImageTarget && (
+            <div className="flex items-center gap-3 p-2 bg-muted/30 rounded-lg border border-border/80 my-1">
+              <img
+                src={deleteImageTarget.image_url}
+                alt="Thumbnail"
+                className="w-14 h-14 object-cover rounded-md border border-border shrink-0"
+              />
+              <div className="text-xs space-y-0.5 overflow-hidden">
+                <p className="font-semibold truncate text-foreground">{deleteImageTarget.caption || 'Ảnh không có chú thích'}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{deleteImageTarget.credit || 'Khuyết nguồn'}</p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={deletingImage}
+              onClick={() => setDeleteImageTarget(null)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={deletingImage}
+              onClick={handleDeleteArticleImage}
+              className="gap-1.5"
+            >
+              {deletingImage ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Đang gỡ...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xác nhận gỡ ảnh</span>
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

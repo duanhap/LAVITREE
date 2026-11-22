@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Package,
   Sparkles,
@@ -16,9 +17,9 @@ import {
   Code2,
   Copy,
   ImageOff,
-  Pencil,
   Ban,
   Trash2,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -96,23 +97,28 @@ interface GroupedSuggestion {
 
 export const AdminInventoryPage: React.FC = () => {
   const { diseases } = useDiseaseOptions();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
-  // Subtab điều hướng: 'medicines' (Kho thuốc & vật tư) vs 'suggestions' (Gợi ý từ bài báo)
-  const [inventorySubTab, setInventorySubTab] = useState<'medicines' | 'suggestions' | 'banned'>('medicines');
+  const urlTab = searchParams.get('tab');
+  const initialSubTab: 'medicines' | 'suggestions' | 'banned' =
+    urlTab === 'suggestions' ? 'suggestions' : urlTab === 'banned' ? 'banned' : 'medicines';
+  const urlSearch = searchParams.get('search') || '';
+
+  // Subtab điều hướng: 'medicines' (Kho thuốc & vật tư) vs 'suggestions' (Gợi ý từ bài báo) vs 'banned' (Chất cấm)
+  const [inventorySubTab, setInventorySubTab] = useState<'medicines' | 'suggestions' | 'banned'>(initialSubTab);
   // Danh mục chất cấm từ server (TASK-19): đổi danh sách thì vẽ lại huy hiệu "(Cấm)"
   const [, setBannedVersion] = useState(0);
   const [medicines, setMedicines] = useState<MedicineItem[]>([]);
   const [loadingMedicines, setLoadingMedicines] = useState<boolean>(false);
   const [medSearch, setMedSearch] = useState<string>('');
-  // Sửa sản phẩm dùng chung modal Tạo sản phẩm: editingMedId != null = đang sửa sản phẩm có id này
-  const [editingMedId, setEditingMedId] = useState<number | null>(null);
 
   // Gợi ý vật tư từ bài báo (Task-15 Phase 3)
   const [suggestions, setSuggestions] = useState<ProductSuggestionItem[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState<boolean>(false);
   const [suggestionStatusFilter, setSuggestionStatusFilter] = useState<string>('ALL');
   const [suggestionKindFilter, setSuggestionKindFilter] = useState<string>('ALL');
-  const [suggestionSearch, setSuggestionSearch] = useState<string>('');
+  const [suggestionSearch, setSuggestionSearch] = useState<string>(urlSearch);
 
   // Dialog liên kết gợi ý với sản phẩm có sẵn
   const [linkingSuggestion, setLinkingSuggestion] = useState<ProductSuggestionItem | null>(null);
@@ -230,35 +236,6 @@ export const AdminInventoryPage: React.FC = () => {
     }
   };
 
-  const handleOpenEditMedModal = (med: MedicineItem) => {
-    const { description, dosage } = splitDescriptionDosage(med.dosage_instruction);
-    setShowDevMode(false);
-    setDevGeminiInput('');
-    setDescPreviewMode(false);
-    setFromSuggestion(null);
-    setEditingMedId(med.id);
-    setNewMedName(med.name || '');
-    setNewMedType(med.medicine_type || 'Hóa học');
-    setNewMedActiveIngredient(med.active_ingredient || '');
-    setNewMedPhi(med.phi_days ?? '');
-    setNewMedAvailability(med.availability || 'IN_STOCK');
-    setNewMedSourceUrl(med.info_source_url || '');
-    setNewMedImageUrl(med.image_url || '');
-    setMedImageFailed(false);
-    setNewMedDescription(description);
-    setNewMedTargetDiseases(med.target_diseases || []);
-    setNewMedPrice(Number(med.price) || 0);
-    setNewMedStock(Number(med.stock_quantity) || 0);
-    setNewMedDosage(dosage);
-    setNewMedIsAllowed(!!med.is_allowed);
-    setResearchItems(suggestions.filter((sg) => sg.product_id === med.id && sg.evidence_text));
-    setAiSourceLinks([]);
-    setAiNotes([]);
-    setAiImageCandidates([]);
-    setNewMedUsage(med.usage_profile ? normalizeUsageProfile(med.usage_profile) : emptyUsageProfile());
-    setCreateMedModalOpen(true);
-  };
-
   const filteredMedicines = medicines.filter((m) => {
     if (!medSearch.trim()) return true;
     const q = medSearch.toLowerCase();
@@ -362,7 +339,6 @@ export const AdminInventoryPage: React.FC = () => {
 
   // groupItems: các đoạn trích của nhóm gợi ý (cùng tên vật tư) làm ngữ cảnh prompt AI và nguồn bệnh hại điền sẵn
   const handleOpenCreateMedModal = (sug?: ProductSuggestionItem, groupItems?: ProductSuggestionItem[]) => {
-    setEditingMedId(null);
     setResearchItems(groupItems && groupItems.length ? groupItems : sug ? [sug] : []);
     setAiSourceLinks([]);
     setAiNotes([]);
@@ -630,30 +606,6 @@ export const AdminInventoryPage: React.FC = () => {
         newMedDosage.trim() || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì')
       );
 
-      if (editingMedId !== null) {
-        const res = await apiClient.patch(`/medicines/${editingMedId}`, {
-          name: newMedName.trim(),
-          medicine_type: newMedType,
-          active_ingredient: isSupply ? '' : newMedActiveIngredient.trim(),
-          price: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedPrice) || 0),
-          dosage_instruction: combinedDosage || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
-          phi_days: isSupply ? null : Number(newMedPhi),
-          stock_quantity: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedStock) || 0),
-          availability: newMedAvailability,
-          info_source_url: newMedSourceUrl.trim(),
-          image_url: newMedImageUrl.trim(),
-          target_diseases: newMedTargetDiseases,
-          is_allowed: newMedIsAllowed,
-          // phiếu rỗng gửi {} để server xóa phiếu (null = giữ nguyên)
-          usage_profile: usageProfileForApi(newMedUsage) ?? {},
-        });
-        await fetchMedicines();
-        toast.success(`Đã cập nhật sản phẩm "${res.data.name}".`);
-        setCreateMedModalOpen(false);
-        setEditingMedId(null);
-        return;
-      }
-
       const payload: any = {
         name: newMedName.trim(),
         medicine_type: newMedType,
@@ -853,34 +805,47 @@ export const AdminInventoryPage: React.FC = () => {
                       <th className="p-3">Mã #</th>
                       <th className="p-3">Tên thuốc &amp; Hoạt chất</th>
                       <th className="p-3">Phân loại</th>
+                      <th className="p-3">Căn cứ</th>
                       <th className="p-3">Giá bán</th>
                       <th className="p-3">Cách ly (PHI)</th>
                       <th className="p-3">Tồn kho</th>
                       <th className="p-3 text-center">Tình trạng bán</th>
                       <th className="p-3 text-center">Trạng thái lưu hành</th>
-                      <th className="p-3 text-right">Chỉnh sửa</th>
+                      <th className="p-3 text-right">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {loadingMedicines ? (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                        <td colSpan={10} className="p-8 text-center text-muted-foreground">
                           Đang tải danh mục thuốc...
                         </td>
                       </tr>
                     ) : filteredMedicines.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                        <td colSpan={10} className="p-8 text-center text-muted-foreground">
                           Không có sản phẩm nào.
                         </td>
                       </tr>
                     ) : (
                       filteredMedicines.map((med) => (
-                        <tr key={med.id} className="hover:bg-muted/30 transition-colors">
+                        <tr
+                          key={med.id}
+                          onClick={(e) => {
+                            if ((e.target as HTMLElement).closest('button, a, input, select')) return;
+                            navigate(`/admin/inventory/products/${med.id}`);
+                          }}
+                          className="hover:bg-muted/30 transition-colors cursor-pointer"
+                        >
                           <td className="p-3 font-mono text-muted-foreground">{med.id}</td>
                           <td className="p-3">
                             <div className="font-bold text-foreground">
-                              <span>{med.name}</span>
+                              <Link
+                                to={`/admin/inventory/products/${med.id}`}
+                                className="hover:text-primary transition-colors hover:underline"
+                              >
+                                {med.name}
+                              </Link>
                             </div>
                             <div className="text-[11px] text-muted-foreground">
                               {med.active_ingredient || (
@@ -929,6 +894,29 @@ export const AdminInventoryPage: React.FC = () => {
                                 {med.medicine_type}
                               </Badge>
                             )}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {(() => {
+                              const evidenceCount = suggestions.filter(
+                                (s) => s.product_id === med.id && (s.status === 'LINKED' || s.status === 'ADDED')
+                              ).length;
+                              const diseaseCount = med.target_diseases ? med.target_diseases.length : 0;
+                              if (diseaseCount > 0 && evidenceCount === 0) {
+                                return (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20"
+                                    title="Chưa có bài báo nào nhắc tới thuốc này cho các bệnh được gắn"
+                                  >
+                                    <AlertTriangle className="w-3 h-3" /> Chưa có bài nguồn
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="text-muted-foreground text-xs font-medium">
+                                  {diseaseCount} bệnh · {evidenceCount} bài
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="p-3 font-semibold text-emerald-800 dark:text-emerald-400 whitespace-nowrap">
                             {med.availability === 'NOT_SOLD' ? (
@@ -988,12 +976,15 @@ export const AdminInventoryPage: React.FC = () => {
                           </td>
                           <td className="p-3 text-right whitespace-nowrap">
                             <Button
+                              asChild
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleOpenEditMedModal(med)}
-                              className="h-7 text-xs text-primary"
+                              className="h-7 text-xs text-primary font-semibold hover:text-primary"
                             >
-                              Sửa thông số
+                              <Link to={`/admin/inventory/products/${med.id}`}>
+                                <span>Chi tiết</span>
+                                <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                              </Link>
                             </Button>
                           </td>
                         </tr>
@@ -1251,10 +1242,20 @@ export const AdminInventoryPage: React.FC = () => {
                                   Khớp hoạt chất: <b>{group.productName}</b>
                                 </span>
                               ) : group.productName ? (
-                                <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span className="truncate">{group.productName}</span>
-                                </span>
+                                group.productId ? (
+                                  <Link
+                                    to={`/admin/inventory/products/${group.productId}`}
+                                    className="font-bold text-emerald-800 dark:text-emerald-400 hover:underline flex items-center justify-center gap-1"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="truncate">{group.productName}</span>
+                                  </Link>
+                                ) : (
+                                  <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="truncate">{group.productName}</span>
+                                  </span>
+                                )
                               ) : (
                                 <span className="text-muted-foreground italic text-[11px]">—</span>
                               )}
@@ -1461,10 +1462,20 @@ export const AdminInventoryPage: React.FC = () => {
                                   Khớp hoạt chất: <b>{sug.product_name}</b>
                                 </span>
                               ) : sug.product_name ? (
-                                <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span className="truncate">{sug.product_name}</span>
-                                </span>
+                                sug.product_id ? (
+                                  <Link
+                                    to={`/admin/inventory/products/${sug.product_id}`}
+                                    className="font-bold text-emerald-800 dark:text-emerald-400 hover:underline flex items-center justify-center gap-1"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="truncate">{sug.product_name}</span>
+                                  </Link>
+                                ) : (
+                                  <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="truncate">{sug.product_name}</span>
+                                  </span>
+                                )
                               ) : (
                                 <span className="text-muted-foreground italic text-[11px]">—</span>
                               )}
@@ -1843,24 +1854,17 @@ export const AdminInventoryPage: React.FC = () => {
         open={createMedModalOpen}
         onOpenChange={(open) => {
           setCreateMedModalOpen(open);
-          if (!open) setEditingMedId(null);
         }}
       >
         <DialogContent className="sm:max-w-3xl lg:max-w-4xl w-[94vw] max-w-4xl max-h-[92vh] overflow-y-auto overflow-x-hidden grid-cols-[minmax(0,1fr)] p-5 sm:p-6">
           <DialogHeader className="shrink-0 pb-2 border-b border-border">
             <div className="flex items-center justify-between gap-2 pr-8">
               <DialogTitle className="text-base font-bold flex items-center gap-2">
-                {editingMedId !== null ? (
-                  <Pencil className="w-4 h-4 text-emerald-700" />
-                ) : (
-                  <Plus className="w-4 h-4 text-emerald-700" />
-                )}
+                <Plus className="w-4 h-4 text-emerald-700" />
                 <span>
-                  {editingMedId !== null
-                    ? `Chỉnh sửa sản phẩm: ${newMedName || ''}`
-                    : fromSuggestion
-                      ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"`
-                      : 'Thêm thuốc / Vật tư mới'}
+                  {fromSuggestion
+                    ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"`
+                    : 'Thêm thuốc / Vật tư mới'}
                 </span>
               </DialogTitle>
 
@@ -1882,9 +1886,7 @@ export const AdminInventoryPage: React.FC = () => {
             </div>
 
             <DialogDescription className="text-xs mt-1">
-              {editingMedId !== null
-                ? 'Cập nhật đầy đủ thông tin sản phẩm: link nguồn, ảnh, mô tả, bệnh hại, giá, tồn kho, PHI và trạng thái lưu hành.'
-                : fromSuggestion
+              {fromSuggestion
                 ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
                 : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
             </DialogDescription>
@@ -2457,13 +2459,11 @@ export const AdminInventoryPage: React.FC = () => {
               </label>
 
               <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => { setCreateMedModalOpen(false); setEditingMedId(null); }} disabled={creatingMed}>
+                <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
                   Hủy
                 </Button>
                 <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
-                  {editingMedId !== null
-                    ? (creatingMed ? 'Đang lưu...' : 'Lưu thay đổi')
-                    : (creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm')}
+                  {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
                 </Button>
               </DialogFooter>
             </form>

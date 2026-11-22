@@ -385,6 +385,74 @@
 
 ---
 
+### 3.4.0a. `GET /api/v1/medicines/{id}` (Chi tiết sản phẩm & danh mục bệnh áp dụng — TASK-21)
+- **Headers**: Không bắt buộc (cho phép ẩn danh; nếu có `Admin_JWT` thì xem được sản phẩm bị ẩn / dừng lưu hành / `NOT_SOLD`).
+- **Quy tắc Nghiệp vụ**:
+  - Người dùng ẩn danh/nông dân chỉ xem được sản phẩm `is_allowed = true` và `availability != NOT_SOLD`. Trả về `404 Not Found` nếu sản phẩm bị dừng bán hoặc không tìm thấy.
+  - Quản trị viên (`ADMIN`) xem được toàn bộ thông số, bao gồm `target_diseases` (danh sách `class_code`) và mảng đối tượng `diseases` (`class_code`, `plant_name`, `disease_name`).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "id": 1,
+    "name": "Ridomil Gold 68WG",
+    "medicine_type": "Hóa học",
+    "active_ingredient": "Metalaxyl-M 40g/kg + Mancozeb 640g/kg",
+    "price": 68000,
+    "dosage_instruction": "Pha 50g cho bình 16 lít nước. Phun ướt đều tán lá...",
+    "phi_days": 7,
+    "is_allowed": true,
+    "stock_quantity": 120,
+    "availability": "IN_STOCK",
+    "info_source_url": "https://syngenta.com.vn/ridomil-gold",
+    "image_url": "https://...",
+    "usage_profile": { ... },
+    "target_diseases": ["Tomato___Late_blight"],
+    "diseases": [
+      {
+        "class_code": "Tomato___Late_blight",
+        "plant_name": "Cà chua",
+        "disease_name": "Bệnh mốc sương"
+      }
+    ]
+  }
+  ```
+
+---
+
+### 3.4.0b. `GET /api/v1/medicines/{id}/evidence` (Bằng chứng trích dẫn bài báo gắn với sản phẩm — TASK-21)
+- **Headers**: Không bắt buộc (cho phép ẩn danh).
+- **Query Parameters**:
+  - `diseaseCode` (string, optional): Lọc bằng chứng theo mã bệnh `model_class`.
+- **Quy tắc Nghiệp vụ**:
+  - Truy xuất các đoạn trích từ bảng `ProductSuggestions` liên kết với `ProductId = id` và có `KnowledgeSource` tương ứng.
+  - Nông dân chỉ thấy các đoạn trích từ bài viết đã được Admin duyệt (`KnowledgeSource.IsApproved = true`).
+  - Quản trị viên (`ADMIN`) thấy cả đoạn trích chưa duyệt (kèm trường `is_approved = false` để hiển thị nhãn cảnh báo).
+  - Trả về danh sách đã sắp xếp theo bệnh, trạng thái duyệt và ngày xuất bản.
+- **Response Body (`200 OK`)**:
+  ```json
+  [
+    {
+      "suggestion_id": 42,
+      "knowledge_source_id": "c1f7a83b-9a2e-4b6a-81a1-8d4e9f123456",
+      "model_class": "Tomato___Late_blight",
+      "plant_name": "Cà chua",
+      "disease_name": "Bệnh mốc sương",
+      "mention_text": "Ridomil Gold 68WG",
+      "unit_type": "TREATMENT",
+      "evidence_text": "Phun luân phiên Ridomil Gold 68WG với liều 50g/bình 16 lít...",
+      "is_verbatim": true,
+      "source_url": "https://khuyennongvn.gov.vn/bai-viet",
+      "source_title": "Kỹ thuật canh tác và bảo vệ thực vật cà chua",
+      "organization": "Trung tâm Khuyến nông Quốc gia",
+      "published_date": "2025-06-15",
+      "is_approved": true,
+      "status": "LINKED"
+    }
+  ]
+  ```
+
+---
+
 ### 3.4.1. `GET /api/v1/diseases` (Danh mục Sổ tay Bệnh học & Cây trồng)
 *Phục vụ màn hình W-07 Sổ tay Bệnh học 14 loài cây & 40 danh mục chẩn đoán chuẩn Khuyến nông*
 - **Query Params**: `plantId` (GUID/int, optional), `search` (string, optional)
@@ -556,12 +624,14 @@
           "product_id": 1,
           "product_name": "Ridomil Gold 68WG",
           "quantity": 2,
-          "unit_price": 65000
+          "unit_price": 65000,
+          "total_price": 130000
         }
       ]
     }
   ]
   ```
+  *(Ghi chú: `total_price` = `unit_price × quantity`, backend tính).*
 
 ---
 
@@ -588,11 +658,13 @@
         "product_id": 1,
         "product_name": "Ridomil Gold 68WG",
         "quantity": 2,
-        "unit_price": 65000
+        "unit_price": 65000,
+        "total_price": 130000
       }
     ]
   }
   ```
+  *(Ghi chú: `total_price` = `unit_price × quantity`, backend tính).*
 
 ---
 
@@ -924,6 +996,7 @@
   - `model_class` (string, optional): Lọc theo mã lớp bệnh.
   - `kind` (string, optional): `CHEMICAL` | `BIOLOGICAL` | `SUPPLY` | `PRACTICE`.
   - `search` (string, optional): Tìm theo tên vật tư, hoạt chất, tên bệnh.
+  - `productId` (int, optional): Lọc các gợi ý đã được liên kết với sản phẩm cụ thể (TASK-21).
 - **Response Body (`200 OK`)**:
   ```json
   [
@@ -960,6 +1033,18 @@
   ```json
   {
     "message": "Đã gắn gợi ý 'Metalaxyl' với sản phẩm 'Ridomil Gold 68WG' thành công."
+  }
+  ```
+
+#### 3.13.2b. `POST /api/v1/knowledge/product-suggestions/{id}/unlink` (Gỡ gợi ý khỏi sản phẩm — TASK-21)
+- **Headers**: `Authorization: Bearer <Admin_JWT>` (role `ADMIN`).
+- **Hành vi**: Gỡ liên kết giữa gợi ý và sản phẩm hiện tại, đưa gợi ý (cùng tất cả gợi ý từ cùng bài báo `knowledge_source_id` cho cùng sản phẩm này) về trạng thái `PENDING` và `product_id = null`. Không tự ý xóa dòng `DiseaseProducts` để đảm bảo an toàn nghiệp vụ (Admin tự quyết định bật/tắt khuyên dùng ở tab Bệnh áp dụng).
+- **Response Body (`200 OK`)**:
+  ```json
+  {
+    "message": "Đã gỡ 2 đoạn trích của bài báo khỏi sản phẩm 'Ridomil Gold 68WG'.",
+    "unlinked_count": 2,
+    "remaining_evidence_count": 1
   }
   ```
 

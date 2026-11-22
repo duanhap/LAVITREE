@@ -1,34 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Package, Clock, CheckCircle2, AlertCircle, ShoppingBag,
-  Truck, ArrowLeft, RefreshCw, Calendar, Phone, MapPin
+  Package, Clock, CheckCircle2, AlertCircle,
+  Truck, ArrowLeft, RefreshCw, Calendar, MapPin
 } from 'lucide-react';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
+import { formatCurrency, formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import laviWavingImg from '@/assets/brand/lavi-waving-3d.webp';
 
 interface OrderItemDto {
-  id: number;
   product_id: number;
   product_name: string;
   quantity: number;
   unit_price: number;
-  subtotal: number;
-  image_url: string;
+  total_price: number;
 }
 
 interface OrderResponseDto {
-  id: string;
-  receiver_name: string;
-  phone_number: string;
-  shipping_address: string;
+  order_id: string;
   total_amount: number;
   payment_method: string;
   order_status: string;
-  notes?: string;
+  receiver_name?: string | null;
+  notes?: string | null;
+  shipping_address: string;
+  phone_number: string;
   created_at: string;
   items: OrderItemDto[];
 }
@@ -56,7 +55,7 @@ export const OrdersPage: React.FC = () => {
   }, []);
 
   const getStatusBadge = (status: string) => {
-    switch (status.toUpperCase()) {
+    switch ((status ?? '').toUpperCase()) {
       case 'PENDING':
       case 'PENDING_CONFIRMATION':
         return (
@@ -170,85 +169,85 @@ export const OrdersPage: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          {orders.map((order) => {
-            const formattedDate = new Date(order.created_at).toLocaleString('vi-VN', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-            });
-
-            return (
-              <Card key={order.id} className="border-border bg-card shadow-xs overflow-hidden">
-                <CardHeader className="bg-muted/30 p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Package className="w-4 h-4 text-emerald-700" />
-                      <CardTitle className="text-sm font-bold text-foreground">
-                        Mã đơn: <span className="font-mono text-primary">{order.id}</span>
-                      </CardTitle>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {formattedDate}
-                      </span>
-                      <span>•</span>
-                      <span>Thanh toán: <strong className="text-foreground">{order.payment_method}</strong></span>
-                    </div>
+          {orders.map((order) => (
+            <Card key={order.order_id} className="border-border bg-card shadow-xs overflow-hidden">
+              <CardHeader className="bg-muted/30 p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-4 h-4 text-emerald-700" />
+                    <CardTitle className="text-sm font-bold text-foreground">
+                      Mã đơn: <span className="font-mono text-primary">{order.order_id}</span>
+                    </CardTitle>
                   </div>
-
-                  <div className="flex items-center gap-3">
-                    {getStatusBadge(order.order_status)}
-                    <span className="text-base font-extrabold text-emerald-800">
-                      {order.total_amount.toLocaleString('vi-VN')} đ
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {formatDate(order.created_at)}
                     </span>
+                    <span>•</span>
+                    <span>Thanh toán: <strong className="text-foreground">{order.payment_method}</strong></span>
                   </div>
-                </CardHeader>
+                </div>
 
-                <CardContent className="p-4 sm:p-5 space-y-4">
-                  {/* Danh sách sản phẩm trong đơn */}
-                  <div className="divide-y divide-border/60">
-                    {order.items.map((item) => (
-                      <div key={item.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center justify-center font-bold text-[11px]">
-                            {item.quantity}x
-                          </span>
-                          <div>
-                            <span className="font-semibold text-foreground text-sm">{item.product_name}</span>
-                            <div className="text-muted-foreground text-[11px]">
-                              Đơn giá: {item.unit_price.toLocaleString('vi-VN')} đ
-                            </div>
+                <div className="flex items-center gap-3">
+                  {getStatusBadge(order.order_status)}
+                  <span className="text-base font-extrabold text-emerald-800">
+                    {formatCurrency(order.total_amount)}
+                  </span>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-4 sm:p-5 space-y-4">
+                {/* Danh sách sản phẩm trong đơn */}
+                <div className="divide-y divide-border/60">
+                  {order.items.map((item) => (
+                    <div key={`${order.order_id}-${item.product_id}`} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between text-xs gap-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-6 h-6 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center justify-center font-bold text-[11px] shrink-0">
+                          {item.quantity}x
+                        </span>
+                        <div className="min-w-0">
+                          <span className="font-semibold text-foreground text-sm block truncate">{item.product_name}</span>
+                          <div className="text-muted-foreground text-[11px]">
+                            Đơn giá: {formatCurrency(item.unit_price)}
                           </div>
                         </div>
-
-                        <span className="font-bold text-foreground">
-                          {item.subtotal.toLocaleString('vi-VN')} đ
-                        </span>
                       </div>
-                    ))}
-                  </div>
 
-                  {/* Thông tin giao hàng */}
-                  <div className="bg-muted/20 p-3 rounded-lg border border-border text-xs space-y-1 text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span>
-                        Giao tới: <strong className="text-foreground">{order.receiver_name}</strong> ({order.phone_number}) – {order.shipping_address}
+                      <span className="font-bold text-foreground whitespace-nowrap shrink-0">
+                        {formatCurrency(item.total_price)}
                       </span>
                     </div>
-                    {order.notes && (
-                      <div className="text-[11px] italic pl-5">
-                        Ghi chú: {order.notes}
-                      </div>
-                    )}
+                  ))}
+                </div>
+
+                {/* Thông tin giao hàng */}
+                <div className="bg-muted/20 p-3 rounded-lg border border-border text-xs space-y-1 text-muted-foreground">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" />
+                    <span className="break-words">
+                      Giao tới:{' '}
+                      {order.receiver_name ? (
+                        <>
+                          <strong className="text-foreground">{order.receiver_name}</strong>{' '}
+                          ({order.phone_number}) – {order.shipping_address}
+                        </>
+                      ) : (
+                        <>
+                          ({order.phone_number}) – {order.shipping_address}
+                        </>
+                      )}
+                    </span>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  {order.notes && (
+                    <div className="text-[11px] italic pl-5">
+                      Ghi chú: {order.notes}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
     </div>

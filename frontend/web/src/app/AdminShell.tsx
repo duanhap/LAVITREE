@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Database,
@@ -23,6 +23,7 @@ import { useCurrentUser } from './RequireRole';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import logoImg from '@/assets/brand/lavitree-logo-64.webp';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 interface AdminNavItem {
   name: string;
@@ -46,6 +47,7 @@ const adminNavItems: AdminNavItem[] = [
 export const AdminShell: React.FC = () => {
   const { user } = useCurrentUser();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('lavitree_admin_sidebar_collapsed') === 'true';
@@ -231,7 +233,9 @@ export const AdminShell: React.FC = () => {
 
         {/* Content area */}
         <main className="flex-1 p-3 sm:p-5 lg:p-6 max-w-7xl w-full mx-auto">
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>
