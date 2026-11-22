@@ -1,7 +1,8 @@
 import React from 'react';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { ArrowLeft, Leaf, MessageCircle, ScanLine } from 'lucide-react';
 import { HeroVideoBackground } from '@/components/brand/HeroVideoBackground';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import logoImg from '@/assets/brand/lavitree-logo-64.webp';
 import lavi3dImg from '@/assets/brand/lavi-3d-happy-720.webp';
 
@@ -16,6 +17,7 @@ const highlights = [
  * Desktop: giới thiệu + Lavi 3D bên trái, form bên phải. Mobile: chỉ form trên nền video.
  */
 export const AuthLayout: React.FC = () => {
+  const location = useLocation();
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-emerald-950 text-white antialiased">
       <HeroVideoBackground />
@@ -70,7 +72,9 @@ export const AuthLayout: React.FC = () => {
 
           {/* Form */}
           <section className="w-full max-w-md justify-self-center text-foreground lg:justify-self-end">
-            <Outlet />
+            <ErrorBoundary resetKey={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
           </section>
         </main>
       </div>

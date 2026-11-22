@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import logoImg from '@/assets/brand/lavitree-logo-64.webp';
 import { AppFooter } from '@/components/common/AppFooter';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 interface NavItem {
   name: string;
@@ -223,7 +224,9 @@ export const AppShell: React.FC = () => {
             : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6"
         )}
       >
-        <Outlet />
+        <ErrorBoundary resetKey={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
       {/* ================= CHÂN TRANG (FOOTER) ================= */}

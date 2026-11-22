@@ -167,3 +167,8 @@
   - Trách nhiệm: **Trưởng nhóm** (giao Gemini làm). Phụ thuộc: TASK-21 xong trước
   - Trạng thái: `[ ] TODO`
   - Đầu ra: Bảng `ProductUsageRules` + migration (local), 5 API `/medicines/{id}/usage-rules`; ô "Cách dùng cho bệnh này" trong dòng bệnh ở Tab 2 trang chi tiết sản phẩm sửa được (tạo từ phiếu chung, sửa, xóa, đánh dấu đã đối chiếu nhãn), đặt cạnh căn cứ bài báo. `Products.UsageProfile` giữ làm phiếu chung. Là bước 1–3 lộ trình `docs/architecture/treatment-schedule-design.md`. Nhóm cần quyết: có cho Lavi đọc phiếu theo bệnh trong task này không. Chi tiết: `tasks/sprint-03/task-22-usage-rules-per-disease.md`.
+
+- [x] **TASK-23: Sửa lỗi trắng trang "Đơn hàng của tôi" (`/orders`) + ErrorBoundary** (P0, lỗi production)
+  - Trách nhiệm: giao agent; nghiệm thu: Claude Code / trưởng nhóm
+  - Trạng thái: `[x] DONE` (22/11/2026)
+  - Đầu ra: `OrdersPage.tsx` đọc đúng hợp đồng API (`order_id`, `total_price` thay cho `id`, `subtotal`), dùng `formatCurrency`/`formatDate`; `ErrorBoundary` dùng chung bọc `<Outlet />` ở `AppShell`/`AdminShell`/`AuthLayout` (bắt cả lỗi tải chunk sau deploy); thêm `total_price` vào `api-contracts.md`. Không sửa backend. Chi tiết: `tasks/sprint-03/task-23-orders-page-crash.md`.

@@ -624,12 +624,14 @@
           "product_id": 1,
           "product_name": "Ridomil Gold 68WG",
           "quantity": 2,
-          "unit_price": 65000
+          "unit_price": 65000,
+          "total_price": 130000
         }
       ]
     }
   ]
   ```
+  *(Ghi chú: `total_price` = `unit_price × quantity`, backend tính).*
 
 ---
 
@@ -656,11 +658,13 @@
         "product_id": 1,
         "product_name": "Ridomil Gold 68WG",
         "quantity": 2,
-        "unit_price": 65000
+        "unit_price": 65000,
+        "total_price": 130000
       }
     ]
   }
   ```
+  *(Ghi chú: `total_price` = `unit_price × quantity`, backend tính).*
 
 ---
 
