@@ -2260,6 +2260,7 @@ public class KnowledgeController : ControllerBase
     {
         var trimmed = b.Trim();
         if (trimmed.Contains('\n') || Regex.IsMatch(trimmed, @"^#{1,6}\s+")) return trimmed;
+        trimmed = Regex.Replace(trimmed, @"^(?:[-•*+]\s+)+([-•*+]\s+)", "$1");
         if (trimmed.StartsWith("• ")) return $"- {trimmed[2..]}";
         if (Regex.IsMatch(trimmed, @"^([-*+]\s+|\d+[.)]\s+|--?>\s+)")) return trimmed;
         if (trimmed.Length <= 265 && !trimmed.Contains("**") && !Regex.IsMatch(trimmed, @"^#{1,6}\s+"))
@@ -2307,6 +2308,12 @@ public class KnowledgeController : ControllerBase
         for (int idx = 0; idx < rawBlocks.Count; idx++)
         {
             var rawBlock = rawBlocks[idx];
+            var trimmedBlock = rawBlock.Trim();
+            if (string.IsNullOrEmpty(trimmedBlock) || Regex.IsMatch(trimmedBlock, @"^(?:\d+(\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+
             var plain = StripMarkdownInline(rawBlock);
             var isRole = !plain.Contains('\n') && plain.Length <= 120 && !Regex.IsMatch(plain, @"[.!?;]$") && RoleLineRegex.IsMatch(plain);
             var isStray = PromoLinkRegex.IsMatch(plain)

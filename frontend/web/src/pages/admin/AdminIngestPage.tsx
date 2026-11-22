@@ -415,6 +415,8 @@ export const AdminIngestPage: React.FC = () => {
     };
 
     rawBlocks.forEach((rawBlock, idx) => {
+      const trimmedBlock = rawBlock.trim();
+      if (!trimmedBlock || /^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(trimmedBlock)) return;
       if (isStrayCaptionOrPromo(rawBlock, idx)) return;
 
       if (isStandaloneMetadataLine(rawBlock) || isTitleHeaderBlock(rawBlock, idx)) {
@@ -846,6 +848,9 @@ export const AdminIngestPage: React.FC = () => {
           const t = extractTextWithSpacing(b);
           if (!t || isNoise(t)) return;
 
+          // Bỏ qua các thẻ chỉ chứa duy nhất số thứ tự đơn lẻ: "1.", "2.", "1.1", "1/"
+          if (/^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(t.trim())) return;
+
           // Bỏ qua <p> là chú thích ảnh (chỉ bọc <em>/<i> hoặc nằm ngay sau <img>/<figure>, ngắn < 95 ký tự và không có dấu câu)
           if (b.tagName === 'P') {
             const empText = Array.from(b.querySelectorAll('em, i'))
@@ -871,9 +876,10 @@ export const AdminIngestPage: React.FC = () => {
             if (onlyLink && t.length < 60 && !/[.!?]/.test(t)) return;
             if (t.length < 12) return;
 
-            const mdBody = extractInlineMarkdown(b).replace(/^[•\-*+]\s+/, '').trim();
-            const bulletLine = /^-?\s*\d+[.)]\s+/.test(mdBody)
-              ? mdBody.replace(/^-\s+/, '')
+            const mdBody = extractInlineMarkdown(b).replace(/^(?:[-•*+]\s+)+/, '').trim();
+            if (!mdBody || /^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(mdBody)) return;
+            const bulletLine = /^\d+[.)]\s+/.test(mdBody)
+              ? mdBody
               : `- ${mdBody.replace(/\n+/g, ' ')}`;
 
             if (bulletLine.length <= 360) {
@@ -1978,6 +1984,9 @@ export const AdminIngestPage: React.FC = () => {
     normalized = normalized.replace(/([.:?!;]|\s)\s*(#{1,6}\s+)/g, '$1\n$2');
     normalized = normalized.replace(/(#{1,6}\s+[^:\n]{3,80}:)\s*([A-ZÀ-Ỹ])/g, '$1\n$2');
 
+    // 0a. Chuẩn hóa double bullets "- - ", "• - ", "- • " thành 1 bullet duy nhất "- "
+    normalized = normalized.replace(/(^|[\n\r])\s*(?:[-•*+]\s+)+([-•*+]\s+)/g, '$1$2');
+
     // 0b. Tách tiêu đề mục kết thúc bằng dấu hai chấm khi dính liền với câu hỏi in đậm (**Câu hỏi?**)
     normalized = normalized.replace(/(^|[\n\r])([^:\n\-•*+]{5,90}:)\s*(\*{1,2}[A-ZÀ-Ỹ0-9])/g, '$1$2\n$3');
 
@@ -2002,10 +2011,34 @@ export const AdminIngestPage: React.FC = () => {
     // 6. Tách đoạn kết bài / chuyển ý / lời khuyên kết luận
     normalized = normalized.replace(/([.:?!])\s+(Qua bài viết|Tổng kết|Tóm lại|Lời kết|Như vậy|Để lựa chọn|Bệnh [^.:\n]{3,50} là một trong những|Nơi cung cấp)\b/gi, '$1\n$2');
 
+    // Kiểm tra xem đoạn văn có các số thứ tự tiếp theo hay không (ví dụ có 1. và 2. hoặc có 1.1 và 1.2)
+    const hasSubsequentNumber = /\b2[.)/]\s+/.test(normalized) || /\b1\.2\b/.test(normalized) || /\bII[.)/]\s+/.test(normalized) || /\bb[.)]\s+/.test(normalized);
+
     return normalized
       .split(/\r?\n/)
       .map((l) => l.trim())
-      .filter((l) => l && !/^(\*{1,3}|_{1,3})$/.test(l));
+      .filter((l) => {
+        if (!l || /^(\*{1,3}|_{1,3})$/.test(l)) return false;
+        // Bỏ hoàn toàn các dòng chỉ chứa số thứ tự đơn lẻ: '1.', '2.', '3.', '1.1', '1/', 'a.'
+        if (/^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(l)) return false;
+        return true;
+      })
+      .map((l) => {
+        let cleaned = l;
+        // Chuẩn hóa gạch đầu dòng kép lặp lại: "• - " hoặc "- - " -> "- "
+        cleaned = cleaned.replace(/^(?:[-•*+]\s+)+([-•*+]\s+)/, '$1');
+
+        // Bỏ số thứ tự trước câu hỏi FAQ (ví dụ: "1. Bệnh thường xuất hiện khi nào?" -> "Bệnh thường xuất hiện khi nào?")
+        if (cleaned.endsWith('?') || /\?\s*$/.test(cleaned)) {
+          cleaned = cleaned.replace(/^(?:\*{1,2})?(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*|(?:câu|hỏi)\s*\d+[:.]\s*)(?:\*{1,2})?/i, '');
+        } else if (!hasSubsequentNumber) {
+          // Nếu cả đoạn trích chỉ có số 1. mồ côi (không có 2. hoặc 1.2 đi kèm):
+          // Loại bỏ tiền tố số mồ côi để đoạn trích tự nhiên, ví dụ: "• 1. Đặc điểm..." -> "• Đặc điểm..."
+          cleaned = cleaned.replace(/^((?:[-•*+]\s+)?)(?:\*{1,2})?(?:1|1\.1)[.)/]\s+(?:\*{1,2})?([A-ZÀ-Ỹ])/i, '$1$2');
+        }
+        return cleaned.trim();
+      })
+      .filter(Boolean);
   };
 
   // Huy hiệu hiển thị loại nội dung đoạn trích thân thiện và trực quan
@@ -2093,16 +2126,17 @@ export const AdminIngestPage: React.FC = () => {
             );
           }
 
-          // 4. Tiêu đề mục kết thúc bằng dấu hai chấm (không phải bullet): "Biện pháp phòng ngừa...:" hoặc "Điều kiện thuận lợi...:"
-          const isSectionHeader = !trimmed.startsWith('-') && !trimmed.startsWith('•') && !trimmed.startsWith('*') && (
-            /^(?:(?:\d+|[IVX]+|[a-zđ])[.)]\s*)?[A-ZÀ-Ỹ][^.!?\n]{3,90}:$/.test(trimmed) ||
-            /^(?:Biện pháp|Phòng trừ|Phòng ngừa|Điều trị|Cách trị|Triệu chứng|Dấu hiệu|Nguyên nhân|Đặc điểm|Tác hại|Điều kiện|Quy trình|Kỹ thuật|Lưu ý|Câu hỏi|Hướng dẫn)\b.*:$/i.test(trimmed)
+          // 4. Tiêu đề mục kết thúc bằng dấu hai chấm (kể cả khi có tiền tố gạch đầu dòng do parse HTML):
+          const cleanHeadingText = trimmed.replace(/^[-•*+]\s+/, '').replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
+          const isSectionHeader = (
+            /^[A-ZÀ-Ỹ][^.!?\n]{3,90}:$/.test(cleanHeadingText) ||
+            /^(?:Biện pháp|Phòng trừ|Phòng ngừa|Điều trị|Cách trị|Triệu chứng|Dấu hiệu|Nguyên nhân|Đặc điểm|Tác hại|Điều kiện|Quy trình|Kỹ thuật|Lưu ý|Câu hỏi|Hướng dẫn)\b.*:$/i.test(cleanHeadingText)
           );
           if (isSectionHeader) {
             return (
               <div key={idx} className="font-bold text-emerald-900 text-xs sm:text-[13px] mt-2 mb-1 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
-                <span className="flex-1">{renderInlineMarkdownWithHighlight(trimmed, paraId)}</span>
+                <span className="flex-1">{renderInlineMarkdownWithHighlight(cleanHeadingText, paraId)}</span>
               </div>
             );
           }
@@ -2111,8 +2145,12 @@ export const AdminIngestPage: React.FC = () => {
           const plainForCheck = trimmed.replace(/[*_#]/g, '').trim();
           const isQuestion = plainForCheck.endsWith('?') || /^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)?[A-ZÀ-Ỹ][^.:\n]{3,120}\?$/.test(plainForCheck);
           if (isQuestion) {
-            // Tách sạch các ký tự in đậm ** bao bọc câu hỏi vì thẻ Hỏi đã được thiết kế font đậm riêng
-            const displayQuestionText = trimmed.replace(/^\*{1,2}\s*/, '').replace(/\s*\*{1,2}$/, '');
+            // Tách sạch các ký tự in đậm ** và số thứ tự 1., 2., Câu 1... bao bọc câu hỏi
+            const displayQuestionText = trimmed
+              .replace(/^\*{1,2}\s*/, '')
+              .replace(/\s*\*{1,2}$/, '')
+              .replace(/^(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*|(?:câu|hỏi)\s*\d+[:.]\s*)/i, '')
+              .trim();
             return (
               <div key={idx} className="font-semibold text-emerald-950 text-xs sm:text-[13px] mt-2.5 mb-1 flex items-start gap-1.5 bg-emerald-50/80 dark:bg-emerald-950/20 px-2.5 py-1.5 rounded-md border border-emerald-200/80 shadow-2xs">
                 <span className="font-bold text-emerald-800 text-[10px] bg-emerald-200/70 px-1.5 py-0.5 rounded shrink-0 mt-0.5">Hỏi</span>
@@ -2124,7 +2162,9 @@ export const AdminIngestPage: React.FC = () => {
           // 5. Gạch đầu dòng / bullet / số thứ tự / mũi tên trả lời:
           const bulletMatch = trimmed.match(/^(?:[-•*+]|\d+[.)]|-->|->)\s+(.+)$/);
           if (bulletMatch) {
-            const content = bulletMatch[1];
+            let content = bulletMatch[1].trim();
+            // Khử gạch đầu dòng kép lặp lại nếu có (ví dụ: "- Đặc điểm nấm:" trong content)
+            content = content.replace(/^[-•*+]\s+/, '').trim();
             // Tách nhãn in đậm ở đầu gạch đầu dòng (ví dụ: "Chọn giống kháng bệnh: Ưu tiên...")
             const subLabelMatch = content.match(/^([A-ZÀ-Ỹa-zà-ỹ0-9\s/&,–-]+?:\s*)(.*)$/);
             if (subLabelMatch && !content.startsWith('**')) {
