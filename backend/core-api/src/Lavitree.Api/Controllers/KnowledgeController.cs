@@ -2572,6 +2572,7 @@ public class KnowledgeController : ControllerBase
         [FromQuery] string? plant_part = null,
         [FromQuery] bool? is_approved = null,
         [FromQuery] string? search = null,
+        [FromQuery] string? source_url = null,
         CancellationToken cancellationToken = default)
     {
         var isAdmin = User.IsAdmin();
@@ -2593,6 +2594,13 @@ public class KnowledgeController : ControllerBase
         if (!string.IsNullOrWhiteSpace(model_class))
         {
             query = query.Where(img => img.ModelClass == model_class.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(source_url))
+        {
+            var sUrl = source_url.Trim();
+            var sUrlNoSlash = sUrl.TrimEnd('/');
+            query = query.Where(img => img.SourceUrl == sUrl || img.SourceUrl == sUrlNoSlash || img.SourceUrl == sUrlNoSlash + "/");
         }
 
         if (!string.IsNullOrWhiteSpace(plant_part))
