@@ -72,7 +72,8 @@ const SECTION_COPY: Record<string, { title: string; description: string }> = {
   },
 };
 
-
+// Hạn mức tối đa cho 1 đoạn trích nguyên văn (đã mở rộng lên 5.000 ký tự cho giai đoạn xây dựng dữ liệu)
+const MAX_SNIPPET_CHARS = 5000;
 
 export const AdminIngestPage: React.FC = () => {
   const [diseases, setDiseases] = useState<DiseaseOption[]>([]);
@@ -1557,7 +1558,7 @@ export const AdminIngestPage: React.FC = () => {
       const cut = match.index + match[1].length;
       const len1 = cut;
       const len2 = text.length - cut;
-      if (len1 >= 30 && len2 >= 30 && len1 <= 1500 && len2 <= 1500) {
+      if (len1 >= 30 && len2 >= 30 && len1 <= MAX_SNIPPET_CHARS && len2 <= MAX_SNIPPET_CHARS) {
         const diff = Math.abs(cut - mid);
         if (diff < minDiff) {
           minDiff = diff;
@@ -1573,7 +1574,7 @@ export const AdminIngestPage: React.FC = () => {
         const cut = match.index + match[1].length;
         const len1 = cut;
         const len2 = text.length - cut;
-        if (len1 >= 30 && len2 >= 30 && len1 <= 1500 && len2 <= 1500) {
+        if (len1 >= 30 && len2 >= 30 && len1 <= MAX_SNIPPET_CHARS && len2 <= MAX_SNIPPET_CHARS) {
           const diff = Math.abs(cut - mid);
           if (diff < minDiff) {
             minDiff = diff;
@@ -1590,8 +1591,8 @@ export const AdminIngestPage: React.FC = () => {
       };
     }
 
-    // 3. Fallback: ngắt tại điểm an toàn <= 1500
-    const safeCut = Math.min(Math.max(mid, 30), 1500);
+    // 3. Fallback: ngắt tại điểm an toàn <= MAX_SNIPPET_CHARS
+    const safeCut = Math.min(Math.max(mid, 30), MAX_SNIPPET_CHARS);
     return {
       part1: text.substring(0, safeCut).trim(),
       part2: text.substring(safeCut).trim(),
@@ -1654,9 +1655,9 @@ export const AdminIngestPage: React.FC = () => {
       return;
     }
 
-    const hasInvalid = parts.some((p) => p.length < 30 || p.length > 1500);
+    const hasInvalid = parts.some((p) => p.length < 30 || p.length > MAX_SNIPPET_CHARS);
     if (hasInvalid) {
-      toast.error('Mỗi đoạn con sau khi chia phải có từ 30 đến 1.500 ký tự.');
+      toast.error(`Mỗi đoạn con sau khi chia phải có từ 30 đến ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự.`);
       return;
     }
 
@@ -1699,7 +1700,7 @@ export const AdminIngestPage: React.FC = () => {
     setSplitModalOpen(false);
     setSplitTargetPara(null);
     setSelectedCutIndices([]);
-    toast.success(`Đã chia đoạn ${baseId} thành ${newParas.length} đoạn hợp lệ (mỗi đoạn ≤ 1.500 ký tự).`);
+    toast.success(`Đã chia đoạn ${baseId} thành ${newParas.length} đoạn hợp lệ (mỗi đoạn ≤ ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự).`);
   };
 
   const handleSelectAllAiSuggested = () => {
@@ -1716,7 +1717,7 @@ export const AdminIngestPage: React.FC = () => {
       const next = { ...prev };
       for (const para of ingestionResult.paragraphs) {
         const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
-        const isTooLong = para.text.length > 1500;
+        const isTooLong = para.text.length > MAX_SNIPPET_CHARS;
         const isAiSuggested = !!para.suggested_unit_type;
 
         if (isAiSuggested && !isSaved && !isTooLong) {
@@ -2525,7 +2526,7 @@ export const AdminIngestPage: React.FC = () => {
   // Thẻ duyệt từng đoạn trích (dùng chung cho Nhập bài báo mới & Tab Nạp thêm dữ liệu)
   const renderParagraphReviewCard = (para: ParagraphItem, options?: { isNoise?: boolean }) => {
     const state = selectedParagraphs[para.id] || { selected: false, unitType: 'SYMPTOMS' };
-    const isTooLong = para.text.length > 1500;
+    const isTooLong = para.text.length > MAX_SNIPPET_CHARS;
     const isSaved = savedVerbatimTexts.has(collapseWs(para.text));
     const isHeaderLine = para.text.length < 40 && !para.id.includes('_');
     const isNoise = !!options?.isNoise;
@@ -2550,7 +2551,7 @@ export const AdminIngestPage: React.FC = () => {
                 isSaved
                   ? 'Đoạn này đã được lưu trong cơ sở dữ liệu (Tab 1)'
                   : isTooLong
-                    ? 'Đoạn quá dài (> 1.500 ký tự), vui lòng chia nhỏ đoạn trước khi chọn'
+                    ? `Đoạn quá dài (> ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự), vui lòng chia nhỏ đoạn trước khi chọn`
                     : isHeaderLine
                       ? 'Dòng tiêu đề hoặc siêu dữ liệu không dùng làm đoạn trích dẫn'
                       : (!state.selected && countWithSaved >= 30)
@@ -2577,7 +2578,7 @@ export const AdminIngestPage: React.FC = () => {
             )}
             {isTooLong && (
               <Badge variant="destructive" className="text-[10px] h-5">
-                Vượt quá 1.500 ký tự
+                Vượt quá {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự
               </Badge>
             )}
           </label>
@@ -2592,7 +2593,7 @@ export const AdminIngestPage: React.FC = () => {
                   ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
                   : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
-              title={isTooLong ? 'Đoạn quá 1.500 ký tự - bấm để tách' : 'Tách đoạn này thành 2 đoạn nhỏ'}
+              title={isTooLong ? `Đoạn quá ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự - bấm để tách` : 'Tách đoạn này thành 2 đoạn nhỏ'}
             >
               <Scissors className="w-3 h-3" />
               <span>Tách đoạn</span>
@@ -4080,7 +4081,7 @@ export const AdminIngestPage: React.FC = () => {
                             )}
                           </CardTitle>
                           <CardDescription className="text-xs mt-0.5">
-                            Quy tắc trích dẫn hợp lý: <strong>Tối đa 30 đoạn nguyên văn</strong> (≤ 1.500 ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
+                            Quy tắc trích dẫn hợp lý: <strong>Tối đa 30 đoạn nguyên văn</strong> (≤ {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự/đoạn, tổng ≤ 60% bài). Tick = Duyệt.
                           </CardDescription>
                         </div>
 
@@ -4199,7 +4200,7 @@ export const AdminIngestPage: React.FC = () => {
               <span>Chia đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Mỗi đoạn tối đa 1.500 ký tự. Bạn có thể nhấp chuột vào biểu tượng ✂️ sau bất kỳ câu nào để đặt một hoặc nhiều mốc cắt, chia thành nhiều đoạn nhỏ tùy ý.
+              Mỗi đoạn tối đa {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự. Bạn có thể nhấp chuột vào biểu tượng ✂️ sau bất kỳ câu nào để đặt một hoặc nhiều mốc cắt, chia thành nhiều đoạn nhỏ tùy ý.
             </DialogDescription>
           </DialogHeader>
 
@@ -4208,7 +4209,7 @@ export const AdminIngestPage: React.FC = () => {
             const matches = splitTargetPara.text.match(regex);
             const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [splitTargetPara.text];
             const parts = computeSplitParts(splitTargetPara.text, selectedCutIndices);
-            const hasInvalidPart = parts.some(p => p.length < 30 || p.length > 1500);
+            const hasInvalidPart = parts.some(p => p.length < 30 || p.length > MAX_SNIPPET_CHARS);
 
             return (
               <div className="space-y-4 py-2 text-xs">
@@ -4294,14 +4295,14 @@ export const AdminIngestPage: React.FC = () => {
                     <span>Xem trước {parts.length} đoạn con sau khi chia:</span>
                     {hasInvalidPart && (
                       <span className="text-destructive text-[11px] font-normal">
-                        Có đoạn con vượt quá 1.500 ký tự hoặc quá ngắn (&lt; 30 ký tự)
+                        Có đoạn con vượt quá {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự hoặc quá ngắn (&lt; 30 ký tự)
                       </span>
                     )}
                   </div>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {parts.map((partText, pIdx) => {
                       const len = partText.length;
-                      const isTooLong = len > 1500;
+                      const isTooLong = len > MAX_SNIPPET_CHARS;
                       const isTooShort = len < 30;
 
                       return (
@@ -4312,7 +4313,7 @@ export const AdminIngestPage: React.FC = () => {
                             </span>
                             <span className={`text-[11px] font-mono font-medium ${isTooLong || isTooShort ? 'text-destructive font-bold' : 'text-emerald-700'
                               }`}>
-                              {len} / 1.500 ký tự {isTooLong ? '(Quá dài > 1500)' : isTooShort ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                              {len} / {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự {isTooLong ? `(Quá dài > ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')})` : isTooShort ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
                             </span>
                           </div>
                           <p className="text-xs text-foreground/80 italic leading-relaxed line-clamp-3 select-all bg-muted/30 p-2 rounded">
@@ -4337,7 +4338,7 @@ export const AdminIngestPage: React.FC = () => {
               disabled={
                 !splitTargetPara ||
                 selectedCutIndices.length === 0 ||
-                computeSplitParts(splitTargetPara.text, selectedCutIndices).some(p => p.length < 30 || p.length > 1500)
+                computeSplitParts(splitTargetPara.text, selectedCutIndices).some(p => p.length < 30 || p.length > MAX_SNIPPET_CHARS)
               }
               className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
             >

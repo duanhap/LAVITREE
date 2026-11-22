@@ -37,7 +37,7 @@ class RetrievalResult(BaseModel):
 
 class ParagraphItem(BaseModel):
     id: str = Field(..., min_length=1, max_length=50, description="Mã định danh đoạn trích")
-    text: str = Field(..., min_length=1, max_length=2000, description="Nội dung văn bản đoạn trích (tối đa 2000 ký tự)")
+    text: str = Field(..., min_length=1, max_length=10000, description="Nội dung văn bản đoạn trích (tối đa 10000 ký tự)")
 
 class MentionItem(BaseModel):
     text: str = Field(..., max_length=200, description="Cụm từ nguyên văn xuất hiện trong đoạn")
