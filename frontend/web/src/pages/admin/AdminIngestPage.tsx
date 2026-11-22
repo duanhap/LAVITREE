@@ -260,6 +260,16 @@ export const AdminIngestPage: React.FC = () => {
     );
   };
 
+  // Nhận diện dòng chỉ chứa số thứ tự đơn lẻ, bullet đơn độc hoặc marker ('1.', '2.', '4.', '1.1', '• 4.', '**4.**', 'IV.')
+  const isPureNumberMarker = (text: string): boolean => {
+    if (!text) return false;
+    const stripped = text
+      .trim()
+      .replace(/^[•\-*+–—\s\u00A0\u200B]+/, '')
+      .replace(/[\s\u00A0\u200B*_#]/g, '');
+    return /^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]?$/i.test(stripped);
+  };
+
   // Gom tiêu đề mục, câu dẫn kết thúc bằng dấu ':' hoặc '?' và các ý con ngắn cùng mục thành đoạn hoàn chỉnh chuẩn Markdown (tối đa ~1.600 ký tự)
   const coalesceArticleParagraphs = (rawText: string): string => {
     if (!rawText) return '';
@@ -306,6 +316,18 @@ export const AdminIngestPage: React.FC = () => {
       return /^(?:\d+\.\d+\.?|[a-zđ][.)])\s+\S/i.test(plain) && plain.length <= 140;
     };
 
+    // Nhận diện các tiểu mục biện pháp (Biện pháp canh tác:, Biện pháp sinh học:, Biện pháp hóa học...)
+    // để gom chung vào khối "Biện pháp phòng trừ / điều trị", tránh bị cắt vụn thành từng đoạn lẻ
+    const isSubMeasureHeading = (b: string): boolean => {
+      const trimmed = b.trim();
+      if (trimmed.includes('\n')) return false;
+      const plain = stripMd(trimmed);
+      return (
+        /^(?:###\s*)?(?:[-•*+–—]\s*)?(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*)?(?:biện pháp|kỹ thuật|phương pháp)\s+(?:canh tác|sinh học|hóa học|vật lý|cơ giới|thủ công|chăm sóc|bảo vệ|sử dụng|giống|xử lý)\b/i.test(plain) ||
+        /^(?:###\s*)?(?:[-•*+–—]\s*)?(?:lưu ý|hướng dẫn|nguyên tắc)\s+(?:khi\s+phun|khi\s+dùng|sử dụng|canh tác)\b/i.test(plain)
+      );
+    };
+
     const isSectionHeadingBlock = (b: string): boolean => {
       const trimmed = b.trim();
       if (!trimmed || trimmed.includes('\n') || isStandaloneMetadataLine(trimmed) || /^#\s+\S/.test(trimmed)) {
@@ -314,6 +336,9 @@ export const AdminIngestPage: React.FC = () => {
 
       // Câu hỏi FAQ kết thúc bằng '?' không phải là Major Section Heading
       if (isQuestionOrFaqBlock(trimmed)) return false;
+
+      // Các tiểu mục như "Biện pháp sinh học:", "Biện pháp canh tác:" không được coi là Section Break độc lập
+      if (isSubMeasureHeading(trimmed)) return false;
 
       const plain = stripMd(trimmed);
       if (plain.length < 3 || plain.length > 140) return false;
@@ -346,6 +371,7 @@ export const AdminIngestPage: React.FC = () => {
       // Dấu gạch đầu dòng, bullet, mũi tên trả lời: -, *, +, •, -->, ->, =>
       if (/^(?:[•\-*+]|--?>|==?>)\s*\S/.test(trimmed)) return true;
       if (isQuestionOrFaqBlock(trimmed)) return true;
+      if (isSubMeasureHeading(trimmed)) return true;
       // Tiêu đề mục (như 1.1, 1.2 hoặc ### ...) KHÔNG phải là sub-item để tránh bị gom vào đuôi đoạn trước!
       if (isSectionHeadingBlock(trimmed)) return false;
       // Tiêu đề con kết thúc bằng dấu hai chấm (vd: "- 3.1 Triệu chứng:", "Biện pháp canh tác:")
@@ -363,6 +389,10 @@ export const AdminIngestPage: React.FC = () => {
       if (trimmed.includes('\n')) return trimmed;
       if (/^•\s+/.test(trimmed)) return trimmed.replace(/^•\s+/, '- ');
       if (/^[-*+]\s+/.test(trimmed) || /^\d+[.)]\s+/.test(trimmed) || /^--?>\s+/.test(trimmed)) return trimmed;
+      if (isSubMeasureHeading(trimmed)) {
+        const cleanMeasure = trimmed.replace(/^#{1,6}\s+/, '').replace(/^[-•*+–—]\s*/, '').replace(/\*\*/g, '').trim();
+        return `### ${cleanMeasure.endsWith(':') ? cleanMeasure : `${cleanMeasure}:`}`;
+      }
       if (trimmed.length <= 265 && !trimmed.includes('**') && !/^#{1,6}\s+/.test(trimmed)) {
         const colonMatch = trimmed.match(/^([^:.\n!?*]{2,60}):\s+(\S[\s\S]*)$/);
         if (colonMatch) {
@@ -416,7 +446,7 @@ export const AdminIngestPage: React.FC = () => {
 
     rawBlocks.forEach((rawBlock, idx) => {
       const trimmedBlock = rawBlock.trim();
-      if (!trimmedBlock || /^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(trimmedBlock)) return;
+      if (!trimmedBlock || isPureNumberMarker(trimmedBlock)) return;
       if (isStrayCaptionOrPromo(rawBlock, idx)) return;
 
       if (isStandaloneMetadataLine(rawBlock) || isTitleHeaderBlock(rawBlock, idx)) {
@@ -462,7 +492,7 @@ export const AdminIngestPage: React.FC = () => {
           !startsWithHeading &&
           (leadIn ||
             isShortFaqPair ||
-            (sub && (currentGroup.length <= 1100 || currentHasSubItems)) ||
+            (sub && (currentGroup.length <= 1800 || currentHasSubItems)) ||
             (currentGroup.length < 450 && b.length < 450));
         if (shouldMerge && currentGroup.length + 1 + b.length <= MAX_GROUP_CHARS) {
           currentGroup = `${currentGroup}\n${b}`;
@@ -848,8 +878,8 @@ export const AdminIngestPage: React.FC = () => {
           const t = extractTextWithSpacing(b);
           if (!t || isNoise(t)) return;
 
-          // Bỏ qua các thẻ chỉ chứa duy nhất số thứ tự đơn lẻ: "1.", "2.", "1.1", "1/"
-          if (/^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(t.trim())) return;
+          // Bỏ qua các thẻ chỉ chứa duy nhất số thứ tự đơn lẻ: "1.", "2.", "4.", "1.1", "1/"
+          if (isPureNumberMarker(t)) return;
 
           // Bỏ qua <p> là chú thích ảnh (chỉ bọc <em>/<i> hoặc nằm ngay sau <img>/<figure>, ngắn < 95 ký tự và không có dấu câu)
           if (b.tagName === 'P') {
@@ -876,8 +906,8 @@ export const AdminIngestPage: React.FC = () => {
             if (onlyLink && t.length < 60 && !/[.!?]/.test(t)) return;
             if (t.length < 12) return;
 
-            const mdBody = extractInlineMarkdown(b).replace(/^(?:[-•*+]\s+)+/, '').trim();
-            if (!mdBody || /^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(mdBody)) return;
+            const mdBody = extractInlineMarkdown(b).replace(/^(?:[-•*+–—]\s*)+/, '').trim();
+            if (!mdBody || isPureNumberMarker(mdBody)) return;
             const bulletLine = /^\d+[.)]\s+/.test(mdBody)
               ? mdBody
               : `- ${mdBody.replace(/\n+/g, ' ')}`;
@@ -2011,34 +2041,40 @@ export const AdminIngestPage: React.FC = () => {
     // 6. Tách đoạn kết bài / chuyển ý / lời khuyên kết luận
     normalized = normalized.replace(/([.:?!])\s+(Qua bài viết|Tổng kết|Tóm lại|Lời kết|Như vậy|Để lựa chọn|Bệnh [^.:\n]{3,50} là một trong những|Nơi cung cấp)\b/gi, '$1\n$2');
 
-    // Kiểm tra xem đoạn văn có các số thứ tự tiếp theo hay không (ví dụ có 1. và 2. hoặc có 1.1 và 1.2)
-    const hasSubsequentNumber = /\b2[.)/]\s+/.test(normalized) || /\b1\.2\b/.test(normalized) || /\bII[.)/]\s+/.test(normalized) || /\bb[.)]\s+/.test(normalized);
+    // Kiểm tra xem đoạn văn có dãy số thứ tự nối tiếp nhau hay không (ví dụ có 1. và 2., hoặc 2. và 3.)
+    const findNumbers = (str: string): number[] => {
+      const matches = str.match(/(?:^|[\n\r]|\s)(\d+)[.)/]\s+[A-ZÀ-Ỹ]/g) || [];
+      return matches.map((m) => parseInt(m.replace(/\D/g, ''), 10)).filter((n) => !isNaN(n));
+    };
+    const seqNums = findNumbers(normalized);
+    const hasSequentialNumbers = seqNums.some((num, i) => i > 0 && num === seqNums[i - 1] + 1);
 
     return normalized
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => {
         if (!l || /^(\*{1,3}|_{1,3})$/.test(l)) return false;
-        // Bỏ hoàn toàn các dòng chỉ chứa số thứ tự đơn lẻ: '1.', '2.', '3.', '1.1', '1/', 'a.'
-        if (/^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$/i.test(l)) return false;
+        // Bỏ hoàn toàn các dòng chỉ chứa số thứ tự đơn lẻ: '1.', '2.', '3.', '4.', '1.1', '1/', 'a.', '• 4.', '**4.**'
+        if (isPureNumberMarker(l)) return false;
         return true;
       })
       .map((l) => {
         let cleaned = l;
-        // Chuẩn hóa gạch đầu dòng kép lặp lại: "• - " hoặc "- - " -> "- "
-        cleaned = cleaned.replace(/^(?:[-•*+]\s+)+([-•*+]\s+)/, '$1');
+        // Chuẩn hóa gạch đầu dòng kép lặp lại: "• - " hoặc "- - " hoặc "- – " -> "- "
+        cleaned = cleaned.replace(/^(?:[-•*+–—]\s+)+([-•*+–—]\s+)/, '$1');
+        cleaned = cleaned.replace(/^[-•*+–—]\s+[-•*+–—]\s+/, '- ');
 
         // Bỏ số thứ tự trước câu hỏi FAQ (ví dụ: "1. Bệnh thường xuất hiện khi nào?" -> "Bệnh thường xuất hiện khi nào?")
         if (cleaned.endsWith('?') || /\?\s*$/.test(cleaned)) {
           cleaned = cleaned.replace(/^(?:\*{1,2})?(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*|(?:câu|hỏi)\s*\d+[:.]\s*)(?:\*{1,2})?/i, '');
-        } else if (!hasSubsequentNumber) {
-          // Nếu cả đoạn trích chỉ có số 1. mồ côi (không có 2. hoặc 1.2 đi kèm):
-          // Loại bỏ tiền tố số mồ côi để đoạn trích tự nhiên, ví dụ: "• 1. Đặc điểm..." -> "• Đặc điểm..."
-          cleaned = cleaned.replace(/^((?:[-•*+]\s+)?)(?:\*{1,2})?(?:1|1\.1)[.)/]\s+(?:\*{1,2})?([A-ZÀ-Ỹ])/i, '$1$2');
+        } else if (!hasSequentialNumbers) {
+          // Nếu cả đoạn trích không có danh sách số thứ tự liên tiếp (như 1. rồi 2.):
+          // Loại bỏ tiền tố số mồ côi (1., 4., 1.1) ở đầu đề mục để đoạn trích tự nhiên, ví dụ: "4. Biện pháp phòng trừ..." -> "Biện pháp phòng trừ..."
+          cleaned = cleaned.replace(/^((?:[-•*+–—]\s+)?)(?:\*{1,2})?(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s+(?:\*{1,2})?([A-ZÀ-Ỹ])/i, '$1$2');
         }
         return cleaned.trim();
       })
-      .filter(Boolean);
+      .filter((l) => Boolean(l) && !isPureNumberMarker(l));
   };
 
   // Huy hiệu hiển thị loại nội dung đoạn trích thân thiện và trực quan
@@ -2092,13 +2128,15 @@ export const AdminIngestPage: React.FC = () => {
         {lines.map((rawLine, idx) => {
           const trimmed = rawLine.trim();
           if (!trimmed || /^(\*{1,3}|_{1,3})$/.test(trimmed)) return null;
+          if (isPureNumberMarker(trimmed)) return null;
 
           // 1. Heading cấp 1 (# Tiêu đề)
           const h1Match = trimmed.match(/^#\s+(.+)$/);
           if (h1Match) {
+            const h1Text = h1Match[1].replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
             return (
               <h4 key={idx} className="font-bold text-emerald-950 text-sm mb-1 pb-1 border-b border-emerald-100">
-                {renderInlineMarkdownWithHighlight(h1Match[1], paraId)}
+                {renderInlineMarkdownWithHighlight(h1Text, paraId)}
               </h4>
             );
           }
@@ -2106,9 +2144,10 @@ export const AdminIngestPage: React.FC = () => {
           // 2. Heading cấp 2-6 (## Tiêu đề con)
           const headingMatch = trimmed.match(/^#{2,6}\s+(.+)$/);
           if (headingMatch) {
+            const hText = headingMatch[1].replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
             return (
               <h5 key={idx} className="font-bold text-emerald-900 text-xs sm:text-[13px] mt-2 mb-1">
-                {renderInlineMarkdownWithHighlight(headingMatch[1], paraId)}
+                {renderInlineMarkdownWithHighlight(hText, paraId)}
               </h5>
             );
           }
@@ -2127,7 +2166,7 @@ export const AdminIngestPage: React.FC = () => {
           }
 
           // 4. Tiêu đề mục kết thúc bằng dấu hai chấm (kể cả khi có tiền tố gạch đầu dòng do parse HTML):
-          const cleanHeadingText = trimmed.replace(/^[-•*+]\s+/, '').replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
+          const cleanHeadingText = trimmed.replace(/^[-•*+–—]\s+/, '').replace(/^(?:(?:\d+|[IVX]+|[a-zđ])[.)/]\s*)+/i, '').trim();
           const isSectionHeader = (
             /^[A-ZÀ-Ỹ][^.!?\n]{3,90}:$/.test(cleanHeadingText) ||
             /^(?:Biện pháp|Phòng trừ|Phòng ngừa|Điều trị|Cách trị|Triệu chứng|Dấu hiệu|Nguyên nhân|Đặc điểm|Tác hại|Điều kiện|Quy trình|Kỹ thuật|Lưu ý|Câu hỏi|Hướng dẫn)\b.*:$/i.test(cleanHeadingText)
@@ -2160,11 +2199,12 @@ export const AdminIngestPage: React.FC = () => {
           }
 
           // 5. Gạch đầu dòng / bullet / số thứ tự / mũi tên trả lời:
-          const bulletMatch = trimmed.match(/^(?:[-•*+]|\d+[.)]|-->|->)\s+(.+)$/);
+          const bulletMatch = trimmed.match(/^(?:[-•*+–—]|\d+[.)]|-->|->)\s+(.+)$/);
           if (bulletMatch) {
             let content = bulletMatch[1].trim();
-            // Khử gạch đầu dòng kép lặp lại nếu có (ví dụ: "- Đặc điểm nấm:" trong content)
-            content = content.replace(/^[-•*+]\s+/, '').trim();
+            // Khử triệt để mọi dấu gạch đầu dòng, dấu trừ, en-dash, em-dash, bullet thừa còn sót lại ở đầu:
+            content = content.replace(/^(?:[-•*+–—]\s*)+/, '').trim();
+            if (!content || isPureNumberMarker(content)) return null;
             // Tách nhãn in đậm ở đầu gạch đầu dòng (ví dụ: "Chọn giống kháng bệnh: Ưu tiên...")
             const subLabelMatch = content.match(/^([A-ZÀ-Ỹa-zà-ỹ0-9\s/&,–-]+?:\s*)(.*)$/);
             if (subLabelMatch && !content.startsWith('**')) {

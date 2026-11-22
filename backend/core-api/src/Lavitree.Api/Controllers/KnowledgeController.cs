@@ -1232,7 +1232,7 @@ public class KnowledgeController : ControllerBase
             foreach (var raw in rawParagraphs)
             {
                 var cleaned = Regex.Replace(raw.Trim(), @"[ \t]+", " ");
-                if (cleaned.Length == 0 || IsContactOrAdNoise(cleaned)) continue;
+                if (cleaned.Length == 0 || IsContactOrAdNoise(cleaned) || IsPureNumberMarker(cleaned)) continue;
                 if (Regex.IsMatch(cleaned, @"^#\s+\S") && !cleaned.Contains('\n') && !Regex.IsMatch(cleaned, @"[.!?]$") && cleaned.Length < 180)
                 {
                     continue;
@@ -2213,6 +2213,23 @@ public class KnowledgeController : ControllerBase
         return Regex.IsMatch(plain, @"^(?:\d+\.\d+\.?|[a-zđ][.)])\s+\S", RegexOptions.IgnoreCase) && plain.Length <= 140;
     }
 
+    private static bool IsPureNumberMarker(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var stripped = Regex.Replace(text.Trim(), @"^[•\-*+–—\s\u00A0\u200B]+", "");
+        stripped = Regex.Replace(stripped, @"[\s\u00A0\u200B*_#]", "");
+        return Regex.IsMatch(stripped, @"^(?:\d+(?:\.\d+)*|[a-zđ]|[IVX]+)[.)/:]?$", RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsSubMeasureHeading(string text)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.Contains('\n')) return false;
+        var plain = StripMarkdownInline(trimmed);
+        return Regex.IsMatch(plain, @"^(?:###\s*)?(?:[-•*+–—]\s*)?(?:(?:\d+(?:\.\d+)*|[a-zđ])[.)/]\s*)?(?:biện pháp|kỹ thuật|phương pháp)\s+(?:canh tác|sinh học|hóa học|vật lý|cơ giới|thủ công|chăm sóc|bảo vệ|sử dụng|giống|xử lý)\b", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(plain, @"^(?:###\s*)?(?:[-•*+–—]\s*)?(?:lưu ý|hướng dẫn|nguyên tắc)\s+(?:khi\s+phun|khi\s+dùng|sử dụng|canh tác)\b", RegexOptions.IgnoreCase);
+    }
+
     private static bool IsSectionHeading(string text)
     {
         var trimmed = text.Trim();
@@ -2223,6 +2240,9 @@ public class KnowledgeController : ControllerBase
 
         // Câu hỏi kết thúc bằng '?' không phải là Section Heading
         if (IsQuestionOrFaqBlock(trimmed)) return false;
+
+        // Các tiểu mục như "Biện pháp sinh học:", "Biện pháp canh tác:" không được coi là Section Break độc lập
+        if (IsSubMeasureHeading(trimmed)) return false;
 
         var plain = StripMarkdownInline(trimmed);
         if (plain.Length < 3 || plain.Length > 140 || HeadingStarterExclusionRegex.IsMatch(plain)) return false;
@@ -2247,6 +2267,7 @@ public class KnowledgeController : ControllerBase
         // Bullet points, gạch đầu dòng, dấu mũi tên
         if (Regex.IsMatch(trimmed, @"^(?:[•\-*+]|--?>|==?>)\s*\S")) return true;
         if (IsQuestionOrFaqBlock(trimmed)) return true;
+        if (IsSubMeasureHeading(trimmed)) return true;
         // Tiêu đề mục (như 1.1, 1.2 hoặc ### ...) KHÔNG phải là sub-item để tránh bị gom vào đuôi đoạn trước!
         if (IsSectionHeading(trimmed)) return false;
         if (trimmed.Length <= 400 && Regex.IsMatch(trimmed, @"^(?:[•\-*+]|--?>|==?>\s*)?(?:\*\*)?(?:\d+(\.\d+)*[.)/]?\s*)?[^:.\n!?*]{2,80}(?:\*\*)?:\s*(?:\*\*)?\s*\S?"))
@@ -2259,8 +2280,16 @@ public class KnowledgeController : ControllerBase
     private static string FormatSubItemMarkdown(string b)
     {
         var trimmed = b.Trim();
-        if (trimmed.Contains('\n') || Regex.IsMatch(trimmed, @"^#{1,6}\s+")) return trimmed;
-        trimmed = Regex.Replace(trimmed, @"^(?:[-•*+]\s+)+([-•*+]\s+)", "$1");
+        if (trimmed.Contains('\n')) return trimmed;
+        if (IsSubMeasureHeading(trimmed))
+        {
+            var cleanMeasure = Regex.Replace(trimmed, @"^#{1,6}\s+", "");
+            cleanMeasure = Regex.Replace(cleanMeasure, @"^[-•*+–—]\s*", "").Replace("**", "").Trim();
+            return $"### {(cleanMeasure.EndsWith(':') ? cleanMeasure : $"{cleanMeasure}:")}";
+        }
+        if (Regex.IsMatch(trimmed, @"^#{1,6}\s+")) return trimmed;
+        trimmed = Regex.Replace(trimmed, @"^(?:[-•*+–—]\s+)+([-•*+–—]\s+)", "$1");
+        trimmed = Regex.Replace(trimmed, @"^[-•*+–—]\s+[-•*+–—]\s+", "- ");
         if (trimmed.StartsWith("• ")) return $"- {trimmed[2..]}";
         if (Regex.IsMatch(trimmed, @"^([-*+]\s+|\d+[.)]\s+|--?>\s+)")) return trimmed;
         if (trimmed.Length <= 265 && !trimmed.Contains("**") && !Regex.IsMatch(trimmed, @"^#{1,6}\s+"))
@@ -2284,7 +2313,7 @@ public class KnowledgeController : ControllerBase
     private static string CoalesceArticleParagraphs(string rawText)
     {
         if (string.IsNullOrWhiteSpace(rawText)) return string.Empty;
-        const int maxGroupChars = 1600;
+        const int maxGroupChars = 2200;
         var rawBlocks = Regex.Split(rawText, @"\r?\n\s*\r?\n")
             .Select(s => Regex.Replace(s.Trim(), @"[ \t]+", " "))
             .Where(s => !string.IsNullOrWhiteSpace(s))
@@ -2309,7 +2338,7 @@ public class KnowledgeController : ControllerBase
         {
             var rawBlock = rawBlocks[idx];
             var trimmedBlock = rawBlock.Trim();
-            if (string.IsNullOrEmpty(trimmedBlock) || Regex.IsMatch(trimmedBlock, @"^(?:\d+(\.\d+)*|[a-zđ]|[IVX]+)[.)/:]\s*$", RegexOptions.IgnoreCase))
+            if (string.IsNullOrEmpty(trimmedBlock) || IsPureNumberMarker(trimmedBlock))
             {
                 continue;
             }
@@ -2363,7 +2392,7 @@ public class KnowledgeController : ControllerBase
                 var isShortFaqPair = IsQuestionOrFaqBlock(currentGroup) || Regex.IsMatch(b, @"^--?>\s+");
                 var shouldMerge = !startsWithHeading && (IsIncompleteLeadIn(currentGroup)
                     || isShortFaqPair
-                    || (sub && (currentGroup.Length <= 1100 || currentHasSubItems))
+                    || (sub && (currentGroup.Length <= 1800 || currentHasSubItems))
                     || (currentGroup.Length < 450 && b.Length < 450));
                 if (shouldMerge && currentGroup.Length + 1 + b.Length <= maxGroupChars)
                 {
