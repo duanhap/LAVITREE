@@ -154,7 +154,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
       });
 
       if (!res.ok) {
-        throw new Error(`TTS API status: ${res.status}`);
+        throw new Error(`TTS API status ${res.status}: ${res.statusText}`);
       }
 
       const blob = await res.blob();
@@ -171,15 +171,20 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
         setIsSpeaking(false);
         globalPlayingAudio = null;
       };
-      audio.onerror = () => {
+      audio.onerror = (e) => {
+        console.error('Neural Audio playback error:', e);
         setIsSpeaking(false);
         setIsLoadingAudio(false);
         globalPlayingAudio = null;
+        toast.warning('Không phát được âm thanh AI Neural, đang dùng giọng tạm của máy.');
         fallbackSpeak();
       };
       await audio.play();
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Neural TTS failed, using fallback speech synthesis:', err);
+      toast.warning('Máy chủ giọng đọc AI chưa phản hồi (Port 8001). Đang dùng giọng tạm của máy tính.', {
+        duration: 4000,
+      });
       fallbackSpeak();
     } finally {
       setIsLoadingAudio(false);
