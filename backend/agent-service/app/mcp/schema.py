@@ -79,6 +79,7 @@ class LookupDiseaseKnowledgeOutput(BaseModel):
     disease_name: str
     total_found: int
     citations: List[CitationChunk]
+    reference_images: List[Dict[str, Any]] = Field(default_factory=list, description="Danh sách ảnh triệu chứng thực tế đã duyệt trong kho tri thức.")
 
 
 # ==============================================================================

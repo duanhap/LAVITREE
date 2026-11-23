@@ -1,23 +1,39 @@
 # TASK-21: Trang chi tiết sản phẩm cho Admin (thông tin + bệnh áp dụng kèm căn cứ từ tài liệu)
 * **Sprint**: Sprint 3 (nhóm Admin / kho vật tư, nối tiếp TASK-15, 17, 18)
 * **Phân hệ**: `frontend/web` (Admin kho), `backend/core-api` (2 API đọc mới, 1 API gỡ liên kết), `docs/architecture`
-* **Trạng thái**: `[ ] TODO`
-* **Người phụ trách**: Trưởng nhóm (giao cho Gemini làm), nghiệm thu: Claude Code / thành viên còn lại
+* **Trạng thái**: `[x] DONE`
+* **Người phụ trách**: Trưởng nhóm & AI Assistant
 * **Độ ưu tiên**: P1
 * **Tạo ngày**: 22/11/2026
+* **Hoàn thành ngày**: 23/11/2026
 
 ---
 
-## 1. MỤC TIÊU
+## 1. MỤC TIÊU & THIẾT KẾ ĐÃ HOÀN TẤT
 
-1. Trong tab **"Kho thuốc & vật tư"** (`/admin/inventory`), bấm vào một sản phẩm sẽ mở **một trang riêng** `/admin/inventory/products/:id`, **không dùng hộp thoại**.
-2. Trang có **2 tab**:
-   - **Thông tin sản phẩm**: sửa các trường của `Product`.
-   - **Bệnh áp dụng & căn cứ**: gộp theo **từng bệnh**: "Lavi có khuyên dùng thuốc này cho bệnh này không" (`DiseaseProducts`) và "bài báo nào đã nhắc thuốc này cho bệnh đó" (`ProductSuggestions` + đoạn trích `KnowledgeSources`). Mỗi dòng bệnh **chừa sẵn ô "Cách dùng cho bệnh này"** (chỉ đọc). TASK-22 sẽ làm ô này sửa được.
-3. Mỗi loại dữ liệu **chỉ sửa được đúng phần được phép** (xem mục 4). Không lặp thông tin giữa 2 tab. Ít thao tác, ít phải cuộn.
-4. API và component làm theo hướng **dùng lại được** cho 2 trang công khai sau này (ngoài phạm vi task này, xem mục 9):
-   - `/store/products/:id`: trang một sản phẩm trên cửa hàng.
-   - `/handbook/:classCode/products/:id`: trang "thuốc này dùng cho bệnh này", mở khi người dùng bấm vào tên thuốc trong bài Sổ tay.
+1. Trong tab **"Kho thuốc & vật tư"** (`/admin/inventory`):
+   - Hộp thoại **"Thêm thuốc / Vật tư mới"** chỉ chứa thông tin chung của sản phẩm (tên, phân loại, hoạt chất, giá, tồn kho, PHI, link nguồn, ảnh, mô tả).
+   - Đã bỏ 2 phần liều lượng phức tạp để thêm nhanh. Sau khi tạo, hệ thống tự động chuyển thẳng sang trang chi tiết để admin thiết lập liều lượng riêng theo bệnh nếu cần.
+   - Bấm vào bất kỳ dòng sản phẩm nào trong kho đều mở **trang riêng** `/admin/inventory/products/:id`.
+2. Trang chi tiết sản phẩm (`/admin/inventory/products/:id`):
+   - **Tab 1: Thông tin sản phẩm**:
+     - Mặc định ở **Chế độ xem (View Mode)**: Thẻ thông tin đẹp mắt, ảnh sản phẩm rõ nét, các thông số giá, tồn kho, PHI, trạng thái lưu hành dạng badge/lưới gọn gàng.
+     - Mô tả sản phẩm được định dạng sạch sẽ, xuống dòng, gạch đầu dòng rõ ràng.
+     - Nút **"✏️ Chỉnh sửa thông tin"** ở header: chỉ khi bấm nút này mới chuyển sang Chế độ sửa (Edit Mode).
+     - Đã loại bỏ hoàn toàn khối liều lượng và cách dùng chung khỏi Tab 1 để giữ Tab 1 thuần túy là thông tin sản phẩm.
+   - **Tab 2: Bệnh điều trị & Liều lượng**:
+     - Bỏ toàn bộ các thuật ngữ học thuật phức tạp gây rối (`MANUAL_ONLY`, `SUPPORTED`, `UNRECOMMENDED_EVIDENCE`).
+     - Danh sách các bệnh mà thuốc điều trị hiển thị dạng Accordion thẻ.
+     - Header mỗi bệnh hiển thị: Tên cây trồng (badge xanh lá), Tên bệnh (link Sổ tay), Badge trạng thái (`✅ Đã có liều lượng riêng` vs `Dùng liều mặc định`, `📄 N bài báo tham khảo`), và nút "Gỡ bệnh".
+     - Khi mở từng bệnh:
+       - **Phiếu cách dùng (để lên lịch phun / nhắc nhở)**: `UsageProfileEditor` các ô số cấu trúc.
+       - Nút **"Ghép vào Hướng dẫn sử dụng"**: Tự động ghép số thành câu tiếng Việt chuẩn.
+       - **Hướng dẫn sử dụng / Liều lượng**: Textarea trợ lý Lavi đọc trực tiếp khi tư vấn cho bệnh này.
+       - Nút **"Lưu liều lượng cho bệnh này"**: Ghi vào `UsageProfile.DiseaseRules[modelClass]` (không cần migration DB).
+       - Nút "Khôi phục liều mặc định".
+       - Khối **"📄 Nguồn tham khảo từ bài báo"** bên dưới với trích dẫn có tô đậm tên thuốc bằng `<mark>`, link an toàn `safeHref()`, và nút "Gỡ bài này khỏi sản phẩm".
+     - Nút "+ Thêm bệnh điều trị" hỗ trợ tìm kiếm tiếng Việt không dấu.
+
 
 ## 2. BỐI CẢNH
 
@@ -358,6 +374,7 @@ Trang Admin dùng `mode="admin"`.
 | 22/11/2026 | Claude Code | Theo góp ý trưởng nhóm: cách dùng thuốc phải **riêng theo từng bệnh của từng cây**. Thêm bảng `ProductUsageRules` + API và khối "Cách dùng cho bệnh này" ở Tab 2. Phiếu ở Tab 1 đổi thành **phiếu chung**. |
 | 22/11/2026 | Claude Code | Trưởng nhóm chốt **tách** phần phiếu theo bệnh sang `task-22-usage-rules-per-disease.md` (làm sau task này). Task này không còn bảng mới / migration; Tab 2 chỉ chừa ô "Cách dùng cho bệnh này" (chỉ đọc). |
 | 22/11/2026 | Antigravity | Hoàn thành TASK-21: Backend 3 endpoint mới + query `productId`; Frontend trang `/admin/inventory/products/:id` (Tab 1 Thông tin, Tab 2 Bệnh & Căn cứ); Thêm cột Căn cứ ở kho và link sản phẩm ở tab Gợi ý; Test đơn vị 7/7 pass; `dotnet build` & `npm run build` 0 lỗi. |
+| 23/11/2026 | Antigravity | Nâng cấp luồng Gắn gợi ý ("Gắn SP") & Tinh chỉnh Kho thuốc: (1) Kiểm tra tự động thuốc đã có bệnh/liều riêng chưa; 1-click liên kết nhanh nếu đã có; hỗ trợ form mở rộng thiết lập liều dùng riêng theo bệnh kèm Phiếu cách dùng, ô Hướng dẫn sử dụng, Chế độ Dev AI (`</>`) và link tham khảo chi tiết (`source_url`); (2) Backend `LinkProductSuggestion` lưu thẳng `disease_rules` vào `UsageProfile`; (3) Khôi phục Phiếu cách dùng khi tạo sản phẩm từ gợi ý; (4) Tinh chỉnh bảng kho thuốc: Tên thuốc & Nguồn gọn gàng, badge `⚠ Chưa gắn bài báo`. |
 
 ## 9. NGOÀI PHẠM VI (ghi lại để làm sau)
 

@@ -111,3 +111,35 @@ class CoreApiClient:
         except ValidationError as e:
             logger.error(f"Core API weather returned invalid data: {e.error_count()} error(s)")
             raise ConnectionError("Core API weather returned invalid data") from e
+
+    def fetch_symptom_images(self, model_class: str) -> List[Dict[str, Any]]:
+        """
+        Tra cứu ảnh triệu chứng mẫu đã duyệt từ Core API (/api/v1/knowledge/images).
+        Hỗ trợ LLM hiển thị ảnh thực tế cho nông dân khi hỏi về hình ảnh nhận diện.
+        """
+        url = f"{self.base_url}/api/v1/knowledge/images"
+        secret = os.environ.get("INTERNAL_API_SECRET")
+        headers = {"X-Internal-Key": secret} if secret else {}
+        try:
+            resp = _shared_client.get(
+                url,
+                params={"model_class": model_class, "is_approved": "true"},
+                headers=headers,
+                timeout=3.0
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    return [
+                        {
+                            "image_url": item.get("image_url") or item.get("thumbnail_url"),
+                            "caption": item.get("caption") or "Ảnh triệu chứng thực tế",
+                            "plant_part": item.get("plant_part") or "LEAF",
+                            "credit": item.get("credit") or item.get("source_title") or ""
+                        }
+                        for item in data
+                        if item.get("image_url") or item.get("thumbnail_url")
+                    ]
+        except Exception as e:
+            logger.warning(f"Could not fetch symptom images for {model_class}: {e}")
+        return []

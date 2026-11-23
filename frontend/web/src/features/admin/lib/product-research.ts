@@ -347,23 +347,20 @@ export const buildProductResearchPrompt = (opts: {
     .filter(Boolean)
     .join('\n');
 
-  const cropText = plants.length ? plants.join(', ') : 'cây trồng trong đoạn trích';
+  const cropText = plants.length ? plants.join(', ') : 'các loại cây trồng phù hợp tại Việt Nam';
   const keySentences = keyMentionSentences(evidences, mention);
   const scopeBlock = keySentences.length
-    ? `\n## 1b. Bài báo mô tả vật tư này như sau (tìm ĐÚNG loại này, KHÔNG tìm loại rộng hơn)\n${keySentences
+    ? `\n## 1b. Đoạn trích tham khảo về vật tư này\n${keySentences
         .map((x) => `- "${x}"`)
         .join('\n')}\n`
     : '';
 
-  // Bước tìm Google đặt ĐẦU prompt, kèm sẵn truy vấn (TASK-18-R6): prompt dài + "không tìm được thì ghi..." làm Gemini bản web
-  // bỏ qua bước tìm và trả "KHÔNG TÌM ĐƯỢC WEB", trong khi câu hỏi ngắn cùng nội dung vẫn tìm ra nguồn.
-  // Bỏ phần trong ngoặc ("Vôi bột nông nghiệp (CaCO3 hoặc CaO)" → "Vôi bột nông nghiệp") cho truy vấn gọn
+  // Bước tìm Google đặt ĐẦU prompt, kèm sẵn truy vấn (TASK-18-R6)
   const searchName = (opts.currentName || mention).replace(/\s*\([^)]*\)/g, '').trim() || mention;
   const cropQ = plants[0] ? ` ${plants[0].toLowerCase()}` : '';
-  const doseHint = opts.kind === 'CHEMICAL' || opts.kind === 'BIOLOGICAL' ? 'liều lượng pha bình 16 lít' : 'liều lượng kg/sào';
-  // Dòng ĐẦU TIÊN là câu tìm kiếm ngắn, tự nhiên (dạng Gemini chắc chắn bật Google Search); vai trò + quy tắc để sau
+  const doseHint = opts.kind === 'CHEMICAL' || opts.kind === 'BIOLOGICAL' ? 'liều lượng pha bình 16 lít' : 'liều lượng bón';
   const searchBlock = [
-    `Tìm trên Google: ${searchName}${cropQ} ${doseHint} và cách sử dụng tại Việt Nam. Đọc 2–5 trang Việt Nam (khuyến nông, nhà sản xuất, cửa hàng vật tư)${opts.sourceUrl ? ` và trang ${opts.sourceUrl}` : ''}, ghi lại link và câu nguyên văn có con số. Gợi ý truy vấn thêm: "${searchName} cách sử dụng${cropQ}", "${searchName}${cropQ} khuyến nông".`,
+    `Tìm trên Google: ${searchName}${cropQ} ${doseHint} và cách sử dụng tại Việt Nam. Đọc 2–5 trang Việt Nam (khuyến nông, nhà sản xuất, cửa hàng vật tư)${opts.sourceUrl ? ` và trang ${opts.sourceUrl}` : ''}, ghi lại link và câu nguyên văn có con số. Gợi ý truy vấn thêm: "${searchName} cách sử dụng", "${searchName} khuyến nông".`,
     ``,
     `Sau khi đã tìm, trình bày kết quả theo yêu cầu dưới đây. Mọi con số phải lấy từ các trang đã tìm, kèm link và đoạn trích nguyên văn (mục 4.2).`,
   ].join('\n');
@@ -371,25 +368,27 @@ export const buildProductResearchPrompt = (opts: {
   return `${searchBlock}
 
 ## Vai trò
-Bạn là kỹ sư bảo vệ thực vật, chuyên về vật tư nông nghiệp và thuốc BVTV đang lưu hành TẠI VIỆT NAM. Bạn giúp Admin dự án LAVITREE nhập danh mục vật tư cho trợ lý tư vấn nông dân Việt Nam. Thông tin bạn tổng hợp sẽ được dùng để tư vấn và để LÊN LỊCH PHUN / NHẮC NHỞ cho nông dân, nên phải đầy đủ, cụ thể và có nguồn.
+Bạn là kỹ sư bảo vệ thực vật, chuyên về vật tư nông nghiệp và thuốc BVTV đang lưu hành TẠI VIỆT NAM. Bạn giúp Admin dự án LAVITREE nhập danh mục thuốc/vật tư chung cho toàn bộ kho để trợ lý Lavi tư vấn cho nông dân Việt Nam.
+
+LƯU Ý CỐT LÕI: Đây là sản phẩm/vật tư chung của kho (dùng cho nhiều loại cây trồng và bệnh hại khác nhau). Thông tin tổng quan và mô tả kỹ thuật phải mang tính bao quát toàn diện, KHÔNG bó hẹp hay viết phủ định chỉ xoay quanh duy nhất 1 bệnh hay 1 cây trồng đơn lẻ.
 
 ## 1. Vật tư cần tra cứu
 ${known}
 ${scopeBlock}
-## 2. Đoạn trích từ bài báo (tên vật tư được đánh dấu **...**)
+## 2. Đoạn trích từ bài báo (nếu có, để tham khảo ngữ cảnh)
 ${evidenceBlock}
 
 ## 3. Nhiệm vụ
-1. Đọc kỹ đoạn trích, xác định CHÍNH XÁC "${mention}" là gì trong ngữ cảnh:
+1. Đọc kỹ đoạn trích (nếu có), xác định CHÍNH XÁC "${mention}" là gì trong ngữ cảnh:
    - PRODUCT: sản phẩm thương mại có nhãn (thuốc BVTV, chế phẩm sinh học đóng gói).
    - HOMEMADE: chế phẩm tự pha chế (ví dụ dịch tỏi – ớt – gừng ngâm rượu). KHÔNG bịa tên sản phẩm thương mại; ghi nguyên liệu, tỷ lệ, cách pha theo bài.
    - SEED: giống cây trồng / hạt giống.
    - SUPPLY: vật tư, dụng cụ, phân bón, vôi, bẫy, lưới, bạt.
    - PRACTICE: biện pháp canh tác, không phải vật tư.
    Nếu các đoạn trích nói về những thứ KHÁC NHAU, đặt "mentions_differ": true, giải thích trong "differ_note" và điền theo nghĩa xuất hiện nhiều nhất.
-2. Tổng hợp từ 2–5 nguồn TẠI VIỆT NAM đã tìm ở dòng đầu (bài báo ở mục 2 không tính là nguồn số liệu nếu nó không ghi con số), ưu tiên: ${preferredSources(opts.kind, ctx)}. Bám sát cây / bệnh trong đoạn trích (${cropText}). Chỉ khi đã tìm thật mà không trang nào ghi con số, mới ghi "KHÔNG TÌM ĐƯỢC WEB" vào scope_note và để các con số null.
-   Tìm ĐÚNG loại vật tư như bài mô tả${keySentences.length ? ' (mục 1b)' : ''}, cụ thể nhất có thể (ví dụ "phân bò hoai mục" khác "phân hữu cơ đóng bao", "Trichoderma dạng bột" khác "chế phẩm vi sinh" chung). Nguồn chỉ nói về loại RỘNG hơn hoặc KHÁC (ví dụ "phân hữu cơ" nói chung, bài về phân NPK) thì KHÔNG lấy số liệu của nguồn đó cho usage; nếu buộc phải dùng thì ghi rõ trong "scope_note".
-3. Tổng hợp ĐẦY ĐỦ cách dùng thực tế để lên lịch: liều lượng và lượng nước pha, lượng phun trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng (sáng sớm / chiều mát…), mấy lần một ngày, cách nhau bao nhiêu ngày, tối đa mấy lần một vụ, bắt đầu khi nào, ngừng khi nào, điều kiện thời tiết (không phun khi sắp mưa, nắng gắt…), thời gian cách ly trước thu hoạch, bảo hộ an toàn.
+2. Tổng hợp từ 2–5 nguồn TẠI VIỆT NAM đã tìm ở dòng đầu (bài báo ở mục 2 không tính là nguồn số liệu nếu nó không ghi con số), ưu tiên: ${preferredSources(opts.kind, ctx)}.
+   Thông tin và mô tả kỹ thuật phải mang tính TỔNG QUAN VỀ SẢN PHẨM/VẬT TƯ: bao quát công dụng nông nghiệp, đặc tính, các nhóm cây trồng áp dụng phổ biến tại Việt Nam${plants.length ? ` (bao gồm cả ${plants.join(', ')})` : ''}.
+3. Tổng hợp ĐẦY ĐỦ cách dùng thực tế: liều lượng và lượng nước pha, lượng phun/bón trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng, khoảng cách ngày, thời gian cách ly trước thu hoạch, bảo hộ an toàn.
 4. Trả lời theo ĐÚNG thứ tự ở mục 4: khối \`\`\`json trước, sau đó danh sách nguồn và ảnh. Không viết lời dẫn trước khối JSON.
 
 ## 4. Định dạng trả lời
@@ -398,14 +397,14 @@ ${evidenceBlock}
 \`\`\`json
 {
   "identified_as": "PRODUCT | HOMEMADE | SEED | SUPPLY | PRACTICE",
-  "identification_note": "1–2 câu giải thích, dựa vào đoạn trích",
+  "identification_note": "1–2 câu giải thích, dựa vào đoạn trích hoặc bản chất sản phẩm",
   "scope_note": "",
   "mentions_differ": false,
   "differ_note": "",
-  "name": "Tên cụ thể nhất đúng loại trong bài (tên thương mại nếu là PRODUCT), không dùng tên nhóm chung",
+  "name": "Tên cụ thể nhất đúng loại sản phẩm (tên thương mại nếu là PRODUCT), không dùng tên nhóm chung",
   "medicine_type": "Hóa học | Sinh học | Vật tư canh tác",
   "active_ingredient": "Hoạt chất + hàm lượng / chủng vi sinh + mật độ / nguyên liệu chính; rỗng nếu là dụng cụ",
-  "description": "• Bản chất & phân loại: ...\\n• Cơ chế tác động: ...\\n• Công dụng & đối tượng phòng trừ: ...\\n• Cây trồng áp dụng tại Việt Nam: ...\\n• Cách pha & sử dụng chi tiết: ...\\n• Lưu ý, không dùng khi, bảo quản: ...",
+  "description": "• Bản chất & Phân loại: ...\\n• Cơ chế tác động & Đặc tính: ...\\n• Công dụng nông nghiệp: ...\\n• Phạm vi & Cây trồng: ...\\n• Hướng dẫn & Lưu ý khi dùng: ...",
   "usage": {
     "dose_amount": 50,
     "dose_unit": "g",
@@ -441,16 +440,25 @@ ${evidenceBlock}
 
 ## 5. Quy tắc
 - KHÔNG ĐOÁN SỐ: con số nào (liều, lượng nước, số lần, khoảng cách ngày, PHI, số giờ tránh mưa) không có nguồn ghi rõ thì để null. Chỉ có mô tả bằng chữ thì ghi vào dose_text / method / weather_note.
-- usage áp dụng cho ${cropText}. Nếu nhãn ghi liều khác nhau theo cây, lấy liều cho cây này và ghi các liều khác ở mục "Cách pha & sử dụng chi tiết" trong description.
+- usage áp dụng chung cho ${cropText}. Nếu nhãn ghi liều khác nhau theo cây, lấy mức phổ biến và ghi các liều khác trong phần lưu ý.
 - Khoảng giá trị (ví dụ "7–10 ngày") ghi {"min": 7, "max": 10}; một giá trị thì min = max.
 - Liều: thuốc pha nước dùng dose_amount + dose_unit + water_liters (liều cho 1 bình); phân, vôi, chế phẩm rắc / bón theo diện tích dùng dose_per_area {min, max, unit} với unit như "tấn/ha", "kg/ha", "kg/1000 m²", "kg/sào". Có con số theo diện tích thì PHẢI ghi vào dose_per_area, không chỉ để trong dose_text.
 - time_of_day và times_per_day: CHỈ điền khi nguồn ghi rõ (ví dụ "phun lúc chiều mát", "ngày 2 lần"). Bón lót, bón thúc, rắc, xử lý đất theo đợt → times_per_day: null; không tự thêm "sáng sớm / chiều mát" nếu nguồn không nói.
 - medicine_type: thuốc BVTV tổng hợp → "Hóa học"; vi sinh, thảo mộc, chế phẩm tự pha → "Sinh học"; giống, phân bón, vôi, bẫy, lưới, dụng cụ → "Vật tư canh tác".
 - phi_days (ngày cách ly trước thu hoạch): CHỈ điền khi nguồn ghi rõ; không có hoặc là vật tư canh tác → null.
-- target_diseases: CHỈ chọn mã trong danh sách ở mục 6, theo công dụng thực tế và đoạn trích. Có thể chọn nhiều mã. Không có bệnh phù hợp → [].
-- description: mỗi mục một dòng bắt đầu bằng "• ", viết cụ thể, dễ hiểu với nông dân, 250–450 từ. Chế phẩm tự pha: ghi rõ nguyên liệu, tỷ lệ, thời gian ngâm / ủ, cách lọc, cách pha loãng.
-- Không phóng đại công dụng: phân bón, vôi, vật tư (SUPPLY) và biện pháp (PRACTICE) chỉ được viết là "hỗ trợ cây khỏe / giảm nguy cơ / phòng ngừa", KHÔNG viết "phòng trừ / trị / diệt" bệnh, trừ khi nguồn ghi rõ là trị bệnh. Với SUPPLY, đặt tên mục là "• Công dụng & vai trò trong phòng bệnh".
-- scope_note: để "" nếu mọi số liệu đúng loại vật tư trong bài. Nếu số liệu lấy từ nguồn nói về loại rộng hơn / khác, nguồn quá cũ (trước 2015) hoặc nguồn ghi đơn vị mâu thuẫn, ghi rõ ở đây (ví dụ: "Liều 20 tấn/ha là của phân hữu cơ nói chung, Khuyến nông 2012, chưa thấy nguồn riêng cho phân bò hoai mục").
+- target_diseases: CHỈ chọn mã trong danh sách ở mục 6, theo công dụng thực tế của sản phẩm. Có thể chọn nhiều mã. Với vật tư cải tạo đất chung (như vôi bột, phân bón lót không đặc hiệu cho bệnh nào) → để [].
+- description: ĐÂY LÀ MÔ TẢ TỔNG QUAN SẢN PHẨM/VẬT TƯ CHO TOÀN BỘ KHO.
+  Mỗi mục một dòng bắt đầu bằng "• ", viết cụ thể, dễ hiểu với nông dân, 200–350 từ.
+  QUY TẮC BẮT BUỘC: TUYỆT ĐỐI KHÔNG bó hẹp mô tả chỉ xoay quanh duy nhất một bệnh hại hay một cây trồng đơn lẻ (ví dụ: KHÔNG viết câu phủ định kiểu "vôi bột không có hoạt chất đăng ký trị bệnh đốm vòng trên cà chua" hay chỉ nhắc đến duy nhất cà chua nếu sản phẩm là Vôi bột dùng chung cho nông nghiệp). Mọi liều lượng và cách dùng riêng cho từng bệnh cụ thể sẽ được cấu hình riêng trong phần Bệnh điều trị & Liều lượng của sản phẩm.
+  Cấu trúc các mục chuẩn:
+  • Bản chất & Phân loại: Thành phần chính, dạng chế phẩm, nguồn gốc.
+  • Cơ chế tác động & Đặc tính: Cơ chế cải thiện đất/phòng trừ, đặc tính lý hóa hoặc sinh học.
+  • Công dụng nông nghiệp: Tác dụng cải tạo, cân bằng dinh dưỡng, hỗ trợ cây trồng khỏe mạnh hoặc phòng ngừa sâu bệnh chung.
+  • Phạm vi & Cây trồng: Các nhóm cây trồng phù hợp tại Việt Nam (cây ăn trái, rau màu, hoa kiểng, cây lương thực...).
+  • Hướng dẫn & Lưu ý khi dùng: Cách dùng cơ bản, thời điểm, khuyến cáo an toàn bảo hộ.
+  Chế phẩm tự pha: ghi rõ nguyên liệu, tỷ lệ, thời gian ngâm / ủ, cách lọc, cách pha loãng.
+- Không phóng đại công dụng: phân bón, vôi, vật tư (SUPPLY) và biện pháp (PRACTICE) chỉ được viết là "hỗ trợ cây khỏe / giảm nguy cơ / phòng ngừa", KHÔNG viết "phòng trừ / trị / diệt" bệnh, trừ khi nguồn ghi rõ là trị bệnh. Với SUPPLY, đặt tên mục là "• Công dụng nông nghiệp".
+- scope_note: để "" nếu mọi số liệu đúng loại vật tư trong bài. Nếu số liệu lấy từ nguồn nói về loại rộng hơn / khác, nguồn quá cũ (trước 2015) hoặc nguồn ghi đơn vị mâu thuẫn, ghi rõ ở đây.
 - source_urls và image_candidates: CHỈ đưa link bạn đã thực sự mở được và đúng vật tư này. KHÔNG bịa link. Ảnh phải là link trực tiếp tới file ảnh của đúng sản phẩm; không có thì [].
 - Chỉ dùng thông tin áp dụng tại Việt Nam; thuốc / hoạt chất bị cấm tại Việt Nam thì ghi rõ trong identification_note.
 

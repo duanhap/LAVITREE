@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using Lavitree.Domain.Entities;
 
 namespace Lavitree.Application.DTOs;
 
@@ -383,6 +384,15 @@ public class LinkProductSuggestionRequestDto
     [Required]
     [JsonPropertyName("product_id")]
     public int ProductId { get; set; }
+
+    [JsonPropertyName("dosage_instruction")]
+    public string? DosageInstruction { get; set; }
+
+    [JsonPropertyName("usage_profile")]
+    public UsageProfile? UsageProfile { get; set; }
+
+    [JsonPropertyName("source_url")]
+    public string? SourceUrl { get; set; }
 }
 
 public class CreateProductRequestDto

@@ -2996,6 +2996,28 @@ public class KnowledgeController : ControllerBase
             }
         }
 
+        // Cập nhật quy tắc liều lượng riêng cho bệnh này nếu Admin có nhập hoặc cung cấp
+        if (!string.IsNullOrWhiteSpace(suggestion.ModelClass) &&
+            (!string.IsNullOrWhiteSpace(dto.DosageInstruction) || dto.UsageProfile != null || !string.IsNullOrWhiteSpace(dto.SourceUrl)))
+        {
+            var profile = product.UsageProfile ?? new UsageProfile();
+            profile.DiseaseRules ??= new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
+
+            var effectiveSourceUrl = !string.IsNullOrWhiteSpace(dto.SourceUrl)
+                ? dto.SourceUrl.Trim()
+                : suggestion.KnowledgeSource?.SourceUrl;
+
+            profile.DiseaseRules[suggestion.ModelClass] = new DiseaseUsageRuleProfile
+            {
+                DosageInstruction = !string.IsNullOrWhiteSpace(dto.DosageInstruction) ? dto.DosageInstruction.Trim() : null,
+                UsageProfile = dto.UsageProfile?.Normalize(),
+                SourceUrl = effectiveSourceUrl,
+                IsVerified = true,
+            };
+
+            product.UsageProfile = profile.Normalize();
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
         return Ok(new { message = $"Đã gắn gợi ý '{suggestion.MentionText}' (áp dụng cho {sameSuggestions.Count} đoạn) với sản phẩm '{product.Name}' thành công." });
     }

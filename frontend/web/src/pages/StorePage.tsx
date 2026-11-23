@@ -73,28 +73,13 @@ const ProductThumb: React.FC<{
   const canPreview = !!src && !failed && !!onPreview;
 
   return (
-    <div
-      role={canPreview ? "button" : undefined}
-      tabIndex={canPreview ? 0 : undefined}
-      onKeyDown={(e) => {
-        if (canPreview && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          onPreview(src!, product.name);
-        }
-      }}
-      className={cn(
-        "h-48 sm:h-52 w-full bg-white dark:bg-muted/20 border-b border-border flex items-center justify-center overflow-hidden relative group select-none",
-        canPreview && "cursor-pointer"
-      )}
-      onClick={() => {
-        if (canPreview && src) {
-          onPreview(src, product.name);
-        }
-      }}
-      title={canPreview ? "Bấm để xem ảnh lớn" : undefined}
-    >
-      {src && !failed ? (
-        <>
+    <div className="h-48 sm:h-52 w-full bg-white dark:bg-muted/20 border-b border-border flex items-center justify-center overflow-hidden relative group select-none">
+      <Link
+        to={`/store/${product.id}`}
+        className="absolute inset-0 flex items-center justify-center p-2 z-0"
+        title="Bấm để xem chi tiết sản phẩm"
+      >
+        {src && !failed ? (
           <img
             src={src}
             alt={product.name}
@@ -103,15 +88,24 @@ const ProductThumb: React.FC<{
             className="h-full w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
             onError={() => setFailed(true)}
           />
-          {canPreview && (
-            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-semibold backdrop-blur-[1px]">
-              <ZoomIn className="w-4 h-4" />
-              <span>Xem ảnh lớn</span>
-            </div>
-          )}
-        </>
-      ) : (
-        <Icon className="w-12 h-12 text-muted-foreground/40" aria-label="Chưa có ảnh sản phẩm" />
+        ) : (
+          <Icon className="w-12 h-12 text-muted-foreground/40" aria-label="Chưa có ảnh sản phẩm" />
+        )}
+      </Link>
+
+      {canPreview && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onPreview(src!, product.name);
+          }}
+          className="absolute bottom-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
+          title="Phóng to ảnh"
+        >
+          <ZoomIn className="w-3.5 h-3.5" />
+        </button>
       )}
     </div>
   );
@@ -187,6 +181,13 @@ export const StorePage: React.FC = () => {
       // ignore
     }
   }, [cart, cartStorageKey]);
+
+  // Mở giỏ hàng tự động nếu URL có ?openCart=true
+  useEffect(() => {
+    if (searchParams.get('openCart') === 'true') {
+      setIsCartOpen(true);
+    }
+  }, [searchParams]);
 
   // Tải danh mục thuốc
   useEffect(() => {
@@ -602,9 +603,11 @@ export const StorePage: React.FC = () => {
                     )}
                   </div>
 
-                  <CardTitle className="text-base font-bold text-foreground line-clamp-1">
-                    {p.name}
-                  </CardTitle>
+                  <Link to={`/store/${p.id}`} className="block group/link">
+                    <CardTitle className="text-base font-bold text-foreground line-clamp-1 group-hover/link:text-emerald-700 transition-colors">
+                      {p.name}
+                    </CardTitle>
+                  </Link>
 
                   {p.active_ingredient ? (
                     <p className="text-xs text-muted-foreground font-medium line-clamp-1">
@@ -646,25 +649,35 @@ export const StorePage: React.FC = () => {
                   {isNotSold ? (
                     <div className="w-full space-y-1.5">
                       <Button
+                        asChild
                         variant="outline"
-                        disabled
-                        className="w-full text-xs font-semibold bg-muted/50 text-muted-foreground border-dashed"
+                        className="w-full h-9 text-xs font-semibold border-border hover:bg-muted"
                       >
-                        Cửa hàng không bán
+                        <Link to={`/store/${p.id}`}>Xem thông tin kỹ thuật</Link>
                       </Button>
                       <p className="text-[10px] text-muted-foreground italic leading-tight text-center">
-                        Bà con có thể tìm mua tại đại lý vật tư nông nghiệp. Đọc kỹ nhãn trước khi dùng.
+                        Cửa hàng không bán trực tiếp. Bấm xem chi tiết để tra cứu liều lượng.
                       </p>
                     </div>
                   ) : (
-                    <Button
-                      className="w-full gap-2 bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-50"
-                      disabled={p.stock_quantity <= 0}
-                      onClick={() => addToCart(p)}
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Thêm vào giỏ</span>
-                    </Button>
+                    <div className="w-full flex items-center gap-2">
+                      <Button
+                        asChild
+                        variant="outline"
+                        size="sm"
+                        className="h-9 px-3 text-xs border-border hover:bg-muted font-medium shrink-0"
+                      >
+                        <Link to={`/store/${p.id}`}>Chi tiết</Link>
+                      </Button>
+                      <Button
+                        className="flex-1 h-9 gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs disabled:opacity-50"
+                        disabled={p.stock_quantity <= 0}
+                        onClick={() => addToCart(p)}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm giỏ</span>
+                      </Button>
+                    </div>
                   )}
                 </CardFooter>
               </Card>
