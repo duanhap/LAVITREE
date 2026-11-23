@@ -60,11 +60,15 @@ def lookup_disease_knowledge(
         for c in rag_result.top_chunks
     ]
 
+    client = CoreApiClient()
+    images = client.fetch_symptom_images(valid_input.disease_code)
+
     output = LookupDiseaseKnowledgeOutput(
         disease_code=rag_result.disease_code,
         disease_name=rag_result.disease_name,
         total_found=len(citations),
-        citations=citations
+        citations=citations,
+        reference_images=images[:3]
     )
     return output.model_dump()
 

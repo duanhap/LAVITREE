@@ -45,6 +45,7 @@ export interface ChatMessage {
   total_latency_ms?: number;
   timestamp: string;
   isStreaming?: boolean;
+  image_url?: string;
   /** true khi đã nhận sự kiện final_answer (câu trả lời hoàn tất, không phải tin báo lỗi) */
   receivedFinal?: boolean;
 }

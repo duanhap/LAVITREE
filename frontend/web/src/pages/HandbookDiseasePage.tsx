@@ -13,6 +13,8 @@ import {
   MessageSquare,
   Camera,
   X,
+  Sprout,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +33,7 @@ import { buildDiseaseArticle } from '@/features/handbook/buildDiseaseArticle';
 import { DiseaseHeader } from '@/features/handbook/components/DiseaseHeader';
 import { KnowledgeSection } from '@/features/handbook/components/KnowledgeSection';
 import { TreatmentSection } from '@/features/handbook/components/TreatmentSection';
+import { FaqSection } from '@/features/handbook/components/FaqSection';
 import { ReferenceList } from '@/features/handbook/components/ReferenceList';
 import { DiseaseToc, type TocItem } from '@/features/handbook/components/DiseaseToc';
 
@@ -41,6 +44,14 @@ const PLANT_PART_LABELS: Record<string, { label: string; badgeColor: string }> =
   WHOLE_PLANT: { label: 'Toàn cây', badgeColor: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20' },
 };
 
+// Chuẩn hóa mã lớp AI sang tên tiếng Anh khoa học thân thiện với người nông dân (bỏ ___ và dấu gạch dưới)
+const formatEnglishDiseaseName = (code: string): string => {
+  if (!code) return '';
+  const parts = code.split('___');
+  const diseasePart = parts.length > 1 ? parts[1] : parts[0];
+  return diseasePart.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+};
+
 export const HandbookDiseasePage: React.FC = () => {
   const { classCode } = useParams<{ classCode: string }>();
   const navigate = useNavigate();
@@ -48,6 +59,7 @@ export const HandbookDiseasePage: React.FC = () => {
   const [disease, setDisease] = useState<DiseaseDetailResponse | null>(null);
   const [sources, setSources] = useState<PublicKnowledgeSource[]>([]);
   const [images, setImages] = useState<KnowledgeImageItem[]>([]);
+  const [allDiseases, setAllDiseases] = useState<Array<{ id: number; classCode: string; plantName: string; commonNameVi: string; pathogenType: string }>>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isNotFound, setIsNotFound] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -79,15 +91,16 @@ export const HandbookDiseasePage: React.FC = () => {
     setKnowledgeError(null);
 
     try {
-      const [diseaseRes, sourcesRes, imagesRes] = await Promise.allSettled([
+      const [diseaseRes, sourcesRes, imagesRes, allDiseasesRes] = await Promise.allSettled([
         apiClient.get<DiseaseDetailResponse>(`/diseases/by-class/${encodeURIComponent(decodedClassCode)}`),
         apiClient.get<PublicKnowledgeSource[]>(`/knowledge/sources`, {
           // isApproved=true: Admin đăng nhập cũng chỉ thấy bài đã duyệt, giống nông dân
-        params: { modelClass: decodedClassCode, isApproved: true, page: 1, pageSize: 200 },
+          params: { modelClass: decodedClassCode, isApproved: true, page: 1, pageSize: 200 },
         }),
         apiClient.get<KnowledgeImageItem[]>(`/knowledge/images`, {
-          params: { modelClass: decodedClassCode },
+          params: { model_class: decodedClassCode, modelClass: decodedClassCode },
         }),
+        apiClient.get<Array<{ id: number; classCode: string; plantName: string; commonNameVi: string; pathogenType: string }>>('/diseases'),
       ]);
 
       if (diseaseRes.status === 'rejected') {
@@ -107,8 +120,8 @@ export const HandbookDiseasePage: React.FC = () => {
         const list = Array.isArray(raw)
           ? raw
           : Array.isArray((raw as any)?.items)
-          ? (raw as any).items
-          : [];
+            ? (raw as any).items
+            : [];
         setSources(list);
       } else {
         // Lỗi riêng phần tri thức không làm đổ vỡ cả trang bệnh, nhưng phải báo lỗi + cho thử lại
@@ -118,12 +131,20 @@ export const HandbookDiseasePage: React.FC = () => {
 
       if (imagesRes.status === 'fulfilled') {
         const raw = imagesRes.value.data;
-        const list = Array.isArray(raw)
+        const rawList: KnowledgeImageItem[] = Array.isArray(raw)
           ? raw
           : Array.isArray((raw as any)?.items)
-          ? (raw as any).items
-          : [];
+            ? (raw as any).items
+            : [];
+        // Lọc chính xác chỉ lấy ảnh triệu chứng thuộc đúng mã lớp bệnh (model_class) của bài viết này
+        const list = rawList.filter(
+          (img) => (img.model_class || (img as any).modelClass) === decodedClassCode
+        );
         setImages(list);
+      }
+
+      if (allDiseasesRes.status === 'fulfilled' && Array.isArray(allDiseasesRes.value.data)) {
+        setAllDiseases(allDiseasesRes.value.data);
       }
     } catch (err) {
       setErrorMessage(getErrorMessage(err));
@@ -180,6 +201,31 @@ export const HandbookDiseasePage: React.FC = () => {
     return article.sections.filter((s) => s.unitType !== 'TREATMENT');
   }, [article.sections]);
 
+  // Danh sách các bệnh hại khác cùng cây trồng để tham khảo ở cuối bài
+  const relatedDiseases = useMemo(() => {
+    if (!disease?.plantName || !allDiseases.length) return [];
+    return allDiseases.filter(
+      (d) =>
+        d.plantName.toLowerCase() === disease.plantName.toLowerCase() &&
+        d.classCode !== disease.classCode &&
+        !d.classCode.endsWith('___healthy') &&
+        !d.commonNameVi.toLowerCase().includes('khỏe mạnh')
+    ).slice(0, 8);
+  }, [allDiseases, disease]);
+
+  // Ảnh lá đại diện dùng cho bố cục kiểu tạp chí/truyện tranh ở mục Tổng quan (nếu có)
+  const leafImage = useMemo(() => {
+    return images.find((img) => img.plant_part === 'LEAF') || images[0] || null;
+  }, [images]);
+
+  // Kiểm tra xem tài liệu đã duyệt có chứa câu hỏi FAQ hay không
+  const hasFaq = useMemo(() => {
+    return sources.some((s) => {
+      const text = s.evidenceText || '';
+      return (text.includes('?') || /câu hỏi/i.test(text)) && /(?:^|\n)[^?:\n]{5,140}\?/m.test(text.replace(/[*_#]/g, ''));
+    });
+  }, [sources]);
+
   // Xây dựng danh sách mục lục (TOC)
   const tocItems = useMemo<TocItem[]>(() => {
     const list: TocItem[] = [];
@@ -188,23 +234,25 @@ export const HandbookDiseasePage: React.FC = () => {
       list.push({ id: s.id, label: s.title });
     });
 
-    const hasTreatment =
-      (treatmentSection && treatmentSection.paragraphs.length > 0) ||
-      (disease?.treatmentPlans && disease.treatmentPlans.length > 0);
+    const hasTreatment = Boolean(treatmentSection && treatmentSection.paragraphs.length > 0);
 
     if (hasTreatment) {
       list.push({
         id: 'xu-ly',
-        label: isHealthy ? 'Quy trình chăm sóc' : 'Biện pháp xử lý & IPM',
+        label: isHealthy ? 'Quy trình chăm sóc' : 'Biện pháp xử lý & Can thiệp',
       });
     }
 
-    if (images.length > 0) {
-      list.push({ id: 'anh-thuc-dia', label: 'Hình ảnh triệu chứng thực địa' });
+    if (hasFaq) {
+      list.push({ id: 'faq', label: 'Câu hỏi thường gặp (FAQ)' });
     }
 
     if (disease?.products && disease.products.length > 0) {
       list.push({ id: 'thuoc-tham-khao', label: 'Thuốc BVTV & Chế phẩm tham khảo' });
+    }
+
+    if (relatedDiseases.length > 0) {
+      list.push({ id: 'benh-tham-khao', label: 'Bệnh tham khảo khác' });
     }
 
     if (article.references.length > 0) {
@@ -212,7 +260,7 @@ export const HandbookDiseasePage: React.FC = () => {
     }
 
     return list;
-  }, [regularSections, treatmentSection, disease, images.length, article.references.length, isHealthy]);
+  }, [regularSections, treatmentSection, disease, relatedDiseases.length, article.references.length, isHealthy]);
 
   // Nhảy tới mục nguồn [n] và nháy sáng
   const handleRefClick = (refIndex: number) => {
@@ -292,7 +340,7 @@ export const HandbookDiseasePage: React.FC = () => {
   );
 
   return (
-    <div className="container mx-auto px-4 py-6 md:py-10 max-w-6xl space-y-8">
+    <div className="container mx-auto px-4 py-3 md:py-4 max-w-6xl space-y-4">
       {/* Tiêu đề trang, breadcrumb & thông tin tác nhân */}
       <DiseaseHeader
         commonNameVi={disease.commonNameVi}
@@ -321,9 +369,9 @@ export const HandbookDiseasePage: React.FC = () => {
       )}
 
       {/* Bố cục 2 cột (Desktop): Nội dung chính (trái) + Cột phụ dính (phải) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-6 items-start">
         {/* ================= CỘT NỘI DUNG CHÍNH ================= */}
-        <div className="space-y-10 min-w-0">
+        <div className="space-y-6 min-w-0">
           {/* TRƯỜNG HỢP 0 ĐOẠN ĐÃ DUYỆT: Hiển thị EmptyState trung thực */}
           {knowledgeError ? (
             <ErrorState
@@ -363,135 +411,71 @@ export const HandbookDiseasePage: React.FC = () => {
             </div>
           ) : (
             /* TRƯỜNG HỢP CÓ BÀI ĐÃ DUYỆT: Render các mục Tổng quan, Triệu chứng, Nguyên nhân, Phòng ngừa */
-            <div className="space-y-10">
+            <div className="space-y-6">
               {regularSections.map((sec) => (
                 <KnowledgeSection
                   key={sec.id}
                   section={sec}
                   onRefClick={handleRefClick}
+                  symptomImages={sec.id === 'trieu-chung' ? images : undefined}
+                  featuredImage={sec.id === 'tong-quan' ? leafImage : undefined}
+                  onImageClick={(img) => setZoomedImage(img)}
                 />
               ))}
             </div>
           )}
 
-          {/* MỤC XỬ LÝ (TREATMENT + PHÁC ĐỒ IPM) */}
+          {/* MỤC XỬ LÝ (TREATMENT KIỂM DUYỆT) */}
           <TreatmentSection
             section={treatmentSection}
-            treatmentPlans={disease.treatmentPlans}
             onRefClick={handleRefClick}
             isHealthy={isHealthy}
           />
 
-          {/* MỤC HÌNH ẢNH TRIỆU CHỨNG THỰC ĐỊA */}
-          {images.length > 0 && (
-            <section id="anh-thuc-dia" className="space-y-4 scroll-mt-24">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-border/60">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-                    <ImageIcon className="h-4 w-4" />
-                  </div>
-                  <h2 className="text-lg sm:text-xl font-bold text-foreground">
-                    Hình ảnh triệu chứng thực địa ({images.length})
-                  </h2>
-                </div>
+          {/* MỤC CÂU HỎI THƯỜNG GẶP & GIẢI ĐÁP KỸ THUẬT (FAQ) */}
+          <FaqSection
+            plantName={disease.plantName}
+            diseaseName={disease.commonNameVi}
+            pathogenType={disease.pathogenType}
+            sources={sources}
+            isHealthy={isHealthy}
+          />
 
-                {/* Bộ lọc bộ phận cây */}
-                <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedImagePart('ALL')}
-                    className={`rounded-full px-2.5 py-0.5 font-medium transition-colors ${
-                      selectedImagePart === 'ALL'
-                        ? 'bg-primary text-white shadow-2xs'
-                        : 'bg-secondary text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    Tất cả ({images.length})
-                  </button>
-                  {(['LEAF', 'FRUIT', 'STEM', 'WHOLE_PLANT'] as const).map((part) => {
-                    const count = images.filter((img) => img.plant_part === part).length;
-                    if (count === 0) return null;
-                    return (
-                      <button
-                        key={part}
-                        type="button"
-                        onClick={() => setSelectedImagePart(part)}
-                        className={`rounded-full px-2.5 py-0.5 font-medium transition-colors ${
-                          selectedImagePart === part
-                            ? 'bg-primary text-white shadow-2xs'
-                            : 'bg-secondary text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        {PLANT_PART_LABELS[part]?.label || part} ({count})
-                      </button>
-                    );
-                  })}
+          {/* MỤC BỆNH HẠI THAM KHẢO KHÁC TRÊN CÙNG CÂY TRỒNG */}
+          {relatedDiseases.length > 0 && (
+            <section id="benh-tham-khao" className="space-y-4 scroll-mt-24">
+              <div className="flex items-center gap-2.5 pb-2 border-b border-border/60">
+                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  <Sprout className="h-4 w-4" />
                 </div>
+                <h2 className="text-lg sm:text-xl font-bold text-foreground">
+                  Các bệnh hại tham khảo khác trên cây {disease.plantName} ({relatedDiseases.length})
+                </h2>
               </div>
 
-              {/* Lưới hiển thị ảnh */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {filteredImages.map((img) => {
-                  const partMeta = PLANT_PART_LABELS[img.plant_part] || {
-                    label: img.plant_part,
-                    badgeColor: 'bg-secondary text-foreground border-border',
-                  };
-                  return (
-                    <div
-                      key={img.id}
-                      className="group relative overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 shadow-2xs flex flex-col justify-between"
-                    >
-                      <div
-                        className="relative aspect-4/3 w-full bg-muted overflow-hidden cursor-pointer"
-                        onClick={() => setZoomedImage(img)}
-                      >
-                        <img
-                          src={img.image_url}
-                          alt={img.caption || disease.commonNameVi}
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                        <div className="absolute top-2.5 left-2.5">
-                          <span
-                            className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-semibold border backdrop-blur-xs ${partMeta.badgeColor}`}
-                          >
-                            {partMeta.label}
-                          </span>
-                        </div>
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                          <span className="rounded-full bg-black/60 p-2 text-white shadow-md">
-                            <ZoomIn className="h-4 w-4" />
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="p-3 text-xs space-y-1.5">
-                        <p className="text-foreground font-medium line-clamp-2 leading-relaxed">
-                          {img.caption}
-                        </p>
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/40">
-                          <span className="truncate max-w-[180px]" title={img.credit}>
-                            Ảnh: <strong>{img.credit}</strong>
-                          </span>
-                          {safeHref(img.source_url) && (
-                            <a
-                              href={safeHref(img.source_url)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-0.5 text-primary hover:underline font-medium shrink-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <span>Nguồn</span>
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+                {relatedDiseases.map((rel) => (
+                  <Link
+                    key={rel.id}
+                    to={`/handbook/${encodeURIComponent(rel.classCode)}`}
+                    className="group block p-3.5 rounded-xl border border-border bg-card shadow-2xs hover:border-primary/50 hover:shadow-xs transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20">
+                        {rel.pathogenType || 'Bệnh hại'}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
                     </div>
-                  );
-                })}
+                    <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors line-clamp-1">
+                      {rel.commonNameVi}
+                    </h3>
+                    {formatEnglishDiseaseName(rel.classCode) && (
+                      <p className="text-[11px] text-muted-foreground italic mt-0.5 truncate">
+                        Tên tiếng Anh: {formatEnglishDiseaseName(rel.classCode)}
+                      </p>
+                    )}
+                  </Link>
+                ))}
               </div>
             </section>
           )}
@@ -569,40 +553,43 @@ export const HandbookDiseasePage: React.FC = () => {
         </aside>
       </div>
 
-      {/* ================= MODAL PHÓNG TO ẢNH TRIỆU CHỨNG ================= */}
+      {/* ================= MODAL PHÓNG TO ẢNH TRIỆU CHỨNG (GỌN GÀNG, KHÔNG TRÀN TOÀN MÀN HÌNH) ================= */}
       {zoomedImage && (
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs animate-in fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs animate-in fade-in duration-200"
           onClick={() => setZoomedImage(null)}
         >
           <div
-            className="relative max-w-3xl w-full bg-card rounded-2xl overflow-hidden shadow-2xl border border-border"
+            className="relative max-w-md sm:max-w-lg w-full max-h-[85vh] bg-card rounded-2xl overflow-hidden shadow-2xl border border-border flex flex-col animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative aspect-4/3 w-full bg-black/90">
+            {/* Khung ảnh thu gọn gọn gàng, giới hạn chiều cao tránh choán màn hình */}
+            <div className="relative w-full h-64 sm:h-72 bg-zinc-950/95 flex items-center justify-center p-2 overflow-hidden shrink-0">
               <img
                 src={zoomedImage.image_url}
                 alt={zoomedImage.caption}
-                className="h-full w-full object-contain"
+                className="max-h-full max-w-full object-contain rounded-md"
               />
               <button
                 type="button"
                 onClick={() => setZoomedImage(null)}
                 aria-label="Đóng ảnh"
-                className="absolute top-3 right-3 rounded-full bg-black/60 p-2 text-white hover:bg-black/90 transition-colors"
+                className="absolute top-2.5 right-2.5 rounded-full bg-black/60 hover:bg-black/90 p-1.5 text-white transition-colors cursor-pointer shadow-md"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="p-4 space-y-2 text-xs">
-              <p className="font-semibold text-sm text-foreground">
+
+            {/* Thông tin chú thích & nguồn ảnh */}
+            <div className="p-3.5 sm:p-4 space-y-2 text-xs overflow-y-auto">
+              <p className="font-semibold text-xs sm:text-sm text-foreground leading-snug">
                 {zoomedImage.caption}
               </p>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground pt-1 border-t border-border/50">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground pt-1.5 border-t border-border/50 text-[11px]">
                 <span>Bộ phận: <strong>{PLANT_PART_LABELS[zoomedImage.plant_part]?.label || zoomedImage.plant_part}</strong></span>
-                <span>Nhiếp ảnh / Nguồn: <strong>{zoomedImage.credit}</strong></span>
+                <span>Nguồn: <strong>{zoomedImage.credit}</strong></span>
                 {safeHref(zoomedImage.source_url) && (
                   <a
                     href={safeHref(zoomedImage.source_url)}
@@ -610,7 +597,7 @@ export const HandbookDiseasePage: React.FC = () => {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-primary hover:underline font-semibold"
                   >
-                    <span>Mở link gốc</span>
+                    <span>Xem link gốc</span>
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 )}

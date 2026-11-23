@@ -33,10 +33,10 @@ export const DiseaseHeader: React.FC<DiseaseHeaderProps> = ({
 
   const formattedDate = latestUpdatedAt
     ? new Date(latestUpdatedAt).toLocaleDateString('vi-VN', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      })
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    })
     : null;
 
   const severityBadge = (() => {
@@ -77,87 +77,90 @@ export const DiseaseHeader: React.FC<DiseaseHeaderProps> = ({
   })();
 
   return (
-    <div className="space-y-3 pb-6 border-b border-border/80">
-      {/* Breadcrumb & Nút quay lại */}
-      <nav aria-label="Đường dẫn trang" className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate('/handbook')}
-          className="h-10 lg:h-7 px-2 -ml-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Về Sổ tay</span>
-        </Button>
-        <span className="text-border">/</span>
-        <Link to="/handbook" className="hover:text-primary transition-colors">
-          Sổ tay bệnh học
-        </Link>
-        <span className="text-border">/</span>
-        <Link
-          to={`/handbook?plant=${encodeURIComponent(plantName)}`}
-          className="hover:text-primary transition-colors font-medium text-foreground"
-        >
-          {plantName}
-        </Link>
-        <span className="text-border">/</span>
-        <span className="text-foreground font-semibold truncate max-w-[200px] sm:max-w-none">
-          {commonNameVi}
-        </span>
-      </nav>
+    <div className="space-y-1.5 pb-2.5 border-b border-border/70">
+      {/* Hàng 1: Breadcrumb & Badges tinh gọn trên cùng một hàng */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <nav aria-label="Đường dẫn trang" className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/handbook')}
+            className="h-6 px-1.5 -ml-1 text-xs gap-1 text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            <span>Về Sổ tay</span>
+          </Button>
+          <span className="text-border">/</span>
+          <Link to="/handbook" className="hover:text-primary transition-colors">
+            Sổ tay bệnh học
+          </Link>
+          <span className="text-border">/</span>
+          <Link
+            to={`/handbook?plant=${encodeURIComponent(plantName)}`}
+            className="hover:text-primary transition-colors font-medium text-foreground"
+          >
+            {plantName}
+          </Link>
+          <span className="text-border">/</span>
+          <span className="text-foreground font-semibold truncate max-w-[200px] sm:max-w-none">
+            {commonNameVi}
+          </span>
+        </nav>
 
-      {/* Badges */}
-      <div className="flex flex-wrap items-center gap-2 pt-1">
-        <Badge variant="outline" className="border-primary/40 text-primary font-semibold text-xs">
-          {plantName}
-        </Badge>
-        <Badge
-          variant="secondary"
-          className={`text-xs font-medium border ${pathogenBadgeColor}`}
-          title={pathogenName || undefined}
-        >
-          {pathogenType}
-        </Badge>
-        {severityBadge}
-        {/* Không hiện mã lớp mô hình cho người dùng (quy ước TASK-09) */}
+        {/* Badges đưa lên gọn gàng góc phải của thanh điều hướng */}
+        <div className="flex items-center gap-1.5">
+          <Badge variant="outline" className="border-primary/40 text-primary font-semibold text-[11px] h-5.5 px-2">
+            {plantName}
+          </Badge>
+          <Badge
+            variant="secondary"
+            className={`text-[11px] font-medium border h-5.5 px-2 ${pathogenBadgeColor}`}
+            title={pathogenName || undefined}
+          >
+            {pathogenType}
+          </Badge>
+        </div>
       </div>
 
-      {/* Tiêu đề chính h1 */}
-      <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-foreground tracking-tight leading-tight">
+      {/* Hàng 2: Tiêu đề chính h1 */}
+      <h1 className="text-xl sm:text-2xl font-extrabold text-foreground tracking-tight leading-tight pt-0.5">
         {commonNameVi}
       </h1>
 
-      {/* Dòng Tác nhân sinh học */}
-      {!isHealthy && (
-        <div className="text-sm text-foreground flex items-center gap-1.5 flex-wrap">
-          <span className="font-semibold text-muted-foreground">Tác nhân gây bệnh:</span>
-          <span>{pathogenType}</span>
-          {pathogenName && (
-            <span className="font-serif italic font-normal text-muted-foreground">
-              ({pathogenName})
-            </span>
-          )}
-        </div>
-      )}
+      {/* Hàng 3: Dòng meta thông tin gọn gàng kết hợp Tác nhân + Kiểm duyệt */}
+      <div className="flex items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground flex-wrap">
+        {!isHealthy && (
+          <div className="flex items-center gap-1 text-foreground">
+            <span className="text-muted-foreground">Tác nhân:</span>
+            <span className="font-semibold">{pathogenType}</span>
+            {pathogenName && (
+              <span className="font-serif italic text-muted-foreground">({pathogenName})</span>
+            )}
+          </div>
+        )}
 
-      {/* Dòng thông tin kiểm duyệt nguồn */}
-      {totalApprovedParagraphs > 0 ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1 flex-wrap">
-          <Info className="h-4 w-4 text-primary shrink-0" />
-          <span>
-            Nội dung trích xuất từ <strong>{totalApprovedParagraphs}</strong> đoạn của{' '}
-            <strong>{totalUniqueSources}</strong> nguồn tài liệu đã được kiểm duyệt.
-          </span>
-          {formattedDate && (
-            <span>· Cập nhật: <strong>{formattedDate}</strong></span>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 text-xs text-status-confusion pt-1">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          <span>Chưa có đoạn tài liệu khuyến nông nào được phê duyệt cho chuyên đề này.</span>
-        </div>
-      )}
+        {!isHealthy && totalApprovedParagraphs > 0 && (
+          <span className="text-border hidden sm:inline">·</span>
+        )}
+
+        {totalApprovedParagraphs > 0 ? (
+          <div className="flex items-center gap-1.5">
+            <Info className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span>
+              Nội dung trích xuất từ <strong>{totalApprovedParagraphs}</strong> đoạn của{' '}
+              <strong>{totalUniqueSources}</strong> nguồn tài liệu đã được kiểm duyệt.
+            </span>
+            {formattedDate && (
+              <span>· Cập nhật: <strong>{formattedDate}</strong></span>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-status-confusion">
+            <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+            <span>Chưa có đoạn tài liệu khuyến nông nào được phê duyệt cho chuyên đề này.</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

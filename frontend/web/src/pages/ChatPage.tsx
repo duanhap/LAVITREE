@@ -18,7 +18,11 @@ import {
   HelpCircle,
   ShieldCheck,
   RotateCcw,
+  Mic,
+  MicOff,
+  Image as ImageIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -248,11 +252,128 @@ export const ChatPage: React.FC = () => {
     setDiseaseNameVi(null);
   };
 
+  // Nhận diện giọng nói (Speech-to-Text qua Web Speech API)
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  // Đính kèm ảnh lá cây / cây trồng
+  const [attachedImage, setAttachedImage] = useState<{ file: File; previewUrl: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, []);
+
+  const handleToggleListening = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      toast.error('Trình duyệt của bạn chưa hỗ trợ nhận diện giọng nói (vui lòng dùng Google Chrome hoặc Microsoft Edge).');
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'vi-VN';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        toast.info('Lavi đang lắng nghe bạn nói...');
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((result: any) => result[0].transcript)
+          .join('');
+        setInputMessage(transcript);
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 140)}px`;
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        if (event.error === 'not-allowed') {
+          toast.error('Vui lòng cấp quyền Microphone trong trình duyệt để nói câu hỏi.');
+        } else if (event.error !== 'no-speech') {
+          toast.error('Lỗi nhận diện giọng nói: ' + event.error);
+        }
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      console.error('Failed to start speech recognition:', err);
+      toast.error('Không thể kích hoạt microphone: ' + (err.message || ''));
+      setIsListening(false);
+    }
+  };
+
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Vui lòng chọn tệp định dạng hình ảnh (JPG, PNG, WEBP).');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Dung lượng ảnh tối đa là 10MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAttachedImage({
+        file,
+        previewUrl: reader.result as string,
+      });
+      focusInput();
+    };
+    reader.readAsDataURL(file);
+
+    e.target.value = '';
+  };
+
+  const handleRemoveImage = () => {
+    setAttachedImage(null);
+  };
+
   const handleSend = () => {
-    if (!inputMessage.trim() || isStreaming) return;
+    if ((!inputMessage.trim() && !attachedImage) || isStreaming) return;
     stickToBottomRef.current = true;
-    sendMessage(inputMessage);
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
+
+    const textToSend = inputMessage.trim() || 'Lavi xem giúp mình ảnh lá cây này bị bệnh gì và cách xử lý với nhé!';
+    const imgUrl = attachedImage?.previewUrl;
+
+    sendMessage(textToSend, undefined, imgUrl);
     setInputMessage('');
+    setAttachedImage(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -625,8 +746,77 @@ export const ChatPage: React.FC = () => {
         {/* ========================================================================= */}
         <div className="shrink-0 p-3 sm:p-4 bg-background border-t border-border/80">
           <div className="max-w-3xl sm:max-w-4xl mx-auto w-full">
+            {/* Ảnh đính kèm xem trước nếu người dùng vừa chọn ảnh */}
+            {attachedImage && (
+              <div className="mb-2 flex items-center gap-2.5 p-2 bg-card border border-emerald-300 dark:border-emerald-800 rounded-xl shadow-xs w-fit max-w-full animate-in fade-in zoom-in-95">
+                <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border shrink-0 bg-muted">
+                  <img
+                    src={attachedImage.previewUrl}
+                    alt="Xem trước ảnh đính kèm"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="text-xs truncate max-w-[180px] sm:max-w-xs">
+                  <p className="font-medium text-foreground truncate">{attachedImage.file.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {(attachedImage.file.size / 1024).toFixed(0)} KB • Đã sẵn sàng gửi
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleRemoveImage}
+                  className="h-7 w-7 rounded-lg text-muted-foreground hover:text-destructive"
+                  title="Gỡ ảnh"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+
             <div className="bg-card border border-border rounded-2xl p-2 sm:p-2.5 shadow-sm focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all space-y-1.5">
-              <div className="relative flex items-end gap-2">
+              <div className="relative flex items-end gap-1.5 sm:gap-2">
+                {/* Nút đính kèm ảnh lá cây */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleImageFileChange}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-8.5 w-8.5 rounded-xl shrink-0 text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                  title="Gửi kèm ảnh lá cây / sâu bệnh"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                </Button>
+
+                {/* Nút Microphone nhập bằng giọng nói */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleToggleListening}
+                  className={cn(
+                    "h-8.5 w-8.5 rounded-xl shrink-0 transition-all",
+                    isListening
+                      ? "text-red-600 bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:text-red-400 animate-pulse ring-2 ring-red-400"
+                      : "text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                  )}
+                  title={isListening ? "Đang lắng nghe... Bấm để dừng" : "Nói câu hỏi (Microphone tiếng Việt)"}
+                >
+                  {isListening ? (
+                    <MicOff className="w-4 h-4 text-red-600 animate-bounce" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
+                </Button>
+
                 <textarea
                   ref={textareaRef}
                   rows={1}
@@ -640,11 +830,13 @@ export const ChatPage: React.FC = () => {
                   placeholder={
                     isStreaming
                       ? 'Lavi đang trả lời… bạn cứ gõ câu tiếp theo'
+                      : isListening
+                      ? 'Lavi đang nghe bạn nói... hãy nói câu hỏi...'
                       : 'Hỏi Lavi về bệnh cây, thời tiết hoặc thuốc (Enter để gửi, Shift+Enter xuống dòng)'
                   }
                   maxLength={2000}
                   aria-label="Câu hỏi cho Lavi"
-                  className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden px-2.5 py-1.5 max-h-36 leading-relaxed"
+                  className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden px-1.5 py-1.5 max-h-36 leading-relaxed"
                 />
 
                 <div className="shrink-0 mb-0.5 mr-0.5">
@@ -664,7 +856,7 @@ export const ChatPage: React.FC = () => {
                       type="button"
                       size="sm"
                       onClick={handleSend}
-                      disabled={!inputMessage.trim()}
+                      disabled={!inputMessage.trim() && !attachedImage}
                       className="h-8.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs gap-1.5 rounded-xl shadow-xs transition-colors"
                     >
                       <span>Gửi</span>
@@ -682,6 +874,11 @@ export const ChatPage: React.FC = () => {
                 <span>{inputMessage.length}/2000 ký tự</span>
               </div>
             </div>
+
+            {/* Disclaimer cố định ở giữa dưới giống ChatGPT / Claude */}
+            <p className="text-center text-[11px] text-muted-foreground mt-2 pb-0.5">
+              Lavi có thể mắc sai lầm. Hãy kiểm tra lại thông tin quan trọng hoặc tham khảo ý kiến chuyên gia bảo vệ thực vật.
+            </p>
           </div>
         </div>
       </section>

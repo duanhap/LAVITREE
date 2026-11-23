@@ -63,7 +63,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   }, []);
 
   const sendMessage = useCallback(
-    async (userInput: string, overrideParams?: Partial<ChatContextParams>) => {
+    async (userInput: string, overrideParams?: Partial<ChatContextParams>, imageUrl?: string) => {
       const trimmed = userInput.trim();
       if (!trimmed || isStreaming) return;
 
@@ -79,6 +79,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         id: userMessageId,
         role: 'user',
         content: trimmed,
+        image_url: imageUrl,
         timestamp: new Date().toISOString(),
       };
 

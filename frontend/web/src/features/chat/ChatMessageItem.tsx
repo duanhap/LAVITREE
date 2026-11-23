@@ -20,12 +20,15 @@ import {
   CloudRain,
   ShieldCheck,
   ShieldAlert,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ChatMessage, Citation } from './types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import laviAvatarImg from '@/assets/brand/lavi-avatar-96.webp';
 
 interface ChatMessageItemProps {
@@ -37,12 +40,55 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
   const isUser = message.role === 'user';
   const [isStepsOpen, setIsStepsOpen] = useState(false);
   const [addingToCartId, setAddingToCartId] = useState<number | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const effectiveDiseaseCode =
     diseaseCode ||
     (typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('class_code')
       : null);
+
+  // Đọc câu trả lời bằng giọng nói tiếng Việt (Web Speech Synthesis)
+  const handleToggleSpeak = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      toast.error('Trình duyệt không hỗ trợ phát âm thanh (Speech Synthesis).');
+      return;
+    }
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    // Làm sạch Markdown trước khi đọc để giọng đọc tự nhiên
+    const cleanSpeech = displayContent
+      .replace(/!\[.*?\]\(.*?\)/g, '')
+      .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+      .replace(/[#*`_~>|\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!cleanSpeech) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+    utterance.lang = 'vi-VN';
+    utterance.rate = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const viVoice = voices.find(v => v.lang.startsWith('vi') || v.lang.includes('VIE'));
+    if (viVoice) {
+      utterance.voice = viVoice;
+    }
+
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+    setIsSpeaking(true);
+  };
 
   // Thêm thuốc được gợi ý vào giỏ hàng cá nhân (khớp StorePage SSOT)
   const handleAddToCart = async (productId: number, quantity: number = 1) => {
@@ -107,6 +153,16 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
     return (
       <div className="flex justify-end gap-3 mb-6">
         <div className="max-w-[85%] sm:max-w-[75%] bg-emerald-700 text-white rounded-2xl rounded-tr-none px-4 py-3 shadow-sm">
+          {message.image_url && (
+            <div className="mb-2.5 rounded-xl overflow-hidden max-w-xs border border-white/20 bg-black/20">
+              <img
+                src={message.image_url}
+                alt="Ảnh đính kèm từ người dùng"
+                className="w-full h-auto max-h-56 object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                onClick={() => window.open(message.image_url, '_blank')}
+              />
+            </div>
+          )}
           <p className="whitespace-pre-wrap leading-relaxed text-sm sm:text-base font-normal">
             {message.content}
           </p>
@@ -130,8 +186,12 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
     Boolean(message.guardrail_triggered) ||
     message.content.includes('[DRAFT_RECOMMENDATION]') ||
     message.content.toLowerCase().includes('bản nháp');
-  // Token kỹ thuật được thay bằng nhãn "Bản nháp" phía trên, không in thô vào nội dung
-  const displayContent = message.content.replace(/\[DRAFT_RECOMMENDATION\]\s*/g, '');
+  // Token kỹ thuật được thay bằng nhãn "Bản nháp" phía trên;
+  // Loại bỏ câu khuyến cáo lặp lại ở cuối vì đã chuyển thành thanh ghi chú cố định bên dưới khung chat
+  const displayContent = message.content
+    .replace(/\[DRAFT_RECOMMENDATION\]\s*/g, '')
+    .replace(/(?:\r?\n)*\s*Đây là gợi ý tham khảo, không thay thế tư vấn của chuyên gia\.?/gi, '')
+    .trim();
 
   return (
     <div className="flex gap-3 mb-8 items-start">
@@ -162,6 +222,33 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+            {/* Nút nghe đọc giọng nói câu trả lời của AI */}
+            {!message.isStreaming && displayContent && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleToggleSpeak}
+                className={cn(
+                  "h-7 px-2 text-xs gap-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors",
+                  isSpeaking && "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 animate-pulse font-medium"
+                )}
+                title={isSpeaking ? "Dừng đọc" : "Nghe đọc câu trả lời"}
+              >
+                {isSpeaking ? (
+                  <>
+                    <VolumeX className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="hidden sm:inline">Dừng đọc</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Nghe đọc</span>
+                  </>
+                )}
+              </Button>
+            )}
+
             {typeof message.total_latency_ms === 'number' && message.total_latency_ms > 0 && (
               <span className="flex items-center gap-0.5">
                 <Clock className="w-3 h-3" />
@@ -290,8 +377,25 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
               td: ({ children }) => (
                 <td className="p-2 border-b border-zinc-100 dark:border-zinc-800">{children}</td>
               ),
-              // Không tải ảnh từ địa chỉ ngoài nằm trong câu trả lời (chống theo dõi / nội dung lạ từ bài báo)
-              img: ({ alt }) => <span className="text-zinc-500 italic">[Ảnh: {alt || 'không hiển thị'}]</span>,
+              img: ({ src, alt }) => {
+                if (!src) return null;
+                return (
+                  <span className="block my-3">
+                    <img
+                      src={src}
+                      alt={alt || 'Ảnh minh họa triệu chứng'}
+                      className="max-h-72 max-w-full rounded-xl object-contain border border-border shadow-xs hover:shadow-md transition-all cursor-pointer bg-muted/20 hover:opacity-95"
+                      loading="lazy"
+                      onClick={() => window.open(src, '_blank')}
+                    />
+                    {alt && (
+                      <span className="block text-xs text-muted-foreground mt-1.5 italic">
+                        📷 {alt} (Bấm vào ảnh để xem kích thước lớn)
+                      </span>
+                    )}
+                  </span>
+                );
+              },
             }}
           >
             {displayContent}

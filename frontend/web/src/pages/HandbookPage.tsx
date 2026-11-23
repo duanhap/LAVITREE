@@ -32,19 +32,47 @@ export const HandbookPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [diseases, setDiseases] = useState<DiseaseListItem[]>([]);
+  const [imageMap, setImageMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedPlant, setSelectedPlant] = useState<string>('Tất cả');
   const [selectedPathogen, setSelectedPathogen] = useState<string>('Tất cả');
 
-  // Tải danh sách bệnh từ API
+  // Tải danh sách bệnh và ảnh triệu chứng từ API
   const fetchDiseases = async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await apiClient.get<DiseaseListItem[]>('/diseases');
-      setDiseases(res.data);
+      const [diseasesRes, imagesRes] = await Promise.allSettled([
+        apiClient.get<DiseaseListItem[]>('/diseases'),
+        apiClient.get<Array<{ model_class: string; image_url: string; plant_part?: string }>>('/knowledge/images'),
+      ]);
+
+      if (diseasesRes.status === 'fulfilled') {
+        // Tạm thời ẩn các mục "Cây khỏe mạnh" theo yêu cầu người dùng (Sổ tay chỉ dùng cho bệnh hại)
+        const onlyDiseases = diseasesRes.value.data.filter(
+          (d) => !d.classCode.endsWith('___healthy') && !d.commonNameVi.toLowerCase().includes('khỏe mạnh')
+        );
+        setDiseases(onlyDiseases);
+      } else {
+        const message = getErrorMessage(diseasesRes.reason);
+        setLoadError(message);
+        toast.error(message);
+      }
+
+      if (imagesRes.status === 'fulfilled' && Array.isArray(imagesRes.value.data)) {
+        const map: Record<string, string> = {};
+        for (const item of imagesRes.value.data) {
+          if (item.model_class && item.image_url) {
+            // Ưu tiên ảnh bộ phận Lá (LEAF) hoặc ảnh đầu tiên
+            if (!map[item.model_class] || item.plant_part === 'LEAF') {
+              map[item.model_class] = item.image_url;
+            }
+          }
+        }
+        setImageMap(map);
+      }
     } catch (err: unknown) {
       const message = getErrorMessage(err);
       setLoadError(message);
@@ -124,8 +152,8 @@ export const HandbookPage: React.FC = () => {
                 type="button"
                 onClick={() => setSelectedPlant(plant)}
                 className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${selectedPlant === plant
-                    ? 'bg-primary text-white shadow-xs'
-                    : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border/50'
+                  ? 'bg-primary text-white shadow-xs'
+                  : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border/50'
                   }`}
               >
                 {plant}
@@ -140,14 +168,14 @@ export const HandbookPage: React.FC = () => {
             <span>Tác nhân gây bệnh:</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {['Tất cả', 'Nấm', 'Vi khuẩn', 'Virus', 'Nhện hại', 'Khỏe mạnh'].map((pathogen) => (
+            {['Tất cả', 'Nấm', 'Vi khuẩn', 'Virus', 'Nhện hại'].map((pathogen) => (
               <button
                 key={pathogen}
                 type="button"
                 onClick={() => setSelectedPathogen(pathogen)}
                 className={`rounded-md px-2.5 py-1 text-xs transition-all ${selectedPathogen === pathogen
-                    ? 'bg-foreground text-background font-semibold shadow-xs'
-                    : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-border/30'
+                  ? 'bg-foreground text-background font-semibold shadow-xs'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-border/30'
                   }`}
               >
                 {pathogen}
@@ -213,38 +241,71 @@ export const HandbookPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredDiseases.map((d) => {
-            const isHealthy = d.classCode.endsWith('___healthy');
             const hasKnowledge = (d.approvedKnowledgeCount ?? 0) > 0;
+            const diseaseImg = imageMap[d.classCode];
 
             return (
               <Link
                 key={d.id}
                 to={`/handbook/${encodeURIComponent(d.classCode)}`}
                 aria-label={`Xem chi tiết ${d.commonNameVi}`}
-                className="group flex flex-col justify-between border border-border bg-card hover:border-primary/50 transition-all hover:shadow-xs rounded-2xl overflow-hidden focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
+                className="group flex flex-col justify-between border border-border bg-card hover:border-primary/50 transition-all hover:shadow-md rounded-2xl overflow-hidden focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
               >
+                {/* Ảnh triệu chứng thực tế giúp nông dân nhận diện nhanh trực quan */}
+                {diseaseImg && (
+                  <div className="relative h-44 w-full overflow-hidden bg-muted/40 border-b border-border/50">
+                    <img
+                      src={diseaseImg}
+                      alt={d.commonNameVi}
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                    <div className="absolute top-2.5 left-2.5">
+                      <span className="text-[11px] font-bold text-white bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-full uppercase tracking-wider shadow-xs">
+                        {d.plantName}
+                      </span>
+                    </div>
+                    <div className="absolute top-2.5 right-2.5">
+                      <Badge
+                        variant="secondary"
+                        title={d.pathogenName || undefined}
+                        className={`text-[11px] font-medium border shadow-xs ${d.pathogenType?.includes('Nấm')
+                            ? 'bg-amber-500/90 text-white border-amber-600'
+                            : d.pathogenType?.includes('Vi khuẩn')
+                              ? 'bg-blue-500/90 text-white border-blue-600'
+                              : d.pathogenType?.includes('Virus')
+                                ? 'bg-purple-500/90 text-white border-purple-600'
+                                : 'bg-zinc-800/90 text-white border-zinc-700'
+                          }`}
+                      >
+                        {d.pathogenType || 'Chưa phân loại'}
+                      </Badge>
+                    </div>
+                  </div>
+                )}
+
                 <CardHeader className="p-4 pb-2 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-primary uppercase tracking-wider">
-                      {d.plantName}
-                    </span>
-                    <Badge
-                      variant="secondary"
-                      title={d.pathogenName || undefined}
-                      className={`text-[11px] font-medium border ${isHealthy
-                          ? 'bg-status-ok-bg text-status-ok border-status-ok/30'
-                          : d.pathogenType?.includes('Nấm')
+                  {!diseaseImg && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-primary uppercase tracking-wider">
+                        {d.plantName}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        title={d.pathogenName || undefined}
+                        className={`text-[11px] font-medium border ${d.pathogenType?.includes('Nấm')
                             ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
                             : d.pathogenType?.includes('Vi khuẩn')
                               ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20'
                               : d.pathogenType?.includes('Virus')
                                 ? 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20'
                                 : 'bg-secondary text-foreground'
-                        }`}
-                    >
-                      {d.pathogenType || 'Chưa phân loại'}
-                    </Badge>
-                  </div>
+                          }`}
+                      >
+                        {d.pathogenType || 'Chưa phân loại'}
+                      </Badge>
+                    </div>
+                  )}
 
                   <div>
                     <CardTitle className="text-base font-bold text-foreground leading-snug group-hover:text-primary transition-colors">
@@ -272,10 +333,7 @@ export const HandbookPage: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="pt-3 border-t border-border/50 flex items-center justify-between">
-                    <span className="text-[11px] text-muted-foreground">
-                      Mức độ: {d.severityLevel === 1 ? '🟢 Nhẹ' : d.severityLevel === 3 ? '🔴 Khẩn cấp' : '🟡 Nghiêm trọng'}
-                    </span>
+                  <div className="pt-3 border-t border-border/50 flex items-center justify-end">
                     <span className="inline-flex items-center text-xs font-semibold text-primary group-hover:text-primary-hover">
                       <span>Xem phác đồ & nguồn</span>
                       <ChevronRight className="h-3.5 w-3.5 ml-0.5 transition-transform group-hover:translate-x-0.5" />

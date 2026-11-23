@@ -608,21 +608,12 @@ public class MedicinesController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(dto.Name))
         {
-            var name = dto.Name.Trim();
-            if (IsBannedIngredient(name))
-            {
-                return BadRequest(new { detail = $"Tên sản phẩm '{name}' chứa hoạt chất cấm theo Thông tư 75/2025." });
-            }
-            product.Name = name;
+            product.Name = dto.Name.Trim();
         }
 
         if (dto.ActiveIngredient != null)
         {
             var active = dto.ActiveIngredient.Trim();
-            if (active.Length > 0 && IsBannedIngredient(active))
-            {
-                return BadRequest(new { detail = $"Hoạt chất '{active}' nằm trong danh mục cấm theo Thông tư 75/2025." });
-            }
             product.ActiveIngredient = active.Length > 0 ? active : null;
         }
 
@@ -631,12 +622,18 @@ public class MedicinesController : ControllerBase
             product.DosageInstruction = dto.DosageInstruction.Trim();
         }
 
-        if (dto.IsAllowed.HasValue)
+        var isBanned = IsBannedIngredient(product.Name) || IsBannedIngredient(product.ActiveIngredient);
+        if (isBanned)
         {
-            if (dto.IsAllowed.Value && (IsBannedIngredient(product.ActiveIngredient) || IsBannedIngredient(product.Name)))
+            if (dto.IsAllowed == true)
             {
-                return BadRequest(new { detail = "Sản phẩm nằm trong danh mục thuốc BVTV cấm sử dụng tại Việt Nam theo Thông tư 75/2025. Không thể bật lưu hành." });
+                var names = string.Join(", ", BannedSubstanceRegistry.FindBanned($"{product.Name} {product.ActiveIngredient}"));
+                return BadRequest(new { detail = $"Sản phẩm chứa hoạt chất cấm sử dụng tại Việt Nam ({names}) theo Thông tư 75/2025. Không thể bật lưu hành." });
             }
+            product.IsAllowed = false;
+        }
+        else if (dto.IsAllowed.HasValue)
+        {
             product.IsAllowed = dto.IsAllowed.Value;
         }
 

@@ -28,6 +28,7 @@ const AdminInventoryPage = React.lazy(() => import('@/pages/admin/AdminInventory
 const AdminProductDetailPage = React.lazy(() => import('@/pages/admin/AdminProductDetailPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
+const ProductDetailPage = React.lazy(() => import('@/pages/ProductDetailPage'));
 const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
 const ChatPage = React.lazy(() => import('@/pages/ChatPage'));
 const AccountPage = React.lazy(() => import('@/pages/AccountPage'));
@@ -121,6 +122,15 @@ export const AppRouter: React.FC = () => {
             </Suspense>
           }
         />
+        <Route
+          path="/store/:id"
+          element={
+            <Suspense fallback={<PageSkeleton variant="detail" />}>
+              <ProductDetailPage />
+            </Suspense>
+          }
+        />
+        <Route path="/products/:id" element={<Navigate to="/store/:id" replace />} />
 
         {/* W-11: Đơn hàng của tôi (Sprint 2 - TASK-A03) */}
         <Route

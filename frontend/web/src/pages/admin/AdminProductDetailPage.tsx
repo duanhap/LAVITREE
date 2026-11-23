@@ -10,6 +10,15 @@ import {
   AlertTriangle,
   Code2,
   Copy,
+  Pencil,
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
+  Tag,
+  Clock,
+  Archive,
+  FileText,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +34,7 @@ import {
 import { EmptyState } from '@/components/common/EmptyState';
 import { PageSkeleton } from '@/components/common/PageSkeleton';
 import { ProductFormFields, type ProductFormData } from '@/features/admin/components/ProductFormFields';
+import { setBannedTerms, isIngredientBanned } from '@/features/admin/lib/guardrails';
 import { DiseaseEvidenceList } from '@/features/products/components/DiseaseEvidenceList';
 import {
   getProduct,
@@ -44,6 +54,7 @@ import {
   combineDescriptionDosage,
   formatUsageText,
   type UsageProfile,
+  type DiseaseUsageRuleProfile,
 } from '@/features/admin/lib/usage-profile';
 import {
   buildGoogleQueries,
@@ -55,6 +66,7 @@ import {
 import { useDiseaseOptions } from '@/features/admin/hooks';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { formatVND } from '@/lib/format';
+import { safeHref } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export const AdminProductDetailPage: React.FC = () => {
@@ -80,7 +92,10 @@ export const AdminProductDetailPage: React.FC = () => {
   const [isNotFound, setIsNotFound] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Form state cho Tab 1
+  // Tab 1 state: View mode vs Edit mode
+  const [isEditingInfo, setIsEditingInfo] = useState<boolean>(false);
+
+  // Form state cho Tab 1 khi ở Edit mode
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
     medicine_type: 'Hóa học',
@@ -93,15 +108,12 @@ export const AdminProductDetailPage: React.FC = () => {
     image_url: '',
     info_source_url: '',
     is_allowed: false,
-    dosage_instruction: '',
-    usage_profile: emptyUsageProfile(),
   });
 
   // Bản sao dữ liệu gốc để kiểm tra Dirty & Hoàn tác
   const [initialFormData, setInitialFormData] = useState<ProductFormData | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [unlinkingId, setUnlinkingId] = useState<number | null>(null);
-  const [isTogglingDisease, setIsTogglingDisease] = useState<boolean>(false);
 
   // Modal cảnh báo khi rời trang / đổi tab lúc form còn thay đổi
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState<boolean>(false);
@@ -113,6 +125,11 @@ export const AdminProductDetailPage: React.FC = () => {
   const [aiImageCandidates, setAiImageCandidates] = useState<string[]>([]);
   const [aiSourceLinks, setAiSourceLinks] = useState<string[]>([]);
   const [aiNotes, setAiNotes] = useState<Array<{ title: string; text: string }>>([]);
+
+  // Tách mô tả và liều lượng từ dosage_instruction của product
+  const { description: productDescription, dosage: productDosage } = useMemo(() => {
+    return splitDescriptionDosage(product?.dosage_instruction || '');
+  }, [product?.dosage_instruction]);
 
   // Tải dữ liệu ban đầu
   const loadProductData = useCallback(async () => {
@@ -127,10 +144,11 @@ export const AdminProductDetailPage: React.FC = () => {
     setLoadError(null);
 
     try {
-      const [prodRes, evRes, disRes] = await Promise.allSettled([
+      const [prodRes, evRes, disRes, bannedRes] = await Promise.allSettled([
         getProduct(productId),
         getProductEvidence(productId),
         apiClient.get<any[]>('/diseases'),
+        apiClient.get<{ terms?: Array<{ text: string; substance: string }> }>('/banned-substances'),
       ]);
 
       if (prodRes.status === 'rejected') {
@@ -150,6 +168,10 @@ export const AdminProductDetailPage: React.FC = () => {
         setEvidences(evRes.value);
       }
 
+      if (bannedRes.status === 'fulfilled' && bannedRes.value.data?.terms) {
+        setBannedTerms(bannedRes.value.data.terms);
+      }
+
       if (disRes.status === 'fulfilled' && Array.isArray(disRes.value.data)) {
         setAvailableDiseases(
           disRes.value.data.map((d: any) => ({
@@ -160,8 +182,7 @@ export const AdminProductDetailPage: React.FC = () => {
         );
       }
 
-      // Tách mô tả và liều lượng từ dosage_instruction
-      const { description, dosage } = splitDescriptionDosage(p.dosage_instruction || '');
+      const { description } = splitDescriptionDosage(p.dosage_instruction || '');
 
       const initialData: ProductFormData = {
         name: p.name || '',
@@ -175,8 +196,6 @@ export const AdminProductDetailPage: React.FC = () => {
         image_url: p.image_url || '',
         info_source_url: p.info_source_url || '',
         is_allowed: p.is_allowed ?? false,
-        dosage_instruction: dosage,
-        usage_profile: p.usage_profile ? { ...p.usage_profile } : emptyUsageProfile(),
       };
 
       setFormData(initialData);
@@ -194,7 +213,7 @@ export const AdminProductDetailPage: React.FC = () => {
 
   // So sánh xem Tab 1 có thay đổi chưa lưu không
   const isDirty = useMemo(() => {
-    if (!initialFormData) return false;
+    if (!initialFormData || !isEditingInfo) return false;
     return (
       formData.name !== initialFormData.name ||
       formData.medicine_type !== initialFormData.medicine_type ||
@@ -206,32 +225,9 @@ export const AdminProductDetailPage: React.FC = () => {
       formData.description !== initialFormData.description ||
       formData.image_url !== initialFormData.image_url ||
       formData.info_source_url !== initialFormData.info_source_url ||
-      formData.is_allowed !== initialFormData.is_allowed ||
-      formData.dosage_instruction !== initialFormData.dosage_instruction ||
-      JSON.stringify(formData.usage_profile) !== JSON.stringify(initialFormData.usage_profile)
+      formData.is_allowed !== initialFormData.is_allowed
     );
-  }, [formData, initialFormData]);
-
-  // Số trường đã thay đổi
-  const dirtyCount = useMemo(() => {
-    if (!initialFormData) return 0;
-    let count = 0;
-    if (formData.name !== initialFormData.name) count++;
-    if (formData.medicine_type !== initialFormData.medicine_type) count++;
-    if (formData.active_ingredient !== initialFormData.active_ingredient) count++;
-    if (formData.price !== initialFormData.price) count++;
-    if (formData.stock_quantity !== initialFormData.stock_quantity) count++;
-    if (formData.phi_days !== initialFormData.phi_days) count++;
-    if (formData.availability !== initialFormData.availability) count++;
-    if (formData.description !== initialFormData.description) count++;
-    if (formData.image_url !== initialFormData.image_url) count++;
-    if (formData.info_source_url !== initialFormData.info_source_url) count++;
-    if (formData.is_allowed !== initialFormData.is_allowed) count++;
-    if (formData.dosage_instruction !== initialFormData.dosage_instruction) count++;
-    if (JSON.stringify(formData.usage_profile) !== JSON.stringify(initialFormData.usage_profile))
-      count++;
-    return count;
-  }, [formData, initialFormData]);
+  }, [formData, initialFormData, isEditingInfo]);
 
   // Chặn rời trang hoặc F5 khi còn thay đổi chưa lưu
   useEffect(() => {
@@ -245,13 +241,14 @@ export const AdminProductDetailPage: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
-  // Chuyển tab an toàn (hỏi xác nhận nếu Tab 1 chưa lưu)
+  // Chuyển tab an toàn
   const handleSelectTab = (targetTab: 'info' | 'diseases') => {
     if (targetTab === activeTab) return;
     if (isDirty && activeTab === 'info') {
       setPendingNavigationAction(() => () => {
         setSearchParams({ tab: targetTab });
         if (initialFormData) setFormData(initialFormData);
+        setIsEditingInfo(false);
       });
       setConfirmDiscardOpen(true);
       return;
@@ -285,10 +282,12 @@ export const AdminProductDetailPage: React.FC = () => {
 
     setIsSaving(true);
     try {
-      const combinedDosage = combineDescriptionDosage(
-        formData.description,
-        formData.dosage_instruction
-      );
+      // Giữ nguyên phần liều lượng mặc định hiện tại
+      const combinedDosage = combineDescriptionDosage(formData.description, productDosage);
+
+      const isBanned =
+        isIngredientBanned(formData.name) ||
+        (formData.medicine_type !== 'Vật tư canh tác' && isIngredientBanned(formData.active_ingredient));
 
       const payload: Record<string, any> = {
         name: formData.name.trim(),
@@ -302,19 +301,31 @@ export const AdminProductDetailPage: React.FC = () => {
         dosage_instruction: combinedDosage,
         image_url: formData.image_url.trim(),
         info_source_url: formData.info_source_url.trim(),
-        is_allowed: formData.is_allowed,
-        usage_profile: formData.usage_profile,
+        is_allowed: isBanned ? false : formData.is_allowed,
       };
 
       const updated = await updateProduct(productId, payload);
 
       setProduct((prev) => (prev ? { ...prev, ...updated } : updated));
       setInitialFormData(formData);
-      toast.success('Đã lưu thay đổi thông tin sản phẩm.');
+      setIsEditingInfo(false);
+      toast.success('Đã lưu thông tin sản phẩm thành công!');
     } catch (err: unknown) {
       toast.error('Lỗi khi lưu sản phẩm: ' + getErrorMessage(err));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Hủy chỉnh sửa Tab 1
+  const handleCancelEditTab1 = () => {
+    if (isDirty) {
+      if (confirm('Bạn có thay đổi chưa lưu. Bạn có chắc muốn hủy chỉnh sửa?')) {
+        if (initialFormData) setFormData(initialFormData);
+        setIsEditingInfo(false);
+      }
+    } else {
+      setIsEditingInfo(false);
     }
   };
 
@@ -324,77 +335,131 @@ export const AdminProductDetailPage: React.FC = () => {
     return groupProductEvidence(product.diseases || [], evidences, { mode: 'admin' });
   }, [product, evidences]);
 
-  const warningCount = useMemo(() => {
-    return diseaseRows.filter((r) => r.status === 'MANUAL_ONLY').length;
-  }, [diseaseRows]);
-
-  // Bật / tắt khuyên dùng ở Tab 2 (Cập nhật target_diseases)
-  const handleToggleRecommendation = async (modelClass: string, targetState: boolean) => {
+  // Lưu quy tắc liều lượng riêng cho từng bệnh (Lưu vào UsageProfile.DiseaseRules[modelClass])
+  const handleSaveDiseaseRule = async (modelClass: string, rule: DiseaseUsageRuleProfile) => {
     if (!productId || !product) return;
 
-    const currentCodes = (product.target_diseases || []).map((c) => c.toLowerCase());
-    let nextCodes: string[];
+    const currentUsage: UsageProfile = product.usage_profile
+      ? { ...product.usage_profile }
+      : emptyUsageProfile();
 
-    if (targetState) {
-      if (!currentCodes.includes(modelClass.toLowerCase())) {
-        nextCodes = [...(product.target_diseases || []), modelClass];
-      } else {
-        nextCodes = product.target_diseases || [];
-      }
-    } else {
-      nextCodes = (product.target_diseases || []).filter(
-        (c) => c.toLowerCase() !== modelClass.toLowerCase()
-      );
-    }
+    const nextRules = {
+      ...(currentUsage.disease_rules || {}),
+      [modelClass]: rule,
+    };
 
-    setIsTogglingDisease(true);
+    const updatedProfile: UsageProfile = {
+      ...currentUsage,
+      disease_rules: nextRules,
+    };
+
     try {
-      await updateProduct(productId, { target_diseases: nextCodes });
-
-      // Cập nhật lại product.diseases và product.target_diseases
-      setProduct((prev) => {
-        if (!prev) return null;
-        let newDiseases = [...prev.diseases];
-        if (targetState) {
-          const matchMeta = availableDiseases.find(
-            (d) => d.classCode.toLowerCase() === modelClass.toLowerCase()
-          );
-          if (!newDiseases.some((d) => d.class_code.toLowerCase() === modelClass.toLowerCase())) {
-            newDiseases.push({
-              class_code: modelClass,
-              disease_name: matchMeta?.diseaseName || modelClass,
-              plant_name: matchMeta?.plantName || 'Cây trồng',
-            });
-          }
-        } else {
-          newDiseases = newDiseases.filter(
-            (d) => d.class_code.toLowerCase() !== modelClass.toLowerCase()
-          );
-        }
-
-        return {
-          ...prev,
-          target_diseases: nextCodes,
-          diseases: newDiseases,
-        };
-      });
-
-      toast.success(
-        targetState
-          ? `Đã bật khuyên dùng cho bệnh ${modelClass}.`
-          : `Đã tắt khuyên dùng cho bệnh ${modelClass}.`
-      );
+      await updateProduct(productId, { usage_profile: updatedProfile });
+      setProduct((prev) => (prev ? { ...prev, usage_profile: updatedProfile } : null));
     } catch (err: unknown) {
-      toast.error('Không thể cập nhật bệnh khuyên dùng: ' + getErrorMessage(err));
+      toast.error('Lỗi khi lưu liều lượng theo bệnh: ' + getErrorMessage(err));
       throw err;
-    } finally {
-      setIsTogglingDisease(false);
     }
   };
 
-  // Thêm bệnh mới vào danh sách khuyên dùng
+  // Khôi phục liều mặc định cho bệnh (xóa rule khỏi DiseaseRules)
+  const handleResetDiseaseRule = async (modelClass: string) => {
+    if (!productId || !product) return;
+
+    const currentUsage: UsageProfile = product.usage_profile
+      ? { ...product.usage_profile }
+      : emptyUsageProfile();
+
+    const nextRules = { ...(currentUsage.disease_rules || {}) };
+    delete nextRules[modelClass];
+
+    const updatedProfile: UsageProfile = {
+      ...currentUsage,
+      disease_rules: nextRules,
+    };
+
+    try {
+      await updateProduct(productId, { usage_profile: updatedProfile });
+      setProduct((prev) => (prev ? { ...prev, usage_profile: updatedProfile } : null));
+    } catch (err: unknown) {
+      toast.error('Lỗi khi khôi phục liều mặc định: ' + getErrorMessage(err));
+      throw err;
+    }
+  };
+
+  // Thêm bệnh vào danh sách điều trị của thuốc
   const handleAddDisease = async (modelClass: string) => {
-    await handleToggleRecommendation(modelClass, true);
+    if (!productId || !product) return;
+    const currentCodes = (product.target_diseases || []).map((c) => c.toLowerCase());
+    if (currentCodes.includes(modelClass.toLowerCase())) return;
+
+    const nextCodes = [...(product.target_diseases || []), modelClass];
+    try {
+      await updateProduct(productId, { target_diseases: nextCodes });
+
+      const matchMeta = availableDiseases.find(
+        (d) => d.classCode.toLowerCase() === modelClass.toLowerCase()
+      );
+      const newDiseases = [...(product.diseases || [])];
+      newDiseases.push({
+        class_code: modelClass,
+        disease_name: matchMeta?.diseaseName || modelClass,
+        plant_name: matchMeta?.plantName || 'Cây trồng',
+      });
+
+      setProduct((prev) =>
+        prev
+          ? {
+              ...prev,
+              target_diseases: nextCodes,
+              diseases: newDiseases,
+            }
+          : null
+      );
+      toast.success(`Đã thêm bệnh ${matchMeta?.diseaseName || modelClass} vào danh mục điều trị.`);
+    } catch (err: unknown) {
+      toast.error('Lỗi khi thêm bệnh: ' + getErrorMessage(err));
+    }
+  };
+
+  // Gỡ bệnh khỏi danh sách điều trị của thuốc
+  const handleRemoveDisease = async (modelClass: string) => {
+    if (!productId || !product) return;
+
+    const nextCodes = (product.target_diseases || []).filter(
+      (c) => c.toLowerCase() !== modelClass.toLowerCase()
+    );
+
+    try {
+      await updateProduct(productId, { target_diseases: nextCodes });
+
+      const newDiseases = (product.diseases || []).filter(
+        (d) => d.class_code.toLowerCase() !== modelClass.toLowerCase()
+      );
+
+      // Đồng thời dọn dẹp disease_rules nếu có
+      let nextUsage = product.usage_profile;
+      if (product.usage_profile?.disease_rules?.[modelClass]) {
+        const nextRules = { ...product.usage_profile.disease_rules };
+        delete nextRules[modelClass];
+        nextUsage = { ...product.usage_profile, disease_rules: nextRules };
+        await updateProduct(productId, { usage_profile: nextUsage });
+      }
+
+      setProduct((prev) =>
+        prev
+          ? {
+              ...prev,
+              target_diseases: nextCodes,
+              diseases: newDiseases,
+              usage_profile: nextUsage,
+            }
+          : null
+      );
+      toast.success(`Đã bỏ bệnh ${modelClass} khỏi danh sách điều trị của thuốc.`);
+    } catch (err: unknown) {
+      toast.error('Lỗi khi gỡ bệnh: ' + getErrorMessage(err));
+    }
   };
 
   // Gỡ liên kết gợi ý khỏi sản phẩm
@@ -404,7 +469,6 @@ export const AdminProductDetailPage: React.FC = () => {
       const res = await unlinkProductSuggestion(suggestionId);
       toast.success(res.message);
 
-      // Tải lại danh sách bằng chứng
       if (productId) {
         const refreshedEv = await getProductEvidence(productId);
         setEvidences(refreshedEv);
@@ -480,15 +544,9 @@ export const AdminProductDetailPage: React.FC = () => {
         if (!isNaN(phi)) next.phi_days = phi;
       }
       if (data.image_url) next.image_url = String(data.image_url).trim();
-      if (data.info_source_url || data.source_url) next.info_source_url = String(data.info_source_url || data.source_url).trim();
+      if (data.info_source_url || data.source_url)
+        next.info_source_url = String(data.info_source_url || data.source_url).trim();
       if (data.description) next.description = String(data.description).trim();
-      if (parsed.usage) {
-        next.usage_profile = parsed.usage;
-        const isSupply = next.medicine_type === 'Vật tư canh tác';
-        const phiForText = next.phi_days === '' ? null : Number(next.phi_days);
-        const composed = formatUsageText(parsed.usage, phiForText, isSupply);
-        if (composed) next.dosage_instruction = composed;
-      }
 
       if (parsed.imageCandidates && parsed.imageCandidates.length > 0) {
         setAiImageCandidates(parsed.imageCandidates);
@@ -498,18 +556,64 @@ export const AdminProductDetailPage: React.FC = () => {
         setAiSourceLinks(parsed.sourceUrls);
         if (!next.info_source_url) next.info_source_url = parsed.sourceUrls[0];
       }
-      const scopeNote = typeof data.scope_note === 'string' ? data.scope_note : '';
-      if (scopeNote) {
-        setAiNotes([{ title: 'Lưu ý từ AI', text: scopeNote }]);
-      }
 
       setFormData(next);
       setShowDevModal(false);
       setDevAiInput('');
+      setIsEditingInfo(true);
       toast.success('Đã nạp thông số từ AI vào form.');
     } catch (err: unknown) {
       toast.error('Lỗi khi nạp dữ liệu AI: ' + getErrorMessage(err));
     }
+  };
+
+  // Hàm hiển thị mô tả sản phẩm dạng từng khối rõ ràng, có khoảng cách
+  const renderFormattedDescription = (rawText: string) => {
+    const text = (rawText || '').trim();
+    if (!text) {
+      return (
+        <div className="p-4 rounded-xl border border-dashed border-border bg-muted/20 text-center text-xs text-muted-foreground italic">
+          Chưa có mô tả chi tiết cho sản phẩm này. Bấm "Chỉnh sửa thông tin" để cập nhật.
+        </div>
+      );
+    }
+
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    return (
+      <div className="space-y-3">
+        {lines.map((line, idx) => {
+          const isBullet = /^[•\-*]|\d+\./.test(line);
+          const cleanContent = isBullet ? line.replace(/^([•\-*]|\d+\.)\s*/, '') : line;
+          const colonIdx = cleanContent.indexOf(':');
+          const hasTitle = colonIdx > 0 && colonIdx < 60;
+
+          const title = hasTitle ? cleanContent.slice(0, colonIdx).trim() : null;
+          const body = hasTitle ? cleanContent.slice(colonIdx + 1).trim() : cleanContent;
+
+          return (
+            <div
+              key={idx}
+              className="flex items-start gap-3 p-3.5 rounded-xl bg-card border border-border/70 shadow-2xs hover:border-border transition-colors"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-600 dark:bg-emerald-400 mt-1.5 shrink-0" />
+              <div className="flex-1 text-xs sm:text-sm leading-relaxed text-foreground">
+                {hasTitle ? (
+                  <>
+                    <strong className="font-bold text-foreground mr-1.5">
+                      {title}:
+                    </strong>
+                    <span className="text-foreground/90">{body}</span>
+                  </>
+                ) : (
+                  <span className="text-foreground/90">{cleanContent}</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   // Trạng thái đang tải / lỗi
@@ -549,100 +653,19 @@ export const AdminProductDetailPage: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-6 md:py-8 max-w-6xl space-y-6">
-      {/* 1. THANH ĐẦU TRANG & THÔNG TIN TÓM TẮT CHỈ ĐỌC */}
-      <div className="space-y-4">
-        {/* Nút quay lại */}
-        <div>
-          <button
-            type="button"
-            onClick={handleBackToInventory}
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-semibold transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Kho vật tư & thuốc</span>
-          </button>
-        </div>
-
-        {/* Khối Header sản phẩm */}
-        <div className="p-4 sm:p-5 rounded-2xl border border-border bg-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5 min-w-0">
-            {/* Ảnh đại diện 64px (48px trên mobile) */}
-            <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl border border-border bg-muted/20 overflow-hidden shrink-0 flex items-center justify-center">
-              {product.image_url ? (
-                <img
-                  src={product.image_url}
-                  alt={product.name}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-contain p-1"
-                />
-              ) : (
-                <Package className="w-6 h-6 sm:w-8 sm:h-8 text-muted-foreground/50" />
-              )}
-            </div>
-
-            <div className="space-y-1 min-w-0">
-              <h1 className="text-lg sm:text-2xl font-extrabold text-foreground truncate tracking-tight">
-                {product.name}
-              </h1>
-              <p className="text-xs text-muted-foreground truncate">
-                {product.medicine_type} • {product.active_ingredient || 'Không có hoạt chất'}
-              </p>
-
-              {/* Các Badges tóm tắt trạng thái đã lưu */}
-              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                <Badge
-                  variant={product.is_allowed ? 'default' : 'secondary'}
-                  className={`text-[10px] font-semibold ${
-                    product.is_allowed
-                      ? 'bg-status-ok-bg text-status-ok border border-status-ok/30'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  {product.is_allowed ? '● Đang lưu hành' : '● Dừng lưu hành'}
-                </Badge>
-
-                <Badge variant="outline" className="text-[10px]">
-                  {product.availability === 'IN_STOCK'
-                    ? `Còn hàng (${product.stock_quantity})`
-                    : product.availability === 'OUT_OF_STOCK'
-                    ? 'Tạm hết hàng'
-                    : 'Không bán'}
-                </Badge>
-
-                {product.medicine_type !== 'Vật tư canh tác' && (
-                  <Badge variant="outline" className="text-[10px]">
-                    PHI: {product.phi_days !== null ? `${product.phi_days} ngày` : 'Chưa rõ'}
-                  </Badge>
-                )}
-
-                <Badge variant="secondary" className="text-[10px] font-bold text-primary">
-                  {formatVND(product.price)}
-                </Badge>
-              </div>
-            </div>
-          </div>
-
-          {/* Nút Trợ lý AI (Chế độ Dev) */}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (activeTab !== 'info') {
-                setSearchParams({ tab: 'info' });
-              }
-              setShowDevModal(true);
-            }}
-            className="h-8 text-xs gap-1.5 shrink-0 border-primary/30 text-primary hover:bg-primary/10 self-start sm:self-auto"
-            title="Mở chế độ Dev: Trợ lý AI nghiên cứu thuốc & nạp JSON"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span className="hidden sm:inline">Trợ lý AI</span>
-          </Button>
-        </div>
+      {/* 1. THANH ĐẦU TRANG */}
+      <div>
+        <button
+          type="button"
+          onClick={handleBackToInventory}
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-semibold transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Kho vật tư &amp; thuốc</span>
+        </button>
       </div>
 
-      {/* 2. THANH TAB DÍNH ĐẦU TRANG */}
+      {/* 2. THANH TAB CHUYỂN ĐỔI */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-md border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
@@ -666,12 +689,7 @@ export const AdminProductDetailPage: React.FC = () => {
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            <span>Bệnh áp dụng & căn cứ ({diseaseRows.length})</span>
-            {warningCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400">
-                ⚠{warningCount}
-              </span>
-            )}
+            <span>Bệnh điều trị &amp; Liều lượng ({diseaseRows.length})</span>
           </button>
         </div>
       </div>
@@ -680,116 +698,319 @@ export const AdminProductDetailPage: React.FC = () => {
       <div className="pb-16">
         {activeTab === 'info' ? (
           <div className="space-y-6">
-            <ProductFormFields
-              data={formData}
-              onChange={setFormData}
-              showTargetDiseases={false}
-              aiImageCandidates={aiImageCandidates}
-              aiSourceLinks={aiSourceLinks}
-              aiNotes={aiNotes}
-              googleQueries={googleQueries}
-            />
+            {/* VIEW MODE: XEM CHI TIẾT SẠCH SẼ ĐẸP MẮT */}
+            {!isEditingInfo ? (
+              <div className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-6 shadow-xs">
+                {/* Header View Mode có thông tin sản phẩm và nút Edit & Trợ lý AI */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border/60">
+                  <div className="space-y-1">
+                    <h1 className="text-xl sm:text-2xl font-extrabold text-foreground tracking-tight">
+                      {product.name}
+                    </h1>
+                    <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                      <span>{product.medicine_type}</span>
+                      <span>•</span>
+                      <span>{product.active_ingredient || 'Không có hoạt chất'}</span>
+                      <span>•</span>
+                      <Badge
+                        variant={product.is_allowed ? 'default' : 'secondary'}
+                        className={`text-[10px] font-semibold py-0 ${
+                          product.is_allowed
+                            ? 'bg-status-ok-bg text-status-ok border border-status-ok/30'
+                            : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {product.is_allowed ? '● Đang lưu hành' : '● Dừng lưu hành'}
+                      </Badge>
+                    </div>
+                  </div>
 
-            {/* THANH LƯU DÍNH ĐÁY KHI CÓ THAY ĐỔI */}
-            {isDirty && (
-              <div className="sticky bottom-0 inset-x-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-background/95 backdrop-blur-md border-t border-border shadow-lg flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  <span>Có {dirtyCount} thay đổi chưa lưu</span>
+                  <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        const { description } = splitDescriptionDosage(product.dosage_instruction || '');
+                        setFormData({
+                          name: product.name || '',
+                          medicine_type: product.medicine_type || 'Hóa học',
+                          active_ingredient: product.active_ingredient || '',
+                          price: product.price ?? 0,
+                          stock_quantity: product.stock_quantity ?? 0,
+                          phi_days: product.phi_days === null || product.phi_days === undefined ? '' : product.phi_days,
+                          availability: product.availability || 'IN_STOCK',
+                          description,
+                          image_url: product.image_url || '',
+                          info_source_url: product.info_source_url || '',
+                          is_allowed: product.is_allowed ?? false,
+                        });
+                        setIsEditingInfo(true);
+                      }}
+                      className="h-8 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Chỉnh sửa thông tin</span>
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => initialFormData && setFormData(initialFormData)}
-                    disabled={isSaving}
-                    className="text-xs h-8"
-                  >
-                    Hủy
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleSaveTab1}
-                    disabled={isSaving}
-                    className="text-xs h-8 gap-1.5 bg-primary text-white hover:bg-primary/90 font-bold"
-                  >
-                    {isSaving ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Save className="w-3.5 h-3.5" />
+                {/* Bố cục 2 cột gọn gàng */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* Cột trái: Ảnh sản phẩm & Thông số bán lẻ */}
+                  <div className="lg:col-span-4 space-y-4">
+                    <div className="rounded-xl border border-border bg-muted/20 p-4 flex flex-col items-center justify-center min-h-[220px]">
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt={product.name}
+                          referrerPolicy="no-referrer"
+                          className="max-h-[200px] w-full object-contain rounded-lg"
+                        />
+                      ) : (
+                        <div className="text-center space-y-2 text-muted-foreground">
+                          <Package className="w-12 h-12 mx-auto opacity-40" />
+                          <span className="text-xs">Chưa có ảnh sản phẩm</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Lưới thông số nhỏ */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-3 bg-muted/20 rounded-xl border border-border/60 space-y-1">
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
+                          <Tag className="w-3 h-3 text-primary" />
+                          <span>Giá bán lẻ:</span>
+                        </span>
+                        <div className="font-bold text-foreground text-sm">
+                          {formatVND(product.price)}
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-muted/20 rounded-xl border border-border/60 space-y-1">
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
+                          <Archive className="w-3 h-3 text-primary" />
+                          <span>Tồn kho:</span>
+                        </span>
+                        <div className="font-bold text-foreground text-sm">
+                          {product.stock_quantity} gói/chai
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Cột phải: Chi tiết sản phẩm & Mô tả định dạng đẹp */}
+                  <div className="lg:col-span-8 space-y-5">
+                    {/* Bảng thuộc tính sản phẩm */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div className="p-3 rounded-xl border border-border/70 bg-card space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Phân loại sản phẩm</span>
+                        <div className="font-semibold text-foreground">{product.medicine_type}</div>
+                      </div>
+
+                      <div className="p-3 rounded-xl border border-border/70 bg-card space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Hoạt chất chính</span>
+                        <div className="font-semibold text-foreground">
+                          {product.active_ingredient || (
+                            <span className="text-muted-foreground italic">Không có hoạt chất</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-xl border border-border/70 bg-card space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Thời gian cách ly (PHI)</span>
+                        <div className="font-semibold text-foreground">
+                          {product.medicine_type === 'Vật tư canh tác'
+                            ? 'Không áp dụng'
+                            : product.phi_days !== null
+                            ? `${product.phi_days} ngày`
+                            : 'Chưa rõ'}
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-xl border border-border/70 bg-card space-y-1">
+                        <span className="text-[11px] text-muted-foreground">Tình trạng phân phối</span>
+                        <div className="font-semibold text-foreground">
+                          {product.availability === 'IN_STOCK'
+                            ? 'Đang có sẵn trong kho'
+                            : product.availability === 'OUT_OF_STOCK'
+                            ? 'Tạm hết hàng'
+                            : 'Không kinh doanh'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Nguồn thông tin sản phẩm */}
+                    {product.info_source_url && (
+                      <div className="p-3 rounded-xl border border-border/70 bg-card text-xs flex items-center justify-between gap-2">
+                        <div className="text-muted-foreground truncate">
+                          <span className="font-semibold text-foreground">Trang thông tin nguồn: </span>
+                          <span className="font-mono text-[11px]">{product.info_source_url}</span>
+                        </div>
+                        <a
+                          href={safeHref(product.info_source_url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline font-semibold flex items-center gap-1 shrink-0 text-xs"
+                        >
+                          <span>Xem gốc</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
                     )}
-                    <span>Lưu thay đổi</span>
-                  </Button>
+                  </div>
                 </div>
+
+                {/* KHỐI RIÊNG BIỆT BÊN DƯỚI: MÔ TẢ CÔNG DỤNG & ĐẶC TÍNH SẢN PHẨM */}
+                <div className="rounded-2xl border border-border bg-muted/10 p-5 sm:p-6 space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-primary" />
+                      <h4 className="font-bold text-foreground text-sm sm:text-base">
+                        Mô tả công dụng &amp; đặc tính sản phẩm
+                      </h4>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground font-medium">
+                      Tổng quan kỹ thuật
+                    </span>
+                  </div>
+
+                  {renderFormattedDescription(productDescription)}
+                </div>
+              </div>
+            ) : (
+              /* EDIT MODE: HIỆN FORM CHỈNH SỬA VỚI NÚT LƯU & HỦY */
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-muted/20 border border-border rounded-xl">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Pencil className="w-4 h-4 text-primary shrink-0" />
+                    <span className="font-bold text-xs sm:text-sm text-foreground">
+                      Chế độ chỉnh sửa thông tin sản phẩm
+                    </span>
+                    {isDirty && (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 px-2 py-0.5 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        Chưa lưu
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* NÚT CHẾ ĐỘ DEV </> TINH GỌN NHƯ LÚC THÊM MỚI */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowDevModal(true)}
+                      className="h-8 w-8 p-0 font-mono font-bold transition-colors flex items-center justify-center shrink-0 bg-background hover:bg-blue-50 dark:hover:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-border"
+                      title="Chế độ Dev: Prompt AI & Nạp JSON"
+                    >
+                      <Code2 className="w-4 h-4" />
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelEditTab1}
+                      className="h-8 text-xs"
+                    >
+                      Hủy bỏ
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isSaving}
+                      onClick={handleSaveTab1}
+                      className="h-8 text-xs font-bold gap-1.5"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}</span>
+                    </Button>
+                  </div>
+                </div>
+
+                <ProductFormFields
+                  data={formData}
+                  onChange={setFormData}
+                  showTargetDiseases={false}
+                  aiImageCandidates={aiImageCandidates}
+                  aiSourceLinks={aiSourceLinks}
+                  aiNotes={aiNotes}
+                  googleQueries={googleQueries}
+                />
               </div>
             )}
           </div>
         ) : (
+          /* TAB 2: BỆNH ĐIỀU TRỊ & LIỀU LƯỢNG */
           <DiseaseEvidenceList
             rows={diseaseRows}
             mode="admin"
             productName={product.name}
             defaultProfile={product.usage_profile}
-            onToggleRecommendation={handleToggleRecommendation}
+            defaultDosage={productDosage}
+            diseaseRules={product.usage_profile?.disease_rules}
+            isSupply={product.medicine_type === 'Vật tư canh tác'}
+            phiDays={product.phi_days}
+            onSaveDiseaseRule={handleSaveDiseaseRule}
+            onResetDiseaseRule={handleResetDiseaseRule}
+            onRemoveDisease={handleRemoveDisease}
             onAddDisease={handleAddDisease}
             onUnlinkSnippet={handleUnlinkSnippet}
             unlinkingId={unlinkingId}
-            onSwitchToGeneralTab={() => setSearchParams({ tab: 'info' })}
             availableClasses={availableDiseases}
-            isToggling={isTogglingDisease}
           />
         )}
       </div>
 
-      {/* MODAL DEV AI PROMPT VÀ NẠP JSON */}
+      {/* MODAL DEV AI: TRỢ LÝ AI NGHIÊN CỨU & NẠP JSON */}
       <Dialog open={showDevModal} onOpenChange={setShowDevModal}>
-        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto p-5 sm:p-6 rounded-2xl">
+        <DialogContent className="max-w-2xl p-5 rounded-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-500" />
-              <span>Chế độ Dev: Trợ lý AI nghiên cứu & tổng hợp thông tin</span>
+              <span>Trợ lý AI nghiên cứu thuốc &amp; Nạp JSON</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Sao chép prompt (đã đính kèm ngữ cảnh các bài báo của sản phẩm) và dán câu trả lời JSON
-              vào đây để điền nhanh các thông số.
+            <DialogDescription className="text-xs text-muted-foreground">
+              Sao chép prompt được cấu hình sẵn để hỏi Gemini/ChatGPT, sau đó dán kết quả JSON vào đây để tự động điền form.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3.5 py-2 text-xs">
-            <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-secondary/30 border border-border">
-              <span className="text-[11px] text-muted-foreground">
-                Prompt nghiên cứu đã tích hợp {evidences.length} đoạn trích bằng chứng sẵn có:
-              </span>
+          <div className="space-y-3 my-2 flex-1 overflow-y-auto">
+            <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+              <div className="space-y-0.5">
+                <div className="font-bold text-xs text-foreground">1. Sao chép Prompt cho AI</div>
+                <div className="text-[11px] text-muted-foreground">
+                  Bao gồm tên thuốc, danh sách bệnh và các đoạn trích liên quan.
+                </div>
+              </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={handleCopyAiPrompt}
-                className="h-7 text-[11px] gap-1 font-semibold"
+                className="h-8 text-xs gap-1.5 font-semibold text-primary"
               >
-                <Copy className="w-3 h-3" />
-                <span>Sao chép prompt</span>
+                <Copy className="w-3.5 h-3.5" />
+                <span>Sao chép Prompt</span>
               </Button>
             </div>
 
             <div className="space-y-1.5">
-              <label className="font-semibold block text-foreground">
-                Dán câu trả lời của AI (khối ```json ... ``` hoặc toàn văn):
+              <label className="font-bold text-xs text-foreground block">
+                2. Dán kết quả JSON từ AI vào đây:
               </label>
               <Textarea
-                placeholder="Dán câu trả lời từ Gemini hoặc ChatGPT vào đây..."
+                placeholder="Dán toàn bộ câu trả lời chứa khối ```json ... ``` của AI vào đây..."
                 value={devAiInput}
                 onChange={(e) => setDevAiInput(e.target.value)}
-                rows={7}
-                className="text-xs font-mono bg-background"
+                rows={8}
+                className="font-mono text-xs"
               />
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-border">
+          <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t border-border mt-2">
             <Button
               type="button"
               variant="outline"
@@ -802,27 +1023,26 @@ export const AdminProductDetailPage: React.FC = () => {
             <Button
               type="button"
               size="sm"
-              onClick={handleApplyAiJson}
               disabled={!devAiInput.trim()}
-              className="text-xs gap-1.5 bg-primary text-white"
+              onClick={handleApplyAiJson}
+              className="text-xs font-bold gap-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Điền vào form</span>
+              <span>Nạp thông số vào form</span>
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* MODAL CẢNH BÁO BỎ THAY ĐỔI CHƯA LƯU */}
+      {/* DIALOG XÁC NHẬN RỜI TRANG KHI FORM DIRTY */}
       <Dialog open={confirmDiscardOpen} onOpenChange={setConfirmDiscardOpen}>
         <DialogContent className="max-w-md p-5 rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground">
-              Bỏ thay đổi chưa lưu?
+              Bỏ các thay đổi chưa lưu?
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-              Bạn có một số thay đổi trong form Thông tin sản phẩm chưa được lưu. Nếu tiếp tục chuyển
-              trang, các thay đổi này sẽ bị hủy bỏ.
+              Bạn đang có thông tin sản phẩm đã chỉnh sửa nhưng chưa lưu. Nếu rời đi bây giờ, các thay đổi sẽ bị mất.
             </DialogDescription>
           </DialogHeader>
 
@@ -837,7 +1057,7 @@ export const AdminProductDetailPage: React.FC = () => {
               }}
               className="text-xs"
             >
-              Ở lại
+              Ở lại trang
             </Button>
             <Button
               type="button"
@@ -850,7 +1070,7 @@ export const AdminProductDetailPage: React.FC = () => {
                   setPendingNavigationAction(null);
                 }
               }}
-              className="text-xs"
+              className="text-xs font-bold"
             >
               Bỏ thay đổi
             </Button>
@@ -862,3 +1082,4 @@ export const AdminProductDetailPage: React.FC = () => {
 };
 
 export default AdminProductDetailPage;
+

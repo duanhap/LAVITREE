@@ -5,34 +5,14 @@ import {
   ExternalLink,
   X,
   Search,
-  CalendarClock,
-  Wand2,
-  ChevronDown,
-  ChevronUp,
   AlertTriangle,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { UsageProfileEditor } from './UsageProfileEditor';
-import {
-  type UsageProfile,
-  formatUsageText,
-  formatUsageProfileSummary,
-  emptyUsageProfile,
-  isUsageEmpty,
-} from '../lib/usage-profile';
+import type { UsageProfile } from '../lib/usage-profile';
 import { isIngredientBanned } from '../lib';
 import { safeHref } from '@/lib/utils';
-import { toast } from 'sonner';
 
 export interface ProductFormData {
   name: string;
@@ -47,8 +27,8 @@ export interface ProductFormData {
   info_source_url: string;
   is_allowed: boolean;
   target_diseases?: string[];
-  dosage_instruction: string;
-  usage_profile: UsageProfile;
+  dosage_instruction?: string;
+  usage_profile?: UsageProfile;
 }
 
 export interface ProductFormFieldsProps {
@@ -59,7 +39,6 @@ export interface ProductFormFieldsProps {
   aiImageCandidates?: string[];
   aiSourceLinks?: string[];
   aiNotes?: Array<{ title: string; text: string }>;
-  // Optional Google queries for researching
   googleQueries?: Array<{ label: string; url: string; query: string }>;
 }
 
@@ -77,9 +56,6 @@ export const ProductFormFields: React.FC<ProductFormFieldsProps> = ({
 }) => {
   const [descPreviewMode, setDescPreviewMode] = useState<boolean>(false);
   const [medImageFailed, setMedImageFailed] = useState<boolean>(false);
-  const [isUsageEditorOpen, setIsUsageEditorOpen] = useState<boolean>(false);
-  const [confirmComposeOpen, setConfirmComposeOpen] = useState<boolean>(false);
-  const [pendingComposedText, setPendingComposedText] = useState<string>('');
 
   const isSupply = data.medicine_type === 'Vật tư canh tác';
   const isBanned = isIngredientBanned(data.active_ingredient) || isIngredientBanned(data.name);
@@ -88,38 +64,8 @@ export const ProductFormFields: React.FC<ProductFormFieldsProps> = ({
     onChange({ ...data, [key]: val });
   };
 
-  const handleComposeUsage = () => {
-    const isSup = data.medicine_type === 'Vật tư canh tác';
-    const phi = isSup || data.phi_days === '' ? null : Number(data.phi_days);
-    const text = formatUsageText(data.usage_profile, phi, isSup);
-    if (!text) {
-      toast.error('Phiếu cách dùng đang trống, chưa có thông tin để ghép.');
-      return;
-    }
-
-    if (data.dosage_instruction.trim()) {
-      setPendingComposedText(text);
-      setConfirmComposeOpen(true);
-    } else {
-      update('dosage_instruction', text);
-      toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
-    }
-  };
-
   return (
     <div className="space-y-4 text-xs">
-      {/* Cảnh báo chất cấm */}
-      {isBanned && (
-        <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive text-xs flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <div>
-            <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên hoặc hoạt chất "
-            {data.active_ingredient || data.name}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không
-            thể bật lưu hành sản phẩm này.
-          </div>
-        </div>
-      )}
-
       {/* KHỐI 2 CỘT TỔNG QUAN: Cột trái (Ảnh & Link, 280px), Cột phải (Các trường chính) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* ================= CỘT TRÁI (280px trên lg, chiếm 4 cols) ================= */}
@@ -280,8 +226,16 @@ export const ProductFormFields: React.FC<ProductFormFieldsProps> = ({
               value={data.name}
               onChange={(e) => update('name', e.target.value)}
               required
-              className="text-xs h-9 font-medium"
+              className={`text-xs h-9 font-medium ${isIngredientBanned(data.name) ? 'border-destructive focus-visible:ring-destructive' : ''}`}
             />
+            {isIngredientBanned(data.name) && (
+              <div className="mt-1.5 p-2 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-[11px] flex items-start gap-1.5 leading-tight">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <div>
+                  <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên sản phẩm "{data.name}" chứa hoạt chất cấm theo TT 75/2025. Không thể bật lưu hành sản phẩm này.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Phân loại & Hoạt chất (1 hàng) */}
@@ -319,8 +273,16 @@ export const ProductFormFields: React.FC<ProductFormFieldsProps> = ({
                 disabled={isSupply}
                 value={data.active_ingredient}
                 onChange={(e) => update('active_ingredient', e.target.value)}
-                className="text-xs h-8"
+                className={`text-xs h-8 ${!isSupply && isIngredientBanned(data.active_ingredient) ? 'border-destructive focus-visible:ring-destructive' : ''}`}
               />
+              {!isSupply && isIngredientBanned(data.active_ingredient) && (
+                <div className="mt-1.5 p-2 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-[11px] flex items-start gap-1.5 leading-tight">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <div>
+                    <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Hoạt chất "{data.active_ingredient}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể bật lưu hành sản phẩm này.
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -423,16 +385,47 @@ export const ProductFormFields: React.FC<ProductFormFieldsProps> = ({
 
             {!descPreviewMode ? (
               <Textarea
-                placeholder="• Bản chất & Phân loại: ...&#10;• Công dụng nông nghiệp: ...&#10;• Lưu ý khi dùng: ..."
+                placeholder="• Bản chất & Phân loại: ...&#10;• Cơ chế tác động & Đặc tính: ...&#10;• Công dụng nông nghiệp: ...&#10;• Phạm vi & Cây trồng: ...&#10;• Hướng dẫn & Lưu ý khi dùng: ..."
                 value={data.description}
                 onChange={(e) => update('description', e.target.value)}
-                rows={4}
+                rows={5}
                 maxLength={DESCRIPTION_MAX}
                 className="text-xs leading-relaxed font-sans"
               />
             ) : (
-              <div className="p-2.5 bg-muted/20 rounded-lg border border-border text-xs leading-relaxed min-h-[90px] whitespace-pre-line text-foreground">
-                {data.description.trim() || (
+              <div className="p-3 bg-muted/20 rounded-xl border border-border text-xs leading-relaxed min-h-[90px] text-foreground space-y-2.5">
+                {data.description.trim() ? (
+                  data.description
+                    .split('\n')
+                    .map((l) => l.trim())
+                    .filter(Boolean)
+                    .map((line, idx) => {
+                      const isBullet = /^[•\-*]|\d+\./.test(line);
+                      const cleanContent = isBullet ? line.replace(/^([•\-*]|\d+\.)\s*/, '') : line;
+                      const colonIdx = cleanContent.indexOf(':');
+                      const hasTitle = colonIdx > 0 && colonIdx < 60;
+                      const title = hasTitle ? cleanContent.slice(0, colonIdx).trim() : null;
+                      const body = hasTitle ? cleanContent.slice(colonIdx + 1).trim() : cleanContent;
+
+                      return (
+                        <div key={idx} className="flex items-start gap-2.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 mt-1.5 shrink-0" />
+                          <div className="flex-1">
+                            {hasTitle ? (
+                              <>
+                                <strong className="font-bold text-foreground mr-1">
+                                  {title}:
+                                </strong>
+                                <span className="text-foreground/90">{body}</span>
+                              </>
+                            ) : (
+                              <span className="text-foreground/90">{cleanContent}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                ) : (
                   <span className="text-muted-foreground italic">Chưa có mô tả sản phẩm.</span>
                 )}
               </div>
@@ -495,134 +488,6 @@ export const ProductFormFields: React.FC<ProductFormFieldsProps> = ({
           )}
         </div>
       </div>
-
-      {/* ================= KHỐI RỘNG HẾT TRANG: CÁCH DÙNG CHUNG & LIỀU LƯỢNG ================= */}
-      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/50 pb-2.5">
-          <div>
-            <h4 className="font-bold text-foreground text-sm flex items-center gap-1.5">
-              <CalendarClock className="w-4 h-4 text-primary" />
-              <span>CÁCH DÙNG CHUNG & LIỀU LƯỢNG</span>
-            </h4>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Áp dụng cho mọi bệnh của sản phẩm này. Trợ lý Lavi sẽ đọc nguyên văn ô bên dưới.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleComposeUsage}
-              disabled={isUsageEmpty(data.usage_profile)}
-              className="h-7 text-xs font-semibold gap-1 text-primary border-primary/30 hover:bg-primary/10"
-              title="Ghép các trường trong phiếu thành câu văn đưa vào Hướng dẫn sử dụng"
-            >
-              <Wand2 className="w-3 h-3" />
-              <span>Ghép vào Hướng dẫn sử dụng</span>
-            </Button>
-
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsUsageEditorOpen(!isUsageEditorOpen)}
-              className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
-            >
-              <span>{isUsageEditorOpen ? 'Thu gọn phiếu' : 'Mở để sửa'}</span>
-              {isUsageEditorOpen ? (
-                <ChevronUp className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5" />
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* Tóm tắt phiếu cách dùng khi thu gọn */}
-        <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 text-xs">
-          <div className="text-[11px] font-semibold text-muted-foreground mb-1">
-            ▸ Tóm tắt phiếu cách dùng chung:
-          </div>
-          <p className="font-medium text-foreground leading-relaxed">
-            {formatUsageProfileSummary(data.usage_profile)}
-          </p>
-        </div>
-
-        {/* Khung sửa chi tiết phiếu cách dùng (UsageProfileEditor) */}
-        {isUsageEditorOpen && (
-          <div className="pt-2">
-            <UsageProfileEditor
-              value={data.usage_profile}
-              onChange={(next) => update('usage_profile', next)}
-              isSupply={isSupply}
-              onCompose={handleComposeUsage}
-            />
-          </div>
-        )}
-
-        {/* Hướng dẫn sử dụng / Liều lượng (Textarea 3-6 dòng, luôn hiện) */}
-        <div className="space-y-1.5 pt-2">
-          <label className="font-semibold block text-foreground">
-            Hướng dẫn sử dụng / Liều lượng (Trợ lý Lavi đọc trực tiếp ô này)
-          </label>
-          <Textarea
-            value={data.dosage_instruction}
-            onChange={(e) => update('dosage_instruction', e.target.value)}
-            placeholder={
-              isSupply
-                ? 'Sử dụng theo diện tích canh tác và hướng dẫn của nhà sản xuất'
-                : 'Pha 50g cho bình 16 lít nước, phun ướt đều 2 mặt lá...'
-            }
-            rows={Math.min(6, Math.max(3, data.dosage_instruction.split('\n').length + 1))}
-            className="text-xs font-mono leading-relaxed bg-background"
-          />
-          <p className="text-[11px] text-muted-foreground leading-normal">
-            Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được phép
-            trả lời nông dân (chống bịa đặt thông số).
-          </p>
-        </div>
-      </div>
-
-      {/* Dialog xác nhận ghi đè khi ghép phiếu */}
-      <Dialog open={confirmComposeOpen} onOpenChange={setConfirmComposeOpen}>
-        <DialogContent className="max-w-md p-5 rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold text-foreground">
-              Thay nội dung hiện có?
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-              Ô "Hướng dẫn sử dụng" hiện đã có nội dung. Bạn có muốn thay thế toàn bộ bằng kết quả
-              ghép từ phiếu cách dùng không?
-            </DialogDescription>
-          </DialogHeader>
-
-          <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t border-border mt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmComposeOpen(false)}
-              className="text-xs"
-            >
-              Hủy
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                update('dosage_instruction', pendingComposedText);
-                setConfirmComposeOpen(false);
-                toast.success('Đã cập nhật Hướng dẫn sử dụng từ phiếu.');
-              }}
-              className="text-xs"
-            >
-              Thay thế
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

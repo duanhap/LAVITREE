@@ -20,6 +20,13 @@ import {
   Ban,
   Trash2,
   ChevronRight,
+  Pencil,
+  CalendarClock,
+  RotateCcw,
+  Info,
+  ChevronDown,
+  ChevronUp,
+  Wand2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -47,11 +54,13 @@ import {
   buildProductResearchPrompt,
   dedupeContainedTexts,
   emptyUsageProfile,
+  isUsageEmpty,
   normalizeUsageProfile,
   formatUsageText,
   combineDescriptionDosage,
   splitDescriptionDosage,
   validateUsageProfile,
+  formatUsageProfileSummary,
   usageProfileForApi,
   type UsageProfile,
   mergeEvidencesByArticle,
@@ -68,6 +77,7 @@ import { BannedSubstancesTab } from '@/features/admin/components/BannedSubstance
 // Mô tả lưu gộp vào dosage_instruction (cột text, không giới hạn); prompt Gemini yêu cầu 250–450 từ ≈ 1.500–3.000 ký tự
 const DESCRIPTION_MAX = 3500;
 import { useDiseaseOptions } from '@/features/admin/hooks';
+import { safeHref } from '@/lib/utils';
 
 interface EvidenceModalGroup {
   mentionText: string;
@@ -125,6 +135,13 @@ export const AdminInventoryPage: React.FC = () => {
   const [selectedLinkMedId, setSelectedLinkMedId] = useState<number | ''>('');
   const [linkProductSearch, setLinkProductSearch] = useState<string>('');
   const [linkingLoading, setLinkingLoading] = useState<boolean>(false);
+  const [linkCustomDosageOpen, setLinkCustomDosageOpen] = useState<boolean>(true);
+  const [linkUsageProfile, setLinkUsageProfile] = useState<UsageProfile>(emptyUsageProfile());
+  const [linkDosageText, setLinkDosageText] = useState<string>('');
+  const [linkSourceUrl, setLinkSourceUrl] = useState<string>('');
+  const [showLinkDevMode, setShowLinkDevMode] = useState<boolean>(false);
+  const [linkDevAiInput, setLinkDevAiInput] = useState<string>('');
+  const [unlinkingId, setUnlinkingId] = useState<number | null>(null);
 
   // Dialog thêm thuốc / vật tư mới (từ gợi ý hoặc thêm thủ công)
   const [createMedModalOpen, setCreateMedModalOpen] = useState<boolean>(false);
@@ -329,6 +346,168 @@ export const AdminInventoryPage: React.FC = () => {
     }
   }, [linkingSuggestion, rankedLinkMedicines, selectedLinkMedId]);
 
+  const selectedLinkMed = useMemo(() => {
+    if (!selectedLinkMedId) return null;
+    return medicines.find((m) => m.id === selectedLinkMedId) || null;
+  }, [selectedLinkMedId, medicines]);
+
+  const existingDiseaseRule = useMemo(() => {
+    if (!selectedLinkMed || !linkingSuggestion?.model_class) return null;
+    return selectedLinkMed.usage_profile?.disease_rules?.[linkingSuggestion.model_class] || null;
+  }, [selectedLinkMed, linkingSuggestion]);
+
+  const hasDosageForDisease = useMemo(() => {
+    if (!existingDiseaseRule) return false;
+    return Boolean(
+      existingDiseaseRule.dosage_instruction?.trim() ||
+      (existingDiseaseRule.usage_profile && !isUsageEmpty(existingDiseaseRule.usage_profile))
+    );
+  }, [existingDiseaseRule]);
+
+  const hasDiseaseAlready = useMemo(() => {
+    if (!selectedLinkMed || !linkingSuggestion?.model_class) return false;
+    return (selectedLinkMed.target_diseases || []).includes(linkingSuggestion.model_class);
+  }, [selectedLinkMed, linkingSuggestion]);
+
+  // Đồng bộ liều lượng khi chọn sản phẩm trong modal Gắn gợi ý
+  useEffect(() => {
+    if (!linkingSuggestion || !selectedLinkMed) {
+      setLinkUsageProfile(emptyUsageProfile());
+      setLinkDosageText('');
+      setLinkSourceUrl('');
+      setLinkCustomDosageOpen(true);
+      setShowLinkDevMode(false);
+      setLinkDevAiInput('');
+      return;
+    }
+
+    const rule = selectedLinkMed.usage_profile?.disease_rules?.[linkingSuggestion.model_class];
+    const hasCustom = Boolean(
+      rule && (rule.dosage_instruction?.trim() || (rule.usage_profile && !isUsageEmpty(rule.usage_profile)))
+    );
+
+    if (rule?.usage_profile && !isUsageEmpty(rule.usage_profile)) {
+      setLinkUsageProfile({ ...rule.usage_profile });
+    } else if (selectedLinkMed.usage_profile && !isUsageEmpty(selectedLinkMed.usage_profile)) {
+      setLinkUsageProfile({ ...selectedLinkMed.usage_profile });
+    } else {
+      setLinkUsageProfile(emptyUsageProfile());
+    }
+
+    if (rule?.dosage_instruction) {
+      setLinkDosageText(rule.dosage_instruction);
+    } else if (selectedLinkMed.dosage_instruction) {
+      setLinkDosageText(selectedLinkMed.dosage_instruction);
+    } else {
+      setLinkDosageText('');
+    }
+
+    if (rule?.source_url) {
+      setLinkSourceUrl(rule.source_url);
+    } else if (linkingSuggestion.source_url) {
+      setLinkSourceUrl(linkingSuggestion.source_url);
+    } else {
+      setLinkSourceUrl('');
+    }
+
+    // NẾU ĐÃ CÓ LIỀU RIÊNG CHO BỆNH NÀY -> ĐÓNG FORM (false) để 1-click xác nhận
+    // NẾU CHƯA CÓ LIỀU RIÊNG CHO BỆNH NÀY -> MỞ SẴN FORM (true) để Admin thấy và điền ngay!
+    setLinkCustomDosageOpen(!hasCustom);
+    setShowLinkDevMode(false);
+    setLinkDevAiInput('');
+  }, [selectedLinkMedId, linkingSuggestion]);
+
+  const handleCopyLinkAiPrompt = () => {
+    if (!linkingSuggestion || !selectedLinkMed) return;
+    const prompt = `Bạn là chuyên gia BVTV & Kỹ sư dữ liệu nông nghiệp Lavitree.
+Hãy phân tích đoạn trích và trích xuất THÔNG SỐ CÁCH DÙNG & LIỀU LƯỢNG của thuốc "${selectedLinkMed.name}" (${selectedLinkMed.active_ingredient || selectedLinkMed.medicine_type}) đối với bệnh "${linkingSuggestion.disease_name}" trên cây "${linkingSuggestion.plant_name}".
+
+ĐOẠN TRÍCH NGUỒN:
+"${linkingSuggestion.evidence_text || linkingSuggestion.mention_text}"
+
+YÊU CẦU ĐẦU RA:
+Trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc sau (không thêm văn bản markdown giải thích):
+{
+  "dosage_instruction": "Câu hướng dẫn chi tiết cách pha và phun cho bệnh ${linkingSuggestion.disease_name}",
+  "source_url": "Đường link tài liệu hoặc nhãn thuốc chi tiết (nếu có)",
+  "usage_profile": {
+    "dose_amount": null,
+    "dose_unit": null,
+    "water_liters": null,
+    "dose_text": null,
+    "spray_volume_per_ha": null,
+    "method": null,
+    "time_of_day": null,
+    "times_per_day": null,
+    "interval_days": null,
+    "max_applications_per_season": null,
+    "start_when": null,
+    "stop_when": null,
+    "avoid_rain_hours": null,
+    "safety_note": null
+  }
+}`;
+    navigator.clipboard.writeText(prompt);
+    toast.success('Đã sao chép Prompt AI phân tích liều lượng theo bệnh vào Clipboard!');
+  };
+
+  const handleApplyLinkAiJson = () => {
+    if (!linkDevAiInput.trim()) {
+      toast.error('Vui lòng dán đoạn JSON từ Gemini/AI vào ô.');
+      return;
+    }
+    try {
+      const raw = linkDevAiInput.trim();
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('Không tìm thấy JSON hợp lệ');
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      if (parsed.dosage_instruction && typeof parsed.dosage_instruction === 'string') {
+        setLinkDosageText(parsed.dosage_instruction);
+      }
+      if (parsed.source_url && typeof parsed.source_url === 'string') {
+        setLinkSourceUrl(parsed.source_url);
+      }
+      if (parsed.usage_profile && typeof parsed.usage_profile === 'object') {
+        setLinkUsageProfile(normalizeUsageProfile(parsed.usage_profile));
+      }
+      setLinkCustomDosageOpen(true);
+      toast.success('Đã áp dụng thông số liều lượng từ AI thành công!');
+    } catch (err: any) {
+      toast.error(`JSON không hợp lệ: ${err.message || 'Lỗi cú pháp'}`);
+    }
+  };
+
+  const closeLinkDialog = () => {
+    setLinkingSuggestion(null);
+    setSelectedLinkMedId('');
+    setLinkProductSearch('');
+    setLinkCustomDosageOpen(true);
+    setShowLinkDevMode(false);
+    setLinkDevAiInput('');
+  };
+
+  const handleUnlinkSuggestion = async (suggestionId: number, mentionText?: string) => {
+    try {
+      setUnlinkingId(suggestionId);
+      const res = await apiClient.post(`/knowledge/product-suggestions/${suggestionId}/unlink`);
+      toast.success(res.data?.message || `Đã hủy gán gợi ý "${mentionText || ''}", đưa về trạng thái chờ xử lý!`);
+      const target = suggestions.find((s) => s.id === suggestionId);
+      const norm = (mentionText || target?.mention_text || '').trim().toLowerCase();
+      setSuggestions((prev) =>
+        prev.map((s) =>
+          (norm && s.mention_text.trim().toLowerCase() === norm) || s.id === suggestionId
+            ? { ...s, status: 'PENDING', product_id: null, product_name: null, resolved_at: null }
+            : s
+        )
+      );
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setUnlinkingId(null);
+    }
+  };
+
   const fetchSuggestions = async () => {
     try {
       setLoadingSuggestions(true);
@@ -348,11 +527,20 @@ export const AdminInventoryPage: React.FC = () => {
     }
     try {
       setLinkingLoading(true);
-      await apiClient.post(`/knowledge/product-suggestions/${linkingSuggestion.id}/link`, {
+      const payload: any = {
         product_id: Number(selectedLinkMedId),
-      });
+      };
+
+      if (linkCustomDosageOpen || linkDosageText.trim() || !isUsageEmpty(linkUsageProfile) || linkSourceUrl.trim()) {
+        if (linkDosageText.trim()) payload.dosage_instruction = linkDosageText.trim();
+        if (!isUsageEmpty(linkUsageProfile)) payload.usage_profile = linkUsageProfile;
+        if (linkSourceUrl.trim()) payload.source_url = linkSourceUrl.trim();
+      }
+
+      await apiClient.post(`/knowledge/product-suggestions/${linkingSuggestion.id}/link`, payload);
       const med = medicines.find((m) => m.id === selectedLinkMedId);
       toast.success(`Đã gắn gợi ý "${linkingSuggestion.mention_text}" với sản phẩm "${med?.name || ''}"!`);
+
       const norm = linkingSuggestion.mention_text.trim().toLowerCase();
       setSuggestions((prev) =>
         prev.map((s) =>
@@ -361,8 +549,39 @@ export const AdminInventoryPage: React.FC = () => {
             : s
         )
       );
-      setLinkingSuggestion(null);
-      setSelectedLinkMedId('');
+
+      // Cập nhật local state medicines
+      setMedicines((prev) =>
+        prev.map((m) => {
+          if (m.id !== selectedLinkMedId) return m;
+          const currentTargets = m.target_diseases || [];
+          const nextTargets = linkingSuggestion.model_class && !currentTargets.includes(linkingSuggestion.model_class)
+            ? [...currentTargets, linkingSuggestion.model_class]
+            : currentTargets;
+
+          let nextProfile = m.usage_profile ? { ...m.usage_profile } : emptyUsageProfile();
+          if (payload.dosage_instruction || payload.usage_profile || payload.source_url) {
+            const nextDiseaseRules = { ...(nextProfile.disease_rules || {}) };
+            if (linkingSuggestion.model_class) {
+              nextDiseaseRules[linkingSuggestion.model_class] = {
+                dosage_instruction: payload.dosage_instruction,
+                usage_profile: payload.usage_profile,
+                source_url: payload.source_url || linkingSuggestion.source_url,
+                is_verified: true,
+              };
+            }
+            nextProfile.disease_rules = nextDiseaseRules;
+          }
+
+          return {
+            ...m,
+            target_diseases: nextTargets,
+            usage_profile: nextProfile,
+          };
+        })
+      );
+
+      closeLinkDialog();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -680,25 +899,32 @@ export const AdminInventoryPage: React.FC = () => {
       toast.error('Link nguồn phải bắt đầu bằng http:// hoặc https://.');
       return;
     }
-    const usageError = validateUsageProfile(newMedUsage);
-    if (usageError) {
-      toast.error(`Phiếu cách dùng: ${usageError}`);
-      return;
+    if (fromSuggestion) {
+      const usageError = validateUsageProfile(newMedUsage);
+      if (usageError) {
+        toast.error(`Phiếu cách dùng: ${usageError}`);
+        return;
+      }
     }
 
     try {
       setCreatingMed(true);
-      const combinedDosage = combineDescriptionDosage(
-        newMedDescription,
-        newMedDosage.trim() || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì')
-      );
+      const defaultDosage = isSupply
+        ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
+        : 'Pha theo hướng dẫn trên bao bì';
+      const dosageToUse = fromSuggestion && newMedDosage.trim()
+        ? newMedDosage.trim()
+        : defaultDosage;
+      const combinedDosage = newMedDescription.trim()
+        ? combineDescriptionDosage(newMedDescription, dosageToUse)
+        : dosageToUse;
 
       const payload: any = {
         name: newMedName.trim(),
         medicine_type: newMedType,
         active_ingredient: isSupply ? null : newMedActiveIngredient.trim() || undefined,
         price: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedPrice) || 0),
-        dosage_instruction: combinedDosage || (isSupply ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất' : 'Pha theo hướng dẫn trên bao bì'),
+        dosage_instruction: combinedDosage,
         phi_days: isSupply ? null : Number(newMedPhi),
         stock_quantity: newMedAvailability === 'NOT_SOLD' ? 0 : (Number(newMedStock) || 0),
         availability: newMedAvailability,
@@ -711,7 +937,7 @@ export const AdminInventoryPage: React.FC = () => {
       };
 
       const res = await apiClient.post('/medicines', payload);
-      toast.success(`Đã thêm sản phẩm "${res.data.name}" vào danh mục thành công!`);
+      toast.success(`Đã thêm sản phẩm "${res.data.name}" thành công!`);
       const keptPending = Number(res.data?.suggestions_kept_pending) || 0;
       if (keptPending > 0) {
         toast.info(
@@ -723,6 +949,9 @@ export const AdminInventoryPage: React.FC = () => {
       fetchMedicines();
       if (fromSuggestion) {
         fetchSuggestions();
+      }
+      if (res.data?.id) {
+        navigate(`/admin/inventory/products/${res.data.id}`);
       }
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -890,7 +1119,7 @@ export const AdminInventoryPage: React.FC = () => {
                   <thead className="bg-muted/50 border-b border-border text-muted-foreground font-semibold">
                     <tr>
                       <th className="p-3">Mã #</th>
-                      <th className="p-3">Tên thuốc &amp; Hoạt chất</th>
+                      <th className="p-3">Tên thuốc &amp; Nguồn</th>
                       <th className="p-3">Phân loại</th>
                       <th className="p-3">Căn cứ</th>
                       <th className="p-3">Giá bán</th>
@@ -934,14 +1163,9 @@ export const AdminInventoryPage: React.FC = () => {
                                 {med.name}
                               </Link>
                             </div>
-                            <div className="text-[11px] text-muted-foreground">
-                              {med.active_ingredient || (
-                                <span className="italic text-muted-foreground/70">Không có hoạt chất hóa học</span>
-                              )}
-                            </div>
                             {med.info_source_url && (
                               <a
-                                href={med.info_source_url}
+                                href={safeHref(med.info_source_url)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline mt-0.5"
@@ -992,9 +1216,9 @@ export const AdminInventoryPage: React.FC = () => {
                                 return (
                                   <span
                                     className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20"
-                                    title="Chưa có bài báo nào nhắc tới thuốc này cho các bệnh được gắn"
+                                    title="Thuốc đã chỉ định cho bệnh hại nhưng chưa liên kết với bài báo nào trong cơ sở tri thức"
                                   >
-                                    <AlertTriangle className="w-3 h-3" /> Chưa có bài nguồn
+                                    <AlertTriangle className="w-3 h-3" /> Chưa gắn bài báo
                                   </span>
                                 );
                               }
@@ -1410,6 +1634,23 @@ export const AdminInventoryPage: React.FC = () => {
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {group.status === 'LINKED' && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleUnlinkSuggestion(actionItem.id, group.mentionText)}
+                                      disabled={unlinkingId === actionItem.id}
+                                      className="h-7 px-2 text-[11px] gap-1 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-medium"
+                                      title={`Hủy gán cả ${group.count} gợi ý này, đưa về trạng thái chờ xử lý`}
+                                    >
+                                      {unlinkingId === actionItem.id ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <RotateCcw className="w-3 h-3" />
+                                      )}
+                                      <span>Hủy gán</span>
+                                    </Button>
+                                  )}
                                   <span className="text-[11px] text-muted-foreground">Đã xử lý ({group.count})</span>
                                   <Button
                                     size="sm"
@@ -1630,6 +1871,23 @@ export const AdminInventoryPage: React.FC = () => {
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {sug.status === 'LINKED' && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleUnlinkSuggestion(sug.id, sug.mention_text)}
+                                      disabled={unlinkingId === sug.id}
+                                      className="h-7 px-2 text-[11px] gap-1 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-medium"
+                                      title="Hủy gán, đưa gợi ý về trạng thái chờ xử lý"
+                                    >
+                                      {unlinkingId === sug.id ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <RotateCcw className="w-3 h-3" />
+                                      )}
+                                      <span>Hủy gán</span>
+                                    </Button>
+                                  )}
                                   <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
                                   <Button
                                     size="sm"
@@ -1655,13 +1913,10 @@ export const AdminInventoryPage: React.FC = () => {
         )}
       </div>
 
-      {/* ========================================================================================= */}
-      {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
-      {/* ========================================================================================= */}
       {/* ========================================================================= */}
       {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (TASK-15 PHASE 3) */}
       {/* ========================================================================= */}
-      <Dialog open={!!linkingSuggestion} onOpenChange={() => { setLinkingSuggestion(null); setLinkProductSearch(''); }}>
+      <Dialog open={!!linkingSuggestion} onOpenChange={closeLinkDialog}>
         <DialogContent className="sm:max-w-2xl lg:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card">
           <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
             <DialogTitle className="text-base font-bold flex items-center gap-2 text-foreground">
@@ -1818,14 +2073,259 @@ export const AdminInventoryPage: React.FC = () => {
                   })
                 )}
               </div>
+
+              {/* THIẾT LẬP LIỀU LƯỢNG & CÁCH DÙNG CHO BỆNH NÀY */}
+              {selectedLinkMed && (
+                <div className="pt-2 border-t border-border/80 space-y-3">
+                  {/* Khối trạng thái bệnh & liều lượng hiện có */}
+                  <div
+                    className={`p-3.5 rounded-xl border transition-all ${
+                      hasDosageForDisease
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+                        : hasDiseaseAlready
+                        ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
+                        : 'bg-muted/40 border-border/80'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2.5">
+                        {hasDosageForDisease ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        ) : (
+                          <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                        )}
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-foreground text-xs">
+                              Cây – Bệnh hại: {linkingSuggestion.plant_name} – {linkingSuggestion.disease_name}
+                            </span>
+                            {hasDosageForDisease ? (
+                              <Badge className="bg-emerald-600 text-white text-[10px] py-0 px-1.5 font-bold">
+                                ✓ Đã có liều lượng riêng
+                              </Badge>
+                            ) : hasDiseaseAlready ? (
+                              <Badge variant="outline" className="text-blue-700 dark:text-blue-300 border-blue-300 text-[10px] py-0 px-1.5 font-medium">
+                                Đang dùng liều chung
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-muted-foreground border-border text-[10px] py-0 px-1.5 font-medium">
+                                Bệnh mới sẽ được thêm
+                              </Badge>
+                            )}
+                          </div>
+
+                          {hasDosageForDisease ? (
+                            <p className="text-[11px] text-emerald-800 dark:text-emerald-300 leading-relaxed font-mono">
+                              {existingDiseaseRule?.dosage_instruction || formatUsageProfileSummary(existingDiseaseRule?.usage_profile) || 'Đã có quy tắc cách dùng riêng'}
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground leading-relaxed">
+                              {hasDiseaseAlready
+                                ? 'Thuốc đã nằm trong danh mục trị bệnh này nhưng chưa có hướng dẫn riêng. Mặc định sẽ dùng liều chung của kho nếu không thiết lập thêm.'
+                                : `Liên kết sẽ tự động thêm bệnh "${linkingSuggestion.disease_name}" vào danh sách trị bệnh của "${selectedLinkMed.name}". Mặc định sẽ dùng liều chung của kho.`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Nút bật/mở form liều lượng riêng */}
+                      <Button
+                        type="button"
+                        variant={linkCustomDosageOpen ? 'secondary' : 'outline'}
+                        size="sm"
+                        onClick={() => setLinkCustomDosageOpen(!linkCustomDosageOpen)}
+                        className="shrink-0 h-8 text-xs gap-1.5 font-medium shadow-2xs"
+                      >
+                        {hasDosageForDisease ? (
+                          <>
+                            <Pencil className="w-3.5 h-3.5" />
+                            <span>{linkCustomDosageOpen ? 'Thu gọn' : 'Sửa liều riêng'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <CalendarClock className="w-3.5 h-3.5" />
+                            <span>{linkCustomDosageOpen ? 'Thu gọn form' : 'Thiết lập liều riêng (Tùy chọn)'}</span>
+                          </>
+                        )}
+                        {linkCustomDosageOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Form liều lượng & cách dùng khi mở rộng */}
+                  {linkCustomDosageOpen && (
+                    <div className="p-4 rounded-xl border border-border bg-card/60 space-y-4 animate-in fade-in-50 duration-200">
+                      <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                        <div className="flex items-center gap-2">
+                          <CalendarClock className="w-4 h-4 text-emerald-600" />
+                          <h4 className="font-bold text-foreground text-xs">
+                            Quy tắc cách dùng cho bệnh: {linkingSuggestion.disease_name}
+                          </h4>
+                        </div>
+
+                        {/* Nút ẩn/hiện chế độ Dev AI */}
+                        <button
+                          type="button"
+                          onClick={() => setShowLinkDevMode(!showLinkDevMode)}
+                          className={`p-1.5 rounded-md border transition-colors ${
+                            showLinkDevMode
+                              ? 'bg-muted text-foreground border-border'
+                              : 'border-transparent text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50'
+                          }`}
+                          title="Chế độ Dev AI (Trích xuất liều lượng từ đoạn trích)"
+                        >
+                          <Code2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* KHUNG DEV AI CHO LIÊN KẾT LIỀU LƯỢNG */}
+                      {showLinkDevMode && (
+                        <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-foreground flex items-center gap-1.5 text-[11px]">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                              Prompt AI bóc tách liều lượng &amp; phiếu cách dùng:
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleCopyLinkAiPrompt}
+                              className="h-7 text-[11px] gap-1"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>Sao chép Prompt</span>
+                            </Button>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Sao chép prompt này gửi Gemini/ChatGPT cùng đoạn trích bài báo hoặc nhãn thuốc, sau đó dán JSON kết quả vào ô bên dưới:
+                          </p>
+                          <div className="flex gap-2">
+                            <Textarea
+                              value={linkDevAiInput}
+                              onChange={(e) => setLinkDevAiInput(e.target.value)}
+                              placeholder='Dán đoạn JSON trả về từ AI vào đây (VD: {"dosage_instruction": "...", "usage_profile": {...}})...'
+                              rows={2}
+                              className="text-[11px] font-mono bg-background"
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleApplyLinkAiJson}
+                              className="shrink-0 h-auto self-stretch text-xs font-bold"
+                            >
+                              Áp dụng JSON
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* PHIẾU CÁCH DÙNG (LÊN LỊCH PHUN / NHẮC NHỞ) */}
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-semibold text-muted-foreground flex items-center justify-between">
+                          <span>1. Phiếu cách dùng (để lên lịch phun &amp; nhắc nhở):</span>
+                          <span className="text-[10px] text-muted-foreground">Điền số hoặc để trống</span>
+                        </div>
+                        <div className="p-3 bg-muted/15 rounded-xl border border-border/70">
+                          <UsageProfileEditor
+                            value={linkUsageProfile}
+                            onChange={setLinkUsageProfile}
+                            isSupply={selectedLinkMed.medicine_type === 'Vật tư canh tác'}
+                            onCompose={() => {
+                              const isSupply = selectedLinkMed.medicine_type === 'Vật tư canh tác';
+                              const text = formatUsageText(
+                                linkUsageProfile,
+                                isSupply || selectedLinkMed.phi_days === null ? null : Number(selectedLinkMed.phi_days),
+                                isSupply
+                              );
+                              if (text) {
+                                setLinkDosageText(text);
+                                toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* HƯỚNG DẪN SỬ DỤNG / LIỀU LƯỢNG */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="font-semibold text-foreground text-xs">
+                            2. Hướng dẫn sử dụng / Liều lượng (Trợ lý Lavi đọc trực tiếp):
+                          </label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const isSupply = selectedLinkMed.medicine_type === 'Vật tư canh tác';
+                              const text = formatUsageText(
+                                linkUsageProfile,
+                                isSupply || selectedLinkMed.phi_days === null ? null : Number(selectedLinkMed.phi_days),
+                                isSupply
+                              );
+                              if (text) {
+                                setLinkDosageText(text);
+                                toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
+                              } else {
+                                toast.error('Phiếu cách dùng đang trống, chưa có thông số để ghép.');
+                              }
+                            }}
+                            className="h-6 text-[11px] text-primary gap-1 hover:bg-primary/10"
+                          >
+                            <Sparkles className="w-3 h-3 text-amber-500" />
+                            <span>Ghép từ phiếu trên</span>
+                          </Button>
+                        </div>
+                        <Textarea
+                          value={linkDosageText}
+                          onChange={(e) => setLinkDosageText(e.target.value)}
+                          placeholder="VD: Pha 40–50g cho bình 16 lít nước, phun ướt đều tán lá khi bệnh mới chớm xuất hiện..."
+                          rows={3}
+                          className="text-xs font-mono leading-relaxed bg-background"
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          Trợ lý Lavi đọc nguyên văn ô này khi tư vấn cho bệnh <strong>{linkingSuggestion.disease_name}</strong>.
+                        </p>
+                      </div>
+
+                      {/* LINK NGUỒN THAM KHẢO CHI TIẾT LIỀU LƯỢNG (URL TÙY CHỌN) */}
+                      <div className="space-y-1.5">
+                        <label className="font-semibold text-foreground text-xs block">
+                          3. Link nguồn tham khảo chi tiết liều lượng (URL tùy chọn):
+                        </label>
+                        <Input
+                          value={linkSourceUrl}
+                          onChange={(e) => setLinkSourceUrl(e.target.value)}
+                          placeholder="Dán link bài viết hướng dẫn chi tiết hoặc link nhãn thuốc của hãng..."
+                          className="text-xs bg-background font-mono"
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          Đường link đến tài liệu kỹ thuật hoặc nhãn thuốc của hãng dùng làm căn cứ đối chiếu cho liều lượng bệnh này (khác với link bài báo trích dẫn).
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex items-center justify-between sm:justify-between shrink-0">
             <div className="text-[11px] text-muted-foreground truncate max-w-[50%]">
-              {selectedLinkMedId ? (
-                <span>
-                  Đã chọn: <strong className="text-emerald-700 dark:text-emerald-400 font-semibold">{medicines.find((m) => m.id === selectedLinkMedId)?.name}</strong>
+              {selectedLinkMed ? (
+                <span className="flex items-center gap-1.5">
+                  <span>Đã chọn:</span>
+                  <strong className="text-emerald-700 dark:text-emerald-400 font-semibold">{selectedLinkMed.name}</strong>
+                  {hasDosageForDisease ? (
+                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[9px] py-0 px-1 border-0">
+                      Có liều riêng
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 border-border">
+                      Liều mặc định
+                    </Badge>
+                  )}
                 </span>
               ) : (
                 <span className="italic text-amber-700 dark:text-amber-400">Chưa chọn sản phẩm nào</span>
@@ -1836,7 +2336,7 @@ export const AdminInventoryPage: React.FC = () => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { setLinkingSuggestion(null); setLinkProductSearch(''); }}
+                onClick={closeLinkDialog}
                 disabled={linkingLoading}
               >
                 Hủy
@@ -2176,15 +2676,6 @@ export const AdminInventoryPage: React.FC = () => {
 
           <div className="space-y-3 pt-2">
             <form onSubmit={handleCreateMedicineSubmit} className="space-y-3 text-xs">
-              {isIngredientBanned(newMedActiveIngredient || newMedName) && (
-                <div className="p-2.5 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-xs flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div>
-                    <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên hoặc hoạt chất "{newMedActiveIngredient || newMedName}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể bật lưu hành sản phẩm này.
-                  </div>
-                </div>
-              )}
-
               {/* 1. KHỐI LINK TRANG SẢN PHẨM / NHÃN THUỐC (URL) */}
               <div className="p-3 bg-secondary/30 rounded-xl border border-border space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-1.5">
@@ -2272,8 +2763,16 @@ export const AdminInventoryPage: React.FC = () => {
                   value={newMedName}
                   onChange={(e) => setNewMedName(e.target.value)}
                   required
-                  className="text-xs"
+                  className={`text-xs ${isIngredientBanned(newMedName) ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                 />
+                {isIngredientBanned(newMedName) && (
+                  <div className="mt-1.5 p-2 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-[11px] flex items-start gap-1.5 leading-tight">
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <div>
+                      <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Tên sản phẩm "{newMedName}" chứa hoạt chất cấm. Không thể bật lưu hành sản phẩm này.
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -2443,7 +2942,7 @@ export const AdminInventoryPage: React.FC = () => {
                     className="text-xs leading-relaxed font-sans"
                   />
                 ) : (
-                  <div className="p-3 bg-secondary/30 rounded-lg border border-border text-xs leading-relaxed min-h-[110px] space-y-1.5">
+                  <div className="p-3 bg-secondary/30 rounded-xl border border-border text-xs leading-relaxed min-h-[110px] space-y-2.5">
                     {newMedDescription.trim() ? (
                       newMedDescription.split('\n').map((line, idx) => {
                         const trim = line.trim();
@@ -2580,8 +3079,16 @@ export const AdminInventoryPage: React.FC = () => {
                       placeholder="Ví dụ: Metalaxyl-M, Mancozeb..."
                       value={newMedActiveIngredient}
                       onChange={(e) => setNewMedActiveIngredient(e.target.value)}
-                      className="text-xs"
+                      className={`text-xs ${isIngredientBanned(newMedActiveIngredient) ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                     />
+                    {isIngredientBanned(newMedActiveIngredient) && (
+                      <div className="mt-1.5 p-2 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-[11px] flex items-start gap-1.5 leading-tight">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <div>
+                          <strong>Cảnh báo chất cấm (TT 75/2025):</strong> Hoạt chất "{newMedActiveIngredient}" nằm trong danh mục cấm sử dụng tại Việt Nam. Không thể bật lưu hành sản phẩm này.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div>
@@ -2644,38 +3151,50 @@ export const AdminInventoryPage: React.FC = () => {
                 />
               </div>
 
-              {/* PHIẾU CÁCH DÙNG (TASK-18) */}
-              <UsageProfileEditor
-                value={newMedUsage}
-                onChange={setNewMedUsage}
-                isSupply={newMedType === 'Vật tư canh tác'}
-                onCompose={() => {
-                  const isSupply = newMedType === 'Vật tư canh tác';
-                  const text = formatUsageText(newMedUsage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply);
-                  if (text) {
-                    setNewMedDosage(text);
-                    toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
-                  }
-                }}
-              />
+              {fromSuggestion ? (
+                <>
+                  {/* PHIẾU CÁCH DÙNG (KHI TẠO TỪ GỢI Ý BÀI BÁO) */}
+                  <UsageProfileEditor
+                    value={newMedUsage}
+                    onChange={setNewMedUsage}
+                    isSupply={newMedType === 'Vật tư canh tác'}
+                    onCompose={() => {
+                      const isSupply = newMedType === 'Vật tư canh tác';
+                      const text = formatUsageText(newMedUsage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply);
+                      if (text) {
+                        setNewMedDosage(text);
+                        toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
+                      }
+                    }}
+                  />
 
-              <div>
-                <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
-                <Textarea
-                  value={newMedDosage}
-                  onChange={(e) => setNewMedDosage(e.target.value)}
-                  placeholder={
-                    newMedType === 'Vật tư canh tác'
-                      ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
-                      : 'Pha theo hướng dẫn trên bao bì'
-                  }
-                  rows={Math.min(9, Math.max(2, newMedDosage.split('\n').length + 1))}
-                  className="text-xs"
-                />
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.
-                </p>
-              </div>
+                  <div>
+                    <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
+                    <Textarea
+                      value={newMedDosage}
+                      onChange={(e) => setNewMedDosage(e.target.value)}
+                      placeholder={
+                        newMedType === 'Vật tư canh tác'
+                          ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
+                          : 'Pha theo hướng dẫn trên bao bì'
+                      }
+                      rows={Math.min(9, Math.max(2, newMedDosage.split('\n').length + 1))}
+                      className="text-xs"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                /* GHI CHÚ LIỀU LƯỢNG RIÊNG THEO BỆNH CHO NÚT THÊM SẢN PHẨM MỚI TẠI KHO */
+                <div className="p-3 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs leading-relaxed flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    <strong>Liều lượng &amp; Cách dùng theo bệnh:</strong> Sau khi tạo sản phẩm, bạn có thể thiết lập cách dùng và phiếu lên lịch riêng cho từng bệnh hại tại trang <strong>Chi tiết sản phẩm</strong>.
+                  </span>
+                </div>
+              )}
 
               <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <input

@@ -13,6 +13,13 @@ export interface AreaDose extends NumberRange {
   unit: string | null;
 }
 
+export interface DiseaseUsageRuleProfile {
+  dosage_instruction?: string | null;
+  usage_profile?: UsageProfile | null;
+  source_url?: string | null;
+  is_verified?: boolean;
+}
+
 export interface UsageProfile {
   version?: number;
   dose_amount: number | null;
@@ -32,6 +39,7 @@ export interface UsageProfile {
   avoid_rain_hours: number | null;
   safety_note: string | null;
   source_url: string | null;
+  disease_rules?: Record<string, DiseaseUsageRuleProfile> | null;
 }
 
 export const USAGE_PROFILE_VERSION = 1;
@@ -55,6 +63,7 @@ export const emptyUsageProfile = (): UsageProfile => ({
   avoid_rain_hours: null,
   safety_note: null,
   source_url: null,
+  disease_rules: null,
 });
 
 /** Nhãn cố định của từng dòng trong "Hướng dẫn sử dụng". Đổi nhãn = phải chuyển đổi dữ liệu cũ. */
@@ -155,13 +164,28 @@ export const normalizeUsageProfile = (raw: unknown): UsageProfile => {
     avoid_rain_hours: toInt(o.avoid_rain_hours),
     safety_note: toText(o.safety_note),
     source_url: toText(o.source_url),
+    disease_rules: o.disease_rules && typeof o.disease_rules === 'object' && !Array.isArray(o.disease_rules)
+      ? Object.fromEntries(
+          Object.entries(o.disease_rules as Record<string, any>).map(([code, val]) => [
+            code,
+            {
+              dosage_instruction: toText(val?.dosage_instruction),
+              usage_profile: val?.usage_profile ? normalizeUsageProfile(val.usage_profile) : null,
+              source_url: toText(val?.source_url),
+              is_verified: val?.is_verified ?? true,
+            },
+          ])
+        )
+      : null,
   };
 };
 
 export const isUsageEmpty = (p: UsageProfile | null | undefined): boolean => {
   if (!p) return true;
-  const { version: _v, ...rest } = p;
-  return Object.values(rest).every((v) => v === null || v === undefined || (Array.isArray(v) && v.length === 0));
+  const { version: _v, disease_rules, ...rest } = p;
+  const restEmpty = Object.values(rest).every((v) => v === null || v === undefined || (Array.isArray(v) && v.length === 0));
+  const rulesEmpty = !disease_rules || Object.keys(disease_rules).length === 0;
+  return restEmpty && rulesEmpty;
 };
 
 // ---------------------------------------------------------------------------
