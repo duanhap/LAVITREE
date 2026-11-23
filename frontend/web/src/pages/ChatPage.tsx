@@ -21,6 +21,7 @@ import {
   Mic,
   MicOff,
   Image as ImageIcon,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -252,8 +253,9 @@ export const ChatPage: React.FC = () => {
     setDiseaseNameVi(null);
   };
 
-  // Nhận diện giọng nói (Speech-to-Text qua Web Speech API)
+  // Nhận diện giọng nói (Speech-to-Text qua Web Speech API & getUserMedia Permission)
   const [isListening, setIsListening] = useState(false);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   // Đính kèm ảnh lá cây / cây trồng
@@ -268,7 +270,17 @@ export const ChatPage: React.FC = () => {
     };
   }, []);
 
-  const handleToggleListening = () => {
+  const handleToggleListening = async () => {
+    // 1. Nếu đang nghe -> Bấm lại để dừng nghe
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    // 2. Kiểm tra hỗ trợ Web Speech Recognition của trình duyệt
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -277,12 +289,26 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    if (isListening) {
-      recognitionRef.current?.stop();
+    // 3. Kích hoạt quyền Microphone
+    try {
+      setIsRequestingPermission(true);
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    } catch (err: any) {
+      console.warn('Microphone permission not granted or blocked:', err);
+      setIsRequestingPermission(false);
       setIsListening(false);
+      toast.error('Micro đang bị chặn: Bạn bấm vào biểu tượng ⚙️ hoặc 🔒 ở đầu thanh URL (trước chữ localhost) rồi gạt BẬT Micro nhé!', {
+        duration: 7000,
+      });
       return;
+    } finally {
+      setIsRequestingPermission(false);
     }
 
+    // 4. Khởi chạy nhận diện giọng nói
     try {
       const recognition = new SpeechRecognition();
       recognition.lang = 'vi-VN';
@@ -308,7 +334,9 @@ export const ChatPage: React.FC = () => {
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error);
         if (event.error === 'not-allowed') {
-          toast.error('Vui lòng cấp quyền Microphone trong trình duyệt để nói câu hỏi.');
+          toast.error('Micro đang bị chặn: Bạn bấm vào biểu tượng ⚙️ hoặc 🔒 ở đầu thanh URL (trước chữ localhost) rồi gạt BẬT Micro nhé!', {
+            duration: 7000,
+          });
         } else if (event.error !== 'no-speech') {
           toast.error('Lỗi nhận diện giọng nói: ' + event.error);
         }
@@ -801,16 +829,26 @@ export const ChatPage: React.FC = () => {
                   type="button"
                   variant="ghost"
                   size="icon"
+                  disabled={isRequestingPermission}
                   onClick={handleToggleListening}
                   className={cn(
                     "h-8.5 w-8.5 rounded-xl shrink-0 transition-all",
                     isListening
                       ? "text-red-600 bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:text-red-400 animate-pulse ring-2 ring-red-400"
-                      : "text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                      : "text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40",
+                    isRequestingPermission && "opacity-80 cursor-wait text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40"
                   )}
-                  title={isListening ? "Đang lắng nghe... Bấm để dừng" : "Nói câu hỏi (Microphone tiếng Việt)"}
+                  title={
+                    isRequestingPermission
+                      ? "Vui lòng bấm 'Cho phép' trên thông báo của trình duyệt..."
+                      : isListening
+                      ? "Đang lắng nghe... Bấm để dừng"
+                      : "Nói câu hỏi (Microphone tiếng Việt)"
+                  }
                 >
-                  {isListening ? (
+                  {isRequestingPermission ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                  ) : isListening ? (
                     <MicOff className="w-4 h-4 text-red-600 animate-bounce" />
                   ) : (
                     <Mic className="w-4 h-4" />

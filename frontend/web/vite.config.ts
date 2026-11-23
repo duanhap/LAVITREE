@@ -170,8 +170,8 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      // AI Agent SSE streaming chat endpoint (Agent Service on port 8001)
-      '/api/v1/agent/chat': {
+      // AI Agent endpoints (SSE streaming chat, Edge Neural TTS) on port 8001
+      '/api/v1/agent': {
         target: process.env.AGENT_SERVICE_URL || 'http://localhost:8001',
         changeOrigin: true,
       },
