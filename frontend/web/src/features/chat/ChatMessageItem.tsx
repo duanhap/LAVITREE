@@ -36,11 +36,17 @@ interface ChatMessageItemProps {
   diseaseCode?: string | null;
 }
 
+// Bộ nhớ đệm âm thanh MP3 Neural TTS đã tạo (tránh gọi lại API khi nghe lại)
+const ttsAudioCache = new Map<string, string>();
+let globalPlayingAudio: HTMLAudioElement | null = null;
+
 export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, diseaseCode }) => {
   const isUser = message.role === 'user';
   const [isStepsOpen, setIsStepsOpen] = useState(false);
   const [addingToCartId, setAddingToCartId] = useState<number | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState<'vi-VN-HoaiMyNeural' | 'vi-VN-NamMinhNeural'>('vi-VN-HoaiMyNeural');
 
   const effectiveDiseaseCode =
     diseaseCode ||
@@ -48,22 +54,33 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
       ? new URLSearchParams(window.location.search).get('class_code')
       : null);
 
-  // Đọc câu trả lời bằng giọng nói tiếng Việt (Web Speech Synthesis)
-  const handleToggleSpeak = () => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      toast.error('Trình duyệt không hỗ trợ phát âm thanh (Speech Synthesis).');
-      return;
-    }
-
+  // Đọc câu trả lời bằng giọng nói AI Neural chất lượng cao (Microsoft Edge Neural TTS: Hoài My / Nam Minh)
+  const handleToggleSpeak = async () => {
+    // 1. Nếu đang phát -> Dừng phát ngay lập tức
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
+      if (globalPlayingAudio) {
+        globalPlayingAudio.pause();
+        globalPlayingAudio.currentTime = 0;
+        globalPlayingAudio = null;
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
       setIsSpeaking(false);
       return;
     }
 
-    window.speechSynthesis.cancel();
+    // Dừng bất kỳ âm thanh nào đang phát trước đó
+    if (globalPlayingAudio) {
+      globalPlayingAudio.pause();
+      globalPlayingAudio.currentTime = 0;
+      globalPlayingAudio = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
 
-    // Làm sạch Markdown trước khi đọc để giọng đọc tự nhiên
+    // 2. Làm sạch Markdown để giọng đọc mạch lạc, không đọc ký tự thô
     const cleanSpeech = displayContent
       .replace(/!\[.*?\]\(.*?\)/g, '')
       .replace(/\[(.*?)\]\(.*?\)/g, '$1')
@@ -73,21 +90,100 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
 
     if (!cleanSpeech) return;
 
-    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
-    utterance.lang = 'vi-VN';
-    utterance.rate = 1.0;
+    // Hàm dự phòng (Fallback): Dùng Web Speech Synthesis của trình duyệt nếu API backend offline
+    const fallbackSpeak = () => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        toast.error('Trình duyệt không hỗ trợ phát âm thanh.');
+        setIsSpeaking(false);
+        setIsLoadingAudio(false);
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+      utterance.lang = 'vi-VN';
+      utterance.rate = 1.0;
+      const voices = window.speechSynthesis.getVoices();
+      const viVoice = voices.find(
+        (v) =>
+          v.name.includes('HoaiMy') ||
+          v.name.includes('Natural') ||
+          v.lang.startsWith('vi') ||
+          v.lang.includes('VIE')
+      );
+      if (viVoice) utterance.voice = viVoice;
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+      setIsSpeaking(true);
+      setIsLoadingAudio(false);
+    };
 
-    const voices = window.speechSynthesis.getVoices();
-    const viVoice = voices.find(v => v.lang.startsWith('vi') || v.lang.includes('VIE'));
-    if (viVoice) {
-      utterance.voice = viVoice;
+    // 3. Ưu tiên gọi Microsoft Edge Neural TTS qua Backend API (giọng đọc truyền cảm, có ngữ điệu nhấn nhá, phát âm song ngữ Anh-Việt chuẩn)
+    const cacheKey = `${selectedVoice}:${cleanSpeech.slice(0, 160)}:${cleanSpeech.length}`;
+    const cachedUrl = ttsAudioCache.get(cacheKey);
+
+    if (cachedUrl) {
+      const audio = new Audio(cachedUrl);
+      globalPlayingAudio = audio;
+      audio.onplay = () => setIsSpeaking(true);
+      audio.onended = () => {
+        setIsSpeaking(false);
+        globalPlayingAudio = null;
+      };
+      audio.onerror = () => {
+        setIsSpeaking(false);
+        globalPlayingAudio = null;
+        fallbackSpeak();
+      };
+      try {
+        await audio.play();
+        return;
+      } catch (err) {
+        console.warn('Cached audio playback failed, falling back:', err);
+      }
     }
 
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    setIsLoadingAudio(true);
+    try {
+      const res = await fetch('/api/v1/agent/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: cleanSpeech,
+          voice: selectedVoice,
+        }),
+      });
 
-    window.speechSynthesis.speak(utterance);
-    setIsSpeaking(true);
+      if (!res.ok) {
+        throw new Error(`TTS API status: ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      ttsAudioCache.set(cacheKey, audioUrl);
+
+      const audio = new Audio(audioUrl);
+      globalPlayingAudio = audio;
+      audio.onplay = () => {
+        setIsSpeaking(true);
+        setIsLoadingAudio(false);
+      };
+      audio.onended = () => {
+        setIsSpeaking(false);
+        globalPlayingAudio = null;
+      };
+      audio.onerror = () => {
+        setIsSpeaking(false);
+        setIsLoadingAudio(false);
+        globalPlayingAudio = null;
+        fallbackSpeak();
+      };
+      await audio.play();
+    } catch (err) {
+      console.warn('Neural TTS failed, using fallback speech synthesis:', err);
+      fallbackSpeak();
+    } finally {
+      setIsLoadingAudio(false);
+    }
   };
 
   // Thêm thuốc được gợi ý vào giỏ hàng cá nhân (khớp StorePage SSOT)
@@ -222,31 +318,58 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-            {/* Nút nghe đọc giọng nói câu trả lời của AI */}
+            {/* Bộ điều khiển đọc AI Neural (Microsoft Edge Voice) */}
             {!message.isStreaming && displayContent && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleToggleSpeak}
-                className={cn(
-                  "h-7 px-2 text-xs gap-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors",
-                  isSpeaking && "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 animate-pulse font-medium"
-                )}
-                title={isSpeaking ? "Dừng đọc" : "Nghe đọc câu trả lời"}
-              >
-                {isSpeaking ? (
-                  <>
-                    <VolumeX className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="hidden sm:inline">Dừng đọc</span>
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Nghe đọc</span>
-                  </>
-                )}
-              </Button>
+              <div className="inline-flex items-center gap-1 bg-muted/60 hover:bg-muted/90 rounded-lg p-0.5 border border-border/50">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleToggleSpeak}
+                  disabled={isLoadingAudio}
+                  className={cn(
+                    "h-6 px-2 text-xs gap-1 rounded-md text-muted-foreground hover:text-foreground transition-colors",
+                    isSpeaking && "text-emerald-600 bg-emerald-100/70 dark:bg-emerald-950/50 font-medium",
+                    isLoadingAudio && "cursor-wait opacity-80"
+                  )}
+                  title={isSpeaking ? "Dừng đọc" : `Nghe đọc câu trả lời bằng giọng AI (${selectedVoice === 'vi-VN-HoaiMyNeural' ? 'Nữ - Hoài My' : 'Nam - Nam Minh'})`}
+                >
+                  {isLoadingAudio ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                      <span className="hidden sm:inline text-[11px]">Đang tải...</span>
+                    </>
+                  ) : isSpeaking ? (
+                    <>
+                      <VolumeX className="w-3 h-3 text-emerald-600 animate-pulse" />
+                      <span className="hidden sm:inline text-[11px] text-emerald-600">Dừng</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="w-3 h-3 text-emerald-600" />
+                      <span className="hidden sm:inline text-[11px]">Đọc AI</span>
+                    </>
+                  )}
+                </Button>
+
+                {/* Chuyển đổi giọng Nữ / Nam */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isSpeaking) {
+                      handleToggleSpeak();
+                    }
+                    setSelectedVoice((prev) =>
+                      prev === 'vi-VN-HoaiMyNeural' ? 'vi-VN-NamMinhNeural' : 'vi-VN-HoaiMyNeural'
+                    );
+                  }}
+                  className="px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-emerald-700 dark:hover:text-emerald-400 rounded transition-colors"
+                  title={`Đổi giọng: Hiện tại là ${selectedVoice === 'vi-VN-HoaiMyNeural' ? 'Nữ (Hoài My)' : 'Nam (Nam Minh)'}`}
+                >
+                  {selectedVoice === 'vi-VN-HoaiMyNeural' ? 'Nữ' : 'Nam'}
+                </button>
+              </div>
             )}
 
             {typeof message.total_latency_ms === 'number' && message.total_latency_ms > 0 && (

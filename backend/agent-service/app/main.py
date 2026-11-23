@@ -8,7 +8,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Literal, Optional, AsyncGenerator
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -281,3 +281,51 @@ def list_agent_traces():
     Lấy danh sách các phiên thực thi gần nhất trong bộ nhớ xoay vòng.
     """
     return {"traces": trace_logger.get_all_traces()}
+
+
+class TtsRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=5000)
+    voice: Optional[str] = Field("vi-VN-HoaiMyNeural", max_length=64)
+    rate: Optional[str] = Field("+0%", max_length=16)
+
+
+@app.post("/api/v1/agent/tts")
+async def text_to_speech(payload: TtsRequest):
+    """
+    POST /api/v1/agent/tts
+    Tạo âm thanh giọng đọc AI tự nhiên chất lượng cao sử dụng Microsoft Edge Neural TTS (edge-tts).
+    Hỗ trợ phát âm chuẩn xác, có ngữ điệu nhấn nhá truyền cảm và chuyển ngữ mượt mà giữa tiếng Việt và tiếng Anh.
+    Giọng mặc định: vi-VN-HoaiMyNeural (Nữ) hoặc vi-VN-NamMinhNeural (Nam).
+    """
+    clean_text = payload.text.strip()
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Văn bản không được để trống")
+
+    if len(clean_text) > 4000:
+        clean_text = clean_text[:4000]
+
+    voice = payload.voice or "vi-VN-HoaiMyNeural"
+    rate = payload.rate or "+0%"
+
+    try:
+        import edge_tts
+        communicate = edge_tts.Communicate(clean_text, voice=voice, rate=rate)
+        audio_bytes = bytearray()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_bytes.extend(chunk["data"])
+
+        if not audio_bytes:
+            raise HTTPException(status_code=500, detail="Không tạo được dữ liệu âm thanh từ Edge TTS")
+
+        return Response(
+            content=bytes(audio_bytes),
+            media_type="audio/mpeg",
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "Content-Disposition": "inline; filename=speech.mp3"
+            }
+        )
+    except Exception as e:
+        logger.error(f"[TTS] Lỗi sinh giọng nói Neural: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi sinh giọng nói Neural: {str(e)}")
