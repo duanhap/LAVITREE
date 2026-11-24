@@ -739,7 +739,7 @@
 ### 3.6.3. `GET /api/v1/orders/admin` (Admin: Toàn bộ đơn hàng của mọi người dùng)
 - **Headers**: `Authorization: Bearer <jwt_token>` (chỉ `ADMIN`, chính sách `AdminOnly`; người khác → `403`).
 - **Query (tùy chọn)**: `status` (`PENDING` | `CONFIRMED` | `SHIPPING` | `COMPLETED` | `CANCELLED` | `ALL`, không phân biệt hoa thường), `search` (tìm theo mã đơn `ord-xxxxxxxx`, tên người nhận, SĐT, địa chỉ, tên hoặc email tài khoản đặt).
-- **Response (`200 OK`)**: mảng đơn, mới nhất trước. Mỗi phần tử giống mục 3.6.2 và có thêm `updated_at`, `user_id`, `customer_name`, `customer_email`, `customer_phone`. Các trường thêm này **chỉ có giá trị ở endpoint Admin**; `GET /orders` và `GET /orders/{id}` trả `null`.
+- **Response (`200 OK`)**: mảng đơn, mới nhất trước. Mỗi phần tử giống mục 3.6.2 và có thêm `user_id`, `customer_name`, `customer_email`, `customer_phone`. Các trường thêm này **chỉ có giá trị ở endpoint Admin**; `GET /orders` và `GET /orders/{id}` trả `null`. Riêng `updated_at` (lần đổi trạng thái gần nhất, `null` nếu chưa đổi) có ở cả 4 endpoint đơn hàng.
 - *Hiện chưa phân trang; khi số đơn lớn cần thêm `page` / `page_size`.*
 
 ### 3.6.4. `PATCH /api/v1/orders/{id}/status` (Admin: Cập nhật trạng thái đơn)

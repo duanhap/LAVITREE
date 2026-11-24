@@ -201,6 +201,7 @@ public class OrdersController : ControllerBase
             ShippingAddress = o.ShippingAddress,
             PhoneNumber = o.PhoneNumber,
             CreatedAt = o.CreatedAt,
+            UpdatedAt = o.UpdatedAt,
             Items = o.Items.Select(i => new OrderItemResponseDto
             {
                 ProductId = i.ProductId,
@@ -359,6 +360,7 @@ public class OrdersController : ControllerBase
             ShippingAddress = order.ShippingAddress,
             PhoneNumber = order.PhoneNumber,
             CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt,
             Items = order.Items.Select(i => new OrderItemResponseDto
             {
                 ProductId = i.ProductId,

@@ -30,6 +30,7 @@ const AdminOrdersPage = React.lazy(() => import('@/pages/admin/AdminOrdersPage')
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
 const ProductDetailPage = React.lazy(() => import('@/pages/ProductDetailPage'));
+const OrderDetailPage = React.lazy(() => import('@/pages/OrderDetailPage'));
 const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
 const ChatPage = React.lazy(() => import('@/pages/ChatPage'));
 const AccountPage = React.lazy(() => import('@/pages/AccountPage'));
@@ -145,6 +146,16 @@ export const AppRouter: React.FC = () => {
             <RequireRole allowedRoles={['FARMER', 'ADMIN']}>
               <Suspense fallback={<PageSkeleton variant="list" />}>
                 <OrdersPage />
+              </Suspense>
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/orders/:orderId"
+          element={
+            <RequireRole allowedRoles={['FARMER', 'ADMIN']}>
+              <Suspense fallback={<PageSkeleton variant="detail" />}>
+                <OrderDetailPage />
               </Suspense>
             </RequireRole>
           }
