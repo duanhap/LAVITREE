@@ -34,6 +34,8 @@ Rà lại các chỗ dùng prompt AI thì thấy:
 6. **Trang sản phẩm**: ô thông số lấy từ phiếu chung ghi "Thông số chung của sản phẩm (chưa có liều riêng cho cây này)"; cửa hàng không lấy `dose_text` của phiếu chung làm liều cây và không lấy phiếu của liều riêng một bệnh làm thông số cả cây.
 7. **Dữ liệu Supabase** (người dùng đồng ý, 24/11/2026): đặt `Products.UsageProfile = NULL` cho Ridomil Gold 68WG (#1) và Vôi bột đá vôi nông nghiệp (#6). Trước khi xóa đã kiểm tra 2 sản phẩm không có liều theo bệnh/cây; ô `DosageInstruction` giữ nguyên. Bản sao lưu: [task-30-backup-usage-profile-p1-p6.json](task-30-backup-usage-profile-p1-p6.json). Người dùng sẽ tạo lại phiếu sau.
 
+8. **Trang Chi tiết sản phẩm, tab Thông tin** (bổ sung 24/11 tối): trước đây tab này không có chỗ sửa liều chung sản phẩm và nút nạp JSON AI bỏ qua `usage`. Giờ chế độ xem hiện "Liều chung của sản phẩm (theo nhãn / bao bì)" + tóm tắt phiếu; chế độ sửa có `UsageProfileEditor` + ô "Hướng dẫn sử dụng"; nạp JSON AI điền cả phiếu và câu liều; lưu gửi `usage_profile` (phiếu trống gửi `{}` để xóa) và ghép lại `dosage_instruction`. Thử Playwright trên DB local: xem / sửa có khung, nạp JSON Vôi bột → lưu → API trả `dose_per_area` 300–500 kg/ha, không lỗi JS.
+
 ## 3. Danh sách mọi chỗ dùng prompt AI (sau task này)
 
 | # | Chỗ | Phạm vi | Ghi vào đâu |
@@ -41,7 +43,7 @@ Rà lại các chỗ dùng prompt AI thì thấy:
 | 1 | Thêm sản phẩm (Kho) | Tổng quát sản phẩm, liều chung sản phẩm | `Products` (Admin thấy và sửa phiếu trước khi lưu) |
 | 2 | Tạo SP từ vật tư gợi ý | Mô tả tổng quát + liều trên cây chính của đoạn trích | `Products` + liều chung cây (`ProductUsageRules`) khi bệnh thuộc 1 cây |
 | 3 | Gắn SP vào gợi ý | Liều chung theo cây | `ProductUsageRules` (liều cây, hoặc liều riêng bệnh nếu khác) |
-| 4 | Chi tiết sản phẩm, tab Thông tin | Tổng quát sản phẩm | Chỉ điền tên, hoạt chất, PHI, ảnh, link, mô tả (không điền liều) |
+| 4 | Chi tiết sản phẩm, tab Thông tin | Tổng quát sản phẩm | Tên, hoạt chất, PHI, ảnh, link, mô tả + phiếu liều chung sản phẩm (Admin xem trước khi lưu) |
 | 5 | Chi tiết sản phẩm, tab Bệnh điều trị & Liều lượng | Không có prompt AI | Nhập tay → `ProductUsageRules` |
 | 6 | Gợi ý câu tìm Google | Không phải AI | — |
 | 7 | Nạp bài báo (agent-service `rag/pipeline.py`) | Chia đoạn, gán nhãn, trích tên vật tư → `ProductSuggestions` | Chưa rà trong task này |

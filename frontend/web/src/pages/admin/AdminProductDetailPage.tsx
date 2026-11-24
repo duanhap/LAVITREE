@@ -59,7 +59,14 @@ import {
   splitDescriptionDosage,
   combineDescriptionDosage,
   formatUsageText,
+  formatUsageProfileSummary,
+  emptyUsageProfile,
+  isUsageEmpty,
+  validateUsageProfile,
+  USAGE_PROFILE_VERSION,
+  type UsageProfile,
 } from '@/features/admin/lib/usage-profile';
+import { UsageProfileEditor } from '@/features/admin/components/UsageProfileEditor';
 import {
   buildGoogleQueries,
   buildProductResearchPrompt,
@@ -132,6 +139,13 @@ export const AdminProductDetailPage: React.FC = () => {
   const [aiSourceLinks, setAiSourceLinks] = useState<string[]>([]);
   const [aiNotes, setAiNotes] = useState<Array<{ title: string; text: string }>>([]);
 
+  // TASK-30: phiếu liều chung của sản phẩm (Tầng 3) để sửa ở tab Thông tin; bỏ bản xem plant_rules / disease_rules (chỉ đọc)
+  const toPackageUsage = (u?: UsageProfile | null): UsageProfile => {
+    if (!u) return emptyUsageProfile();
+    const { plant_rules: _p, disease_rules: _d, ...flat } = u;
+    return { ...emptyUsageProfile(), ...flat, plant_rules: null, disease_rules: null };
+  };
+
   // Tách mô tả và liều lượng từ dosage_instruction của product
   const { description: productDescription, dosage: productDosage } = useMemo(() => {
     return splitDescriptionDosage(product?.dosage_instruction || '');
@@ -193,9 +207,11 @@ export const AdminProductDetailPage: React.FC = () => {
         );
       }
 
-      const { description } = splitDescriptionDosage(p.dosage_instruction || '');
+      const { description, dosage } = splitDescriptionDosage(p.dosage_instruction || '');
 
       const initialData: ProductFormData = {
+        dosage_instruction: dosage,
+        usage_profile: toPackageUsage(p.usage_profile),
         name: p.name || '',
         medicine_type: p.medicine_type || 'Hóa học',
         active_ingredient: p.active_ingredient || '',
@@ -236,7 +252,9 @@ export const AdminProductDetailPage: React.FC = () => {
       formData.description !== initialFormData.description ||
       formData.image_url !== initialFormData.image_url ||
       formData.info_source_url !== initialFormData.info_source_url ||
-      formData.is_allowed !== initialFormData.is_allowed
+      formData.is_allowed !== initialFormData.is_allowed ||
+      (formData.dosage_instruction ?? '') !== (initialFormData.dosage_instruction ?? '') ||
+      JSON.stringify(formData.usage_profile ?? null) !== JSON.stringify(initialFormData.usage_profile ?? null)
     );
   }, [formData, initialFormData, isEditingInfo]);
 
@@ -293,8 +311,22 @@ export const AdminProductDetailPage: React.FC = () => {
 
     setIsSaving(true);
     try {
-      // Giữ nguyên phần liều lượng mặc định hiện tại
-      const combinedDosage = combineDescriptionDosage(formData.description, productDosage);
+      // TASK-30: "Hướng dẫn sử dụng" + phiếu liều chung của sản phẩm sửa được ở tab này
+      const usageError = validateUsageProfile(formData.usage_profile);
+      if (usageError) {
+        toast.error(`Phiếu liều chung: ${usageError}`);
+        setIsSaving(false);
+        return;
+      }
+      const combinedDosage = combineDescriptionDosage(
+        formData.description,
+        formData.dosage_instruction ?? productDosage
+      );
+      // Phiếu trống gửi {} để xóa phiếu (PATCH: null = giữ nguyên)
+      const flatUsage = toPackageUsage(formData.usage_profile);
+      const usagePayload = isUsageEmpty(flatUsage)
+        ? {}
+        : { ...flatUsage, plant_rules: undefined, disease_rules: undefined, version: USAGE_PROFILE_VERSION };
 
       const isBanned =
         isIngredientBanned(formData.name) ||
@@ -310,6 +342,7 @@ export const AdminProductDetailPage: React.FC = () => {
         phi_days: formData.medicine_type === 'Vật tư canh tác' ? null : Number(formData.phi_days),
         availability: formData.availability,
         dosage_instruction: combinedDosage,
+        usage_profile: usagePayload,
         image_url: formData.image_url.trim(),
         info_source_url: formData.info_source_url.trim(),
         is_allowed: isBanned ? false : formData.is_allowed,
@@ -610,6 +643,15 @@ export const AdminProductDetailPage: React.FC = () => {
       if (data.info_source_url || data.source_url)
         next.info_source_url = String(data.info_source_url || data.source_url).trim();
       if (data.description) next.description = String(data.description).trim();
+      // TASK-30: phiếu cách dùng AI trả về → phiếu liều chung của sản phẩm (Admin xem / sửa trước khi lưu)
+      if (parsed.usage && !isUsageEmpty(parsed.usage)) {
+        next.usage_profile = { ...toPackageUsage(parsed.usage) };
+        const isSupply = next.medicine_type === 'Vật tư canh tác';
+        const composed = formatUsageText(parsed.usage, isSupply || next.phi_days === '' ? null : Number(next.phi_days), isSupply);
+        if (composed) next.dosage_instruction = composed;
+      } else if (data.dosage_instruction) {
+        next.dosage_instruction = String(data.dosage_instruction).trim();
+      }
 
       if (parsed.imageCandidates && parsed.imageCandidates.length > 0) {
         setAiImageCandidates(parsed.imageCandidates);
@@ -793,8 +835,10 @@ export const AdminProductDetailPage: React.FC = () => {
                       type="button"
                       size="sm"
                       onClick={() => {
-                        const { description } = splitDescriptionDosage(product.dosage_instruction || '');
+                        const { description, dosage } = splitDescriptionDosage(product.dosage_instruction || '');
                         setFormData({
+                          dosage_instruction: dosage,
+                          usage_profile: toPackageUsage(product.usage_profile),
                           name: product.name || '',
                           medicine_type: product.medicine_type || 'Hóa học',
                           active_ingredient: product.active_ingredient || '',
@@ -939,6 +983,20 @@ export const AdminProductDetailPage: React.FC = () => {
 
                   {renderFormattedDescription(productDescription)}
                 </div>
+
+                {/* TASK-30: liều chung của sản phẩm (Tầng 3) */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-1.5">
+                  <h4 className="font-bold text-foreground text-sm">Liều chung của sản phẩm (theo nhãn / bao bì)</h4>
+                  <p className="text-xs text-foreground/90 whitespace-pre-line">
+                    {productDosage?.trim() || 'Chưa có.'}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {product.usage_profile && !isUsageEmpty(product.usage_profile)
+                      ? `Phiếu: ${formatUsageProfileSummary(product.usage_profile)}`
+                      : 'Chưa có phiếu liều chung.'}{' '}
+                    Liều theo từng cây ở tab Bệnh điều trị &amp; Liều lượng.
+                  </p>
+                </div>
               </div>
             ) : (
               /* EDIT MODE: HIỆN FORM CHỈNH SỬA VỚI NÚT LƯU & HỦY */
@@ -1001,6 +1059,45 @@ export const AdminProductDetailPage: React.FC = () => {
                   aiNotes={aiNotes}
                   googleQueries={googleQueries}
                 />
+
+                {/* TASK-30: LIỀU CHUNG CỦA SẢN PHẨM (Tầng 3 - theo nhãn / bao bì) */}
+                <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  <div>
+                    <h4 className="font-bold text-sm text-foreground">Liều chung của sản phẩm (theo nhãn / bao bì)</h4>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Dùng khi cây chưa có liều riêng. Liều theo từng cây đặt ở tab <strong>Bệnh điều trị &amp; Liều lượng</strong>. Để trống nếu chưa có nguồn.
+                    </p>
+                  </div>
+                  <UsageProfileEditor
+                    value={formData.usage_profile ?? emptyUsageProfile()}
+                    onChange={(next) => setFormData({ ...formData, usage_profile: next })}
+                    isSupply={formData.medicine_type === 'Vật tư canh tác'}
+                    onCompose={() => {
+                      const isSupply = formData.medicine_type === 'Vật tư canh tác';
+                      const text = formatUsageText(
+                        formData.usage_profile ?? emptyUsageProfile(),
+                        isSupply || formData.phi_days === '' ? null : Number(formData.phi_days),
+                        isSupply
+                      );
+                      if (text) {
+                        setFormData({ ...formData, dosage_instruction: text });
+                        toast.success('Đã ghép phiếu vào ô Hướng dẫn sử dụng.');
+                      }
+                    }}
+                  />
+                  <div>
+                    <label className="font-semibold block mb-1 text-xs">Hướng dẫn sử dụng / Liều lượng</label>
+                    <Textarea
+                      value={formData.dosage_instruction ?? ''}
+                      onChange={(e) => setFormData({ ...formData, dosage_instruction: e.target.value })}
+                      rows={Math.min(9, Math.max(2, (formData.dosage_instruction ?? '').split('\n').length + 1))}
+                      className="text-xs"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>
