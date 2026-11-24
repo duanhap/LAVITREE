@@ -19,11 +19,14 @@ import {
   RefreshCw,
   Microscope,
   BookOpen,
+  BookText,
   Info,
   CheckCircle2,
+  AlertTriangle,
   ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AdminHandbookEditorModal } from '@/features/handbook/components/AdminHandbookEditorModal';
 
 export interface AdminDiseaseItem {
   id: number;
@@ -34,6 +37,9 @@ export interface AdminDiseaseItem {
   pathogenName: string | null;
   approvedKnowledgeCount: number;
   severityLevel: number;
+  handbookStatus?: string;
+  handbookReviewReason?: string | null;
+  handbookUpdatedAt?: string | null;
 }
 
 interface CauseEvidence {
@@ -51,7 +57,11 @@ export const AdminDiseasesPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedPlant, setSelectedPlant] = useState<string>('ALL');
+  const [selectedHandbookStatus, setSelectedHandbookStatus] = useState<string>('ALL');
   const [onlyMissingPathogenName, setOnlyMissingPathogenName] = useState<boolean>(false);
+
+  // Handbook Editor modal state (TASK-27)
+  const [selectedHandbookDisease, setSelectedHandbookDisease] = useState<AdminDiseaseItem | null>(null);
 
   // Edit dialog state
   const [editingDisease, setEditingDisease] = useState<AdminDiseaseItem | null>(null);
@@ -103,9 +113,13 @@ export const AdminDiseasesPage: React.FC = () => {
         ? !isHealthy && (!d.pathogenName || d.pathogenName.trim() === '')
         : true;
 
-      return matchSearch && matchPlant && matchMissing;
+      const currentHbStatus = d.handbookStatus || 'NONE';
+      const matchHb =
+        selectedHandbookStatus === 'ALL' || currentHbStatus === selectedHandbookStatus;
+
+      return matchSearch && matchPlant && matchMissing && matchHb;
     });
-  }, [diseases, searchTerm, selectedPlant, onlyMissingPathogenName]);
+  }, [diseases, searchTerm, selectedPlant, selectedHandbookStatus, onlyMissingPathogenName]);
 
   const handleOpenEdit = async (disease: AdminDiseaseItem) => {
     setEditingDisease(disease);
@@ -222,7 +236,7 @@ export const AdminDiseasesPage: React.FC = () => {
 
       {/* Bộ lọc và Tìm kiếm */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 rounded-xl border border-border bg-card">
-        <div className="sm:col-span-5 relative">
+        <div className="sm:col-span-4 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Tìm theo tên bệnh, mã lớp, tên khoa học..."
@@ -232,7 +246,7 @@ export const AdminDiseasesPage: React.FC = () => {
           />
         </div>
 
-        <div className="sm:col-span-4 flex items-center gap-2">
+        <div className="sm:col-span-3 flex items-center gap-2">
           <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
           <select
             value={selectedPlant}
@@ -248,7 +262,22 @@ export const AdminDiseasesPage: React.FC = () => {
           </select>
         </div>
 
-        <div className="sm:col-span-3 flex items-center">
+        <div className="sm:col-span-3 flex items-center gap-2">
+          <BookText className="w-4 h-4 text-muted-foreground shrink-0" />
+          <select
+            value={selectedHandbookStatus}
+            onChange={(e) => setSelectedHandbookStatus(e.target.value)}
+            className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="ALL">Tất cả trạng thái cẩm nang</option>
+            <option value="PUBLISHED">Đã xuất bản (Published)</option>
+            <option value="NEEDS_REVIEW">⚠️ Cần rà soát lại (Needs Review)</option>
+            <option value="DRAFT">Bản nháp (Draft)</option>
+            <option value="NONE">Chưa có bài viết (None)</option>
+          </select>
+        </div>
+
+        <div className="sm:col-span-2 flex items-center">
           <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
             <input
               type="checkbox"
@@ -256,7 +285,7 @@ export const AdminDiseasesPage: React.FC = () => {
               onChange={(e) => setOnlyMissingPathogenName(e.target.checked)}
               className="rounded border-input text-primary focus:ring-primary w-4 h-4"
             />
-            <span>Chưa có tên khoa học</span>
+            <span className="truncate" title="Chưa có tên khoa học">Chưa có tên Latin</span>
           </label>
         </div>
       </div>
@@ -272,20 +301,21 @@ export const AdminDiseasesPage: React.FC = () => {
                 <th className="py-3 px-4">Loại tác nhân</th>
                 <th className="py-3 px-4">Tên khoa học (*Latin*)</th>
                 <th className="py-3 px-4 text-center">Tri thức đã duyệt</th>
+                <th className="py-3 px-4 text-center">Cẩm nang biên tập</th>
                 <th className="py-3 px-4 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-muted-foreground">
+                  <td colSpan={7} className="py-12 text-center text-muted-foreground">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
                     <span>Đang nạp danh mục bệnh...</span>
                   </td>
                 </tr>
               ) : filteredDiseases.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-muted-foreground">
+                  <td colSpan={7} className="py-12 text-center text-muted-foreground">
                     Không tìm thấy bệnh hại phù hợp với bộ lọc.
                   </td>
                 </tr>
@@ -346,16 +376,50 @@ export const AdminDiseasesPage: React.FC = () => {
                           <span className="text-muted-foreground/60 text-[11px]">0 đoạn</span>
                         )}
                       </td>
+                      <td className="py-3 px-4 text-center">
+                        {d.handbookStatus === 'PUBLISHED' ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 gap-1 text-[11px] font-medium">
+                            <CheckCircle2 className="w-3 h-3" /> Đã xuất bản
+                          </Badge>
+                        ) : d.handbookStatus === 'NEEDS_REVIEW' ? (
+                          <Badge
+                            className="bg-orange-500/20 text-orange-700 dark:text-orange-400 border-orange-500/40 gap-1 text-[11px] font-medium cursor-help animate-pulse"
+                            title={d.handbookReviewReason || 'Cần rà soát lại căn cứ khoa học do nguồn thay đổi'}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-orange-600 dark:text-orange-400" /> Cần rà soát
+                          </Badge>
+                        ) : d.handbookStatus === 'DRAFT' ? (
+                          <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[11px]">
+                            Bản nháp
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground/60 border-dashed text-[11px]">
+                            Chưa có bài
+                          </Badge>
+                        )}
+                      </td>
                       <td className="py-3 px-4 text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleOpenEdit(d)}
-                          className="h-8 text-xs gap-1 border-border hover:border-primary/50"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>Sửa</span>
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedHandbookDisease(d)}
+                            className="h-8 text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                            title="Biên tập cẩm nang bệnh học (Markdown / FAQ)"
+                          >
+                            <BookText className="w-3.5 h-3.5" />
+                            <span>Cẩm nang</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenEdit(d)}
+                            className="h-8 text-xs gap-1 border-border hover:border-primary/50"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Sửa</span>
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -492,6 +556,18 @@ export const AdminDiseasesPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal Biên tập Cẩm nang Bệnh học (TASK-27) */}
+      {selectedHandbookDisease && (
+        <AdminHandbookEditorModal
+          isOpen={!!selectedHandbookDisease}
+          onClose={() => setSelectedHandbookDisease(null)}
+          classCode={selectedHandbookDisease.classCode}
+          diseaseName={selectedHandbookDisease.commonNameVi}
+          plantName={selectedHandbookDisease.plantName}
+          onSaved={fetchDiseases}
+        />
+      )}
     </div>
   );
 };

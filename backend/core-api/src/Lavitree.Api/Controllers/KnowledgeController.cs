@@ -562,6 +562,11 @@ public class KnowledgeController : ControllerBase
 
         await _dbContext.SaveChangesAsync();
 
+        if (!dto.IsApproved)
+        {
+            await InvalidateHandbookArticlesAsync(new[] { source.ModelClass }, source.SourceTitle, "bỏ duyệt");
+        }
+
         var reindexAction = dto.IsApproved ? "approve" : "unapprove";
         var reindexStatus = await TriggerReindexAsync(source.Id.ToString(), reindexAction);
 
@@ -605,6 +610,12 @@ public class KnowledgeController : ControllerBase
         }
 
         await _dbContext.SaveChangesAsync();
+
+        if (!dto.IsApproved)
+        {
+            var affectedClasses = sources.Select(s => s.ModelClass);
+            await InvalidateHandbookArticlesAsync(affectedClasses, "nhiều nguồn", "bỏ duyệt");
+        }
 
         var reindexAction = dto.IsApproved ? "approve" : "unapprove";
         var reindexStatus = await TriggerReindexAsync(null, reindexAction);
@@ -935,6 +946,8 @@ public class KnowledgeController : ControllerBase
         source.ReviewerNotes = "Đã sửa đoạn, chờ duyệt lại";
         source.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
+
+        await InvalidateHandbookArticlesAsync(new[] { source.ModelClass }, source.SourceTitle, "sửa nội dung và thu hồi duyệt");
 
         var reindexStatus = await TriggerReindexAsync(source.Id.ToString(), "unapprove");
         return Ok(new { source_id = source.Id, is_manual_approved = false, reindex_status = reindexStatus });
@@ -1855,6 +1868,8 @@ public class KnowledgeController : ControllerBase
 
         await _dbContext.SaveChangesAsync();
 
+        await InvalidateHandbookArticlesAsync(new[] { item.ModelClass }, item.SourceTitle, "xóa");
+
         await TriggerReindexAsync(item.Id.ToString(), "delete");
 
         return Ok(new { message = "Đã xóa nguồn dữ liệu thành công." });
@@ -1897,6 +1912,9 @@ public class KnowledgeController : ControllerBase
         }
 
         await _dbContext.SaveChangesAsync();
+
+        await InvalidateHandbookArticlesAsync(items.Select(s => s.ModelClass), "nhiều nguồn", "xóa");
+
         // Agent chỉ nhận action approve/unapprove/delete/manual (Literal trong app/main.py);
         // "batch_delete" bị 422 → không reindex → Lavi vẫn trích đoạn đã xóa. Agent rebuild toàn bộ nên dùng "delete".
         await TriggerReindexAsync(items.First().Id.ToString(), "delete");
@@ -3350,5 +3368,43 @@ public class KnowledgeController : ControllerBase
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return Ok(new { message = $"Đã dọn dẹp thành công {targetList.Count} gợi ý (bao gồm đã bỏ qua và mồ côi từ đoạn trích đã xóa).", deleted_count = targetList.Count });
+    }
+
+    /// <summary>
+    /// Cơ chế tự động đánh dấu bài cẩm nang cần rà soát (Staleness Invalidation - TASK-27)
+    /// khi nguồn tri thức bị xóa hoặc bỏ duyệt.
+    /// </summary>
+    private async Task InvalidateHandbookArticlesAsync(IEnumerable<string> modelClasses, string sourceTitle, string action)
+    {
+        try
+        {
+            var classes = modelClasses
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Distinct()
+                .ToList();
+
+            if (classes.Count == 0) return;
+
+            var handbooks = await _dbContext.HandbookDiseases
+                .Where(h => classes.Contains(h.ClassCode) && h.Status == "PUBLISHED")
+                .ToListAsync();
+
+            if (handbooks.Count == 0) return;
+
+            var now = DateTime.UtcNow;
+            foreach (var hb in handbooks)
+            {
+                hb.Status = "NEEDS_REVIEW";
+                hb.ReviewReason = $"Đoạn trích nguồn '{sourceTitle}' vừa bị {action} vào {now:dd/MM/yyyy HH:mm}. Vui lòng rà soát lại căn cứ khoa học của bài cẩm nang.";
+                hb.UpdatedAt = now;
+            }
+
+            await _dbContext.SaveChangesAsync();
+            _logger.LogWarning("TASK-27 Staleness: Tự động gắn cờ NEEDS_REVIEW cho {Count} bài cẩm nang do nguồn tri thức bị {Action}.", handbooks.Count, action);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi tự động gắn cờ rà soát cẩm nang trong InvalidateHandbookArticlesAsync.");
+        }
     }
 }

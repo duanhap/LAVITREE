@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
+import { useAuth } from '@/context/AuthContext';
 import { safeHref } from '@/lib/utils';
 import {
   FileSearch,
@@ -15,6 +17,11 @@ import {
   X,
   Sprout,
   ChevronRight,
+  CheckCircle2,
+  BookText,
+  HelpCircle,
+  User,
+  Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +30,23 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ErrorState } from '@/components/common/ErrorState';
 import { toast } from 'sonner';
+
+export interface CuratedArticle {
+  id: number;
+  disease_id: number;
+  class_code: string;
+  title: string;
+  summary?: string | null;
+  content_markdown: string;
+  author_name: string;
+  faq_json?: string;
+  status: string;
+  review_reason?: string | null;
+  published_at?: string | null;
+  last_reviewed_at?: string | null;
+  updated_at?: string | null;
+  is_fallback?: boolean;
+}
 
 import type {
   DiseaseDetailResponse,
@@ -108,8 +132,12 @@ const ProductReferenceCard: React.FC<{
 export const HandbookDiseasePage: React.FC = () => {
   const { classCode } = useParams<{ classCode: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
 
   const [disease, setDisease] = useState<DiseaseDetailResponse | null>(null);
+  const [curatedArticle, setCuratedArticle] = useState<CuratedArticle | null>(null);
+  const [isAckingReview, setIsAckingReview] = useState<boolean>(false);
   const [sources, setSources] = useState<PublicKnowledgeSource[]>([]);
   const [images, setImages] = useState<KnowledgeImageItem[]>([]);
   const [allDiseases, setAllDiseases] = useState<Array<{ id: number; classCode: string; plantName: string; commonNameVi: string; pathogenType: string }>>([]);
@@ -144,7 +172,7 @@ export const HandbookDiseasePage: React.FC = () => {
     setKnowledgeError(null);
 
     try {
-      const [diseaseRes, sourcesRes, imagesRes, allDiseasesRes] = await Promise.allSettled([
+      const [diseaseRes, sourcesRes, imagesRes, allDiseasesRes, curatedRes] = await Promise.allSettled([
         apiClient.get<DiseaseDetailResponse>(`/diseases/by-class/${encodeURIComponent(decodedClassCode)}`),
         apiClient.get<PublicKnowledgeSource[]>(`/knowledge/sources`, {
           // isApproved=true: Admin đăng nhập cũng chỉ thấy bài đã duyệt, giống nông dân
@@ -154,6 +182,7 @@ export const HandbookDiseasePage: React.FC = () => {
           params: { model_class: decodedClassCode, modelClass: decodedClassCode },
         }),
         apiClient.get<Array<{ id: number; classCode: string; plantName: string; commonNameVi: string; pathogenType: string }>>('/diseases'),
+        apiClient.get<CuratedArticle>(`/handbook/articles/${encodeURIComponent(decodedClassCode)}`),
       ]);
 
       if (diseaseRes.status === 'rejected') {
@@ -199,12 +228,44 @@ export const HandbookDiseasePage: React.FC = () => {
       if (allDiseasesRes.status === 'fulfilled' && Array.isArray(allDiseasesRes.value.data)) {
         setAllDiseases(allDiseasesRes.value.data);
       }
+
+      // Xử lý bài cẩm nang chuẩn biên tập (TASK-27)
+      if (curatedRes.status === 'fulfilled' && !curatedRes.value.data?.is_fallback) {
+        setCuratedArticle(curatedRes.value.data);
+      } else {
+        setCuratedArticle(null);
+      }
     } catch (err) {
       setErrorMessage(getErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Xác nhận đã rà soát bài cẩm nang (TASK-27 Invalidation Ack)
+  const handleReviewAck = async () => {
+    if (!decodedClassCode) return;
+    setIsAckingReview(true);
+    try {
+      await apiClient.post(`/handbook/admin/articles/${encodeURIComponent(decodedClassCode)}/review-ack`);
+      toast.success('Đã xác nhận rà soát thành công! Bài cẩm nang đã trở lại trạng thái Đã xuất bản.');
+      setCuratedArticle((prev) => (prev ? { ...prev, status: 'PUBLISHED', review_reason: null } : null));
+    } catch (err: unknown) {
+      toast.error('Lỗi khi xác nhận rà soát: ' + getErrorMessage(err));
+    } finally {
+      setIsAckingReview(false);
+    }
+  };
+
+  const curatedFaqs = useMemo<Array<{ question: string; answer: string }>>(() => {
+    if (!curatedArticle?.faq_json) return [];
+    try {
+      const arr = JSON.parse(curatedArticle.faq_json);
+      return Array.isArray(arr) ? arr.filter((x: any) => x && x.question?.trim()) : [];
+    } catch {
+      return [];
+    }
+  }, [curatedArticle?.faq_json]);
 
   // Chỉ tải lại phần tri thức (nút "Thử lại" khi API tri thức lỗi)
   const reloadKnowledge = async () => {
@@ -283,21 +344,27 @@ export const HandbookDiseasePage: React.FC = () => {
   const tocItems = useMemo<TocItem[]>(() => {
     const list: TocItem[] = [];
 
-    regularSections.forEach((s) => {
-      list.push({ id: s.id, label: s.title });
-    });
-
-    const hasTreatment = Boolean(treatmentSection && treatmentSection.paragraphs.length > 0);
-
-    if (hasTreatment) {
-      list.push({
-        id: 'xu-ly',
-        label: isHealthy ? 'Quy trình chăm sóc' : 'Biện pháp xử lý & Can thiệp',
+    if (curatedArticle && !curatedArticle.is_fallback) {
+      list.push({ id: 'cam-nang-chuyen-sau', label: 'Cẩm nang biên tập' });
+      if (curatedFaqs.length > 0) {
+        list.push({ id: 'faq', label: 'Câu hỏi thường gặp (FAQ)' });
+      }
+    } else {
+      regularSections.forEach((s) => {
+        list.push({ id: s.id, label: s.title });
       });
-    }
 
-    if (hasFaq) {
-      list.push({ id: 'faq', label: 'Câu hỏi thường gặp (FAQ)' });
+      const hasTreatment = Boolean(treatmentSection && treatmentSection.paragraphs.length > 0);
+      if (hasTreatment) {
+        list.push({
+          id: 'xu-ly',
+          label: isHealthy ? 'Quy trình chăm sóc' : 'Biện pháp xử lý & Can thiệp',
+        });
+      }
+
+      if (hasFaq) {
+        list.push({ id: 'faq', label: 'Câu hỏi thường gặp (FAQ)' });
+      }
     }
 
     if (disease?.products && disease.products.length > 0) {
@@ -313,7 +380,7 @@ export const HandbookDiseasePage: React.FC = () => {
     }
 
     return list;
-  }, [regularSections, treatmentSection, disease, relatedDiseases.length, article.references.length, isHealthy]);
+  }, [curatedArticle, curatedFaqs.length, regularSections, treatmentSection, disease, relatedDiseases.length, article.references.length, isHealthy, hasFaq]);
 
   // Nhảy tới mục nguồn [n] và nháy sáng
   const handleRefClick = (refIndex: number) => {
@@ -425,8 +492,167 @@ export const HandbookDiseasePage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-6 items-start">
         {/* ================= CỘT NỘI DUNG CHÍNH ================= */}
         <div className="space-y-6 min-w-0">
-          {/* TRƯỜNG HỢP 0 ĐOẠN ĐÃ DUYỆT: Hiển thị EmptyState trung thực */}
-          {knowledgeError ? (
+          {/* BANNER CẢNH BÁO DÀNH CHO QUẢN TRỊ VIÊN KHI CĂN CỨ BỊ THAY ĐỔI (TASK-27) */}
+          {isAdmin && curatedArticle && curatedArticle.status === 'NEEDS_REVIEW' && (
+            <div className="bg-orange-500/15 border-2 border-orange-500/40 text-orange-950 dark:text-orange-200 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold text-sm text-orange-900 dark:text-orange-100">
+                    Cảnh báo Quản trị viên: Căn cứ khoa học của bài cẩm nang cần được rà soát lại
+                  </h4>
+                  <p className="text-xs text-orange-900/80 dark:text-orange-300 mt-0.5">
+                    {curatedArticle.review_reason || 'Một hoặc nhiều đoạn trích nguồn liên quan vừa bị xóa hoặc bỏ duyệt.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                <Button asChild size="sm" variant="outline" className="h-8 text-xs border-orange-500/40 hover:bg-orange-500/10 text-orange-800 dark:text-orange-200">
+                  <Link to="/admin/diseases">Biên tập lại</Link>
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={isAckingReview}
+                  onClick={handleReviewAck}
+                  className="h-8 text-xs bg-orange-600 hover:bg-orange-700 text-white gap-1"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{isAckingReview ? 'Đang xác nhận...' : 'Xác nhận đã rà soát'}</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* TRƯỜNG HỢP 1: CÓ BÀI CẨM NANG CHUẨN BIÊN TẬP (TASK-27) */}
+          {curatedArticle && !curatedArticle.is_fallback ? (
+            <>
+              {/* Bài viết Markdown chuyên sâu */}
+              <section id="cam-nang-chuyen-sau" className="rounded-2xl border border-border bg-card overflow-hidden shadow-2xs scroll-mt-24">
+                <div className="p-5 sm:p-6 md:p-8 space-y-4">
+                  <div className="space-y-2 border-b border-border/80 pb-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="bg-primary/10 text-primary border-primary/20 text-xs font-semibold gap-1">
+                        <BookText className="w-3.5 h-3.5" />
+                        <span>Cẩm nang chuyên sâu</span>
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        Biên soạn bởi: <strong className="text-foreground">{curatedArticle.author_name}</strong>
+                      </span>
+                      {curatedArticle.published_at && (
+                        <>
+                          <span className="text-muted-foreground">•</span>
+                          <span className="text-xs text-muted-foreground">
+                            Cập nhật: {new Date(curatedArticle.updated_at || curatedArticle.published_at).toLocaleDateString('vi-VN')}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <h1 className="text-xl sm:text-2xl font-bold text-foreground leading-snug">
+                      {curatedArticle.title}
+                    </h1>
+                    {curatedArticle.summary && (
+                      <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed">
+                        {curatedArticle.summary}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Markdown content */}
+                  <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none text-foreground leading-relaxed pt-2">
+                    <ReactMarkdown
+                      components={{
+                        h2: ({ children }) => (
+                          <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
+                            {children}
+                          </h2>
+                        ),
+                        h3: ({ children }) => (
+                          <h3 className="text-sm sm:text-base font-bold text-foreground mt-4 mb-2">
+                            {children}
+                          </h3>
+                        ),
+                        p: ({ children }) => (
+                          <p className="text-xs sm:text-sm text-foreground/90 my-2.5 leading-relaxed">
+                            {children}
+                          </p>
+                        ),
+                        ul: ({ children }) => (
+                          <ul className="list-disc pl-5 text-xs sm:text-sm space-y-1.5 my-3 text-foreground/90">
+                            {children}
+                          </ul>
+                        ),
+                        ol: ({ children }) => (
+                          <ol className="list-decimal pl-5 text-xs sm:text-sm space-y-1.5 my-3 text-foreground/90">
+                            {children}
+                          </ol>
+                        ),
+                        blockquote: ({ children }) => (
+                          <blockquote className="border-l-4 border-primary pl-4 py-1.5 my-3 bg-muted/40 rounded-r-lg text-xs sm:text-sm italic text-foreground/85">
+                            {children}
+                          </blockquote>
+                        ),
+                        table: ({ children }) => (
+                          <div className="overflow-x-auto my-4 rounded-xl border border-border">
+                            <table className="w-full text-xs sm:text-sm text-left border-collapse">
+                              {children}
+                            </table>
+                          </div>
+                        ),
+                        th: ({ children }) => (
+                          <th className="bg-muted px-3 py-2 font-semibold text-foreground border-b border-border">
+                            {children}
+                          </th>
+                        ),
+                        td: ({ children }) => (
+                          <td className="px-3 py-2 border-b border-border/50 text-foreground">
+                            {children}
+                          </td>
+                        ),
+                        a: ({ href, children }) => (
+                          <a
+                            href={safeHref(href)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary underline hover:text-primary/80 font-medium"
+                          >
+                            {children}
+                          </a>
+                        ),
+                      }}
+                    >
+                      {curatedArticle.content_markdown}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              </section>
+
+              {/* FAQ Accordion chuyên sâu */}
+              {curatedFaqs.length > 0 && (
+                <section id="faq" className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-4 shadow-2xs scroll-mt-24">
+                  <div className="flex items-center gap-2 pb-2 border-b border-border">
+                    <HelpCircle className="w-5 h-5 text-primary" />
+                    <h3 className="text-base sm:text-lg font-bold text-foreground">
+                      Câu hỏi thường gặp & Giải đáp kỹ thuật ({curatedFaqs.length})
+                    </h3>
+                  </div>
+                  <div className="space-y-3">
+                    {curatedFaqs.map((faq, idx) => (
+                      <div key={idx} className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-1.5">
+                        <h4 className="font-bold text-xs sm:text-sm text-foreground flex items-start gap-2">
+                          <span className="text-primary font-mono shrink-0">Q{idx + 1}:</span>
+                          <span>{faq.question}</span>
+                        </h4>
+                        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed pl-6">
+                          {faq.answer}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          ) : knowledgeError ? (
+            /* TRƯỜNG HỢP 2: LỖI KHI TẢI TRI THỨC */
             <ErrorState
               title="Không tải được tài liệu của bệnh này"
               error={knowledgeError}
@@ -435,6 +661,7 @@ export const HandbookDiseasePage: React.FC = () => {
               className="my-0 max-w-none"
             />
           ) : !hasApprovedKnowledge ? (
+            /* TRƯỜNG HỢP 3: CHƯA CÓ TRI THỨC ĐƯỢC DUYỆT */
             <div className="rounded-2xl border border-border bg-card p-6 md:p-8 text-center space-y-4 shadow-2xs">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary">
                 <FileSearch className="h-6 w-6" />
@@ -463,34 +690,36 @@ export const HandbookDiseasePage: React.FC = () => {
               </div>
             </div>
           ) : (
-            /* TRƯỜNG HỢP CÓ BÀI ĐÃ DUYỆT: Render các mục Tổng quan, Triệu chứng, Nguyên nhân, Phòng ngừa */
-            <div className="space-y-6">
-              {regularSections.map((sec) => (
-                <KnowledgeSection
-                  key={sec.id}
-                  section={sec}
-                  onRefClick={handleRefClick}
-                  symptomImages={sec.id === 'trieu-chung' ? images : undefined}
-                  featuredImage={sec.id === 'tong-quan' ? leafImage : undefined}
-                  onImageClick={(img) => setZoomedImage(img)}
-                />
-              ))}
-            </div>
+            /* TRƯỜNG HỢP 4: FALLBACK GHÉP NỐI TỰ ĐỘNG TỪ ĐOẠN TRÍCH (TASK-20) */
+            <>
+              <div className="space-y-6">
+                {regularSections.map((sec) => (
+                  <KnowledgeSection
+                    key={sec.id}
+                    section={sec}
+                    onRefClick={handleRefClick}
+                    symptomImages={sec.id === 'trieu-chung' ? images : undefined}
+                    featuredImage={sec.id === 'tong-quan' ? leafImage : undefined}
+                    onImageClick={(img) => setZoomedImage(img)}
+                  />
+                ))}
+              </div>
+
+              {/* MỤC CÂU HỎI THƯỜNG GẶP (FAQ TỰ ĐỘNG) */}
+              <FaqSection
+                plantName={disease.plantName}
+                diseaseName={disease.commonNameVi}
+                pathogenType={disease.pathogenType}
+                sources={sources}
+                isHealthy={isHealthy}
+              />
+            </>
           )}
 
           {/* MỤC XỬ LÝ (TREATMENT KIỂM DUYỆT) */}
           <TreatmentSection
             section={treatmentSection}
             onRefClick={handleRefClick}
-            isHealthy={isHealthy}
-          />
-
-          {/* MỤC CÂU HỎI THƯỜNG GẶP & GIẢI ĐÁP KỸ THUẬT (FAQ) */}
-          <FaqSection
-            plantName={disease.plantName}
-            diseaseName={disease.commonNameVi}
-            pathogenType={disease.pathogenType}
-            sources={sources}
             isHealthy={isHealthy}
           />
 
