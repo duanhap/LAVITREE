@@ -755,6 +755,16 @@
 - **Đồng thời**: chỉ cập nhật khi đơn vẫn ở trạng thái vừa đọc. Hai Admin cùng thao tác thì người sau nhận `409` (kho không bị cộng hoàn 2 lần).
 - **Response (`200 OK`)**: đơn sau cập nhật, cùng dạng mục 3.6.3. Trạng thái lưu dạng chữ hoa. Đơn cũ có thể còn `"Pending"`; client so sánh không phân biệt hoa thường.
 
+### 3.6.5. `POST /api/v1/orders/{id}/cancel` (Người dùng tự hủy đơn của mình)
+- **Headers**: `Authorization: Bearer <jwt_token>` (mọi tài khoản đã đăng nhập; chỉ hủy được **đơn của chính mình**, kể cả Admin).
+- **Path**: `id` như mục 3.6.2. Không có Request Body.
+- **Điều kiện**: đơn đang `PENDING` (không phân biệt hoa thường). Hoàn trả tồn kho cùng transaction, cập nhật có điều kiện như mục 3.6.4.
+- **Mã lỗi**:
+  - `404`: không có đơn, hoặc đơn của người khác (không phân biệt hai trường hợp để không lộ đơn có tồn tại).
+  - `409`: đơn đã hủy trước đó; cửa hàng đã xác nhận / đang giao / đã giao (`detail` hướng dẫn liên hệ cửa hàng, kèm `order_status`); hoặc đơn vừa bị đổi trạng thái đồng thời; hoặc mã ngắn trùng nhiều đơn.
+- **Response (`200 OK`)**: đơn sau khi hủy, cùng dạng mục 3.6.2 (`order_status: "CANCELLED"`, có `updated_at`).
+- *Chưa lưu lý do hủy (bảng `Orders` chưa có cột này).*
+
 ---
 
 ### 3.7. `PATCH /api/v1/knowledge/sources/{id}/approve` & `PATCH /api/v1/knowledge/sources/approve-batch` (Duyệt Nguồn Tri thức Đơn lẻ & Hàng loạt - HITL)

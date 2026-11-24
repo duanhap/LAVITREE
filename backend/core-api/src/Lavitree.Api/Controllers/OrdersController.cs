@@ -456,42 +456,11 @@ public class OrdersController : ControllerBase
             return BadRequest(new { detail = $"Không thể chuyển đơn hàng từ '{currentStatus}' sang '{targetStatus}'." });
         }
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-
-        // Chốt trạng thái nguyên tử: chỉ cập nhật khi đơn vẫn đang ở trạng thái vừa đọc.
-        // Hai admin bấm cùng lúc thì chỉ 1 người thành công, kho không bị cộng hoàn 2 lần.
-        var now = DateTime.UtcNow;
-        var orderId = order.Id;
-        var expectedStatus = order.Status;
-        var claimed = await _dbContext.Orders
-            .Where(o => o.Id == orderId && !o.IsDeleted && o.Status == expectedStatus)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(o => o.Status, targetStatus)
-                .SetProperty(o => o.UpdatedAt, now), cancellationToken);
-        if (claimed == 0)
+        var claimed = await ApplyStatusChangeAsync(order, targetStatus, cancellationToken);
+        if (!claimed)
         {
-            await transaction.RollbackAsync(cancellationToken);
             return Conflict(new { detail = "Đơn hàng vừa được cập nhật bởi người khác. Vui lòng tải lại danh sách." });
         }
-
-        // Hủy đơn: hoàn trả tồn kho cho các sản phẩm trong đơn (cùng transaction với việc đổi trạng thái)
-        if (targetStatus == "CANCELLED")
-        {
-            foreach (var item in order.Items)
-            {
-                await _dbContext.Products
-                    .Where(p => p.Id == item.ProductId)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(p => p.StockQuantity, p => p.StockQuantity + item.Quantity)
-                        .SetProperty(p => p.UpdatedAt, now), cancellationToken);
-            }
-            _logger.LogInformation("Đã hoàn trả tồn kho cho các sản phẩm thuộc đơn {OrderId} do Admin hủy đơn.", order.Id);
-        }
-
-        await transaction.CommitAsync(cancellationToken);
-
-        order.Status = targetStatus;
-        order.UpdatedAt = now;
 
         _logger.LogInformation("Admin đã cập nhật trạng thái đơn hàng {OrderId} từ {OldStatus} sang {NewStatus}", order.Id, currentStatus, targetStatus);
 
@@ -521,5 +490,141 @@ public class OrdersController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+    /// <summary>
+    /// Đổi trạng thái đơn nguyên tử, dùng chung cho Admin đổi trạng thái và người dùng tự hủy.
+    /// Chỉ cập nhật khi đơn vẫn ở trạng thái vừa đọc (2 người thao tác cùng lúc thì người sau nhận false);
+    /// chuyển sang CANCELLED thì hoàn trả tồn kho trong cùng transaction.
+    /// </summary>
+    private async Task<bool> ApplyStatusChangeAsync(Order order, string targetStatus, CancellationToken cancellationToken)
+    {
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var now = DateTime.UtcNow;
+        var orderId = order.Id;
+        var expectedStatus = order.Status;
+        var claimed = await _dbContext.Orders
+            .Where(o => o.Id == orderId && !o.IsDeleted && o.Status == expectedStatus)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, targetStatus)
+                .SetProperty(o => o.UpdatedAt, now), cancellationToken);
+        if (claimed == 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        if (targetStatus == "CANCELLED")
+        {
+            foreach (var item in order.Items)
+            {
+                await _dbContext.Products
+                    .Where(p => p.Id == item.ProductId)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(p => p.StockQuantity, p => p.StockQuantity + item.Quantity)
+                        .SetProperty(p => p.UpdatedAt, now), cancellationToken);
+            }
+            _logger.LogInformation("Đã hoàn trả tồn kho cho các sản phẩm thuộc đơn {OrderId} do hủy đơn.", order.Id);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        order.Status = targetStatus;
+        order.UpdatedAt = now;
+        return true;
+    }
+
+    /// <summary>
+    /// POST /api/v1/orders/{id}/cancel
+    /// Người dùng tự hủy đơn của chính mình, chỉ khi đơn còn "Chờ xác nhận" (PENDING).
+    /// Đơn không tồn tại hoặc của người khác đều trả 404 (không lộ đơn nào có thật).
+    /// </summary>
+    [HttpPost("{id}/cancel")]
+    [Authorize]
+    public async Task<IActionResult> CancelMyOrder(string id, CancellationToken cancellationToken)
+    {
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                     ?? User.FindFirst("sub")?.Value;
+        if (string.IsNullOrWhiteSpace(userIdStr) || !Guid.TryParse(userIdStr, out var userId))
+        {
+            return Unauthorized(new { detail = "Phiên làm việc không hợp lệ." });
+        }
+
+        var query = _dbContext.Orders
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+            .AsNoTracking()
+            .Where(o => !o.IsDeleted && o.UserId == userId);
+
+        Order? order = null;
+        if (Guid.TryParse(id, out var parsedGuid))
+        {
+            order = await query.FirstOrDefaultAsync(o => o.Id == parsedGuid, cancellationToken);
+        }
+        else if (id.StartsWith("ord-", StringComparison.OrdinalIgnoreCase))
+        {
+            var cleanId = id[4..].Trim().ToLowerInvariant();
+            if (cleanId.Length is >= 8 and <= 36 && cleanId.All(c => Uri.IsHexDigit(c) || c == '-'))
+            {
+                var matches = await query
+                    .Where(o => EF.Functions.Like(o.Id.ToString(), cleanId + "%"))
+                    .Take(2)
+                    .ToListAsync(cancellationToken);
+                if (matches.Count > 1)
+                {
+                    return Conflict(new { detail = "Mã đơn rút gọn trùng với nhiều đơn hàng. Vui lòng liên hệ cửa hàng." });
+                }
+                order = matches.FirstOrDefault();
+            }
+        }
+
+        if (order == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy đơn hàng yêu cầu." });
+        }
+
+        var currentStatus = order.Status.Trim().ToUpperInvariant();
+        if (currentStatus == "CANCELLED")
+        {
+            return Conflict(new { detail = "Đơn hàng này đã được hủy trước đó.", order_status = order.Status });
+        }
+        if (currentStatus != "PENDING")
+        {
+            return Conflict(new
+            {
+                detail = "Cửa hàng đã xác nhận đơn nên bạn không thể tự hủy. Vui lòng liên hệ cửa hàng để được hỗ trợ.",
+                order_status = order.Status
+            });
+        }
+
+        var claimed = await ApplyStatusChangeAsync(order, "CANCELLED", cancellationToken);
+        if (!claimed)
+        {
+            return Conflict(new { detail = "Đơn hàng vừa được cửa hàng cập nhật. Vui lòng tải lại trang." });
+        }
+
+        _logger.LogInformation("Người dùng {UserId} đã tự hủy đơn hàng {OrderId}.", userId, order.Id);
+
+        return Ok(new OrderResponseDto
+        {
+            OrderId = $"ord-{order.Id.ToString()[..8]}",
+            TotalAmount = order.TotalAmount,
+            PaymentMethod = order.PaymentMethod,
+            OrderStatus = order.Status,
+            ReceiverName = order.ReceiverName,
+            Notes = order.Notes,
+            ShippingAddress = order.ShippingAddress,
+            PhoneNumber = order.PhoneNumber,
+            CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt,
+            Items = order.Items.Select(i => new OrderItemResponseDto
+            {
+                ProductId = i.ProductId,
+                ProductName = i.Product?.Name ?? "Sản phẩm",
+                Quantity = i.Quantity,
+                UnitPrice = i.UnitPrice
+            }).ToList()
+        });
     }
 }

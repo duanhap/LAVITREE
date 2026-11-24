@@ -17,6 +17,7 @@ import {
   RotateCcw,
   ShoppingBag,
   User,
+  XCircle,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -33,6 +34,7 @@ import { getPaymentMethodLabel, normalizeOrderStatus } from '@/features/orders/s
 import { OrderStatusBadge } from '@/features/orders/components/OrderStatusBadge';
 import { OrderTimeline } from '@/features/orders/components/OrderTimeline';
 import { getCartStorageKey, reorderItems } from '@/features/orders/reorder';
+import { CancelOrderDialog } from '@/features/orders/components/CancelOrderDialog';
 
 type LoadState =
   | { kind: 'loading' }
@@ -49,6 +51,8 @@ export const OrderDetailPage: React.FC = () => {
   const [products, setProducts] = useState<Record<number, ProductDetailResponse | null>>({});
   const [copied, setCopied] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const fetchOrder = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -136,6 +140,27 @@ export const OrderDetailPage: React.FC = () => {
     }
   };
 
+  const handleCancel = async () => {
+    if (!order || cancelling) return;
+    setCancelling(true);
+    try {
+      const res = await apiClient.post<OrderResponseDto>(`/orders/${encodeURIComponent(order.order_id)}/cancel`);
+      setState({ kind: 'ready', order: { ...order, ...res.data } });
+      setCancelOpen(false);
+      toast.success(`Đã hủy đơn ${order.order_id}.`);
+    } catch (err) {
+      const detail = axios.isAxiosError(err) ? (err.response?.data as { detail?: string } | undefined)?.detail : undefined;
+      toast.error(detail || 'Không hủy được đơn hàng. Vui lòng thử lại.');
+      setCancelOpen(false);
+      // 409: cửa hàng vừa xác nhận / đơn đã đổi trạng thái → tải lại để thấy trạng thái mới
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        fetchOrder();
+      }
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   if (state.kind === 'loading') {
     return (
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -172,6 +197,8 @@ export const OrderDetailPage: React.FC = () => {
   const o = state.order;
   const payment = getPaymentMethodLabel(o.payment_method);
   const isCancelled = normalizeOrderStatus(o.order_status) === 'CANCELLED';
+  // Khớp CancelMyOrder ở OrdersController.cs: người dùng chỉ tự hủy được khi đơn còn chờ xác nhận
+  const canCancel = normalizeOrderStatus(o.order_status) === 'PENDING';
 
   return (
     <div className="container mx-auto px-4 py-6 sm:py-8 max-w-6xl animate-fade-in pb-24 lg:pb-8">
@@ -223,6 +250,22 @@ export const OrderDetailPage: React.FC = () => {
             </CardHeader>
             <CardContent>
               <OrderTimeline status={o.order_status} createdAt={o.created_at} updatedAt={o.updated_at} />
+              {canCancel && (
+                <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-t border-border pt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Bạn có thể tự hủy đơn khi cửa hàng chưa xác nhận.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCancelOpen(true)}
+                    className="gap-1.5 self-start sm:self-auto border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                  >
+                    <XCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                    Hủy đơn
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -370,6 +413,16 @@ export const OrderDetailPage: React.FC = () => {
           {isCancelled ? 'Đặt lại' : 'Mua lại'}
         </Button>
       </div>
+
+      <CancelOrderDialog
+        open={cancelOpen}
+        orderId={o.order_id}
+        totalAmount={o.total_amount}
+        itemCount={totals.itemCount}
+        submitting={cancelling}
+        onOpenChange={setCancelOpen}
+        onConfirm={handleCancel}
+      />
     </div>
   );
 };
