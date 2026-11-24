@@ -147,6 +147,7 @@ export const AdminIngestPage: React.FC = () => {
   const [activeAiPopoverField, setActiveAiPopoverField] = useState<string | null>(null);
   const [isMetaCardCollapsed, setIsMetaCardCollapsed] = useState<boolean>(false);
   const [showMetaEditPanel, setShowMetaEditPanel] = useState<boolean>(false);
+  const [duplicateWarningExpanded, setDuplicateWarningExpanded] = useState<boolean>(false);
   const [articleTopics, setArticleTopics] = useState<string[]>([]);
   const [selectedTopicToAdd, setSelectedTopicToAdd] = useState<string>('');
 
@@ -1949,8 +1950,10 @@ export const AdminIngestPage: React.FC = () => {
                 organization: splitTargetSavedRow.organization,
                 publishedDate: splitTargetSavedRow.publishedDate,
                 sourceScope: splitTargetSavedRow.sourceScope,
+                matchLevel: splitTargetSavedRow.matchLevel,
                 evidenceText: parts[i],
                 contentType: splitTargetSavedRow.contentType,
+                hasCultivationTechnique: splitTargetSavedRow.hasCultivationTechnique ?? false,
                 isManualApproved: false,
                 reviewerNotes: 'Tách từ đoạn gốc',
               });
@@ -1971,8 +1974,10 @@ export const AdminIngestPage: React.FC = () => {
                 organization: splitTargetSavedRow.organization,
                 publishedDate: splitTargetSavedRow.publishedDate,
                 sourceScope: splitTargetSavedRow.sourceScope,
+                matchLevel: splitTargetSavedRow.matchLevel,
                 evidenceText: parts[0],
                 contentType: splitTargetSavedRow.contentType,
+                hasCultivationTechnique: splitTargetSavedRow.hasCultivationTechnique ?? false,
                 isManualApproved: false,
                 reviewerNotes: 'Tách từ đoạn gốc (phần 1)',
               });
@@ -2237,7 +2242,7 @@ export const AdminIngestPage: React.FC = () => {
         // Ở lại chế độ sửa, nạp lại danh sách đoạn đã lưu và chuyển sang Tab 1
         setIngestionResult(null);
         setArticleImages([]);
-    setSelectedParagraphs({});
+        setSelectedParagraphs({});
         setIngestText('');
         setEditSubTab('approved');
         await loadArticleForEdit(editUrl, true);
@@ -2688,8 +2693,8 @@ export const AdminIngestPage: React.FC = () => {
               <span
                 key={topicCode}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border shadow-2xs ${isHealthy
-                    ? 'bg-sky-50 text-sky-900 border-sky-300'
-                    : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                  ? 'bg-sky-50 text-sky-900 border-sky-300'
+                  : 'bg-emerald-50 text-emerald-900 border-emerald-300'
                   }`}
               >
                 <span>{label}</span>
@@ -2888,8 +2893,8 @@ export const AdminIngestPage: React.FC = () => {
         {hasDiff && activeAiPopoverField === fieldKey && (
           <div
             className={`absolute z-30 top-full mt-1.5 p-3 bg-card border-2 border-amber-300 rounded-xl shadow-xl text-xs space-y-2 animate-in fade-in zoom-in-95 ${popoverAlign === 'right'
-                ? 'left-0 right-0 sm:left-auto sm:min-w-[320px]'
-                : 'left-0 right-0 sm:right-auto sm:min-w-[340px]'
+              ? 'left-0 right-0 sm:left-auto sm:min-w-[320px]'
+              : 'left-0 right-0 sm:right-auto sm:min-w-[340px]'
               }`}
           >
             <div className="flex items-start gap-2">
@@ -3081,10 +3086,10 @@ export const AdminIngestPage: React.FC = () => {
       <div
         key={para.id}
         className={`rounded-lg border transition-colors ${isNoise ? 'p-3 border-dashed ' : 'p-3.5 '}${state.selected
-            ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs opacity-100'
-            : isNoise
-              ? 'bg-muted/10 border-border/80 opacity-80 hover:opacity-100 hover:bg-muted/30'
-              : 'bg-card border-border hover:bg-muted/40'
+          ? 'bg-emerald-50/70 border-emerald-300 shadow-2xs opacity-100'
+          : isNoise
+            ? 'bg-muted/10 border-border/80 opacity-80 hover:opacity-100 hover:bg-muted/30'
+            : 'bg-card border-border hover:bg-muted/40'
           }`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -3136,8 +3141,8 @@ export const AdminIngestPage: React.FC = () => {
               variant="outline"
               onClick={() => handleOpenSplitModal(para)}
               className={`h-6 text-[10px] gap-1 px-2 border ${isTooLong
-                  ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
-                  : 'border-border text-muted-foreground hover:text-foreground'
+                ? 'border-destructive/60 text-destructive hover:bg-destructive/10 font-semibold'
+                : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
               title={isTooLong ? `Đoạn quá ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự - bấm để tách` : 'Tách đoạn này thành 2 đoạn nhỏ'}
             >
@@ -3318,23 +3323,23 @@ export const AdminIngestPage: React.FC = () => {
                 <TabsContent value="approved" className="space-y-4">
                   {/* Header bài viết: Gọn gàng, tối giản như báo cáo */}
                   <div className="p-4 bg-card border border-border rounded-xl shadow-xs space-y-3">
-                    {/* Dòng tiêu đề bài viết kết hợp nút Sửa và nút Mở link bài gốc tối giản */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1">
-                      <h2 className="text-base sm:text-lg font-bold text-foreground leading-snug line-clamp-2" title={editOriginalMeta.title || ingestTitle || editUrl || ''}>
+                    {/* Dòng tiêu đề bài viết kết hợp 2 nút thao tác ký tự nhỏ gọn (hover hiện tên chức năng) */}
+                    <div className="flex items-start justify-between gap-3 pb-1">
+                      <h2 className="text-base sm:text-lg font-bold text-foreground leading-snug break-words flex-1 min-w-0" title={editOriginalMeta.title || ingestTitle || editUrl || ''}>
                         {editOriginalMeta.title || ingestTitle || 'Bài viết chưa có tiêu đề'}
                       </h2>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
                         <Button
                           type="button"
                           variant={showMetaEditPanel ? 'default' : 'outline'}
                           size="sm"
                           onClick={() => setShowMetaEditPanel(!showMetaEditPanel)}
-                          className={`h-7 px-2.5 text-xs gap-1 font-medium ${showMetaEditPanel ? 'bg-emerald-700 text-white' : ''}`}
-                          title="Chỉnh sửa tiêu đề, cơ quan hoặc ngày xuất bản của bài báo"
+                          className={`w-8 h-8 p-0 rounded-lg transition-colors cursor-pointer ${showMetaEditPanel ? 'bg-emerald-700 text-white hover:bg-emerald-800' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
+                          title={showMetaEditPanel ? 'Đóng form sửa thông tin bài viết' : 'Sửa thông tin bài viết'}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin'}</span>
+                          <Edit3 className="w-4 h-4" />
+                          <span className="sr-only">{showMetaEditPanel ? 'Đóng form sửa' : 'Sửa thông tin bài viết'}</span>
                         </Button>
 
                         {isSafeHttpUrl(editUrl || ingestUrl) && (
@@ -3342,11 +3347,11 @@ export const AdminIngestPage: React.FC = () => {
                             href={(editUrl || ingestUrl)!.trim()}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors shadow-2xs"
-                            title="Mở trực tiếp trang web bài báo gốc trong tab mới"
+                            className="w-8 h-8 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 flex items-center justify-center transition-colors shadow-2xs"
+                            title="Mở link bài báo gốc (trong tab mới)"
                           >
-                            <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
-                            <span>Mở link bài gốc</span>
+                            <ExternalLink className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+                            <span className="sr-only">Mở link bài gốc</span>
                           </a>
                         )}
                       </div>
@@ -3365,8 +3370,8 @@ export const AdminIngestPage: React.FC = () => {
                         <span className="text-muted-foreground/40">•</span>
                         <span
                           className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${editOriginalMeta.sourceScope === 'Quốc tế'
-                              ? 'bg-purple-50 text-purple-800 border-purple-200'
-                              : 'bg-sky-50 text-sky-800 border-sky-200'
+                            ? 'bg-purple-50 text-purple-800 border-purple-200'
+                            : 'bg-sky-50 text-sky-800 border-sky-200'
                             }`}
                         >
                           {editOriginalMeta.sourceScope === 'Quốc tế'
@@ -3383,8 +3388,8 @@ export const AdminIngestPage: React.FC = () => {
                                 <span
                                   key={idx}
                                   className={`px-2 py-0.5 rounded text-[11px] font-medium border ${t.isHealthy
-                                      ? 'bg-sky-50 text-sky-800 border-sky-200'
-                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                     }`}
                                 >
                                   {t.label}
@@ -3581,27 +3586,6 @@ export const AdminIngestPage: React.FC = () => {
                   )}
 
 
-                  {/* Cảnh báo kiểm tra trùng lặp đoạn trích */}
-                  {(() => {
-                    const duplicates = findDuplicateChunks(editRows);
-                    if (duplicates.length === 0) return null;
-                    return (
-                      <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs space-y-1.5 shadow-xs">
-                        <div className="font-bold flex items-center gap-2 text-amber-950">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span>Cảnh báo: Phát hiện {duplicates.length} cặp đoạn trích có nội dung trùng lặp / tương đồng cao!</span>
-                        </div>
-                        <div className="space-y-1 pl-6 text-[11px] text-amber-800">
-                          {duplicates.map((d, dIdx) => (
-                            <div key={dIdx}>
-                              • <strong>Đoạn #{d.indexA}</strong> và <strong>Đoạn #{d.indexB}</strong> có độ tương đồng ~{d.similarity}%. Bạn có thể bấm nút <em>"Xóa đoạn"</em> ở đoạn trùng thừa để tối ưu bộ nhớ AI Lavi.
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
                   {/* ========================================================================= */}
                   {/* KHỐI ẢNH TRIỆU CHỨNG BỆNH ĐÍNH KÈM BÀI VIẾT (Tab 1 nổi bật, trực quan) */}
                   {/* ========================================================================= */}
@@ -3754,6 +3738,51 @@ export const AdminIngestPage: React.FC = () => {
                     )}
                   </div>
 
+                  {/* Cảnh báo kiểm tra trùng lặp đoạn trích: Đặt ngay trên danh sách đoạn trích và có thể thu gọn/mở rộng */}
+                  {(() => {
+                    const duplicates = findDuplicateChunks(editRows);
+                    if (duplicates.length === 0) return null;
+                    return (
+                      <div className="rounded-xl border border-amber-300/80 bg-amber-50/80 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 text-xs overflow-hidden transition-all shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={() => setDuplicateWarningExpanded((v) => !v)}
+                          className="w-full flex items-center justify-between p-2.5 sm:px-3.5 hover:bg-amber-100/60 dark:hover:bg-amber-950/50 transition-colors text-left cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 font-bold text-amber-950 dark:text-amber-100">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span>Phát hiện {duplicates.length} cặp đoạn trích có nội dung trùng lặp / tương đồng cao</span>
+                            <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border-amber-300 text-[10px] py-0 px-1.5 font-bold">
+                              {duplicates.length} cặp
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300 shrink-0">
+                            <span>{duplicateWarningExpanded ? 'Thu gọn' : 'Xem chi tiết'}</span>
+                            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${duplicateWarningExpanded ? 'rotate-180' : ''}`} />
+                          </div>
+                        </button>
+
+                        {duplicateWarningExpanded && (
+                          <div className="px-3.5 pb-3 pt-1 border-t border-amber-200/70 dark:border-amber-900/60 space-y-1.5 text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/20">
+                            <p className="text-amber-900/90 dark:text-amber-200 font-medium">
+                              Gợi ý: Bạn có thể bấm nút <em>"Xóa đoạn"</em> ở đoạn trùng thừa để tối ưu bộ nhớ ngữ cảnh của AI Lavi:
+                            </p>
+                            <div className="space-y-1 pl-2">
+                              {duplicates.map((d, dIdx) => (
+                                <div key={dIdx} className="flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                                  <span>
+                                    <strong>Đoạn #{d.indexA}</strong> và <strong>Đoạn #{d.indexB}</strong> có độ tương đồng ~{d.similarity}%.
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* Card chứa danh sách các đoạn trích & trạng thái duyệt toàn bộ */}
                   <Card className="border-border bg-card shadow-xs">
                     <CardHeader className="py-2.5 px-4 border-b border-border bg-muted/20">
@@ -3849,8 +3878,8 @@ export const AdminIngestPage: React.FC = () => {
                                 variant={editRows.every((r) => r.isManualApproved) ? 'outline' : 'default'}
                                 onClick={handleApproveAllInEdit}
                                 className={`h-7 px-3 text-xs font-semibold gap-1.5 ${editRows.every((r) => r.isManualApproved)
-                                    ? 'text-muted-foreground hover:text-destructive'
-                                    : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                  ? 'text-muted-foreground hover:text-destructive'
+                                  : 'bg-emerald-700 hover:bg-emerald-800 text-white'
                                   }`}
                                 title="Duyệt hoặc bỏ duyệt nhanh toàn bộ các đoạn trong bài viết"
                               >
@@ -3947,8 +3976,8 @@ export const AdminIngestPage: React.FC = () => {
                               type="button"
                               onClick={() => setEditViewMode('grid')}
                               className={`p-1 rounded text-xs transition-colors cursor-pointer ${editViewMode === 'grid'
-                                  ? 'bg-emerald-700 text-white font-medium'
-                                  : 'text-muted-foreground hover:text-foreground'
+                                ? 'bg-emerald-700 text-white font-medium'
+                                : 'text-muted-foreground hover:text-foreground'
                                 }`}
                               title="Xem dạng lưới (2 cột)"
                             >
@@ -3958,8 +3987,8 @@ export const AdminIngestPage: React.FC = () => {
                               type="button"
                               onClick={() => setEditViewMode('list')}
                               className={`p-1 rounded text-xs transition-colors cursor-pointer ${editViewMode === 'list'
-                                  ? 'bg-emerald-700 text-white font-medium'
-                                  : 'text-muted-foreground hover:text-foreground'
+                                ? 'bg-emerald-700 text-white font-medium'
+                                : 'text-muted-foreground hover:text-foreground'
                                 }`}
                               title="Xem dạng danh sách (1 cột)"
                             >
@@ -3983,8 +4012,8 @@ export const AdminIngestPage: React.FC = () => {
                               <div
                                 key={row.id}
                                 className={`p-4 rounded-xl border flex flex-col justify-between gap-3 shadow-xs transition-all duration-150 ${isRowSelected
-                                    ? 'border-emerald-500 bg-emerald-50/30 ring-2 ring-emerald-500/20'
-                                    : 'border-border bg-card hover:border-emerald-300 hover:shadow-sm'
+                                  ? 'border-emerald-500 bg-emerald-50/30 ring-2 ring-emerald-500/20'
+                                  : 'border-border bg-card hover:border-emerald-300 hover:shadow-sm'
                                   }`}
                               >
                                 <div className="space-y-2.5">
@@ -4010,8 +4039,8 @@ export const AdminIngestPage: React.FC = () => {
                                       <Badge
                                         variant="outline"
                                         className={`text-[10px] px-1.5 py-0 font-medium ${row.isVerbatim
-                                            ? 'text-emerald-700 border-emerald-300 bg-emerald-50/60'
-                                            : 'text-amber-800 border-amber-300 bg-amber-50/70'
+                                          ? 'text-emerald-700 border-emerald-300 bg-emerald-50/60'
+                                          : 'text-amber-800 border-amber-300 bg-amber-50/70'
                                           }`}
                                       >
                                         {row.isVerbatim ? 'Nguyên văn' : 'Tóm tắt tổng hợp'}
@@ -4057,8 +4086,8 @@ export const AdminIngestPage: React.FC = () => {
                                         variant={row.isManualApproved ? 'outline' : 'default'}
                                         onClick={() => handleToggleApproveSingleSource(row.id, row.isManualApproved)}
                                         className={`h-6 px-2 text-[11px] font-medium transition-colors ${row.isManualApproved
-                                            ? 'text-muted-foreground hover:text-amber-700 hover:border-amber-300'
-                                            : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                          ? 'text-muted-foreground hover:text-amber-700 hover:border-amber-300'
+                                          : 'bg-emerald-700 hover:bg-emerald-800 text-white'
                                           }`}
                                       >
                                         {row.isManualApproved ? 'Bỏ duyệt' : 'Duyệt'}
@@ -4091,8 +4120,8 @@ export const AdminIngestPage: React.FC = () => {
                                             }
                                           }}
                                           className={`h-6 w-6 rounded-md flex items-center justify-center transition-colors shadow-2xs border cursor-pointer ${editingRowId === row.id
-                                              ? 'bg-amber-100 text-amber-900 border-amber-400 font-bold'
-                                              : 'bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted border-border'
+                                            ? 'bg-amber-100 text-amber-900 border-amber-400 font-bold'
+                                            : 'bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted border-border'
                                             }`}
                                           title={editingRowId === row.id ? 'Đang sửa tóm tắt' : 'Sửa nội dung tóm tắt'}
                                         >
@@ -4122,8 +4151,8 @@ export const AdminIngestPage: React.FC = () => {
                                         value={row.modelClass}
                                         onChange={(e) => updateSavedUnit(row, { model_class: e.target.value })}
                                         className={`px-2 py-1 rounded-md text-xs font-semibold border bg-background cursor-pointer max-w-[280px] truncate transition-colors focus:ring-1 focus:ring-emerald-500 ${isHealthyTopic(row.diseaseName, row.modelClass)
-                                            ? 'text-sky-900 border-sky-300 bg-sky-50/50 hover:bg-sky-50'
-                                            : 'text-emerald-950 border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50'
+                                          ? 'text-sky-900 border-sky-300 bg-sky-50/50 hover:bg-sky-50'
+                                          : 'text-emerald-950 border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50'
                                           }`}
                                         title="Bấm để đổi chuyên đề / bệnh hại cho đoạn trích này"
                                       >
@@ -5112,11 +5141,10 @@ export const AdminIngestPage: React.FC = () => {
                                     }
                                   });
                                 }}
-                                className={`inline-flex items-center gap-1 mx-1 my-0.5 px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
-                                  isCutAfterThis
-                                    ? 'bg-emerald-700 text-white shadow-xs scale-105'
-                                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
-                                }`}
+                                className={`inline-flex items-center gap-1 mx-1 my-0.5 px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${isCutAfterThis
+                                  ? 'bg-emerald-700 text-white shadow-xs scale-105'
+                                  : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
+                                  }`}
                                 title={isCutAfterThis ? 'Bấm để hủy mốc cắt này' : 'Bấm để ngắt câu tại đây'}
                               >
                                 <Scissors className="w-2.5 h-2.5" />
@@ -5153,9 +5181,8 @@ export const AdminIngestPage: React.FC = () => {
                               Đoạn #{pIdx + 1} ({targetTitle}_{pIdx + 1})
                             </span>
                             <span
-                              className={`text-[11px] font-mono font-medium ${
-                                isTooLong || isTooShort ? 'text-destructive font-bold' : 'text-emerald-700'
-                              }`}
+                              className={`text-[11px] font-mono font-medium ${isTooLong || isTooShort ? 'text-destructive font-bold' : 'text-emerald-700'
+                                }`}
                             >
                               {len} / {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự{' '}
                               {isTooLong ? `(Quá dài > ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')})` : isTooShort ? `(Quá ngắn < ${minCharLen})` : '(Hợp lệ)'}
@@ -5256,11 +5283,10 @@ export const AdminIngestPage: React.FC = () => {
                     key={part.id}
                     type="button"
                     onClick={() => setNewImagePlantPart(part.id)}
-                    className={`rounded-lg py-2 px-2 text-xs font-semibold border transition-all text-center ${
-                      newImagePlantPart === part.id
-                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
-                        : 'bg-muted/40 text-foreground border-border hover:bg-muted'
-                    }`}
+                    className={`rounded-lg py-2 px-2 text-xs font-semibold border transition-all text-center ${newImagePlantPart === part.id
+                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                      : 'bg-muted/40 text-foreground border-border hover:bg-muted'
+                      }`}
                   >
                     {part.label}
                   </button>
@@ -5296,11 +5322,10 @@ export const AdminIngestPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setNewImageMode('URL')}
-                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
-                    newImageMode === 'URL'
-                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
-                      : 'bg-background text-foreground border-border hover:bg-muted'
-                  }`}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${newImageMode === 'URL'
+                    ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                    : 'bg-background text-foreground border-border hover:bg-muted'
+                    }`}
                 >
                   <LinkIcon className="w-3.5 h-3.5" />
                   <span>Dán link HTTPS ảnh</span>
@@ -5308,11 +5333,10 @@ export const AdminIngestPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setNewImageMode('FILE')}
-                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
-                    newImageMode === 'FILE'
-                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
-                      : 'bg-background text-foreground border-border hover:bg-muted'
-                  }`}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${newImageMode === 'FILE'
+                    ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                    : 'bg-background text-foreground border-border hover:bg-muted'
+                    }`}
                 >
                   <UploadCloud className="w-3.5 h-3.5" />
                   <span>Tải ảnh từ máy tính</span>
