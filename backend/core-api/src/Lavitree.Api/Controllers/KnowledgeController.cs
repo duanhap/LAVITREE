@@ -3090,7 +3090,7 @@ public class KnowledgeController : ControllerBase
                 }
             }
 
-            // Cập nhật quy tắc liều lượng riêng cho bệnh này nếu Admin có nhập hoặc cung cấp
+            // Cập nhật quy tắc liều lượng riêng cho bệnh này nếu Admin có nhập hoặc cung cấp (TASK-28: tự động kế thừa cho các bệnh cùng đợt)
             if (!string.IsNullOrWhiteSpace(suggestion.ModelClass) &&
                 (!string.IsNullOrWhiteSpace(dto.DosageInstruction) || dto.UsageProfile != null || !string.IsNullOrWhiteSpace(dto.SourceUrl)))
             {
@@ -3101,13 +3101,24 @@ public class KnowledgeController : ControllerBase
                     ? dto.SourceUrl.Trim()
                     : suggestion.KnowledgeSource?.SourceUrl;
 
-                profile.DiseaseRules[suggestion.ModelClass] = new DiseaseUsageRuleProfile
+                var ruleProfile = new DiseaseUsageRuleProfile
                 {
                     DosageInstruction = !string.IsNullOrWhiteSpace(dto.DosageInstruction) ? dto.DosageInstruction.Trim() : null,
                     UsageProfile = dto.UsageProfile?.Normalize(),
                     SourceUrl = effectiveSourceUrl,
                     IsVerified = true,
                 };
+
+                profile.DiseaseRules[suggestion.ModelClass] = ruleProfile;
+
+                // TASK-28: Tự động gắn rule cho tất cả các bệnh cùng cây trồng trong danh sách liên kết
+                foreach (var code in diseaseCodesToLink)
+                {
+                    if (!profile.DiseaseRules.ContainsKey(code))
+                    {
+                        profile.DiseaseRules[code] = ruleProfile;
+                    }
+                }
 
                 product.UsageProfile = profile.Normalize();
             }

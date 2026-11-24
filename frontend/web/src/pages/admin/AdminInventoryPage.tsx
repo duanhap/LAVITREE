@@ -154,7 +154,7 @@ export const AdminInventoryPage: React.FC = () => {
   const [showLinkDevMode, setShowLinkDevMode] = useState<boolean>(false);
   const [linkDevAiInput, setLinkDevAiInput] = useState<string>('');
   const [isEditingExistingRule, setIsEditingExistingRule] = useState<boolean>(false);
-  const [dosageChoice, setDosageChoice] = useState<'custom' | 'default'>('custom');
+  const [dosageChoice, setDosageChoice] = useState<'custom' | 'default' | 'crop_inherited'>('custom');
   const [showLinkSnippetDialog, setShowLinkSnippetDialog] = useState<boolean>(false);
   const [unlinkingId, setUnlinkingId] = useState<number | null>(null);
 
@@ -366,6 +366,29 @@ export const AdminInventoryPage: React.FC = () => {
     return medicines.find((m) => m.id === selectedLinkMedId) || null;
   }, [selectedLinkMedId, medicines]);
 
+  const currentPlantName = useMemo(() => {
+    if (!linkingSuggestion) return 'Cây trồng';
+    if (linkingSuggestion.plant_name && linkingSuggestion.plant_name.trim()) {
+      return linkingSuggestion.plant_name.trim();
+    }
+    const prefix = (linkingSuggestion.model_class || '').split('___')[0]?.toLowerCase();
+    const PLANT_MAP: Record<string, string> = {
+      tomato: 'Cà chua',
+      corn: 'Ngô (Bắp)',
+      maize: 'Ngô (Bắp)',
+      grape: 'Nho',
+      apple: 'Táo',
+      potato: 'Khoai tây',
+      rice: 'Lúa',
+      pepper: 'Ớt / Tiêu',
+      citrus: 'Cam / Bưởi',
+      strawberry: 'Dâu tây',
+      cucumber: 'Dưa chuột',
+      watermelon: 'Dưa hấu',
+    };
+    return PLANT_MAP[prefix] || prefix || 'Cây trồng';
+  }, [linkingSuggestion]);
+
   const existingDiseaseRule = useMemo(() => {
     if (!selectedLinkMed || !linkingSuggestion?.model_class) return null;
     return selectedLinkMed.usage_profile?.disease_rules?.[linkingSuggestion.model_class] || null;
@@ -379,12 +402,43 @@ export const AdminInventoryPage: React.FC = () => {
     );
   }, [existingDiseaseRule]);
 
+  // TASK-28: Kiểm tra sản phẩm đã có quy tắc liều lượng cho cùng Cây trồng chưa
+  const existingCropRuleEntry = useMemo(() => {
+    if (!selectedLinkMed || !linkingSuggestion) return null;
+    const rules = selectedLinkMed.usage_profile?.disease_rules;
+    if (!rules) return null;
+
+    const currentCropPrefix = (linkingSuggestion.model_class || '').split('___')[0]?.toLowerCase();
+    const currentPlant = (currentPlantName || '').toLowerCase();
+
+    for (const [key, rule] of Object.entries(rules)) {
+      if (!rule) continue;
+      const hasContent = Boolean(
+        rule.dosage_instruction?.trim() ||
+        (rule.usage_profile && !isUsageEmpty(rule.usage_profile))
+      );
+      if (!hasContent) continue;
+
+      if (key.toLowerCase() === (linkingSuggestion.model_class || '').toLowerCase()) continue;
+
+      const ruleCropPrefix = (key.split('___')[0] || '').toLowerCase();
+      const isSameCrop =
+        (currentCropPrefix && ruleCropPrefix && currentCropPrefix === ruleCropPrefix) ||
+        (currentPlant && (key.toLowerCase().includes(currentPlant) || rule.plant_name?.toLowerCase().includes(currentPlant)));
+
+      if (isSameCrop) {
+        return { key, rule };
+      }
+    }
+    return null;
+  }, [selectedLinkMed, linkingSuggestion, currentPlantName]);
+
   const hasDiseaseAlready = useMemo(() => {
     if (!selectedLinkMed || !linkingSuggestion?.model_class) return false;
     return (selectedLinkMed.target_diseases || []).includes(linkingSuggestion.model_class);
   }, [selectedLinkMed, linkingSuggestion]);
 
-  // Đồng bộ liều lượng khi chọn sản phẩm trong modal Gắn gợi ý
+  // Đồng bộ liều lượng khi chọn sản phẩm trong modal Gắn gợi ý (Ưu tiên kế thừa liều cây trồng - TASK-28)
   useEffect(() => {
     if (!linkingSuggestion || !selectedLinkMed) {
       setLinkUsageProfile(emptyUsageProfile());
@@ -403,36 +457,43 @@ export const AdminInventoryPage: React.FC = () => {
       rule && (rule.dosage_instruction?.trim() || (rule.usage_profile && !isUsageEmpty(rule.usage_profile)))
     );
 
-    if (rule?.usage_profile && !isUsageEmpty(rule.usage_profile)) {
-      setLinkUsageProfile({ ...rule.usage_profile });
+    if (hasCustom && rule) {
+      if (rule.usage_profile && !isUsageEmpty(rule.usage_profile)) {
+        setLinkUsageProfile({ ...rule.usage_profile });
+      } else {
+        setLinkUsageProfile(emptyUsageProfile());
+      }
+      setLinkDosageText(rule.dosage_instruction || '');
+      setLinkSourceUrl(rule.source_url || linkingSuggestion.source_url || '');
+      setDosageChoice('custom');
+    } else if (existingCropRuleEntry) {
+      // Tự động nạp liều dùng đã có của Cây trồng này
+      const cropRule = existingCropRuleEntry.rule;
+      if (cropRule.usage_profile && !isUsageEmpty(cropRule.usage_profile)) {
+        setLinkUsageProfile({ ...cropRule.usage_profile });
+      } else {
+        setLinkUsageProfile(emptyUsageProfile());
+      }
+      setLinkDosageText(cropRule.dosage_instruction || '');
+      setLinkSourceUrl(cropRule.source_url || linkingSuggestion.source_url || '');
+      setDosageChoice('crop_inherited');
     } else if (selectedLinkMed.usage_profile && !isUsageEmpty(selectedLinkMed.usage_profile)) {
       setLinkUsageProfile({ ...selectedLinkMed.usage_profile });
+      setLinkDosageText(selectedLinkMed.dosage_instruction || '');
+      setLinkSourceUrl(linkingSuggestion.source_url || '');
+      setDosageChoice('custom');
     } else {
       setLinkUsageProfile(emptyUsageProfile());
-    }
-
-    if (rule?.dosage_instruction) {
-      setLinkDosageText(rule.dosage_instruction);
-    } else if (selectedLinkMed.dosage_instruction) {
-      setLinkDosageText(selectedLinkMed.dosage_instruction);
-    } else {
-      setLinkDosageText('');
-    }
-
-    if (rule?.source_url) {
-      setLinkSourceUrl(rule.source_url);
-    } else if (linkingSuggestion.source_url) {
-      setLinkSourceUrl(linkingSuggestion.source_url);
-    } else {
-      setLinkSourceUrl('');
+      setLinkDosageText(selectedLinkMed.dosage_instruction || '');
+      setLinkSourceUrl(linkingSuggestion.source_url || '');
+      setDosageChoice('custom');
     }
 
     setIsEditingExistingRule(false);
-    setDosageChoice('custom');
     setLinkCustomDosageOpen(true);
     setShowLinkDevMode(false);
     setLinkDevAiInput('');
-  }, [selectedLinkMedId, linkingSuggestion]);
+  }, [selectedLinkMedId, linkingSuggestion, existingCropRuleEntry]);
 
   const handleCopyLinkAiPrompt = () => {
     if (!linkingSuggestion || !selectedLinkMed) return;
@@ -440,46 +501,35 @@ export const AdminInventoryPage: React.FC = () => {
     const active = selectedLinkMed.active_ingredient || '';
     const medType = selectedLinkMed.medicine_type;
     const disease = linkingSuggestion.disease_name;
-    const plant = linkingSuggestion.plant_name;
+    const plant = currentPlantName;
     const isSupply = medType === 'Vật tư canh tác';
     const doseHint = isSupply ? 'liều lượng bón / cách dùng' : 'liều lượng pha bình 16 lít và cách phun';
 
-    const prompt = `Tìm trên Google: "${name}" ${active ? `(${active})` : ''} trị bệnh "${disease}" trên cây "${plant}" ${doseHint} tại Việt Nam. Đọc 2–4 trang Việt Nam (nhãn thuốc của nhà sản xuất, cửa hàng vật tư nông nghiệp, khuyến nông, viện BVTV)${linkingSuggestion.source_url ? ` hoặc bài viết ${linkingSuggestion.source_url}` : ''}, ghi lại link và các con số cụ thể. Gợi ý truy vấn thêm: "${name} cách sử dụng ${plant}", "${name} trị ${disease}".
-
-Sau khi tìm được thông tin thực tế, hãy trình bày kết quả theo yêu cầu dưới đây. Mọi con số phải lấy từ các trang đã tìm, kèm link nguồn bài viết.
+    const prompt = `Tìm trên Google: "${name}" ${active ? `(${active})` : ''} liều lượng cách dùng trên cây "${plant}" ${doseHint} tại Việt Nam. Đọc nhãn thuốc của nhà sản xuất hoặc khuyến nông, ghi lại các con số cụ thể.
 
 ## Vai trò
-Bạn là kỹ sư bảo vệ thực vật, chuyên về kỹ thuật sử dụng thuốc BVTV và vật tư nông nghiệp tại VIỆT NAM. Bạn giúp Admin thiết lập QUY TẮC LIỀU LƯỢNG & HƯỚNG DẪN SỬ DỤNG RIÊNG cho sản phẩm "${name}" khi phòng trị bệnh "${disease}" trên cây "${plant}".
+Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin thiết lập QUY TẮC LIỀU LƯỢNG & HƯỚNG DẪN SỬ DỤNG cho sản phẩm "${name}" trên CÂY TRỒNG "${plant}" (áp dụng cho bệnh "${disease}" và các bệnh tương đương trên cây ${plant}).
 
-## 1. Ngữ cảnh sản phẩm & Bệnh hại
+## Ngữ cảnh
 - Tên sản phẩm: "${name}" (#${selectedLinkMed.id})
 - Phân loại: ${medType}
 - Hoạt chất chính: ${active || 'Chế phẩm sinh học / Không có hoạt chất hóa học'}
-- Bệnh hại mục tiêu: "${disease}" trên cây "${plant}" ${linkingSuggestion.model_class ? `(Mã bệnh: ${linkingSuggestion.model_class})` : ''}
-${linkingSuggestion.evidence_text ? `- Đoạn trích tham khảo từ bài báo gợi ý (để hiểu ngữ cảnh): "${linkingSuggestion.evidence_text}"` : ''}
+- Cây trồng mục tiêu: "${plant}" (Bệnh liên kết: "${disease}")
 ${linkingSuggestion.source_url ? `- Link bài báo gợi ý: ${linkingSuggestion.source_url}` : ''}
 
-## 2. Nhiệm vụ
-1. Tra cứu nhãn thuốc hoặc tài liệu hướng dẫn kỹ thuật chính thống tại Việt Nam cho sản phẩm "${name}" đối với bệnh "${disease}" (hoặc nhóm bệnh tương đương trên cây ${plant}).
-2. Trích xuất ĐẦY ĐỦ các con số định lượng thực tế:
-   - Liều lượng pha (cho 1 bình 16L hoặc 200L) và lượng nước (ví dụ: 40-50g / bình 16 lít).
-   - Nếu là phân bón / vôi / chế phẩm bón gốc: liều lượng theo diện tích (kg/ha, kg/sào, g/gốc).
-   - Lượng nước phun/ha (ví dụ: 400 - 600 lít/ha).
-   - Cách dùng (phun ướt đều 2 mặt lá / tưới gốc / rắc / bón lót...).
-   - Thời điểm dùng (khi bệnh mới chớm xuất hiện / sáng sớm, chiều mát).
-   - Số lần và khoảng cách ngày giữa các lần (ví dụ: cách nhau 7 - 10 ngày).
-   - Số ngày cách ly (PHI) trước thu hoạch (nếu nhãn thuốc có ghi).
-   - Lưu ý an toàn và thời tiết (tránh mưa, nắng gắt).
-3. Soạn câu "dosage_instruction" súc tích, chuyên nghiệp, đầy đủ để Trợ lý AI Lavi có thể đọc và tư vấn trực tiếp cho nông dân.
+## Nhiệm vụ
+Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant}":
+1. Liều lượng pha (g hoặc ml cho bình 16L hoặc 200L) và lượng nước (ví dụ: 40-50g / bình 16 lít).
+2. Lượng nước phun/ha (ví dụ: 400 - 600 lít/ha) hoặc liều theo gốc/diện tích.
+3. Cách dùng (phun ướt đều tán lá / tưới gốc...).
+4. Thời điểm phun, khoảng cách giữa các lần (7-10 ngày), số ngày cách ly (PHI).
+5. Soạn câu "dosage_instruction" súc tích, chuyên nghiệp cho trợ lý AI Lavi đọc tư vấn cho nông dân.
 
-## 3. Định dạng đầu ra
-Trả lời theo đúng thứ tự 2 phần dưới đây:
-
-### Phần 1: Khối JSON (đặt ở đầu tiên)
+## Định dạng đầu ra JSON (đặt ở đầu tiên):
 \`\`\`json
 {
-  "dosage_instruction": "Câu hướng dẫn sử dụng chi tiết cách pha và sử dụng sản phẩm ${name} cho bệnh ${disease} trên cây ${plant}...",
-  "source_url": "https://link-trang-web-nhan-thuoc-hoac-khuyen-nong-da-tim",
+  "dosage_instruction": "Câu hướng dẫn sử dụng chi tiết cách pha và sử dụng ${name} trên cây ${plant} cho bệnh ${disease}...",
+  "source_url": "https://link-trang-web-nhan-thuoc-da-tim",
   "usage_profile": {
     "dose_amount": 50,
     "dose_unit": "g",
@@ -493,22 +543,17 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
     "interval_days": { "min": 7, "max": 10 },
     "max_applications_per_season": 3,
     "start_when": "khi bệnh chớm xuất hiện",
-    "stop_when": "",
-    "weather_note": "tránh phun khi trời nắng gắt hoặc sắp mưa trong vòng 4-6 giờ",
     "avoid_rain_hours": 6,
     "safety_note": "mang khẩu trang, găng tay bảo hộ khi phun; không ăn uống khi đang xử lý thuốc"
   }
 }
 \`\`\`
-*(Lưu ý: Các con số trong mẫu chỉ để minh họa định dạng, hãy điền con số thực tế bạn tìm được từ các nguồn tại Việt Nam. Nếu là vật tư bón gốc thì để dose_amount/water_liters là null và điền vào dose_per_area).*
 
-### Phần 2: Danh sách link nguồn đã dùng (đặt ngay bên dưới khối JSON để người dùng nhấp kiểm chứng)
 ## Nguồn tham khảo:
-1. [Tên website / Tiêu đề bài viết](URL_TRANG_WEB) — Câu trích dẫn ngắn 10–25 từ trên trang có chứa số liệu liều lượng bạn đã dùng.
-*(Bắt buộc in link dạng markdown [Tiêu đề](URL) để người dùng có thể nhấp trực tiếp vào xem nguồn).*`;
+1. [Tên website / Tiêu đề bài viết](URL_TRANG_WEB) — Trích dẫn ngắn có chứa số liệu liều lượng bạn đã dùng.`;
 
     navigator.clipboard.writeText(prompt);
-    toast.success('Đã sao chép Prompt AI tra cứu nhãn thuốc & liều lượng theo bệnh vào Clipboard!');
+    toast.success(`Đã sao chép Prompt AI tra cứu liều dùng cho Cây ${plant} vào Clipboard!`);
   };
 
   const handleApplyLinkAiJson = () => {
@@ -2384,36 +2429,122 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                           </div>
                         )}
 
-                        {/* 2 LỰA CHỌN: TẠO LIỀU RIÊNG vs DÙNG LIỀU CHUNG (chỉ hiện khi chưa có liều) */}
+                        {/* LỰA CHỌN LIỀU DÙNG (KHI CHƯA CÓ LIỀU RIÊNG CHO BỆNH NÀY) */}
                         {!hasDosageForDisease && (
-                          <div className="grid grid-cols-2 p-1 bg-muted/60 rounded-xl border border-border">
+                          <div className={`grid ${existingCropRuleEntry ? 'grid-cols-3' : 'grid-cols-2'} p-1 bg-muted/60 rounded-xl border border-border gap-1`}>
+                            {existingCropRuleEntry && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDosageChoice('crop_inherited');
+                                  const cropRule = existingCropRuleEntry.rule;
+                                  if (cropRule.usage_profile && !isUsageEmpty(cropRule.usage_profile)) {
+                                    setLinkUsageProfile({ ...cropRule.usage_profile });
+                                  }
+                                  setLinkDosageText(cropRule.dosage_instruction || '');
+                                  setLinkSourceUrl(cropRule.source_url || linkingSuggestion.source_url || '');
+                                }}
+                                className={`py-2 px-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                                  dosageChoice === 'crop_inherited'
+                                    ? 'bg-background text-emerald-800 dark:text-emerald-300 shadow-xs border border-emerald-500/30'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="truncate">Kế thừa liều Cây {currentPlantName} (Khuyên dùng)</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setDosageChoice('custom')}
-                              className={`py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${dosageChoice === 'custom'
+                              className={`py-2 px-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                                dosageChoice === 'custom'
                                   ? 'bg-background text-emerald-800 dark:text-emerald-300 shadow-xs border border-emerald-500/30'
                                   : 'text-muted-foreground hover:text-foreground'
-                                }`}
+                              }`}
                             >
                               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                              <span>Tạo liều riêng cho bệnh này (Khuyên dùng)</span>
+                              <span className="truncate">Tạo liều riêng cho bệnh này</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => setDosageChoice('default')}
-                              className={`py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${dosageChoice === 'default'
+                              className={`py-2 px-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                                dosageChoice === 'default'
                                   ? 'bg-background text-foreground shadow-xs border border-border'
                                   : 'text-muted-foreground hover:text-foreground'
-                                }`}
+                              }`}
                             >
                               <Layers className="w-3.5 h-3.5 text-blue-600" />
-                              <span>Dùng liều chung của sản phẩm</span>
+                              <span className="truncate">Dùng liều chung của kho</span>
                             </button>
                           </div>
                         )}
 
-                        {/* NẾU CHỌN DÙNG LIỀU CHUNG */}
-                        {!hasDosageForDisease && dosageChoice === 'default' ? (
+                        {/* NẾU CHỌN KẾ THỪA LIỀU CÂY TRỒNG */}
+                        {!hasDosageForDisease && dosageChoice === 'crop_inherited' && existingCropRuleEntry ? (
+                          <div className="space-y-3">
+                            <div className="p-3.5 rounded-xl border border-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/30 dark:border-emerald-800 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-900 dark:text-emerald-300">
+                                  <Check className="w-4 h-4 text-emerald-700" />
+                                  <span>Đã có liều chuẩn cho Cây {currentPlantName}</span>
+                                </div>
+                                <Badge className="bg-emerald-600 text-white text-[10px] font-semibold">
+                                  Tự động kế thừa
+                                </Badge>
+                              </div>
+
+                              {existingCropRuleEntry.rule.dosage_instruction ? (
+                                <div className="p-2.5 bg-background rounded-lg border border-border text-xs leading-relaxed text-foreground whitespace-pre-line">
+                                  {existingCropRuleEntry.rule.dosage_instruction}
+                                </div>
+                              ) : (
+                                <p className="text-[11px] text-muted-foreground italic">
+                                  Đã có thông số kỹ thuật pha chế cho Cây {currentPlantName}.
+                                </p>
+                              )}
+
+                              {existingCropRuleEntry.rule.usage_profile && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+                                  {existingCropRuleEntry.rule.usage_profile.dose_amount && (
+                                    <div className="p-1.5 bg-background/80 rounded border border-border/60">
+                                      <span className="text-muted-foreground">Liều:</span>{' '}
+                                      <strong>
+                                        {existingCropRuleEntry.rule.usage_profile.dose_amount}{' '}
+                                        {existingCropRuleEntry.rule.usage_profile.dose_unit || ''}
+                                      </strong>
+                                    </div>
+                                  )}
+                                  {existingCropRuleEntry.rule.usage_profile.water_liters && (
+                                    <div className="p-1.5 bg-background/80 rounded border border-border/60">
+                                      <span className="text-muted-foreground">Nước:</span>{' '}
+                                      <strong>{existingCropRuleEntry.rule.usage_profile.water_liters} L</strong>
+                                    </div>
+                                  )}
+                                  {existingCropRuleEntry.rule.usage_profile.interval_days && (
+                                    <div className="p-1.5 bg-background/80 rounded border border-border/60">
+                                      <span className="text-muted-foreground">Cách nhau:</span>{' '}
+                                      <strong>
+                                        {typeof existingCropRuleEntry.rule.usage_profile.interval_days === 'object'
+                                          ? `${existingCropRuleEntry.rule.usage_profile.interval_days.min || ''}–${existingCropRuleEntry.rule.usage_profile.interval_days.max || ''} ngày`
+                                          : `${existingCropRuleEntry.rule.usage_profile.interval_days} ngày`}
+                                      </strong>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              <p className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
+                                💡 Sản phẩm này đã có liều dùng chuẩn cho Cây {currentPlantName}. Bệnh "{linkingSuggestion.disease_name}" sẽ tự động áp dụng liều trên khi bấm <strong>Xác nhận liên kết</strong>.
+                              </p>
+                            </div>
+
+                            <p className="text-[11px] text-muted-foreground text-center">
+                              Bấm <strong>Xác nhận liên kết</strong> bên dưới để hoàn tất ngay không cần nhập lại.
+                            </p>
+                          </div>
+                        ) : !hasDosageForDisease && dosageChoice === 'default' ? (
                           <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-2 text-xs">
                             <div className="font-semibold text-foreground flex items-center gap-1.5">
                               <Layers className="w-4 h-4 text-blue-600" />
@@ -2432,7 +2563,7 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                             {/* Thanh công cụ tra cứu Google & Chế độ Dev */}
                             <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-muted/30 rounded-lg border border-border/60">
                               {(() => {
-                                const q = encodeURIComponent(`${selectedLinkMed.name} trị ${linkingSuggestion.disease_name} trên ${linkingSuggestion.plant_name} liều lượng cách dùng`);
+                                const q = encodeURIComponent(`${selectedLinkMed.name} liều lượng cách dùng trên cây ${currentPlantName}`);
                                 return (
                                   <a
                                     href={`https://www.google.com/search?q=${q}`}
@@ -2441,7 +2572,7 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 font-medium text-[11px]"
                                   >
                                     <Search className="w-3 h-3" />
-                                    <span>Tra Google nhãn thuốc &amp; liều dùng</span>
+                                    <span>Tra Google nhãn thuốc &amp; liều dùng Cây {currentPlantName}</span>
                                     <ExternalLink className="w-2.5 h-2.5" />
                                   </a>
                                 );

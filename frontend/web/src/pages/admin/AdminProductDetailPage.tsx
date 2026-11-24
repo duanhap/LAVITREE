@@ -387,6 +387,54 @@ export const AdminProductDetailPage: React.FC = () => {
     }
   };
 
+  // TASK-28: Lưu và đồng bộ quy tắc liều lượng cho toàn bộ bệnh thuộc cùng một Cây trồng
+  const handleSaveCropRule = async (plantName: string, payload: SaveDiseaseRulePayload) => {
+    if (!productId || !product) return;
+    try {
+      const currentUsage: UsageProfile = product.usage_profile
+        ? { ...product.usage_profile }
+        : emptyUsageProfile();
+
+      const nextDiseaseRules = { ...(currentUsage.disease_rules || {}) };
+      const nextPlantRules = { ...(currentUsage.plant_rules || {}) };
+
+      const cropRuleProfile: DiseaseUsageRuleProfile = {
+        dosage_instruction: payload.dosageInstruction || null,
+        usage_profile: payload.profile || null,
+        source_url: payload.sourceUrl || null,
+        plant_name: plantName,
+        is_verified: true,
+      };
+
+      nextPlantRules[plantName] = cropRuleProfile;
+
+      // Đồng bộ rule này cho TẤT CẢ các bệnh thuộc cây trồng này trong sản phẩm
+      const norm = (s?: string | null) => (s || '').trim().toLowerCase().replace(/^cây\s+/i, '');
+      const targetNorm = norm(plantName);
+      const matchingDiseases = (product.diseases || []).filter(
+        (d) => norm(d.plant_name) === targetNorm
+      );
+
+      for (const d of matchingDiseases) {
+        nextDiseaseRules[d.class_code] = cropRuleProfile;
+      }
+
+      const updatedProfile: UsageProfile = {
+        ...currentUsage,
+        disease_rules: nextDiseaseRules,
+        plant_rules: nextPlantRules,
+      };
+
+      await updateProduct(productId, { usage_profile: updatedProfile });
+      const refreshed = await getProduct(productId);
+      setProduct(refreshed);
+      toast.success(`Đã lưu và đồng bộ liều dùng chuẩn cho Cây ${plantName}!`);
+    } catch (err: unknown) {
+      toast.error('Lỗi khi lưu liều dùng theo cây: ' + getErrorMessage(err));
+      throw err;
+    }
+  };
+
   // Xác nhận đối chiếu với nhãn thuốc cho quy tắc bệnh (TASK-22)
   const handleVerifyDiseaseRule = async (ruleId: number, verified: boolean) => {
     if (!productId) return;
@@ -1007,10 +1055,12 @@ export const AdminProductDetailPage: React.FC = () => {
             defaultProfile={product.usage_profile}
             defaultDosage={productDosage}
             diseaseRules={product.usage_profile?.disease_rules}
+            plantRules={product.usage_profile?.plant_rules}
             usageRules={usageRules}
             isSupply={product.medicine_type === 'Vật tư canh tác'}
             phiDays={product.phi_days}
             onSaveDiseaseRule={handleSaveDiseaseRule}
+            onSaveCropRule={handleSaveCropRule}
             onVerifyDiseaseRule={handleVerifyDiseaseRule}
             onResetDiseaseRule={handleResetDiseaseRule}
             onRemoveDisease={handleRemoveDisease}

@@ -86,6 +86,10 @@ public class UsageProfile
     [JsonPropertyName("disease_rules")]
     public Dictionary<string, DiseaseUsageRuleProfile>? DiseaseRules { get; set; }
 
+    /// <summary>Quy tắc và liều lượng riêng theo từng Cây trồng / Loại quả (key = Tên cây như "Cà chua", "Nho" - TASK-28).</summary>
+    [JsonPropertyName("plant_rules")]
+    public Dictionary<string, DiseaseUsageRuleProfile>? PlantRules { get; set; }
+
     /// <summary>Cắt khoảng trắng, chuỗi rỗng thành null, cắt độ dài, bỏ buổi trùng.</summary>
     public UsageProfile Normalize()
     {
@@ -141,6 +145,25 @@ public class UsageProfile
             DiseaseRules = cleanedRules.Count > 0 ? cleanedRules : null;
         }
 
+        if (PlantRules != null)
+        {
+            var cleanedPlantRules = new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in PlantRules)
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key)) continue;
+                var rule = kvp.Value;
+                if (rule != null)
+                {
+                    rule.UsageProfile?.Normalize();
+                    if (!string.IsNullOrWhiteSpace(rule.DosageInstruction) || (rule.UsageProfile != null && !rule.UsageProfile.IsEmpty))
+                    {
+                        cleanedPlantRules[kvp.Key.Trim()] = rule;
+                    }
+                }
+            }
+            PlantRules = cleanedPlantRules.Count > 0 ? cleanedPlantRules : null;
+        }
+
         return this;
     }
 
@@ -151,7 +174,8 @@ public class UsageProfile
         SprayVolumePerHa == null && Method == null && TimeOfDay == null && TimesPerDay == null &&
         IntervalDays == null && MaxApplicationsPerSeason == null && StartWhen == null && StopWhen == null &&
         WeatherNote == null && AvoidRainHours == null && SafetyNote == null && SourceUrl == null &&
-        (DiseaseRules == null || DiseaseRules.Count == 0);
+        (DiseaseRules == null || DiseaseRules.Count == 0) &&
+        (PlantRules == null || PlantRules.Count == 0);
 
     /// <summary>Kiểm tra giới hạn hợp lý. Trả danh sách lỗi (rỗng = hợp lệ).</summary>
     public List<string> Validate()

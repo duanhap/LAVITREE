@@ -184,3 +184,14 @@
   - Trách nhiệm: giao agent; nghiệm thu: Claude Code / trưởng nhóm
   - Trạng thái: `[x] DONE`
   - Đầu ra: ảnh đính kèm trong chat đi qua modal cắt ảnh lá `LeafCropper` và `POST /diagnose` có sẵn (OOD / lỗi thì không gọi agent), agent nhận `image_context` và không được nói "mình thấy trong ảnh"; ảnh không còn lưu base64 trong `localStorage`; `final_answer` thêm `reference_images` (backend gom, bỏ rule 10 Markdown ảnh) và `suggested_products` (thẻ gợi ý sản phẩm trực quan, giá lấy từ Core, bấm mở `/store/:id`, không cần nút giỏ hàng); `draft_order` vẫn `null` theo BUG-106; sửa redirect `/products/:id`; bổ sung reverse proxy `/lavitree-images/` trong `nginx.conf`. Chi tiết: `tasks/sprint-03/task-25-chat-image-and-rich-cards.md`.
+
+- [x] **TASK-26: Phân hệ Quản lý Đơn hàng Toàn sàn cho Admin (`/admin/orders`)** (P1)
+  - Trách nhiệm: **Trưởng nhóm** (giao Antigravity làm)
+  - Trạng thái: `[x] DONE`
+  - Đầu ra: Thêm 2 endpoint Core API `GET /api/v1/orders/admin` (bộ lọc `status`, tìm kiếm đa trường) và `PATCH /api/v1/orders/{id}/status` (chuyển đổi `PENDING` -> `CONFIRMED` -> `SHIPPING` -> `COMPLETED` -> `CANCELLED`, hoàn trả tồn kho tự động khi hủy đơn); trang `AdminOrdersPage.tsx` thay thế `ComingSoonPage` gồm 4 Thẻ chỉ số tổng quan, thanh lọc tab trạng thái, bảng quản lý chi tiết, modal xem hóa đơn xuất xưởng và dialog xác nhận hủy đơn; bổ sung lối tắt trên `AdminOverviewPage.tsx`.
+
+- [x] **TASK-28: Phân cấp Quy tắc Liều lượng & Căn cứ Khoa học theo Cây trồng (Crop-Centric Rules & Evidence)** (P1)
+  - Trách nhiệm: **Trưởng nhóm** (giao Antigravity làm)
+  - Trạng thái: `[x] DONE` (24/11/2026)
+  - Nhánh Git: `feat/task-28-crop-centric-rules`
+  - Đầu ra: Phân cấp 2 tầng Cây trồng -> Bệnh (liều lượng mặc định theo cây trồng, kế thừa tự động cho mọi bệnh trên cây đó, chỉ nhập liều riêng khi có ngoại lệ cá biệt); tối ưu luồng gán sản phẩm ở Admin (tự động nhận diện cây đã có liều để 1-click gán ngay, rút gọn Prompt Dev AI ngắn hơn 60% chỉ cần tra cứu theo Cây + Thuốc); trang Chi tiết sản phẩm Store và Admin gom nhóm Căn cứ khoa học và Bệnh đặc trị theo Cây trồng. Chi tiết: `tasks/sprint-03/task-28-crop-centric-dosage-and-evidence.md`.

@@ -17,6 +17,7 @@ export interface DiseaseUsageRuleProfile {
   dosage_instruction?: string | null;
   usage_profile?: UsageProfile | null;
   source_url?: string | null;
+  plant_name?: string | null;
   is_verified?: boolean;
 }
 
@@ -40,6 +41,7 @@ export interface UsageProfile {
   safety_note: string | null;
   source_url: string | null;
   disease_rules?: Record<string, DiseaseUsageRuleProfile> | null;
+  plant_rules?: Record<string, DiseaseUsageRuleProfile> | null;
 }
 
 export const USAGE_PROFILE_VERSION = 1;

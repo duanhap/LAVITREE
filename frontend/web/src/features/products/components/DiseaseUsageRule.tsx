@@ -34,6 +34,7 @@ export interface SaveDiseaseRulePayload {
   profile: UsageProfile;
   actionGroup?: string;
   sourceUrl?: string;
+  dosageInstruction?: string;
   ruleId?: number;
 }
 
@@ -150,6 +151,7 @@ export const DiseaseUsageRule: React.FC<Props> = ({
         profile: nextProfile,
         actionGroup: actionGroup.trim() || undefined,
         sourceUrl: sourceUrl.trim() || undefined,
+        dosageInstruction: dosageText.trim() || undefined,
         ruleId,
       });
       setIsEditing(false);
