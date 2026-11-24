@@ -171,8 +171,10 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
           ([k]) => k.toLowerCase() === (row.modelClass || '').toLowerCase()
         )?.[1];
 
-      // Nếu Cây chưa có liều từ plantRules, tìm trong các quy tắc của từng bệnh thuộc cây này
-      if (!group.cropRule?.dosage_instruction) {
+      // TASK-29: khối "Liều cho Cây" chỉ lấy liều chung của cây (scope "plant"). Liều riêng của một bệnh
+      // (scope "disease") hiện ở dòng của bệnh đó, không được dùng làm liều của cả cây.
+      const isPlantScoped = !legacyRule?.scope || legacyRule.scope === 'plant';
+      if (!group.cropRule?.dosage_instruction && isPlantScoped) {
         const diseaseDoseText = legacyRule?.dosage_instruction?.trim();
         if (diseaseDoseText) {
           // Ưu tiên đoạn hướng dẫn chi tiết dài của bệnh (ví dụ mốc sương trên cà chua)
@@ -194,7 +196,9 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
       if (group.cropRule?.usage_profile && !isUsageEmpty(group.cropRule.usage_profile)) {
         group.cropProfile = group.cropRule.usage_profile;
       } else if (!group.cropProfile || isUsageEmpty(group.cropProfile)) {
-        const prof = (legacyRule?.usage_profile || ruleItem?.profile) || null;
+        const prof = isPlantScoped
+          ? (legacyRule?.usage_profile || (ruleItem?.scope === 'plant' ? ruleItem.profile : null)) || null
+          : null;
         if (prof && !isUsageEmpty(prof)) {
           group.cropProfile = prof;
         } else if (defaultProfile && !isUsageEmpty(defaultProfile)) {
@@ -205,7 +209,7 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
 
     // Chưa có chữ: chỉ lấy dose_text khi phiếu thuộc riêng cây/bệnh này.
     // KHÔNG lấy liều chung của sản phẩm (defaultDosage / defaultProfile) làm liều của Cây:
-    // nút "Đồng bộ cho n bệnh" và "Lưu liều" sẽ chép đoạn này đè lên liều riêng của mọi bệnh
+    // nút "Lưu liều" sẽ lưu đoạn này thành liều chung của cây
     // (đã làm mất đoạn liều mốc sương của Trichoderma). Liều chung chỉ hiển thị, có ghi chú riêng.
     for (const group of map.values()) {
       if (!group.cropDosageText && group.cropProfile !== defaultProfile && group.cropProfile?.dose_text?.trim()) {
@@ -448,25 +452,7 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                           <span>Chỉnh sửa liều Cây {crop.plantName}</span>
                         </Button>
 
-                        {crop.cropDosageText && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              await onSaveCropRule(crop.plantName, {
-                                profile: crop.cropProfile || crop.cropRule?.usage_profile || defaultProfile || emptyUsageProfile(),
-                                dosageInstruction: crop.cropDosageText,
-                                sourceUrl: crop.cropRule?.source_url || undefined,
-                              });
-                            }}
-                            className="h-7 text-xs font-semibold gap-1 px-2.5 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
-                            title="Đồng bộ liều này cho tất cả các bệnh thuộc cây này"
-                          >
-                            <Check className="w-3 h-3" />
-                            <span>Đồng bộ cho {crop.diseases.length} bệnh</span>
-                          </Button>
-                        )}
+                        {/* TASK-29: không còn nút "Đồng bộ cho n bệnh": mọi bệnh của cây tự dùng liều chung này */}
                       </div>
                     )}
                   </div>
@@ -542,7 +528,7 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                             className="text-xs leading-relaxed font-medium bg-background"
                           />
                           <p className="text-[11px] text-muted-foreground">
-                            Đoạn này sẽ được áp dụng cho tất cả bệnh của Cây {crop.plantName} trong sản phẩm. Chỉnh câu chữ tùy ý rồi bấm Lưu bên dưới.
+                            Đoạn này áp dụng cho mọi bệnh của Cây {crop.plantName} trong sản phẩm, trừ bệnh đã đặt liều riêng. Chỉnh câu chữ tùy ý rồi bấm Lưu bên dưới.
                           </p>
                         </div>
                       </div>
@@ -567,7 +553,7 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                           className="h-8 text-xs font-bold gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
                         >
                           <Save className="w-3.5 h-3.5" />
-                          <span>{isSavingCrop ? 'Đang lưu...' : `💾 Lưu liều & Áp dụng cho ${crop.diseases.length} bệnh`}</span>
+                          <span>{isSavingCrop ? 'Đang lưu...' : `💾 Lưu liều chung cho Cây ${crop.plantName}`}</span>
                         </Button>
                       </div>
                     </div>

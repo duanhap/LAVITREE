@@ -13,7 +13,14 @@ export interface AreaDose extends NumberRange {
   unit: string | null;
 }
 
+/**
+ * Một liều trong bản xem usage_profile.plant_rules / disease_rules do API tính từ bảng ProductUsageRules (TASK-29).
+ * Chỉ để đọc: sửa liều qua /medicines/{id}/usage-rules, gửi lại trong PATCH sản phẩm sẽ bị bỏ qua.
+ */
 export interface DiseaseUsageRuleProfile {
+  rule_id?: number;
+  /** "plant" = bệnh đang dùng liều chung của cây; "disease" = bệnh có liều riêng. */
+  scope?: 'plant' | 'disease';
   dosage_instruction?: string | null;
   usage_profile?: UsageProfile | null;
   source_url?: string | null;
@@ -182,12 +189,14 @@ export const normalizeUsageProfile = (raw: unknown): UsageProfile => {
   };
 };
 
+/**
+ * Phiếu bao bì không có thông số nào. Chỉ xét các trường phẳng: plant_rules / disease_rules là bản xem
+ * liều theo cây / bệnh do API tính từ bảng ProductUsageRules (TASK-29), không phải nội dung của phiếu.
+ */
 export const isUsageEmpty = (p: UsageProfile | null | undefined): boolean => {
   if (!p) return true;
-  const { version: _v, disease_rules, ...rest } = p;
-  const restEmpty = Object.values(rest).every((v) => v === null || v === undefined || (Array.isArray(v) && v.length === 0));
-  const rulesEmpty = !disease_rules || Object.keys(disease_rules).length === 0;
-  return restEmpty && rulesEmpty;
+  const { version: _v, disease_rules: _dr, plant_rules: _pr, ...rest } = p;
+  return Object.values(rest).every((v) => v === null || v === undefined || (Array.isArray(v) && v.length === 0));
 };
 
 // ---------------------------------------------------------------------------

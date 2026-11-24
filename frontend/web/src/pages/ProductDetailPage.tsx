@@ -431,8 +431,10 @@ export const ProductDetailPage: React.FC = () => {
           ([k]) => k.toLowerCase() === (d.class_code || '').toLowerCase()
         )?.[1];
 
+      // TASK-29: scope "plant" = bệnh đang dùng liều chung của cây, không phải liều riêng
+      const isOwnRule = Boolean(specificRule && specificRule.scope !== 'plant');
       const hasSpecific = Boolean(
-        specificRule &&
+        specificRule && isOwnRule &&
         (specificRule.dosage_instruction?.trim() ||
           (specificRule.usage_profile && !isUsageEmpty(specificRule.usage_profile)))
       );
@@ -459,8 +461,9 @@ export const ProductDetailPage: React.FC = () => {
       // 1. Ưu tiên liều của Cây trồng từ plant_rules
       if (plantRule?.dosage_instruction?.trim()) {
         entry.cropDosageText = plantRule.dosage_instruction.trim();
-      } else {
-        // 2. Kế thừa từ quy tắc riêng của bệnh thuộc cây này (ví dụ Late Blight trên cà chua)
+      } else if (!isOwnRule) {
+        // 2. Dữ liệu cũ chưa có scope: lấy đoạn của bệnh. Liều riêng của một bệnh (scope "disease")
+        //    không được hiện thành liều của cả cây.
         const disText = specificRule?.dosage_instruction?.trim();
         if (disText) {
           // Ưu tiên đoạn hướng dẫn chi tiết đầy đủ của bệnh

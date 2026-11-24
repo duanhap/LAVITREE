@@ -70,8 +70,9 @@ export const DiseaseUsageRule: React.FC<Props> = ({
   const ruleProfile: UsageProfile | null = rule
     ? ('profile' in rule ? (rule as ProductUsageRuleItem).profile : (rule as DiseaseUsageRuleProfile).usage_profile) || null
     : null;
+  // Ưu tiên đoạn hướng dẫn bằng chữ (TASK-29: bảng có cột dosage_instruction), rồi mới tới dose_text của phiếu
   const ruleDosageText =
-    (ruleProfile?.dose_text || (rule && 'dosage_instruction' in rule ? (rule as DiseaseUsageRuleProfile).dosage_instruction : '')) || '';
+    ((rule && 'dosage_instruction' in rule ? rule.dosage_instruction : '') || ruleProfile?.dose_text || '') as string;
   const ruleActionGroup = rule && 'action_group' in rule ? (rule as ProductUsageRuleItem).action_group || '' : '';
   const ruleSourceUrl = rule?.source_url || '';
   const isVerified = Boolean(rule?.is_verified);

@@ -81,13 +81,17 @@ export interface GroupedDiseaseRow {
   totalEvidenceCount: number;
 }
 
+/** Một liều trong bảng ProductUsageRules (TASK-29): scope "plant" = liều chung của cây, "disease" = liều riêng của bệnh. */
 export interface ProductUsageRuleItem {
   id: number;
   product_id: number;
+  scope: 'plant' | 'disease';
+  plant_id: number;
   disease_id: number | null;
   class_code: string | null;
   disease_name: string | null;
   plant_name: string | null;
+  dosage_instruction: string | null;
   profile: UsageProfile;
   action_group: string | null;
   source_url: string | null;
@@ -97,15 +101,20 @@ export interface ProductUsageRuleItem {
   updated_at: string | null;
 }
 
+/** Có class_code = liều riêng cho bệnh; không có = liều chung cho cây (cần plant_name hoặc plant_id). */
 export interface CreateUsageRulePayload {
-  class_code: string;
+  class_code?: string;
+  plant_id?: number;
   plant_name?: string;
-  profile: UsageProfile;
+  dosage_instruction?: string;
+  profile?: UsageProfile;
   action_group?: string;
   source_url?: string;
 }
 
 export interface UpdateUsageRulePayload {
+  /** undefined = giữ nguyên; chuỗi rỗng = xóa đoạn chữ. */
+  dosage_instruction?: string;
   profile?: UsageProfile;
   action_group?: string;
   source_url?: string;

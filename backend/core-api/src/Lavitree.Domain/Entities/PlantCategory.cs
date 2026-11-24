@@ -12,4 +12,5 @@ public class PlantCategory : BaseEntity
 
     // Navigation
     public ICollection<Disease> Diseases { get; set; } = new List<Disease>();
+    public ICollection<ProductUsageRule> UsageRules { get; set; } = new List<ProductUsageRule>();
 }

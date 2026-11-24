@@ -195,3 +195,9 @@
   - Trạng thái: `[x] DONE` (24/11/2026)
   - Nhánh Git: `feat/task-28-crop-centric-rules`
   - Đầu ra: Phân cấp 2 tầng Cây trồng -> Bệnh (liều lượng mặc định theo cây trồng, kế thừa tự động cho mọi bệnh trên cây đó, chỉ nhập liều riêng khi có ngoại lệ cá biệt); tối ưu luồng gán sản phẩm ở Admin (tự động nhận diện cây đã có liều để 1-click gán ngay, rút gọn Prompt Dev AI ngắn hơn 60% chỉ cần tra cứu theo Cây + Thuốc); trang Chi tiết sản phẩm Store và Admin gom nhóm Căn cứ khoa học và Bệnh đặc trị theo Cây trồng. Chi tiết: `tasks/sprint-03/task-28-crop-centric-dosage-and-evidence.md`.
+
+- [~] **TASK-29: Chuyển liều theo Cây / Bệnh ra bảng quan hệ `ProductUsageRules`, bỏ `disease_rules` / `plant_rules` trong JSON** (P1)
+  - Trách nhiệm: **Trưởng nhóm** (Claude làm)
+  - Trạng thái: `[~] Code xong + thử trên DB local; chờ đồng ý migrate Supabase và deploy`
+  - Nhánh Git: `feat/task-29-usage-rules-relational`
+  - Đầu ra: `ProductUsageRules` thêm `PlantId` (FK), `DosageInstruction`, 2 chỉ mục duy nhất (liều chung theo cây / ngoại lệ theo bệnh); thứ tự lấy liều tính ở backend (ngoại lệ bệnh → liều cây → phiếu bao bì); API sửa từng dòng, `GET` không ghi DB; web bỏ nút "Đồng bộ cho n bệnh" và các đoạn tự đoán liều; migration chuyển dữ liệu JSON cũ (cần đồng ý trước khi áp Supabase). Chi tiết: `tasks/sprint-03/task-29-usage-rules-relational.md`.

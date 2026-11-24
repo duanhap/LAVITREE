@@ -7,6 +7,7 @@ namespace Lavitree.Domain.Entities;
 
 /// <summary>
 /// Phiếu cách dùng vật tư (TASK-18). Lưu ở cột jsonb <c>Products.UsageProfile</c>.
+/// Phiếu phẳng: liều theo cây / bệnh nằm ở bảng ProductUsageRules (TASK-29), không lồng trong JSON này.
 /// Các con số tách riêng để bộ lập lịch phun / nhắc nhở (FEAT-06, xem docs/architecture/treatment-schedule-design.md)
 /// tự tính ngày bằng code. Bản đầy đủ dùng lại đúng kiểu này cho từng cây / bệnh (bảng ProductUsageRules).
 /// Thời gian cách ly KHÔNG nằm ở đây: dùng <c>Products.PhiDays</c> (một nguồn duy nhất).
@@ -82,14 +83,6 @@ public class UsageProfile
     [JsonPropertyName("source_url")]
     public string? SourceUrl { get; set; }
 
-    /// <summary>Quy tắc và liều lượng riêng theo từng bệnh hại (key = classCode như Tomato___Late_blight).</summary>
-    [JsonPropertyName("disease_rules")]
-    public Dictionary<string, DiseaseUsageRuleProfile>? DiseaseRules { get; set; }
-
-    /// <summary>Quy tắc và liều lượng riêng theo từng Cây trồng / Loại quả (key = Tên cây như "Cà chua", "Nho" - TASK-28).</summary>
-    [JsonPropertyName("plant_rules")]
-    public Dictionary<string, DiseaseUsageRuleProfile>? PlantRules { get; set; }
-
     /// <summary>Cắt khoảng trắng, chuỗi rỗng thành null, cắt độ dài, bỏ buổi trùng.</summary>
     public UsageProfile Normalize()
     {
@@ -126,44 +119,6 @@ public class UsageProfile
         }
         if (IntervalDays is { Min: null, Max: null }) IntervalDays = null;
 
-        if (DiseaseRules != null)
-        {
-            var cleanedRules = new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kvp in DiseaseRules)
-            {
-                if (string.IsNullOrWhiteSpace(kvp.Key)) continue;
-                var rule = kvp.Value;
-                if (rule != null)
-                {
-                    rule.UsageProfile?.Normalize();
-                    if (!string.IsNullOrWhiteSpace(rule.DosageInstruction) || (rule.UsageProfile != null && !rule.UsageProfile.IsEmpty))
-                    {
-                        cleanedRules[kvp.Key.Trim()] = rule;
-                    }
-                }
-            }
-            DiseaseRules = cleanedRules.Count > 0 ? cleanedRules : null;
-        }
-
-        if (PlantRules != null)
-        {
-            var cleanedPlantRules = new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kvp in PlantRules)
-            {
-                if (string.IsNullOrWhiteSpace(kvp.Key)) continue;
-                var rule = kvp.Value;
-                if (rule != null)
-                {
-                    rule.UsageProfile?.Normalize();
-                    if (!string.IsNullOrWhiteSpace(rule.DosageInstruction) || (rule.UsageProfile != null && !rule.UsageProfile.IsEmpty))
-                    {
-                        cleanedPlantRules[kvp.Key.Trim()] = rule;
-                    }
-                }
-            }
-            PlantRules = cleanedPlantRules.Count > 0 ? cleanedPlantRules : null;
-        }
-
         return this;
     }
 
@@ -173,9 +128,7 @@ public class UsageProfile
         DoseAmount == null && DoseUnit == null && WaterLiters == null && DoseText == null && DosePerArea == null &&
         SprayVolumePerHa == null && Method == null && TimeOfDay == null && TimesPerDay == null &&
         IntervalDays == null && MaxApplicationsPerSeason == null && StartWhen == null && StopWhen == null &&
-        WeatherNote == null && AvoidRainHours == null && SafetyNote == null && SourceUrl == null &&
-        (DiseaseRules == null || DiseaseRules.Count == 0) &&
-        (PlantRules == null || PlantRules.Count == 0);
+        WeatherNote == null && AvoidRainHours == null && SafetyNote == null && SourceUrl == null;
 
     /// <summary>Kiểm tra giới hạn hợp lý. Trả danh sách lỗi (rỗng = hợp lệ).</summary>
     public List<string> Validate()
@@ -222,20 +175,4 @@ public class NumberRange
 
     [JsonPropertyName("max")]
     public decimal? Max { get; set; }
-}
-
-/// <summary>Quy tắc và liều lượng riêng theo từng bệnh hại của thuốc (TASK-21 / TASK-22).</summary>
-public class DiseaseUsageRuleProfile
-{
-    [JsonPropertyName("dosage_instruction")]
-    public string? DosageInstruction { get; set; }
-
-    [JsonPropertyName("usage_profile")]
-    public UsageProfile? UsageProfile { get; set; }
-
-    [JsonPropertyName("source_url")]
-    public string? SourceUrl { get; set; }
-
-    [JsonPropertyName("is_verified")]
-    public bool IsVerified { get; set; } = true;
 }

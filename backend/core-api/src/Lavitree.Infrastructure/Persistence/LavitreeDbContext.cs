@@ -114,7 +114,6 @@ public class LavitreeDbContext : DbContext
         modelBuilder.Entity<ProductUsageRule>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.PlantName).HasMaxLength(100);
             entity.Property(e => e.ActionGroup).HasMaxLength(20);
             entity.Property(e => e.SourceUrl).HasMaxLength(500);
             entity.Property(e => e.VerifiedBy).HasMaxLength(200);
@@ -129,19 +128,31 @@ public class LavitreeDbContext : DbContext
                         v => v == null ? 0 : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
                         v => v == null ? new UsageProfile() : (JsonSerializer.Deserialize<UsageProfile>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null), (JsonSerializerOptions?)null) ?? new UsageProfile())));
 
-            entity.HasIndex(e => new { e.ProductId, e.DiseaseId, e.PlantName })
+            // TASK-29: mỗi (vật tư, cây) 1 liều chung; mỗi (vật tư, bệnh) 1 liều riêng. Bỏ qua dòng đã xóa mềm.
+            entity.HasIndex(e => new { e.ProductId, e.PlantId })
                 .IsUnique()
-                .HasFilter("\"IsDeleted\" = false");
+                .HasDatabaseName("UX_ProductUsageRules_PlantDefault")
+                .HasFilter("\"IsDeleted\" = false AND \"DiseaseId\" IS NULL");
+            entity.HasIndex(e => new { e.ProductId, e.DiseaseId })
+                .IsUnique()
+                .HasDatabaseName("UX_ProductUsageRules_DiseaseOverride")
+                .HasFilter("\"IsDeleted\" = false AND \"DiseaseId\" IS NOT NULL");
+
+            entity.HasOne(r => r.Plant)
+                .WithMany(pc => pc.UsageRules)
+                .HasForeignKey(r => r.PlantId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(r => r.Product)
                 .WithMany(p => p.UsageRules)
                 .HasForeignKey(r => r.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Xóa bệnh thì xóa luôn liều riêng của bệnh (SetNull sẽ biến nó thành liều chung của cây)
             entity.HasOne(r => r.Disease)
                 .WithMany(d => d.UsageRules)
                 .HasForeignKey(r => r.DiseaseId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // KnowledgeImage configuration (TASK-15 Pha 2)
