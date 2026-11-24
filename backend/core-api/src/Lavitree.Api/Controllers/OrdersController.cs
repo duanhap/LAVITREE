@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Lavitree.Api.Security;
 using Lavitree.Application.DTOs;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
@@ -213,6 +214,75 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/v1/orders/admin
+    /// Lấy toàn bộ danh sách đơn hàng cho Admin quản lý
+    /// </summary>
+    [HttpGet("admin")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> GetAllOrdersForAdmin(
+        [FromQuery] string? status,
+        [FromQuery] string? search,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Orders
+            .Where(o => !o.IsDeleted)
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+            .Include(o => o.User)
+            .AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "ALL", StringComparison.OrdinalIgnoreCase))
+        {
+            var targetStatus = status.Trim();
+            query = query.Where(o => EF.Functions.ILike(o.Status, targetStatus));
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim();
+            var cleanId = s.StartsWith("ord-", StringComparison.OrdinalIgnoreCase) ? s[4..] : s;
+            query = query.Where(o =>
+                EF.Functions.ILike(o.ReceiverName ?? "", $"%{s}%") ||
+                EF.Functions.ILike(o.PhoneNumber, $"%{s}%") ||
+                EF.Functions.ILike(o.ShippingAddress, $"%{s}%") ||
+                (o.User != null && EF.Functions.ILike(o.User.FullName, $"%{s}%")) ||
+                (o.User != null && EF.Functions.ILike(o.User.Email, $"%{s}%")) ||
+                EF.Functions.ILike(o.Id.ToString(), $"%{cleanId}%"));
+        }
+
+        var orders = await query
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var result = orders.Select(o => new OrderResponseDto
+        {
+            OrderId = $"ord-{o.Id.ToString()[..8]}",
+            UserId = o.UserId,
+            CustomerName = o.User?.FullName,
+            CustomerEmail = o.User?.Email,
+            CustomerPhone = o.User?.Phone,
+            TotalAmount = o.TotalAmount,
+            PaymentMethod = o.PaymentMethod,
+            OrderStatus = o.Status,
+            ReceiverName = o.ReceiverName,
+            Notes = o.Notes,
+            ShippingAddress = o.ShippingAddress,
+            PhoneNumber = o.PhoneNumber,
+            CreatedAt = o.CreatedAt,
+            UpdatedAt = o.UpdatedAt,
+            Items = o.Items.Select(i => new OrderItemResponseDto
+            {
+                ProductId = i.ProductId,
+                ProductName = i.Product?.Name ?? "Sản phẩm",
+                Quantity = i.Quantity,
+                UnitPrice = i.UnitPrice
+            }).ToList()
+        }).ToList();
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// GET /api/v1/orders/{id}
     /// Xem chi tiết một đơn hàng kèm bảo vệ IDOR
     /// </summary>
@@ -220,6 +290,11 @@ public class OrdersController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetOrderById(string id, CancellationToken cancellationToken)
     {
+        if (string.Equals(id, "admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound(new { detail = "Không tìm thấy đơn hàng yêu cầu." });
+        }
+
         var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                      ?? User.FindFirst("sub")?.Value;
         var role = User.FindFirst(ClaimTypes.Role)?.Value
@@ -284,6 +359,156 @@ public class OrdersController : ControllerBase
             ShippingAddress = order.ShippingAddress,
             PhoneNumber = order.PhoneNumber,
             CreatedAt = order.CreatedAt,
+            Items = order.Items.Select(i => new OrderItemResponseDto
+            {
+                ProductId = i.ProductId,
+                ProductName = i.Product?.Name ?? "Sản phẩm",
+                Quantity = i.Quantity,
+                UnitPrice = i.UnitPrice
+            }).ToList()
+        };
+
+        return Ok(response);
+    }
+
+    private static readonly Dictionary<string, HashSet<string>> AllowedStatusTransitions = new()
+    {
+        ["PENDING"] = new() { "CONFIRMED", "SHIPPING", "CANCELLED" },
+        ["CONFIRMED"] = new() { "SHIPPING", "CANCELLED" },
+        ["SHIPPING"] = new() { "COMPLETED", "CANCELLED" },
+        ["COMPLETED"] = new(),
+        ["CANCELLED"] = new(),
+    };
+
+    /// <summary>
+    /// PATCH /api/v1/orders/{id}/status
+    /// Cập nhật trạng thái đơn hàng (Dành riêng cho Quản trị viên)
+    /// </summary>
+    [HttpPatch("{id}/status")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> UpdateOrderStatus(
+        string id,
+        [FromBody] UpdateOrderStatusDto dto,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        var validStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "PENDING", "CONFIRMED", "SHIPPING", "COMPLETED", "CANCELLED"
+        };
+
+        var targetStatus = dto.Status?.Trim().ToUpperInvariant() ?? "";
+        if (!validStatuses.Contains(targetStatus))
+        {
+            return BadRequest(new { detail = $"Trạng thái '{dto.Status}' không hợp lệ. Trạng thái cho phép: PENDING, CONFIRMED, SHIPPING, COMPLETED, CANCELLED." });
+        }
+
+        Order? order = null;
+        if (Guid.TryParse(id, out var parsedGuid))
+        {
+            order = await _dbContext.Orders
+                .Include(o => o.Items)
+                    .ThenInclude(i => i.Product)
+                .Include(o => o.User)
+                .FirstOrDefaultAsync(o => o.Id == parsedGuid && !o.IsDeleted, cancellationToken);
+        }
+        else if (id.StartsWith("ord-", StringComparison.OrdinalIgnoreCase))
+        {
+            var cleanId = id[4..].Trim().ToLowerInvariant();
+            if (cleanId.Length is >= 8 and <= 36 && cleanId.All(c => Uri.IsHexDigit(c) || c == '-'))
+            {
+                var matches = await _dbContext.Orders
+                    .Include(o => o.Items)
+                        .ThenInclude(i => i.Product)
+                    .Include(o => o.User)
+                    .Where(o => !o.IsDeleted && EF.Functions.Like(o.Id.ToString(), cleanId + "%"))
+                    .Take(2)
+                    .ToListAsync(cancellationToken);
+                if (matches.Count > 1)
+                {
+                    return Conflict(new { detail = "Mã đơn rút gọn trùng với nhiều đơn hàng. Vui lòng dùng mã đầy đủ." });
+                }
+                order = matches.FirstOrDefault();
+            }
+        }
+
+        if (order == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy đơn hàng yêu cầu." });
+        }
+
+        var currentStatus = order.Status.Trim().ToUpperInvariant();
+        if (currentStatus == targetStatus)
+        {
+            return Ok(new { message = "Trạng thái đơn hàng không thay đổi.", order_id = $"ord-{order.Id.ToString()[..8]}", order_status = order.Status });
+        }
+
+        // Chỉ cho đi tiếp theo luồng giao hàng. Đơn đã hoàn tất hoặc đã hủy là trạng thái cuối:
+        // không hủy đơn đã giao xong (sẽ cộng kho sai), không quay lùi trạng thái.
+        if (!AllowedStatusTransitions.TryGetValue(currentStatus, out var allowedNext) || !allowedNext.Contains(targetStatus))
+        {
+            return BadRequest(new { detail = $"Không thể chuyển đơn hàng từ '{currentStatus}' sang '{targetStatus}'." });
+        }
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        // Chốt trạng thái nguyên tử: chỉ cập nhật khi đơn vẫn đang ở trạng thái vừa đọc.
+        // Hai admin bấm cùng lúc thì chỉ 1 người thành công, kho không bị cộng hoàn 2 lần.
+        var now = DateTime.UtcNow;
+        var orderId = order.Id;
+        var expectedStatus = order.Status;
+        var claimed = await _dbContext.Orders
+            .Where(o => o.Id == orderId && !o.IsDeleted && o.Status == expectedStatus)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, targetStatus)
+                .SetProperty(o => o.UpdatedAt, now), cancellationToken);
+        if (claimed == 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return Conflict(new { detail = "Đơn hàng vừa được cập nhật bởi người khác. Vui lòng tải lại danh sách." });
+        }
+
+        // Hủy đơn: hoàn trả tồn kho cho các sản phẩm trong đơn (cùng transaction với việc đổi trạng thái)
+        if (targetStatus == "CANCELLED")
+        {
+            foreach (var item in order.Items)
+            {
+                await _dbContext.Products
+                    .Where(p => p.Id == item.ProductId)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(p => p.StockQuantity, p => p.StockQuantity + item.Quantity)
+                        .SetProperty(p => p.UpdatedAt, now), cancellationToken);
+            }
+            _logger.LogInformation("Đã hoàn trả tồn kho cho các sản phẩm thuộc đơn {OrderId} do Admin hủy đơn.", order.Id);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        order.Status = targetStatus;
+        order.UpdatedAt = now;
+
+        _logger.LogInformation("Admin đã cập nhật trạng thái đơn hàng {OrderId} từ {OldStatus} sang {NewStatus}", order.Id, currentStatus, targetStatus);
+
+        var response = new OrderResponseDto
+        {
+            OrderId = $"ord-{order.Id.ToString()[..8]}",
+            UserId = order.UserId,
+            CustomerName = order.User?.FullName,
+            CustomerEmail = order.User?.Email,
+            CustomerPhone = order.User?.Phone,
+            TotalAmount = order.TotalAmount,
+            PaymentMethod = order.PaymentMethod,
+            OrderStatus = order.Status,
+            ReceiverName = order.ReceiverName,
+            Notes = order.Notes,
+            ShippingAddress = order.ShippingAddress,
+            PhoneNumber = order.PhoneNumber,
+            CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt,
             Items = order.Items.Select(i => new OrderItemResponseDto
             {
                 ProductId = i.ProductId,

@@ -26,6 +26,7 @@ const AdminDiseasesPage = React.lazy(() => import('@/pages/admin/AdminDiseasesPa
 const AdminEscalationsPage = React.lazy(() => import('@/pages/admin/AdminEscalationsPage'));
 const AdminInventoryPage = React.lazy(() => import('@/pages/admin/AdminInventoryPage'));
 const AdminProductDetailPage = React.lazy(() => import('@/pages/admin/AdminProductDetailPage'));
+const AdminOrdersPage = React.lazy(() => import('@/pages/admin/AdminOrdersPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
 const ProductDetailPage = React.lazy(() => import('@/pages/ProductDetailPage'));
@@ -235,12 +236,9 @@ export const AppRouter: React.FC = () => {
         <Route
           path="/admin/orders"
           element={
-            <ComingSoonPage
-              title="Quản lý Đơn hàng Toàn sàn"
-              description="Xem và duyệt đơn hàng đặt mua vật tư từ bà con nông dân."
-              actionText="Về Tổng quan Admin"
-              actionHref="/admin"
-            />
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminOrdersPage />
+            </Suspense>
           }
         />
         <Route
