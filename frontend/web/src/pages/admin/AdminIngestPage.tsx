@@ -1424,6 +1424,9 @@ export const AdminIngestPage: React.FC = () => {
           sourceScope: detectedScope,
         });
 
+        // Luôn đồng bộ phạm vi nguồn với dữ liệu CSDL vừa nạp
+        setIngestSourceScope(detectedScope);
+
         const distinctClasses = Array.from(new Set(rows.map((r) => r.modelClass).filter(Boolean)));
         setArticleTopics(distinctClasses.length > 0 ? distinctClasses : [first.modelClass]);
 
@@ -1438,7 +1441,6 @@ export const AdminIngestPage: React.FC = () => {
           setIngestPublishedDate(parsedPubDate);
           setIngestUpdatedDate(parsedUpDate);
           setIngestDate(rawDate);
-          setIngestSourceScope(detectedScope);
           setIngestText('');
           setIngestionResult(null);
           setSelectedParagraphs({});
@@ -1518,6 +1520,7 @@ export const AdminIngestPage: React.FC = () => {
       });
       if (!silent) {
         toast.success(`Đã lưu thông tin bài cho ${res.data.updated_count} đoạn. Các đoạn này chuyển về "Chờ duyệt", vào Duyệt tri thức để duyệt lại.`);
+        setShowMetaEditPanel(false);
       }
       await loadArticleForEdit(editUrl, true);
       return true;
