@@ -49,6 +49,18 @@ Form một trang dài khó dùng → "Tạo SP" từ gợi ý chia **2 bước**
 - Lỗi phát hiện khi thử: nút "Tiếp tục" (type=button) và "Tạo sản phẩm" (type=submit) dùng chung 1 phần tử → bấm Tiếp tục là form bị gửi luôn. Sửa bằng `key` riêng cho từng nút; test kiểm tra "bấm Tiếp tục không tạo sản phẩm".
 - Playwright 13/13 PASS (thêm: bước 1 không thấy liều cây, bấm Tiếp tục không tạo SP, quay lại / sang lại giữ dữ liệu).
 
+## 2d. Nguồn liều phải là trang về sản phẩm, không phải bài báo gợi ý (24/11 tối)
+Người dùng thấy AI trả lại chính link bài báo và liều thiếu thông tin. Nguyên nhân:
+1. Prompt liều cây (Gắn SP + bước 2) đưa link bài báo vào "Ngữ cảnh" như nguồn bình thường, prompt ngắn, không bắt đọc 2–5 trang về sản phẩm, không bắt trích nguyên văn.
+2. Prompt Tạo SP ghi link bài là "Nguồn: …" và chỉ nói bài "không tính là nguồn số liệu **nếu nó không ghi con số**".
+3. Hàm đọc kết quả gom mọi link sau khối JSON làm nguồn (kể cả link bài báo); Gắn SP còn lấy link đầu tiên trong cả câu trả lời.
+
+Đã sửa:
+- `buildCropDosagePrompt` viết lại: mở và đọc 2–5 trang về CHÍNH sản phẩm (nhãn, nhà sản xuất, đại lý, khuyến nông) với truy vấn gợi ý; link bài báo tách riêng mục "Bài báo gợi ý (CHỈ để biết ngữ cảnh)", cấm dùng làm nguồn; đủ trường (liều theo bình / diện tích, lượng phun/ha, cách dùng, buổi, bắt đầu / ngừng, cách nhau, tối đa lần/vụ, thời tiết, bảo hộ, liều theo giai đoạn); `source_urls` + `note`; mục "Nguồn đã dùng" mỗi số có câu trích nguyên văn.
+- `buildProductResearchPrompt`: link trong đoạn trích ghi "Bài báo (chỉ để biết ngữ cảnh, KHÔNG phải nguồn số liệu)"; bước 2 và quy tắc `source_urls` cấm đưa link bài báo.
+- `excludeArticleUrls` (so link bỏ http/https, www., / cuối, ?#): `parseCropDosageJson` và `parseProductResearchJson` loại link bài báo khỏi nguồn. Gắn SP dùng chung `parseCropDosageJson`; báo khi đã bỏ link bài báo, khi không có link về sản phẩm, và hiện `note` của AI. Trang chi tiết sản phẩm loại link các căn cứ đã gắn.
+- Kiểm tra nhanh bằng câu trả lời giả (link bài báo ở cả JSON lẫn "Nguồn đã dùng", dạng http/www khác nhau): chỉ còn link trang sản phẩm; prompt có mục bài báo riêng.
+
 ## 3. Kiểm thử
 | # | Tình huống | Kỳ vọng |
 |---|---|---|

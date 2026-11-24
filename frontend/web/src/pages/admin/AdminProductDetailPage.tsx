@@ -624,7 +624,7 @@ export const AdminProductDetailPage: React.FC = () => {
         commonNameVi: d.commonNameVi,
       }));
 
-      const parsed = parseProductResearchJson(devAiInput, researchDiseases);
+      const parsed = parseProductResearchJson(devAiInput, researchDiseases, [], evidences.map((ev) => ev.source_url));
       if (!parsed) {
         toast.error('Không tìm thấy JSON hợp lệ trong câu trả lời của AI.');
         return;
