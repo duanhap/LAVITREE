@@ -39,6 +39,13 @@ import { UsageProfileEditor } from '@/features/admin/components/UsageProfileEdit
 import type { GroupedDiseaseRow, ProductUsageRuleItem } from '../types';
 import type { UsageProfile, DiseaseUsageRuleProfile } from '@/features/admin/lib/usage-profile';
 import { isUsageEmpty, emptyUsageProfile, formatUsageText } from '@/features/admin/lib/usage-profile';
+import {
+  buildCropDosagePrompt,
+  parseCropDosageJson,
+  keyMentionSentences,
+  type ResearchEvidence,
+} from '@/features/admin/lib/product-research';
+import { toast } from 'sonner';
 
 interface Props {
   rows: GroupedDiseaseRow[];
@@ -51,6 +58,9 @@ interface Props {
   usageRules?: ProductUsageRuleItem[] | null;
   isSupply?: boolean;
   phiDays?: number | null;
+  /** Dùng cho prompt AI tìm liều cây (TASK-31) */
+  medicineType?: string;
+  activeIngredient?: string | null;
   onSaveDiseaseRule?: (modelClass: string, payload: SaveDiseaseRulePayload) => Promise<void>;
   onSaveCropRule?: (plantName: string, payload: SaveDiseaseRulePayload) => Promise<void>;
   onVerifyDiseaseRule?: (ruleId: number, verified: boolean) => Promise<void>;
@@ -99,6 +109,8 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
   usageRules,
   isSupply = false,
   phiDays = null,
+  medicineType = '',
+  activeIngredient = '',
   onSaveDiseaseRule,
   onSaveCropRule,
   onVerifyDiseaseRule,
@@ -116,6 +128,10 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
   const [cropEditText, setCropEditText] = useState<string>('');
   const [cropEditProfile, setCropEditProfile] = useState<UsageProfile>(emptyUsageProfile());
   const [isSavingCrop, setIsSavingCrop] = useState<boolean>(false);
+  // TASK-31: prompt AI tìm liều cho cây + ô dán kết quả + link nguồn liều cây
+  const [cropEditSourceUrl, setCropEditSourceUrl] = useState<string>('');
+  const [cropAiOpen, setCropAiOpen] = useState<boolean>(false);
+  const [cropAiInput, setCropAiInput] = useState<string>('');
 
   // Trạng thái tùy chỉnh liều riêng cho bệnh cá biệt nào (nếu cần)
   const [customizingDiseaseClass, setCustomizingDiseaseClass] = useState<string | null>(null);
@@ -239,6 +255,9 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
   const handleStartEditCrop = (crop: CropGroupData) => {
     setEditingCropPlant(crop.plantName);
     setCropEditText(crop.cropDosageText || '');
+    setCropEditSourceUrl(crop.cropRule?.source_url || '');
+    setCropAiOpen(false);
+    setCropAiInput('');
     setCropEditProfile(
       crop.cropProfile
         ? { ...crop.cropProfile }
@@ -248,6 +267,57 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
     );
   };
 
+  /** Căn cứ bài báo của các bệnh thuộc cây: câu nhắc tên sản phẩm (ngữ cảnh) + link bài (không nhận làm nguồn). */
+  const cropEvidence = (crop: CropGroupData) => {
+    const evidences: ResearchEvidence[] = [];
+    const articleUrls: string[] = [];
+    for (const row of crop.diseases) {
+      for (const art of row.articles) {
+        if (art.sourceUrl) articleUrls.push(art.sourceUrl);
+        for (const sn of art.snippets) {
+          if (sn.evidenceText) evidences.push({ text: sn.evidenceText, sourceUrl: art.sourceUrl, sourceTitle: art.sourceTitle });
+        }
+      }
+    }
+    return { evidences, articleUrls };
+  };
+
+  const handleCopyCropPrompt = async (crop: CropGroupData) => {
+    const { evidences, articleUrls } = cropEvidence(crop);
+    const prompt = buildCropDosagePrompt({
+      name: productName || 'sản phẩm',
+      activeIngredient: activeIngredient || '',
+      medicineType: medicineType || (isSupply ? 'Vật tư canh tác' : 'Hóa học'),
+      plant: crop.plantName,
+      articleUrl: articleUrls[0] || null,
+      keySentences: keyMentionSentences(evidences, productName || ''),
+    });
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCropAiOpen(true);
+      toast.success(`Đã sao chép prompt tìm liều cho Cây ${crop.plantName}. Dán câu trả lời của AI vào ô bên dưới.`);
+    } catch {
+      toast.error('Trình duyệt chặn sao chép. Hãy cho phép quyền clipboard rồi thử lại.');
+    }
+  };
+
+  const handleApplyCropAi = (crop: CropGroupData) => {
+    const parsed = parseCropDosageJson(cropAiInput, cropEvidence(crop).articleUrls);
+    if (!parsed) {
+      toast.error('Không đọc được JSON. Hãy copy đúng khối ```json mà AI trả về.');
+      return;
+    }
+    if (parsed.usage) setCropEditProfile(parsed.usage);
+    const text = parsed.dosageInstruction || (parsed.usage ? formatUsageText(parsed.usage, phiDays, isSupply) : '');
+    if (text) setCropEditText(text);
+    setCropEditSourceUrl(parsed.sourceUrl);
+    setCropAiInput('');
+    if (parsed.droppedArticleUrl) toast.warning('Đã bỏ link bài báo khỏi nguồn liều (bài về bệnh, không phải trang về sản phẩm).');
+    if (!parsed.sourceUrl) toast.warning('AI chưa đưa link trang nào về chính sản phẩm. Hãy đối chiếu nhãn trước khi lưu.');
+    if (parsed.note) toast.info(`Lưu ý từ AI: ${parsed.note}`, { duration: 9000 });
+    toast.success(`Đã điền liều cho Cây ${crop.plantName} từ AI. Kiểm tra lại rồi bấm Lưu.`);
+  };
+
   const handleSaveCrop = async (crop: CropGroupData) => {
     if (!onSaveCropRule) return;
     setIsSavingCrop(true);
@@ -255,7 +325,7 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
       await onSaveCropRule(crop.plantName, {
         dosageInstruction: cropEditText.trim() || undefined,
         profile: cropEditProfile,
-        sourceUrl: crop.cropRule?.source_url || undefined,
+        sourceUrl: cropEditSourceUrl.trim() || undefined,
       });
       setEditingCropPlant(null);
     } finally {
@@ -494,10 +564,45 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                             </a>
                           );
                         })()}
-                        <span className="text-[11px] text-muted-foreground">
-                          Áp dụng đồng bộ cho {crop.diseases.length} bệnh hại trên Cây {crop.plantName}
-                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleCopyCropPrompt(crop)}
+                          className="h-7 px-2.5 text-[11px] font-semibold gap-1 text-emerald-800 dark:text-emerald-300 border-emerald-300"
+                          title="Prompt AI đọc trang về chính sản phẩm (nhãn, nhà sản xuất, khuyến nông) để lấy liều trên cây này"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>📋 Prompt AI tìm liều Cây {crop.plantName}</span>
+                        </Button>
                       </div>
+
+                      {cropAiOpen && (
+                        <div className="p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-1.5">
+                          <p className="text-[11px] text-muted-foreground">
+                            Dán câu trả lời của AI (khối <code>```json</code> + mục Nguồn đã dùng). Link bài báo căn cứ sẽ bị bỏ khỏi nguồn.
+                          </p>
+                          <Textarea
+                            value={cropAiInput}
+                            onChange={(e) => setCropAiInput(e.target.value)}
+                            rows={3}
+                            placeholder="Dán câu trả lời của AI vào đây"
+                            className="text-xs font-mono bg-background"
+                          />
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={!cropAiInput.trim()}
+                              onClick={() => handleApplyCropAi(crop)}
+                              className="h-7 px-3 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              <span>⚡ Điền liều từ AI</span>
+                            </Button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* 1. Phiếu cách dùng UsageProfileEditor (giống hệt form gán và tạo sản phẩm từ vật tư) */}
                       <div className="border border-border/80 rounded-xl p-3 bg-muted/20 space-y-3">
@@ -530,6 +635,15 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                           <p className="text-[11px] text-muted-foreground">
                             Đoạn này áp dụng cho mọi bệnh của Cây {crop.plantName} trong sản phẩm, trừ bệnh đã đặt liều riêng. Chỉnh câu chữ tùy ý rồi bấm Lưu bên dưới.
                           </p>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold block text-foreground">Link nguồn liều (nhãn / nhà sản xuất / khuyến nông):</label>
+                          <Input
+                            value={cropEditSourceUrl}
+                            onChange={(e) => setCropEditSourceUrl(e.target.value)}
+                            placeholder="https://..."
+                            className="text-xs bg-background"
+                          />
                         </div>
                       </div>
 

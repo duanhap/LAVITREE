@@ -61,6 +61,12 @@ Người dùng thấy AI trả lại chính link bài báo và liều thiếu th
 - `excludeArticleUrls` (so link bỏ http/https, www., / cuối, ?#): `parseCropDosageJson` và `parseProductResearchJson` loại link bài báo khỏi nguồn. Gắn SP dùng chung `parseCropDosageJson`; báo khi đã bỏ link bài báo, khi không có link về sản phẩm, và hiện `note` của AI. Trang chi tiết sản phẩm loại link các căn cứ đã gắn.
 - Kiểm tra nhanh bằng câu trả lời giả (link bài báo ở cả JSON lẫn "Nguồn đã dùng", dạng http/www khác nhau): chỉ còn link trang sản phẩm; prompt có mục bài báo riêng.
 
+## 2e. Prompt AI ở trang Chi tiết sản phẩm (24/11 tối)
+- Tab Thông tin: prompt AI chuyển `usageMode: 'package'` (kết quả nạp vào liều bao bì của sản phẩm; trước đó có căn cứ thì bị hỏi liều theo cây chính).
+- Tab Bệnh điều trị & Liều lượng, form "Chỉnh sửa liều Cây X": thêm nút "📋 Prompt AI tìm liều Cây X" (`buildCropDosagePrompt`, câu trích từ căn cứ của các bệnh thuộc cây, link bài báo chỉ là ngữ cảnh), ô dán + "⚡ Điền liều từ AI" (`parseCropDosageJson` loại link các bài căn cứ), ô "Link nguồn liều" lưu cùng liều cây. Liều riêng của bệnh vẫn nhập tay (người dùng chọn).
+- Hủy gán gợi ý KHÔNG xóa liên kết thuốc–bệnh hay liều cây (liều thuộc sản phẩm + cây, không thuộc một gợi ý; gỡ ở trang chi tiết). Đã giải thích cho người dùng, chưa đổi.
+- Playwright (Core thử + DB thử): sao chép prompt, dán câu trả lời có link căn cứ thật (đổi http/www) → link nguồn = trang sản phẩm; lưu đúng chữ / số / link — 4/4 PASS.
+
 ## 3. Kiểm thử
 | # | Tình huống | Kỳ vọng |
 |---|---|---|
