@@ -15,6 +15,23 @@ logger = logging.getLogger("mcp.client")
 # Dùng chung một client: tạo mới mỗi lần phải nạp chứng chỉ TLS (khoảng 280ms) và không tái sử dụng kết nối
 _shared_client = httpx.Client()
 
+_LOCAL_HTTP_PREFIXES = ("http://localhost", "http://127.0.0.1")
+
+
+def _is_safe_image_url(url: str) -> bool:
+    """
+    TASK-25 mục 6.1: chỉ nhận ảnh https (CSP production chỉ cho img-src https), đường dẫn tương đối
+    cùng site, hoặc http://localhost khi chạy dev với MinIO local. Bỏ data:, javascript:, http ngoài.
+    """
+    if not url:
+        return False
+    lowered = url.lower()
+    if lowered.startswith("https://"):
+        return True
+    if url.startswith("/") and not url.startswith("//"):
+        return True
+    return lowered.startswith(_LOCAL_HTTP_PREFIXES)
+
 
 class CoreApiClient:
     """
@@ -133,14 +150,17 @@ class CoreApiClient:
                     result = []
                     for item in data:
                         raw_url = (item.get("image_url") or item.get("thumbnail_url") or "").strip()
-                        if not raw_url or raw_url.startswith("data:") or raw_url.startswith("javascript:"):
+                        if not _is_safe_image_url(raw_url):
                             continue
+                        source_url = (item.get("source_url") or "").strip()
+                        if not source_url.lower().startswith(("https://", "http://")):
+                            source_url = ""
                         result.append({
                             "image_url": raw_url,
                             "caption": item.get("caption") or "Ảnh triệu chứng thực tế",
                             "plant_part": item.get("plant_part") or "LEAF",
                             "credit": item.get("credit") or item.get("source_title") or "",
-                            "source_url": item.get("source_url") or "",
+                            "source_url": source_url,
                             "license_note": item.get("license_note") or ""
                         })
                     return result

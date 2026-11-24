@@ -190,3 +190,4 @@
 
 
 
+| `2026-11-24 11:30` | `TASK-25` | Review commit `9b7050b` và sửa chỗ lệch task | Claude Code theo yêu cầu người dùng | Sửa `react_agent.py`, `client.py`, `test_task25_rich_cards.py`, `ChatPage.tsx`, `ChatMessageItem.tsx`, `ProductSuggestionCards.tsx`. Test agent 14 passed, build web qua, `npm test` 7/7. Chưa commit; chưa chạy kiểm thử T1–T9 với dịch vụ thật. |
