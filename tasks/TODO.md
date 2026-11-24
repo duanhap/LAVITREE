@@ -212,3 +212,11 @@
   - Trạng thái: `[~] Code xong + thử DB local; đã xóa phiếu chung #1, #6 trên Supabase (có sao lưu). Chưa commit.`
   - Nhánh Git: `feat/task-29-usage-rules-relational`
   - Đầu ra: prompt "Gắn SP" / "Tạo SP" viết liều theo cây (không nêu tên bệnh, không gộp liều nhiều cây); `POST /medicines` nhận `plant_usage` → liều chung cây khi tạo từ gợi ý; form "Thêm sản phẩm" hiện phiếu (hết lưu ngầm); sửa `kind` ở prompt trang chi tiết; ô thông số từ phiếu chung ghi rõ "Thông số chung của sản phẩm". Chi tiết: `tasks/sprint-03/task-30-ai-prompts-and-package-dosage.md`.
+
+- [~] **TASK-31: "Tạo SP" từ vật tư gợi ý tách 2 khung (bao bì / liều cây), gộp gợi ý theo (vật tư + cây)** (P1)
+  - Trách nhiệm: **Trưởng nhóm** (Claude làm)
+  - Trạng thái: `[~] Code xong + thử DB local; chưa commit`
+  - Nhánh Git: `feat/task-29-usage-rules-relational`
+  - Đầu ra: Gắn SP / Bỏ qua / Xóa / Tạo SP chỉ tác động gợi ý cùng tên + cùng cây (Xóa không đụng LINKED/ADDED); form Tạo SP có Khung 1 (liều bao bì, Prompt 1) và Khung 2 (liều cây của bài, Prompt 2 + ô dán riêng); câu cho Lavi "Trên cây X: …" khi chưa có liều bao bì. Chi tiết: `tasks/sprint-03/task-31-suggestion-create-two-part-dosage.md`.
+
+- [ ] **TASK-32: Lavi đọc liều theo cây** (P2) — API tìm thuốc trả liều theo cây của bệnh đang hỏi (`UsageRuleResolver`), agent dùng liều đó thay cho `dosage_instruction` chung. Chưa tạo file task.

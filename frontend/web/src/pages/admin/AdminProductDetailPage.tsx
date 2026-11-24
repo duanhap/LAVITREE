@@ -990,6 +990,11 @@ export const AdminProductDetailPage: React.FC = () => {
                   <p className="text-xs text-foreground/90 whitespace-pre-line">
                     {productDosage?.trim() || 'Chưa có.'}
                   </p>
+                  {/^Trên cây\s/i.test(productDosage?.trim() || '') && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                      Chưa có liều bao bì: câu trên là liều của một cây (tạo từ gợi ý) để Lavi đọc. Điền liều bao bì ở "Chỉnh sửa thông tin" nếu có nhãn của hãng.
+                    </p>
+                  )}
                   <p className="text-[11px] text-muted-foreground">
                     {product.usage_profile && !isUsageEmpty(product.usage_profile)
                       ? `Phiếu: ${formatUsageProfileSummary(product.usage_profile)}`

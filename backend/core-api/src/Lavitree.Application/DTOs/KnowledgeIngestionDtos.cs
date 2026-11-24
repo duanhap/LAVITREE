@@ -467,6 +467,10 @@ public class CreateProductRequestDto
 
 public class PlantUsageInputDto
 {
+    /// <summary>TASK-31: mã bệnh của gợi ý (vd Tomato___Late_blight) để xác định cây; không có thì lấy cây chung của các bệnh được gắn.</summary>
+    [JsonPropertyName("class_code")]
+    public string? ClassCode { get; set; }
+
     [JsonPropertyName("dosage_instruction")]
     public string? DosageInstruction { get; set; }
 

@@ -535,8 +535,15 @@ public class MedicinesController : ControllerBase
                 });
             }
 
-            // TASK-29: tạo từ gợi ý → liều trên cây của bài thành liều chung của cây (chỉ khi các bệnh thuộc đúng 1 cây)
+            // TASK-30/31: tạo từ gợi ý → liều cây (khung 2) thành liều chung của cây.
+            // Cây = cây của mã bệnh gợi ý (plant_usage.class_code); không có thì chỉ khi các bệnh được gắn thuộc đúng 1 cây.
             var plantIds = diseases.Select(d => d.PlantId).Distinct().ToList();
+            if (dto.PlantUsage != null && !string.IsNullOrWhiteSpace(dto.PlantUsage.ClassCode))
+            {
+                var usageCode = dto.PlantUsage.ClassCode.Trim().ToLower();
+                var usageDisease = await _dbContext.Diseases.FirstOrDefaultAsync(d => d.ClassCode.ToLower() == usageCode && !d.IsDeleted);
+                plantIds = usageDisease != null ? new List<int> { usageDisease.PlantId } : new List<int>();
+            }
             if (dto.PlantUsage != null && plantIds.Count == 1)
             {
                 var plantText = string.IsNullOrWhiteSpace(dto.PlantUsage.DosageInstruction) ? null : dto.PlantUsage.DosageInstruction.Trim();
@@ -577,10 +584,14 @@ public class MedicinesController : ControllerBase
                 .FirstOrDefaultAsync(s => s.Id == dto.SuggestionId.Value);
             if (suggestion != null)
             {
+                // TASK-31: chỉ đóng các gợi ý cùng tên vật tư VÀ cùng cây; gợi ý của cây khác giữ PENDING
                 var targetMention = suggestion.MentionText.Trim().ToLower();
-                var sameSuggestions = await _dbContext.ProductSuggestions
+                var targetPlant = KnowledgeController.SuggestionPlantKey(suggestion.ModelClass);
+                var sameSuggestions = (await _dbContext.ProductSuggestions
                     .Where(s => !s.IsDeleted && s.Status == "PENDING" && s.MentionText.Trim().ToLower() == targetMention)
-                    .ToListAsync();
+                    .ToListAsync())
+                    .Where(s => KnowledgeController.SuggestionPlantKey(s.ModelClass) == targetPlant)
+                    .ToList();
 
                 if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
                 {

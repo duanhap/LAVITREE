@@ -77,6 +77,8 @@ import {
   type UsageProfile,
   mergeEvidencesByArticle,
   keyMentionSentences,
+  buildCropDosagePrompt,
+  parseCropDosageJson,
   MAX_PROMPT_EVIDENCES,
   parseProductResearchJson,
   kindFromMedicineType,
@@ -118,6 +120,18 @@ interface GroupedSuggestion {
   productName?: string;
   productId?: number;
 }
+
+/** TASK-31: khóa cây của gợi ý = phần trước "___" của mã bệnh (khớp KnowledgeController.SuggestionPlantKey). */
+const suggestionPlantKey = (modelClass?: string | null) =>
+  ((modelClass || '').trim().split('___')[0] || '').toLowerCase();
+
+/** Cùng tên vật tư + cùng cây → cùng nhóm gợi ý (TASK-31). */
+const sameSuggestionGroup = (
+  a: { mention_text: string; model_class?: string | null },
+  b: { mention_text: string; model_class?: string | null }
+) =>
+  a.mention_text.trim().toLowerCase() === b.mention_text.trim().toLowerCase() &&
+  suggestionPlantKey(a.model_class) === suggestionPlantKey(b.model_class);
 
 export const AdminInventoryPage: React.FC = () => {
   const { diseases } = useDiseaseOptions();
@@ -192,6 +206,11 @@ export const AdminInventoryPage: React.FC = () => {
   const [aiSourceLinks, setAiSourceLinks] = useState<string[]>([]);
   // TASK-18: phiếu cách dùng + ảnh Gemini đề xuất
   const [newMedUsage, setNewMedUsage] = useState<UsageProfile>(emptyUsageProfile());
+  // TASK-31: khung 2 của "Tạo SP" từ gợi ý = liều cho cây của bài (lưu thành liều chung cây, không phải liều bao bì)
+  const [newCropUsage, setNewCropUsage] = useState<UsageProfile>(emptyUsageProfile());
+  const [newCropDosage, setNewCropDosage] = useState<string>('');
+  const [newCropSourceUrl, setNewCropSourceUrl] = useState<string>('');
+  const [devCropInput, setDevCropInput] = useState<string>('');
   const [aiImageCandidates, setAiImageCandidates] = useState<string[]>([]);
   // TASK-18-R4: câu trích nguyên văn trong "Nguồn đã dùng" để kiểm tra với trang thật
   // Lưu ý của Gemini (scope_note, loại vật tư...) hiện ngay trong form thay cho toast dài (TASK-18-R5)
@@ -533,82 +552,22 @@ export const AdminInventoryPage: React.FC = () => {
 
   const handleCopyLinkAiPrompt = () => {
     if (!linkingSuggestion || !selectedLinkMed) return;
-    const name = selectedLinkMed.name;
-    const active = selectedLinkMed.active_ingredient || '';
-    const medType = selectedLinkMed.medicine_type;
-    const disease = linkingSuggestion.disease_name;
     const plant = currentPlantName;
-    const isSupply = medType === 'Vật tư canh tác';
-    const doseHint = isSupply ? 'liều lượng bón / cách dùng' : 'liều lượng pha bình 16 lít và cách phun';
-
-    // Câu trong đoạn trích có nhắc tên vật tư (các gợi ý cùng tên, cùng cây), để AI tìm đúng loại như bài mô tả
-    const mentionKey = linkingSuggestion.mention_text.trim().toLowerCase();
-    const plantPrefix = (linkingSuggestion.model_class || '').split('___')[0];
-    const sameMention = suggestions.filter(
-      (s) =>
-        s.mention_text.trim().toLowerCase() === mentionKey &&
-        (s.model_class || '').split('___')[0] === plantPrefix
-    );
-    const keySentences = keyMentionSentences(
-      toResearchEvidences(sameMention.length ? sameMention : [linkingSuggestion]),
-      linkingSuggestion.mention_text
-    );
-    const excerptBlock = keySentences.length
-      ? [
-          '',
-          '## Đoạn trích bài báo nhắc tới vật tư này (để xác định đúng loại, không phải nguồn số liệu)',
-          ...keySentences.map((x) => `- "${x}"`),
-          '',
-        ].join('\n')
-      : '';
-
-    const prompt = `Tìm trên Google: "${name}" ${active ? `(${active})` : ''} liều lượng cách dùng trên cây "${plant}" ${doseHint} tại Việt Nam. Đọc nhãn thuốc của nhà sản xuất hoặc khuyến nông, ghi lại các con số cụ thể.
-
-## Vai trò
-Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin thiết lập LIỀU DÙNG CHUNG của sản phẩm "${name}" trên CÂY TRỒNG "${plant}". Liều này áp dụng cho MỌI bệnh của cây ${plant} mà sản phẩm được dùng (bệnh đang gắn: "${disease}").
-
-## Ngữ cảnh
-- Tên sản phẩm: "${name}" (#${selectedLinkMed.id})
-- Phân loại: ${medType}
-- Hoạt chất chính: ${active || 'Chế phẩm sinh học / Không có hoạt chất hóa học'}
-- Cây trồng mục tiêu: "${plant}" (Bệnh liên kết: "${disease}")
-${linkingSuggestion.source_url ? `- Link bài báo gợi ý: ${linkingSuggestion.source_url}` : ''}
-${excerptBlock}
-## Nhiệm vụ
-Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant}":
-1. Liều lượng pha (g hoặc ml cho bình 16L hoặc 200L) và lượng nước (ví dụ: 40-50g / bình 16 lít).
-2. Lượng nước phun/ha (ví dụ: 400 - 600 lít/ha) hoặc liều theo gốc/diện tích.
-3. Cách dùng (phun ướt đều tán lá / tưới gốc...).
-4. Thời điểm phun, khoảng cách giữa các lần (7-10 ngày), số ngày cách ly (PHI).
-5. Soạn câu "dosage_instruction" súc tích, chuyên nghiệp cho trợ lý AI Lavi đọc tư vấn cho nông dân. Viết cho CÂY ${plant} nói chung: KHÔNG nêu tên một bệnh cụ thể (không viết "Với bệnh ..."), vì câu này hiển thị cho mọi bệnh của cây.
-
-## Định dạng đầu ra JSON (đặt ở đầu tiên):
-\`\`\`json
-{
-  "dosage_instruction": "Câu hướng dẫn chi tiết cách pha và sử dụng ${name} trên cây ${plant} (không nêu tên bệnh)...",
-  "source_url": "https://link-trang-web-nhan-thuoc-da-tim",
-  "usage_profile": {
-    "dose_amount": 50,
-    "dose_unit": "g",
-    "water_liters": 16,
-    "dose_text": "50g / bình 16 lít",
-    "dose_per_area": null,
-    "spray_volume_per_ha": { "min": 400, "max": 600 },
-    "method": "phun ướt đều 2 mặt lá",
-    "time_of_day": ["sáng sớm", "chiều mát"],
-    "times_per_day": 1,
-    "interval_days": { "min": 7, "max": 10 },
-    "max_applications_per_season": 3,
-    "start_when": "khi bệnh chớm xuất hiện",
-    "avoid_rain_hours": 6,
-    "safety_note": "mang khẩu trang, găng tay bảo hộ khi phun; không ăn uống khi đang xử lý thuốc"
-  }
-}
-\`\`\`
-
-## Nguồn tham khảo:
-1. [Tên website / Tiêu đề bài viết](URL_TRANG_WEB) — Trích dẫn ngắn có chứa số liệu liều lượng bạn đã dùng.`;
-
+    // Câu trong đoạn trích có nhắc tên vật tư (gợi ý cùng tên, cùng cây), để AI tìm đúng loại như bài mô tả
+    const group = suggestions.filter((s) => sameSuggestionGroup(s, linkingSuggestion));
+    const prompt = buildCropDosagePrompt({
+      name: selectedLinkMed.name,
+      activeIngredient: selectedLinkMed.active_ingredient || '',
+      medicineType: selectedLinkMed.medicine_type,
+      plant,
+      diseaseName: linkingSuggestion.disease_name,
+      productId: selectedLinkMed.id,
+      articleUrl: linkingSuggestion.source_url,
+      keySentences: keyMentionSentences(
+        toResearchEvidences(group.length ? group : [linkingSuggestion]),
+        linkingSuggestion.mention_text
+      ),
+    });
     navigator.clipboard.writeText(prompt);
     toast.success(`Đã sao chép Prompt AI tra cứu liều dùng cho Cây ${plant} vào Clipboard!`);
   };
@@ -689,15 +648,8 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
       setUnlinkingId(suggestionId);
       const res = await apiClient.post(`/knowledge/product-suggestions/${suggestionId}/unlink`);
       toast.success(res.data?.message || `Đã hủy gán gợi ý "${mentionText || ''}", đưa về trạng thái chờ xử lý!`);
-      const target = suggestions.find((s) => s.id === suggestionId);
-      const norm = (mentionText || target?.mention_text || '').trim().toLowerCase();
-      setSuggestions((prev) =>
-        prev.map((s) =>
-          (norm && s.mention_text.trim().toLowerCase() === norm) || s.id === suggestionId
-            ? { ...s, status: 'PENDING', product_id: null, product_name: null, resolved_at: null }
-            : s
-        )
-      );
+      // Server đặt lại các gợi ý cùng bài + cùng sản phẩm → tải lại danh sách cho khớp (TASK-31)
+      await fetchSuggestions();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -782,10 +734,9 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
       const med = medicines.find((m) => m.id === selectedLinkMedId);
       toast.success(`Đã gắn gợi ý "${linkingSuggestion.mention_text}" với sản phẩm "${med?.name || ''}"!`);
 
-      const norm = linkingSuggestion.mention_text.trim().toLowerCase();
       setSuggestions((prev) =>
         prev.map((s) =>
-          s.mention_text.trim().toLowerCase() === norm
+          s.id === linkingSuggestion.id || (s.status === 'PENDING' && sameSuggestionGroup(s, linkingSuggestion))
             ? { ...s, status: 'LINKED', product_id: Number(selectedLinkMedId), product_name: med?.name, resolved_at: new Date().toISOString() }
             : s
         )
@@ -842,9 +793,12 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
         toast.success(target ? `Đã bỏ qua gợi ý "${target.mention_text}".` : 'Đã bỏ qua gợi ý vật tư này.');
       }
       if (target) {
-        const norm = target.mention_text.trim().toLowerCase();
         setSuggestions((prev) =>
-          prev.map((s) => (s.mention_text.trim().toLowerCase() === norm ? { ...s, status: 'DISMISSED', resolved_at: new Date().toISOString() } : s))
+          prev.map((s) =>
+            s.id === target.id || (s.status === 'PENDING' && sameSuggestionGroup(s, target))
+              ? { ...s, status: 'DISMISSED', resolved_at: new Date().toISOString() }
+              : s
+          )
         );
       } else {
         await fetchSuggestions();
@@ -861,8 +815,16 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
     try {
       await apiClient.delete(`/knowledge/product-suggestions/${suggestionId}`);
       toast.success(`Đã xóa gợi ý "${mentionText}".`);
-      const norm = mentionText.trim().toLowerCase();
-      setSuggestions((prev) => prev.filter((s) => s.mention_text.trim().toLowerCase() !== norm));
+      const target = suggestions.find((s) => s.id === suggestionId);
+      setSuggestions((prev) =>
+        prev.filter(
+          (s) =>
+            !(
+              s.id === suggestionId ||
+              (target && s.status !== 'LINKED' && s.status !== 'ADDED' && sameSuggestionGroup(s, target))
+            )
+        )
+      );
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -893,6 +855,10 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
     setAiNotes([]);
     setAiImageCandidates([]);
     setNewMedUsage(emptyUsageProfile());
+    setNewCropUsage(emptyUsageProfile());
+    setNewCropDosage('');
+    setNewCropSourceUrl('');
+    setDevCropInput('');
     setShowDevMode(false);
     setDevGeminiInput('');
 
@@ -1015,6 +981,8 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
       currentName: name,
       activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient.trim(),
       sourceUrl: newMedSourceUrl.trim(),
+      // TASK-31: tạo từ gợi ý thì prompt 1 chỉ tìm thông số bao bì; liều theo cây dùng prompt 2 (khung 2)
+      usageMode: fromSuggestion ? 'package' : 'auto',
     });
     setShowDevMode(true);
     const n = countArticleBlocks(researchItems);
@@ -1119,6 +1087,43 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
     setDevGeminiInput('');
   };
 
+  // TASK-31: prompt 2 = liều cho cây của bài (dùng chung hàm với "Gắn SP")
+  const cropPlantName = fromSuggestion?.plant_name?.trim() || '';
+  const handleCopyCropPrompt = () => {
+    if (!fromSuggestion) return;
+    const plant = cropPlantName || 'cây trồng';
+    const prompt = buildCropDosagePrompt({
+      name: newMedName.trim() || fromSuggestion.mention_text,
+      activeIngredient: newMedType === 'Vật tư canh tác' ? '' : newMedActiveIngredient.trim(),
+      medicineType: newMedType,
+      plant,
+      diseaseName: fromSuggestion.disease_name,
+      articleUrl: fromSuggestion.source_url,
+      keySentences: keyMentionSentences(
+        toResearchEvidences(researchItems.length ? researchItems : [fromSuggestion]),
+        fromSuggestion.mention_text
+      ),
+    });
+    copyText(prompt, `Đã sao chép prompt tìm liều cho Cây ${plant}. Dán câu trả lời của AI vào ô ở khung 2.`);
+  };
+
+  const handleApplyCropJson = () => {
+    const parsed = parseCropDosageJson(devCropInput);
+    if (!parsed) {
+      toast.error('Không đọc được JSON. Hãy copy đúng khối ```json mà AI trả về.');
+      return;
+    }
+    const isSupply = newMedType === 'Vật tư canh tác';
+    if (parsed.usage) setNewCropUsage(parsed.usage);
+    const text =
+      parsed.dosageInstruction ||
+      (parsed.usage ? formatUsageText(parsed.usage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply) : '');
+    if (text) setNewCropDosage(text);
+    if (parsed.sourceUrl && isSafeHttpUrl(parsed.sourceUrl)) setNewCropSourceUrl(parsed.sourceUrl);
+    setDevCropInput('');
+    toast.success(`Đã điền liều cho Cây ${cropPlantName || 'trồng'} (khung 2).`);
+  };
+
   const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMedName.trim()) {
@@ -1149,6 +1154,17 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
       toast.error(`Phiếu cách dùng: ${usageError}`);
       return;
     }
+    if (fromSuggestion) {
+      const cropError = validateUsageProfile(newCropUsage);
+      if (cropError) {
+        toast.error(`Liều cho cây: ${cropError}`);
+        return;
+      }
+      if (newCropSourceUrl.trim() && !/^https?:\/\//i.test(newCropSourceUrl.trim())) {
+        toast.error('Link nguồn liều cây phải bắt đầu bằng http:// hoặc https://.');
+        return;
+      }
+    }
 
     try {
       setCreatingMed(true);
@@ -1157,7 +1173,11 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
         : 'Pha theo hướng dẫn trên bao bì';
       // Ô còn câu mặc định (của loại cũ) → dùng câu mặc định đúng loại hiện tại
       const isDefaultText = ['Pha theo hướng dẫn trên bao bì', 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'].includes(newMedDosage.trim());
-      const dosageToUse = newMedDosage.trim() && !isDefaultText ? newMedDosage.trim() : defaultDosage;
+      const packageText = newMedDosage.trim() && !isDefaultText ? newMedDosage.trim() : '';
+      const cropText = fromSuggestion ? newCropDosage.trim() : '';
+      // TASK-31: Lavi đọc ô này. Có liều bao bì → liều bao bì; chỉ có liều cây → ghi rõ "Trên cây X: …" để không nói nhầm cho cây khác
+      const dosageToUse =
+        packageText || (cropText ? `Trên cây ${cropPlantName || 'trồng của bài'}: ${cropText}` : defaultDosage);
       const combinedDosage = newMedDescription.trim()
         ? combineDescriptionDosage(newMedDescription, dosageToUse)
         : dosageToUse;
@@ -1178,10 +1198,13 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
         usage_profile: usageProfileForApi(newMedUsage),
         suggestion_id: fromSuggestion ? fromSuggestion.id : undefined,
         // TASK-29: liều trên cây của bài → server lưu thêm thành liều chung của cây (khi các bệnh thuộc 1 cây)
+        // TASK-31: khung 2 → liều chung của cây của gợi ý (server lấy cây theo class_code)
         plant_usage: fromSuggestion
           ? {
-              dosage_instruction: dosageToUse !== defaultDosage ? dosageToUse : undefined,
-              usage_profile: usageProfileForApi(newMedUsage),
+              class_code: fromSuggestion.model_class || undefined,
+              dosage_instruction: cropText || undefined,
+              usage_profile: usageProfileForApi(newCropUsage),
+              source_url: newCropSourceUrl.trim() || undefined,
             }
           : undefined,
       };
@@ -1229,7 +1252,7 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
   const groupedSuggestions = useMemo(() => {
     const map = new Map<string, GroupedSuggestion>();
     filteredSuggestions.forEach((s) => {
-      const key = `${(s.mention_text || '').trim().toLowerCase()}__${s.kind}`;
+      const key = `${(s.mention_text || '').trim().toLowerCase()}__${s.kind}__${suggestionPlantKey(s.model_class)}`;
       const existing = map.get(key);
       if (existing) {
         existing.items.push(s);
@@ -1244,7 +1267,7 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
           groupKey: key,
           mentionText: s.mention_text,
           kind: s.kind,
-          plantName: s.plant_name,
+          plantName: s.plant_name || 'Chưa rõ cây',
           diseaseName: s.disease_name,
           modelClass: s.model_class,
           items: [s],
@@ -3286,7 +3309,7 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
                   title="Sao chép prompt (kèm đoạn trích bài báo) để dán vào trợ lý AI (Gemini, ChatGPT...)"
                 >
                   <Copy className="w-3 h-3" />
-                  <span>📋 Sao chép prompt cho AI{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
+                  <span>{fromSuggestion ? '📋 Prompt 1 – thông tin sản phẩm & bao bì' : '📋 Sao chép prompt cho AI'}{(() => { const n = countArticleBlocks(researchItems); return n ? ` (${n} bài trích)` : ''; })()}</span>
                 </Button>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
@@ -3792,8 +3815,22 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
               </div>
 
               {/* PHIẾU CÁCH DÙNG: hiện cho cả "Tạo SP" từ gợi ý và "Thêm sản phẩm" (TASK-30: không lưu ngầm số liệu AI) */}
-              <>
-                {fromSuggestion ? null : (
+              {/* TASK-31: tạo từ gợi ý → khung 1 = liều bao bì (tùy chọn), khung 2 = liều cho cây của bài */}
+              <div
+                className={
+                  fromSuggestion
+                    ? 'p-3 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/20 space-y-2.5'
+                    : 'space-y-2.5'
+                }
+              >
+                {fromSuggestion ? (
+                  <div>
+                    <h4 className="font-bold text-xs text-blue-900 dark:text-blue-300">Khung 1 – Liều bao bì của sản phẩm (tùy chọn)</h4>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Chỉ điền khi biết thông số in trên nhãn / bao bì của nhà sản xuất; chưa có thì để trống. Điền nhanh bằng <strong>Prompt 1</strong> ở chế độ Dev (nút <code>&lt;/&gt;</code> trên cùng).
+                    </p>
+                  </div>
+                ) : (
                   <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-[11px] leading-relaxed flex items-start gap-2">
                     <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
                     <span>
@@ -3802,38 +3839,123 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
                     </span>
                   </div>
                 )}
+                <UsageProfileEditor
+                  value={newMedUsage}
+                  onChange={setNewMedUsage}
+                  isSupply={newMedType === 'Vật tư canh tác'}
+                  onCompose={() => {
+                    const isSupply = newMedType === 'Vật tư canh tác';
+                    const text = formatUsageText(newMedUsage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply);
+                    if (text) {
+                      setNewMedDosage(text);
+                      toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
+                    }
+                  }}
+                />
+
+                <div>
+                  <label className="font-semibold block mb-1">
+                    {fromSuggestion ? 'Hướng dẫn sử dụng chung (bao bì)' : 'Hướng dẫn sử dụng / Liều lượng'}
+                  </label>
+                  <Textarea
+                    value={newMedDosage}
+                    onChange={(e) => setNewMedDosage(e.target.value)}
+                    placeholder={
+                      newMedType === 'Vật tư canh tác'
+                        ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
+                        : 'Pha theo hướng dẫn trên bao bì'
+                    }
+                    rows={Math.min(9, Math.max(2, newMedDosage.split('\n').length + 1))}
+                    className="text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {fromSuggestion
+                      ? 'Lavi đọc ô này. Để trống (hoặc giữ câu mặc định) thì Lavi đọc liều ở khung 2, kèm chữ "Trên cây …".'
+                      : 'Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.'}
+                  </p>
+                </div>
+              </div>
+
+              {fromSuggestion && (
+                <div className="p-3 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-bold text-xs text-emerald-900 dark:text-emerald-300">
+                        Khung 2 – Liều cho Cây {cropPlantName || '(chưa rõ cây)'}
+                      </h4>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Áp dụng cho mọi bệnh của cây này
+                        {fromSuggestion.source_title ? <> theo bài: <em>{fromSuggestion.source_title}</em></> : null}. Lưu thành liều chung của cây, không thành liều bao bì.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCopyCropPrompt}
+                      disabled={!cropPlantName}
+                      className="h-7 px-2 text-[11px] bg-background font-semibold text-emerald-800 dark:text-emerald-300 border-emerald-300 gap-1"
+                      title="Prompt 2: tra tài liệu khuyến nông về liều trên đúng cây này"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>📋 Prompt 2 – tìm liều cho Cây {cropPlantName || '…'}</span>
+                    </Button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Textarea
+                      value={devCropInput}
+                      onChange={(e) => setDevCropInput(e.target.value)}
+                      placeholder="Dán câu trả lời của AI cho Prompt 2 (khối ```json ... ```) vào đây"
+                      rows={2}
+                      className="text-xs font-mono bg-background"
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleApplyCropJson}
+                        disabled={!devCropInput.trim()}
+                        className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] gap-1"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>⚡ Điền khung 2 từ AI</span>
+                      </Button>
+                    </div>
+                  </div>
                   <UsageProfileEditor
-                    value={newMedUsage}
-                    onChange={setNewMedUsage}
+                    value={newCropUsage}
+                    onChange={setNewCropUsage}
                     isSupply={newMedType === 'Vật tư canh tác'}
                     onCompose={() => {
                       const isSupply = newMedType === 'Vật tư canh tác';
-                      const text = formatUsageText(newMedUsage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply);
+                      const text = formatUsageText(newCropUsage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply);
                       if (text) {
-                        setNewMedDosage(text);
-                        toast.success('Đã ghép phiếu cách dùng vào ô Hướng dẫn sử dụng.');
+                        setNewCropDosage(text);
+                        toast.success('Đã ghép phiếu vào ô Hướng dẫn sử dụng cho cây.');
                       }
                     }}
                   />
-
                   <div>
-                    <label className="font-semibold block mb-1">Hướng dẫn sử dụng / Liều lượng</label>
+                    <label className="font-semibold block mb-1">Hướng dẫn sử dụng cho Cây {cropPlantName || '…'}</label>
                     <Textarea
-                      value={newMedDosage}
-                      onChange={(e) => setNewMedDosage(e.target.value)}
-                      placeholder={
-                        newMedType === 'Vật tư canh tác'
-                          ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
-                          : 'Pha theo hướng dẫn trên bao bì'
-                      }
-                      rows={Math.min(9, Math.max(2, newMedDosage.split('\n').length + 1))}
+                      value={newCropDosage}
+                      onChange={(e) => setNewCropDosage(e.target.value)}
+                      placeholder={`Liều và cách dùng trên cây ${cropPlantName || 'này'} (không nêu tên một bệnh cụ thể)`}
+                      rows={Math.min(9, Math.max(2, newCropDosage.split('\n').length + 1))}
                       className="text-xs"
                     />
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.
-                    </p>
                   </div>
-              </>
+                  <div>
+                    <label className="font-semibold block mb-1">Link nguồn liều cây (tùy chọn)</label>
+                    <Input
+                      value={newCropSourceUrl}
+                      onChange={(e) => setNewCropSourceUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+              )}
 
               <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <input

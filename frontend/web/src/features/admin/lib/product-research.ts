@@ -315,8 +315,14 @@ export const buildProductResearchPrompt = (opts: {
   currentName?: string;
   activeIngredient?: string;
   sourceUrl?: string;
+  /**
+   * TASK-31: 'package' = prompt tìm thông số BAO BÌ (liều theo nhãn hãng, không theo cây) cho khung 1 của "Tạo SP" từ gợi ý;
+   * 'auto' (mặc định) = như TASK-30 (có đoạn trích thì usage theo cây chính).
+   */
+  usageMode?: 'auto' | 'package';
 }): string => {
   const mention = (opts.mention || opts.currentName || '').trim();
+  const packageMode = opts.usageMode === 'package';
   const kindLabel = KIND_LABEL[opts.kind] ? `${KIND_LABEL[opts.kind]} (${opts.kind})` : opts.kind;
   const ctx = detectMentionContext(mention, opts.evidences);
 
@@ -349,7 +355,12 @@ export const buildProductResearchPrompt = (opts: {
 
   const cropText = plants.length ? plants.join(', ') : 'các loại cây trồng phù hợp tại Việt Nam';
   // TASK-29: tạo từ gợi ý thì usage là liều chung của CÂY trong đoạn trích (lưu thành liều cây); không có đoạn trích thì liều chung của sản phẩm
-  const usageRule = plants.length
+  const usageRule = packageMode
+    ? [
+        `- usage là LIỀU THEO NHÃN / BAO BÌ của nhà sản xuất (cách pha chung, liều in trên vỏ, quy cách đóng gói). KHÔNG lấy liều khuyến nông dành riêng cho một cây trồng; liều theo cây Admin tra riêng.`,
+        `- Nhãn / trang của hãng không ghi số thì để null; không suy ra từ bài khuyến nông. dose_text / method không nêu tên cây hay bệnh cụ thể.`,
+      ].join('\n')
+    : plants.length
     ? [
         `- usage là LIỀU DÙNG TRÊN CÂY ${plants[0]}${
           plants.length > 1
@@ -368,7 +379,7 @@ export const buildProductResearchPrompt = (opts: {
 
   // Bước tìm Google đặt ĐẦU prompt, kèm sẵn truy vấn (TASK-18-R6)
   const searchName = (opts.currentName || mention).replace(/\s*\([^)]*\)/g, '').trim() || mention;
-  const cropQ = plants[0] ? ` ${plants[0].toLowerCase()}` : '';
+  const cropQ = !packageMode && plants[0] ? ` ${plants[0].toLowerCase()}` : '';
   const doseHint = opts.kind === 'CHEMICAL' || opts.kind === 'BIOLOGICAL' ? 'liều lượng pha bình 16 lít' : 'liều lượng bón';
   const searchBlock = [
     `Tìm trên Google: ${searchName}${cropQ} ${doseHint} và cách sử dụng tại Việt Nam. Đọc 2–5 trang Việt Nam (khuyến nông, nhà sản xuất, cửa hàng vật tư)${opts.sourceUrl ? ` và trang ${opts.sourceUrl}` : ''}, ghi lại link và câu nguyên văn có con số. Gợi ý truy vấn thêm: "${searchName} cách sử dụng", "${searchName} khuyến nông".`,
@@ -399,7 +410,7 @@ ${evidenceBlock}
    Nếu các đoạn trích nói về những thứ KHÁC NHAU, đặt "mentions_differ": true, giải thích trong "differ_note" và điền theo nghĩa xuất hiện nhiều nhất.
 2. Tổng hợp từ 2–5 nguồn TẠI VIỆT NAM đã tìm ở dòng đầu (bài báo ở mục 2 không tính là nguồn số liệu nếu nó không ghi con số), ưu tiên: ${preferredSources(opts.kind, ctx)}.
    Thông tin và mô tả kỹ thuật phải mang tính TỔNG QUAN VỀ SẢN PHẨM/VẬT TƯ: bao quát công dụng nông nghiệp, đặc tính, các nhóm cây trồng áp dụng phổ biến tại Việt Nam${plants.length ? ` (bao gồm cả ${plants.join(', ')})` : ''}.
-3. Tổng hợp ĐẦY ĐỦ cách dùng thực tế trên cây ${plants[0] || 'trồng phổ biến nhất trong nguồn'}: liều lượng và lượng nước pha, lượng phun/bón trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng, khoảng cách ngày, thời gian cách ly trước thu hoạch, bảo hộ an toàn.
+3. Tổng hợp ĐẦY ĐỦ cách dùng ${packageMode ? 'theo NHÃN của nhà sản xuất (không theo một cây cụ thể)' : `thực tế trên cây ${plants[0] || 'trồng phổ biến nhất trong nguồn'}`}: liều lượng và lượng nước pha, lượng phun/bón trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng, khoảng cách ngày, thời gian cách ly trước thu hoạch, bảo hộ an toàn.
 4. Trả lời theo ĐÚNG thứ tự ở mục 4: khối \`\`\`json trước, sau đó danh sách nguồn và ảnh. Không viết lời dẫn trước khối JSON.
 
 ## 4. Định dạng trả lời
@@ -621,4 +632,109 @@ export const parseProductResearchJson = (
     usage,
     sourceQuotes: extractSourceQuotes(raw),
   };
+};
+
+// ---------------------------------------------------------------------------
+// 6. Prompt liều cho MỘT cây (TASK-31): dùng chung cho "Gắn SP" và khung 2 của "Tạo SP" từ gợi ý
+// ---------------------------------------------------------------------------
+
+export const buildCropDosagePrompt = (opts: {
+  name: string;
+  activeIngredient?: string;
+  medicineType: string;
+  plant: string;
+  diseaseName?: string;
+  productId?: number;
+  articleUrl?: string | null;
+  keySentences?: string[];
+}): string => {
+  const { name, plant } = opts;
+  const active = opts.activeIngredient || '';
+  const isSupply = opts.medicineType === 'Vật tư canh tác';
+  const doseHint = isSupply ? 'liều lượng bón / cách dùng' : 'liều lượng pha bình 16 lít và cách phun';
+  const disease = opts.diseaseName || '';
+  const excerptBlock = opts.keySentences && opts.keySentences.length
+    ? [
+        '',
+        '## Đoạn trích bài báo nhắc tới vật tư này (để xác định đúng loại, không phải nguồn số liệu)',
+        ...opts.keySentences.map((x) => `- "${x}"`),
+        '',
+      ].join('\n')
+    : '';
+
+  return `Tìm trên Google: "${name}" ${active ? `(${active})` : ''} liều lượng cách dùng trên cây "${plant}" ${doseHint} tại Việt Nam. Đọc nhãn thuốc của nhà sản xuất hoặc khuyến nông, ghi lại các con số cụ thể.
+
+## Vai trò
+Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin thiết lập LIỀU DÙNG CHUNG của sản phẩm "${name}" trên CÂY TRỒNG "${plant}". Liều này áp dụng cho MỌI bệnh của cây ${plant} mà sản phẩm được dùng${disease ? ` (bệnh đang gắn: "${disease}")` : ''}.
+
+## Ngữ cảnh
+- Tên sản phẩm: "${name}"${opts.productId ? ` (#${opts.productId})` : ''}
+- Phân loại: ${opts.medicineType}
+- Hoạt chất chính: ${active || 'Chế phẩm sinh học / Không có hoạt chất hóa học'}
+- Cây trồng mục tiêu: "${plant}"${disease ? ` (Bệnh liên kết: "${disease}")` : ''}
+${opts.articleUrl ? `- Link bài báo gợi ý: ${opts.articleUrl}` : ''}
+${excerptBlock}
+## Nhiệm vụ
+Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant}":
+1. Liều lượng pha (g hoặc ml cho bình 16L hoặc 200L) và lượng nước (ví dụ: 40-50g / bình 16 lít).
+2. Lượng nước phun/ha (ví dụ: 400 - 600 lít/ha) hoặc liều theo gốc/diện tích.
+3. Cách dùng (phun ướt đều tán lá / tưới gốc...).
+4. Thời điểm phun, khoảng cách giữa các lần (7-10 ngày), số ngày cách ly (PHI).
+5. Soạn câu "dosage_instruction" súc tích, chuyên nghiệp cho trợ lý AI Lavi đọc tư vấn cho nông dân. Viết cho CÂY ${plant} nói chung: KHÔNG nêu tên một bệnh cụ thể (không viết "Với bệnh ..."), vì câu này hiển thị cho mọi bệnh của cây.
+6. KHÔNG ĐOÁN SỐ: con số nào nguồn không ghi rõ thì để null.
+
+## Định dạng đầu ra JSON (đặt ở đầu tiên):
+\`\`\`json
+{
+  "dosage_instruction": "Câu hướng dẫn chi tiết cách pha và sử dụng ${name} trên cây ${plant} (không nêu tên bệnh)...",
+  "source_url": "https://link-trang-web-nhan-thuoc-da-tim",
+  "usage_profile": {
+    "dose_amount": 50,
+    "dose_unit": "g",
+    "water_liters": 16,
+    "dose_text": "50g / bình 16 lít",
+    "dose_per_area": null,
+    "spray_volume_per_ha": { "min": 400, "max": 600 },
+    "method": "phun ướt đều 2 mặt lá",
+    "time_of_day": ["sáng sớm", "chiều mát"],
+    "times_per_day": 1,
+    "interval_days": { "min": 7, "max": 10 },
+    "max_applications_per_season": 3,
+    "start_when": "khi bệnh chớm xuất hiện",
+    "avoid_rain_hours": 6,
+    "safety_note": "mang khẩu trang, găng tay bảo hộ khi phun; không ăn uống khi đang xử lý thuốc"
+  }
+}
+\`\`\`
+(Các con số trong mẫu chỉ để minh họa định dạng, KHÔNG được chép lại.)
+
+## Nguồn tham khảo:
+1. [Tên website / Tiêu đề bài viết](URL_TRANG_WEB) — Trích dẫn ngắn có chứa số liệu liều lượng bạn đã dùng.`;
+};
+
+/** Đọc câu trả lời của prompt liều cây: { dosage_instruction, usage_profile | usage, source_url | source_urls }. */
+export const parseCropDosageJson = (
+  raw: string
+): { dosageInstruction: string; usage: UsageProfile | null; sourceUrl: string } | null => {
+  const text = (raw || '').trim();
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  let parsed: any;
+  try {
+    parsed = JSON.parse(m[0]);
+  } catch {
+    return null;
+  }
+  let sourceUrl =
+    (typeof parsed.source_url === 'string' && parsed.source_url.trim()) ||
+    (Array.isArray(parsed.source_urls) && typeof parsed.source_urls[0] === 'string' && parsed.source_urls[0].trim()) ||
+    '';
+  if (!sourceUrl) {
+    const urls = text.match(/https?:\/\/[^\s)\]"]+/g);
+    if (urls && urls.length) sourceUrl = urls[0];
+  }
+  const usageObj = parsed.usage_profile || parsed.usage;
+  const usage = usageObj && typeof usageObj === 'object' ? normalizeUsageProfile(usageObj) : null;
+  const dosageInstruction = typeof parsed.dosage_instruction === 'string' ? parsed.dosage_instruction.trim() : '';
+  return { dosageInstruction, usage, sourceUrl };
 };
