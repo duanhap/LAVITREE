@@ -1,6 +1,6 @@
 import React from 'react';
 import { toast } from 'sonner';
-import { AlertCircle, Ban, FileUp, History, Loader2, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import { AlertCircle, Ban, FileUp, History, Loader2, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -227,6 +227,21 @@ export const BannedSubstancesTab: React.FC<{ onChanged?: () => void }> = ({ onCh
     return [s.common_name, ...s.aliases, s.current_legal_document || ''].some((x) => x.toLowerCase().includes(q));
   });
   const bannedCount = data?.items.filter((s) => s.is_banned).length ?? 0;
+
+  const [page, setPage] = React.useState<number>(1);
+  const [pageSize, setPageSize] = React.useState<number>(10);
+
+  React.useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter]);
+
+  const totalItems = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedItems = React.useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return items.slice(start, start + pageSize);
+  }, [items, safePage, pageSize]);
 
   const submitCreate = () => run(async () => {
     if (!cName.trim() || !cDecision.legal_document.trim()) {
@@ -626,7 +641,7 @@ export const BannedSubstancesTab: React.FC<{ onChanged?: () => void }> = ({ onCh
             </tr>
           </thead>
           <tbody>
-            {items.map((s) => (
+            {pagedItems.map((s) => (
               <React.Fragment key={s.id}>
                 <tr className="border-t border-border align-top">
                   <td className="p-3 font-semibold">{s.common_name}</td>
@@ -725,6 +740,59 @@ export const BannedSubstancesTab: React.FC<{ onChanged?: () => void }> = ({ onCh
             )}
           </tbody>
         </table>
+
+        {/* Pagination Bar (Chất cấm) */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 border-t border-border bg-card/60 text-xs">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <span>
+              Hiển thị {totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1}–
+              {Math.min(safePage * pageSize, totalItems)} trong tổng số{' '}
+              <strong className="text-foreground">{totalItems}</strong> hoạt chất
+            </span>
+            <span className="text-border">|</span>
+            <div className="flex items-center gap-1.5">
+              <span>Mỗi trang:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="h-7 px-2 bg-background border border-border rounded text-xs"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="h-7 px-2.5 text-xs gap-1"
+            >
+              <ChevronLeft className="w-3 h-3" />
+              <span>Trước</span>
+            </Button>
+            <span className="px-2 text-xs font-medium text-foreground">
+              Trang {safePage} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="h-7 px-2.5 text-xs gap-1"
+            >
+              <span>Sau</span>
+              <ChevronRight className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

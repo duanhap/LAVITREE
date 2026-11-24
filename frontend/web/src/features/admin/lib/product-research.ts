@@ -164,9 +164,11 @@ export const buildGoogleQueries = (opts: {
   if (ctx.seed) {
     out.push({ label: 'Thông tin giống', query: `giống ${name.replace(/^(hạt )?giống\s+/i, '')} đặc điểm năng suất` });
   } else if (opts.kind === 'CHEMICAL') {
+    out.push({ label: 'Giá & Cửa hàng', query: `"${name}" giá bán cửa hàng vật tư nông nghiệp` });
     out.push({ label: 'Nhãn thuốc & PHI', query: `"${name}" nhãn thuốc thời gian cách ly` });
     out.push({ label: 'Liều dùng', query: `${ai && foldVi(ai) !== foldVi(name) ? `"${name}" ${ai}` : `"${name}"`} thuốc BVTV liều dùng` });
   } else if (opts.kind === 'BIOLOGICAL') {
+    out.push({ label: 'Giá & Cửa hàng', query: `"${name}" giá bán chế phẩm sinh học` });
     if (!ctx.homemade) out.push({ label: 'Chế phẩm sinh học', query: `"${name}" chế phẩm sinh học cách dùng` });
   } else if (opts.kind === 'PRACTICE') {
     out.push({ label: 'Kỹ thuật', query: `${name} kỹ thuật canh tác ${plant}`.trim() });
@@ -300,9 +302,9 @@ const preferredSources = (kind: MentionKind, ctx: MentionContext): string =>
     : ctx.seed
       ? 'trang giới thiệu giống của công ty giống, viện / trung tâm giống, bài kỹ thuật trồng'
       : kind === 'CHEMICAL'
-        ? 'nhãn thuốc đã đăng ký, Danh mục thuốc BVTV được phép sử dụng tại Việt Nam, trang sản phẩm của nhà sản xuất / nhà phân phối, bài hướng dẫn của khuyến nông'
+        ? 'trang sản phẩm của các cửa hàng vật tư nông nghiệp uy tín (như quocvietagri.com, sieuthinongduoc, phanbon3tot, ecomco...), trang nhà sản xuất / nhà phân phối, nhãn thuốc đã đăng ký, bài khuyến nông'
         : kind === 'BIOLOGICAL'
-          ? 'nhãn / trang sản phẩm của nhà sản xuất chế phẩm, Danh mục thuốc BVTV (nhóm sinh học), bài hướng dẫn của khuyến nông, viện / trường'
+          ? 'trang sản phẩm của nhà sản xuất chế phẩm (như ecomco.vn, vi sinh...), cửa hàng vật tư nông nghiệp uy tín, nhãn thuốc BVTV sinh học, bài khuyến nông'
           : kind === 'PRACTICE'
             ? 'bài kỹ thuật canh tác của khuyến nông, viện / trường, báo nông nghiệp'
             : 'trang sản phẩm của nhà sản xuất / cửa hàng vật tư nông nghiệp, bài hướng dẫn sử dụng của khuyến nông';
@@ -382,9 +384,9 @@ export const buildProductResearchPrompt = (opts: {
   const cropQ = !packageMode && plants[0] ? ` ${plants[0].toLowerCase()}` : '';
   const doseHint = opts.kind === 'CHEMICAL' || opts.kind === 'BIOLOGICAL' ? 'liều lượng pha bình 16 lít' : 'liều lượng bón';
   const searchBlock = [
-    `Tìm trên Google: ${searchName}${cropQ} ${doseHint} và cách sử dụng tại Việt Nam. Đọc 2–5 trang Việt Nam (khuyến nông, nhà sản xuất, cửa hàng vật tư)${opts.sourceUrl ? ` và trang ${opts.sourceUrl}` : ''}, ghi lại link và câu nguyên văn có con số. Gợi ý truy vấn thêm: "${searchName} cách sử dụng", "${searchName} khuyến nông".`,
+    `Tìm trên Google: "${searchName}"${cropQ} giá bán hướng dẫn sử dụng tại Việt Nam. Đọc 2–5 trang web Việt Nam (cửa hàng vật tư nông nghiệp như quocvietagri.com, ecomco.vn, sieuthinongduoc, phanbon3tot..., trang nhà sản xuất, đại lý phân phối, bài khuyến nông)${opts.sourceUrl ? ` và trang ${opts.sourceUrl}` : ''}, ghi lại link sản phẩm, giá bán tham khảo và thông tin hướng dẫn sử dụng. Gợi ý truy vấn thêm: "${searchName} giá bao nhiêu", "${searchName} cách sử dụng".`,
     ``,
-    `Sau khi đã tìm, trình bày kết quả theo yêu cầu dưới đây. Mọi con số phải lấy từ các trang đã tìm, kèm link và đoạn trích nguyên văn (mục 4.2).`,
+    `Sau khi đã tìm, trình bày kết quả theo yêu cầu dưới đây. Mọi con số (giá, liều lượng, hoạt chất) phải lấy từ các trang đã tìm, kèm link và đoạn trích dẫn chứng.`,
   ].join('\n');
 
   return `${searchBlock}
@@ -423,31 +425,32 @@ ${evidenceBlock}
   "scope_note": "",
   "mentions_differ": false,
   "differ_note": "",
-  "name": "Tên cụ thể nhất đúng loại sản phẩm (tên thương mại nếu là PRODUCT), không dùng tên nhóm chung",
+  "name": "Tên thương mại cụ thể của sản phẩm (ví dụ: Thuốc trừ bệnh Nano Đồng Eco Copper 250ml)",
   "medicine_type": "Hóa học | Sinh học | Vật tư canh tác",
-  "active_ingredient": "Hoạt chất + hàm lượng / chủng vi sinh + mật độ / nguyên liệu chính; rỗng nếu là dụng cụ",
+  "active_ingredient": "Hoạt chất + hàm lượng / chủng vi sinh + mật độ / nguyên liệu chính (ví dụ: Nano Đồng 2000ppm, Chitosan...)",
+  "price": 100000,
   "description": "• Bản chất & Phân loại: ...\\n• Cơ chế tác động & Đặc tính: ...\\n• Công dụng nông nghiệp: ...\\n• Phạm vi & Cây trồng: ...\\n• Hướng dẫn & Lưu ý khi dùng: ...",
   "usage": {
-    "dose_amount": 50,
-    "dose_unit": "g",
-    "water_liters": 16,
-    "dose_text": "50 g / bình 16 lít",
+    "dose_amount": 25,
+    "dose_unit": "ml",
+    "water_liters": 25,
+    "dose_text": "25-30ml / bình 25 lít (hoặc 1 chai 250ml pha 200-400 lít nước)",
     "dose_per_area": null,
     "spray_volume_per_ha": { "min": 400, "max": 600 },
-    "method": "phun ướt đều 2 mặt lá",
+    "method": "phun ướt đều 2 mặt lá và thân cành",
     "time_of_day": ["sáng sớm", "chiều mát"],
     "times_per_day": 1,
     "interval_days": { "min": 7, "max": 10 },
     "max_applications_per_season": 3,
-    "start_when": "khi bệnh chớm xuất hiện",
+    "start_when": "khi bệnh chớm xuất hiện hoặc định kỳ rửa vườn",
     "stop_when": "",
     "weather_note": "không phun khi trời sắp mưa hoặc nắng gắt",
-    "avoid_rain_hours": 6,
-    "safety_note": "mang găng tay, khẩu trang; không ăn uống khi phun"
+    "avoid_rain_hours": 4,
+    "safety_note": "mang găng tay, khẩu trang bảo hộ"
   },
-  "phi_days": 7,
+  "phi_days": 3,
   "target_diseases": ["MÃ_BỆNH"],
-  "source_urls": ["https://..."],
+  "source_urls": ["https://... (link trang sản phẩm của cửa hàng vật tư / nhà sản xuất)"],
   "image_candidates": ["https://...jpg"]
 }
 \`\`\`
@@ -461,7 +464,9 @@ ${evidenceBlock}
 1. <link ảnh trực tiếp .jpg / .png / .webp> — lấy từ <URL trang>
 
 ## 5. Quy tắc
+- price: Giá bán lẻ tham khảo (VNĐ) của quy cách đóng gói phổ biến nhất (ví dụ chai 250ml, chai 500ml, gói 100g) tìm thấy trên các trang cửa hàng vật tư / đại lý tại Việt Nam. Ví dụ 85000, 100000, 135000. Nếu không thấy giá ghi số thì để null.
 - KHÔNG ĐOÁN SỐ: con số nào (liều, lượng nước, số lần, khoảng cách ngày, PHI, số giờ tránh mưa) không có nguồn ghi rõ thì để null. Chỉ có mô tả bằng chữ thì ghi vào dose_text / method / weather_note.
+- Liều lượng thực tế: Nếu trang nguồn/cửa hàng ghi liều pha theo chai hoặc phuy (ví dụ: "1 chai 250ml pha 200–400 lít nước"), hãy quy đổi tương đương ra liều bình 16L hoặc 25L (ví dụ: ~20–30ml / bình 25 lít) và ghi rõ trong dose_text để nông dân dễ sử dụng. Tránh để null nếu nguồn có ghi tỷ lệ pha.
 ${usageRule}
 - Khoảng giá trị (ví dụ "7–10 ngày") ghi {"min": 7, "max": 10}; một giá trị thì min = max.
 - Liều: thuốc pha nước dùng dose_amount + dose_unit + water_liters (liều cho 1 bình); phân, vôi, chế phẩm rắc / bón theo diện tích dùng dose_per_area {min, max, unit} với unit như "tấn/ha", "kg/ha", "kg/1000 m²", "kg/sào". Có con số theo diện tích thì PHẢI ghi vào dose_per_area, không chỉ để trong dose_text.
@@ -665,7 +670,7 @@ export const buildCropDosagePrompt = (opts: {
     : '';
 
   const q = `${name}${active ? ` ${active}` : ''}`;
-  return `Tìm trên Google rồi MỞ và ĐỌC 2–5 trang tại Việt Nam viết về CHÍNH sản phẩm "${name}"${active ? ` (${active})` : ''}: nhãn / trang của nhà sản xuất, đại lý vật tư, bài hướng dẫn của khuyến nông có liều trên cây ${plant}. Gợi ý truy vấn: "${q} ${plant.toLowerCase()} ${doseHint}", "${q} cách sử dụng", "${q} liều lượng", "${name} nhãn thuốc". Ghi lại link và câu NGUYÊN VĂN có con số.
+  return `Tìm trên Google rồi MỞ và ĐỌC 2–5 trang tại Việt Nam viết về CHÍNH sản phẩm "${name}"${active ? ` (${active})` : ''}: trang cửa hàng vật tư nông nghiệp uy tín (như quocvietagri.com, sieuthinongduoc, phanbon3tot, ecomco...), nhãn / trang của nhà sản xuất, đại lý, bài hướng dẫn của khuyến nông có liều trên cây ${plant}. Gợi ý truy vấn: "${q} ${plant.toLowerCase()} ${doseHint}", "${q} cách sử dụng", "${q} liều lượng", "${name} giá bán". Ghi lại link và câu NGUYÊN VĂN có con số.
 
 ## Vai trò
 Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin thiết lập LIỀU DÙNG CHUNG của sản phẩm "${name}" trên CÂY TRỒNG "${plant}". Liều này áp dụng cho MỌI bệnh của cây ${plant} mà sản phẩm được dùng${disease ? ` (bệnh đang gắn: "${disease}")` : ''}.
