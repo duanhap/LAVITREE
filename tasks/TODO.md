@@ -190,9 +190,10 @@
   - Trạng thái: `[x] DONE`
   - Đầu ra: Thêm 2 endpoint Core API `GET /api/v1/orders/admin` (bộ lọc `status`, tìm kiếm đa trường) và `PATCH /api/v1/orders/{id}/status` (chuyển đổi `PENDING` -> `CONFIRMED` -> `SHIPPING` -> `COMPLETED` -> `CANCELLED`, hoàn trả tồn kho tự động khi hủy đơn); trang `AdminOrdersPage.tsx` thay thế `ComingSoonPage` gồm 4 Thẻ chỉ số tổng quan, thanh lọc tab trạng thái, bảng quản lý chi tiết, modal xem hóa đơn xuất xưởng và dialog xác nhận hủy đơn; bổ sung lối tắt trên `AdminOverviewPage.tsx`.
 
-- [ ] **TASK-27: Quản trị Biên tập Cẩm nang Bệnh học (Handbook CMS), Bảng `HandbookDiseases` & Cơ chế Cảnh báo Lỗi thời (Staleness Invalidation)** (P1)
+- [x] **TASK-27: Quản trị Biên tập Cẩm nang Bệnh học (Handbook CMS), Bảng `HandbookDiseases` & Cơ chế Cảnh báo Lỗi thời (Staleness Invalidation)** (P1)
   - Trách nhiệm: **Trưởng nhóm** (giao Antigravity làm)
-  - Trạng thái: `[ ] PENDING`
+  - Trạng thái: `[x] DONE` (25/11/2026)
+  - Nhánh Git: `feat/task-27-disease-handbook-editorial`
   - Đầu ra: Bảng mới `HandbookDiseases` (1-1 với `Diseases`, lưu `ContentMarkdown`, `FaqJson`, `AuthorName`, `Status`, `ReviewReason`); các endpoint Core API CRUD bài cẩm nang; cơ chế tự động đánh dấu `NEEDS_REVIEW` khi Admin xóa/bỏ duyệt đoạn trích tri thức nguồn trong `KnowledgeController`; trang `/admin/diseases` tích hợp Badge trạng thái & Trình soạn thảo Markdown 2 cột Live Preview song song kho đoạn trích; trang `/handbook/:classCode` ưu tiên hiển thị bài cẩm nang chuẩn biên tập, có banner cảnh báo Admin khi nguồn trích dẫn bị thay đổi và fallback an toàn sang TASK-20 khi chưa có bài. Chi tiết: `tasks/sprint-03/task-27-disease-handbook-editorial-and-staleness.md`.
 
 - [x] **TASK-28: Phân cấp Quy tắc Liều lượng & Căn cứ Khoa học theo Cây trồng (Crop-Centric Rules & Evidence)** (P1)

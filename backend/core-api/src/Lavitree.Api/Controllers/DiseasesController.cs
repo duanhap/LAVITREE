@@ -60,20 +60,32 @@ public class DiseasesController : ControllerBase
             .Select(g => new { ModelClass = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ModelClass, x => x.Count);
 
+        // Lấy trạng thái cẩm nang biên tập (TASK-27)
+        var handbookMap = await _dbContext.HandbookDiseases
+            .AsNoTracking()
+            .ToDictionaryAsync(h => h.ClassCode, h => new { h.Status, h.ReviewReason, h.UpdatedAt, h.PublishedAt });
+
         var dbDiseases = await query.ToListAsync();
 
-        var results = dbDiseases.Select(d => new
+        var results = dbDiseases.Select(d =>
         {
-            d.Id,
-            d.ClassCode,
-            PlantName = d.Plant?.Name ?? string.Empty,
-            d.CommonNameVi,
-            d.PathogenType,
-            d.PathogenName,
-            ApprovedKnowledgeCount = approvedCounts.TryGetValue(d.ClassCode, out var c) ? c : 0,
-            d.SeverityLevel,
-            d.Symptoms,
-            d.Prevention
+            var hasHb = handbookMap.TryGetValue(d.ClassCode, out var hb);
+            return new
+            {
+                d.Id,
+                d.ClassCode,
+                PlantName = d.Plant?.Name ?? string.Empty,
+                d.CommonNameVi,
+                d.PathogenType,
+                d.PathogenName,
+                ApprovedKnowledgeCount = approvedCounts.TryGetValue(d.ClassCode, out var c) ? c : 0,
+                HandbookStatus = hasHb ? hb!.Status : "NONE",
+                HandbookReviewReason = hasHb ? hb!.ReviewReason : null,
+                HandbookUpdatedAt = hasHb ? (hb!.UpdatedAt ?? hb.PublishedAt) : null,
+                d.SeverityLevel,
+                d.Symptoms,
+                d.Prevention
+            };
         }).ToList();
 
         return Ok(results);

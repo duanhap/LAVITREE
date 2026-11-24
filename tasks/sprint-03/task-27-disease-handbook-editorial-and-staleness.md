@@ -7,7 +7,7 @@
     * Màn hình Quản trị Danh mục Bệnh `/admin/diseases`: Badge trạng thái Cẩm nang & Trình soạn thảo Markdown Editor kèm quản lý FAQ, tác giả, tham chiếu đoạn trích song song.
     * Màn hình Sổ tay Bệnh học `/handbook/:classCode`: Ưu tiên hiển thị bài cẩm nang chuẩn biên tập; Banner cảnh báo cho Admin khi nguồn trích dẫn bị thay đổi.
 * **Độ ưu tiên**: P1 (Nâng cấp trải nghiệm đọc Cẩm nang chuyên nghiệp, xóa bỏ tình trạng hiển thị chắp vá, bảo toàn tính toàn vẹn dữ liệu khoa học).
-* **Trạng thái**: `[ ] PENDING` (Đã đặc tả xong kiến trúc, sẵn sàng triển khai)
+* **Trạng thái**: `[x] COMPLETED` (Đã triển khai hoàn chỉnh Entity, Migration, API CRUD/Staleness Invalidation, Editor Modal, Admin badges & Public page)
 * **Tạo ngày**: 24/11/2026
 
 ---
