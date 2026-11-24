@@ -30,6 +30,7 @@ import {
   Layers,
   Calendar,
   ArrowRight,
+  BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -46,6 +47,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import type { MedicineItem, ProductSuggestionItem } from '@/features/admin/types';
 import {
@@ -147,6 +155,7 @@ export const AdminInventoryPage: React.FC = () => {
   const [linkDevAiInput, setLinkDevAiInput] = useState<string>('');
   const [isEditingExistingRule, setIsEditingExistingRule] = useState<boolean>(false);
   const [dosageChoice, setDosageChoice] = useState<'custom' | 'default'>('custom');
+  const [showLinkSnippetDialog, setShowLinkSnippetDialog] = useState<boolean>(false);
   const [unlinkingId, setUnlinkingId] = useState<number | null>(null);
 
   // Dialog thêm thuốc / vật tư mới (từ gợi ý hoặc thêm thủ công)
@@ -570,6 +579,7 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
     setLinkSourceUrl('');
     setShowLinkDevMode(false);
     setLinkDevAiInput('');
+    setShowLinkSnippetDialog(false);
   };
 
   const handleUnlinkSuggestion = async (suggestionId: number, mentionText?: string) => {
@@ -1527,25 +1537,23 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                 <table className="w-full text-xs text-left">
                   <thead className="bg-muted/50 border-b border-border text-muted-foreground font-semibold">
                     <tr>
-                      <th className="p-3 w-[150px] min-w-[130px]">Vật tư / Hoạt chất</th>
-                      <th className="p-3 w-[90px] whitespace-nowrap">Phân loại</th>
-                      <th className="p-3 w-[150px] min-w-[130px] max-w-[170px]">Cây – Bệnh mục tiêu</th>
-                      <th className="p-3 w-[240px] min-w-[190px] max-w-[260px]">Đoạn trích bằng chứng</th>
-                      <th className="p-3 w-[90px] text-center whitespace-nowrap">Trạng thái</th>
-                      <th className="p-3 w-[120px] text-center">Sản phẩm liên kết</th>
-                      <th className="p-3 w-[160px] text-right whitespace-nowrap sticky right-0 bg-muted/95 backdrop-blur-xs z-10">Thao tác Admin</th>
+                      <th className="p-3 w-[220px] min-w-[180px]">Vật tư &amp; Phân loại</th>
+                      <th className="p-3 w-[170px] min-w-[140px]">Cây – Bệnh mục tiêu</th>
+                      <th className="p-3 min-w-[220px]">Đoạn trích bằng chứng</th>
+                      <th className="p-3 w-[180px] min-w-[150px]">Trạng thái &amp; Liên kết kho</th>
+                      <th className="p-3 w-[90px] text-right whitespace-nowrap sticky right-0 bg-muted/95 backdrop-blur-xs z-10">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {loadingSuggestions ? (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                        <td colSpan={5} className="p-8 text-center text-muted-foreground">
                           Đang tải danh sách gợi ý vật tư...
                         </td>
                       </tr>
                     ) : (suggestionsViewMode === 'grouped' ? groupedSuggestions.length === 0 : filteredSuggestions.length === 0) ? (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                        <td colSpan={5} className="p-8 text-center text-muted-foreground">
                           Không tìm thấy gợi ý vật tư nào.
                         </td>
                       </tr>
@@ -1559,48 +1567,45 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
 
                         return (
                           <tr key={group.groupKey} className="hover:bg-muted/30 transition-colors">
-                            <td className="p-3 font-medium w-[150px] min-w-[130px] align-top">
-                              <div className="font-bold text-foreground flex items-center gap-1.5 flex-wrap">
-                                <span>{group.mentionText}</span>
+                            {/* Cột 1: Vật tư & Phân loại (Gộp dòng 1: tên + badge; dòng 2: số đoạn trích) */}
+                            <td className="p-3 font-medium align-top">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-foreground text-xs">{group.mentionText}</span>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    group.kind === 'CHEMICAL'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300 text-[10px] py-0 px-1.5'
+                                      : group.kind === 'BIOLOGICAL'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300 text-[10px] py-0 px-1.5'
+                                        : group.kind === 'SUPPLY'
+                                          ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300 text-[10px] py-0 px-1.5'
+                                          : 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/30 dark:text-purple-300 text-[10px] py-0 px-1.5'
+                                  }
+                                >
+                                  {group.kind === 'CHEMICAL'
+                                    ? 'Hóa học'
+                                    : group.kind === 'BIOLOGICAL'
+                                      ? 'Sinh học'
+                                      : group.kind === 'SUPPLY'
+                                        ? 'Vật tư canh tác'
+                                        : 'Biện pháp'}
+                                </Badge>
                                 {isBanned && (
                                   <Badge variant="destructive" className="text-[9px] h-4 px-1">
                                     Cấm (TT 75)
                                   </Badge>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-normal">
-                                  Xuất hiện ở {group.count} đoạn trích
-                                </Badge>
+                              <div className="text-[10px] text-muted-foreground mt-1">
+                                Xuất hiện ở <span className="font-semibold text-foreground">{group.count}</span> đoạn trích
                               </div>
                             </td>
 
-                            <td className="p-3 w-[90px] whitespace-nowrap align-top">
-                              <Badge
-                                variant="outline"
-                                className={
-                                  group.kind === 'CHEMICAL'
-                                    ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300'
-                                    : group.kind === 'BIOLOGICAL'
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                      : group.kind === 'SUPPLY'
-                                        ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300'
-                                        : 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/30 dark:text-purple-300'
-                                }
-                              >
-                                {group.kind === 'CHEMICAL'
-                                  ? 'Hóa học'
-                                  : group.kind === 'BIOLOGICAL'
-                                    ? 'Sinh học'
-                                    : group.kind === 'SUPPLY'
-                                      ? 'Vật tư canh tác'
-                                      : 'Biện pháp'}
-                              </Badge>
-                            </td>
-
-                            <td className="p-3 w-[150px] min-w-[130px] max-w-[170px] align-top">
+                            {/* Cột 2: Cây – Bệnh mục tiêu (Line 1: Tên cây; Line 2: Tên bệnh) */}
+                            <td className="p-3 align-top">
                               <div className="space-y-0.5">
-                                <div className="font-bold text-foreground text-xs flex items-center gap-1">
+                                <div className="font-bold text-foreground text-xs flex items-center gap-1.5">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
                                   <span className="truncate">{group.plantName}</span>
                                 </div>
@@ -1610,11 +1615,12 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                               </div>
                             </td>
 
-                            <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
+                            {/* Cột 3: Đoạn trích bằng chứng (Line 1: Trích dẫn; Line 2: Xem chi tiết & nguồn) */}
+                            <td className="p-3 align-top">
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
                                 "<HighlightedText text={cleanPreview} mention={group.mentionText} />"
                               </p>
-                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -1630,11 +1636,11 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                                     });
                                     setActiveEvidenceTabIdx(0);
                                   }}
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
-                                  title="Nhấn để xem toàn bộ 2-4 đoạn trích và thông tin bài báo"
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+                                  title="Nhấn để xem toàn bộ đoạn trích và thông tin bài báo"
                                 >
                                   <Eye className="w-3 h-3" />
-                                  <span>Xem chi tiết đoạn trích ({group.count})</span>
+                                  <span>Xem chi tiết ({group.count})</span>
                                 </button>
                                 {primary.source_url && (
                                   <a
@@ -1651,142 +1657,164 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                               </div>
                             </td>
 
-                            <td className="p-3 w-[90px] text-center whitespace-nowrap align-top">
-                              {group.status === 'PENDING' ? (
-                                <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
-                                  Chờ xử lý ({group.count})
-                                </Badge>
-                              ) : group.status === 'LINKED' ? (
-                                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px]">
-                                  Đã gắn SP
-                                </Badge>
-                              ) : group.status === 'ADDED' ? (
-                                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
-                                  Đã tạo SP
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
-                                  Đã bỏ qua
-                                </Badge>
-                              )}
+                            {/* Cột 4: Trạng thái & Sản phẩm liên kết (Line 1: Badge; Line 2: SP liên kết) */}
+                            <td className="p-3 align-top">
+                              <div className="space-y-1">
+                                <div>
+                                  {group.status === 'PENDING' ? (
+                                    <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px] font-medium">
+                                      Chờ xử lý ({group.count})
+                                    </Badge>
+                                  ) : group.status === 'LINKED' ? (
+                                    <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px] font-medium">
+                                      Đã gắn SP
+                                    </Badge>
+                                  ) : group.status === 'ADDED' ? (
+                                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-medium">
+                                      Đã tạo SP
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
+                                      Đã bỏ qua
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                <div className="text-[11px] leading-snug">
+                                  {group.productName && group.status === 'PENDING' ? (
+                                    <span className="text-amber-700 dark:text-amber-400 text-[10px] block" title="Cùng hoạt chất với sản phẩm trong kho. Nhấn 'Thao tác' -> 'Gắn SP' để xác nhận.">
+                                      Khớp: <b>{group.productName}</b>
+                                    </span>
+                                  ) : group.productName ? (
+                                    group.productId ? (
+                                      <Link
+                                        to={`/admin/inventory/products/${group.productId}`}
+                                        className="font-bold text-emerald-800 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 max-w-[170px] truncate"
+                                        title={`Xem sản phẩm "${group.productName}"`}
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate">{group.productName}</span>
+                                      </Link>
+                                    ) : (
+                                      <span className="font-bold text-emerald-800 dark:text-emerald-400 inline-flex items-center gap-1 max-w-[170px] truncate">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate">{group.productName}</span>
+                                      </span>
+                                    )
+                                  ) : (
+                                    <span className="text-muted-foreground/60 text-[10px] italic">Chưa liên kết</span>
+                                  )}
+                                </div>
+                              </div>
                             </td>
 
-                            <td className="p-3 w-[120px] text-center align-top">
-                              {group.productName && group.status === 'PENDING' ? (
-                                <span className="text-amber-700 dark:text-amber-400 text-[11px]" title="Cùng hoạt chất với sản phẩm trong kho. Bấm Gắn SP để xác nhận.">
-                                  Khớp hoạt chất: <b>{group.productName}</b>
-                                </span>
-                              ) : group.productName ? (
-                                group.productId ? (
-                                  <Link
-                                    to={`/admin/inventory/products/${group.productId}`}
-                                    className="font-bold text-emerald-800 dark:text-emerald-400 hover:underline flex items-center justify-center gap-1"
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                    <span className="truncate">{group.productName}</span>
-                                  </Link>
-                                ) : (
-                                  <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                    <span className="truncate">{group.productName}</span>
-                                  </span>
-                                )
-                              ) : (
-                                <span className="text-muted-foreground italic text-[11px]">—</span>
-                              )}
-                            </td>
-
-                            <td className="p-3 w-[160px] text-right whitespace-nowrap align-top sticky right-0 bg-background/95 backdrop-blur-xs shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.06)] z-10">
-                              {group.status === 'PENDING' ? (
-                                <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {/* Cột 5: Menu Thao tác gọn gàng (Gom toàn bộ nút vào Dropdown Menu) */}
+                            <td className="p-3 text-right whitespace-nowrap align-top sticky right-0 bg-background/95 backdrop-blur-xs shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.06)] z-10">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
                                   <Button
-                                    size="sm"
-                                    onClick={() => openEvidenceModal(group.items)}
-                                    className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
-                                    title={group.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>{group.kind === 'PRACTICE' ? 'Tạo vật tư' : 'Tạo SP'}</span>
-                                  </Button>
-
-                                  <Button
-                                    size="sm"
                                     variant="outline"
-                                    onClick={() => {
-                                      setLinkingSuggestion(actionItem);
-                                      setSelectedLinkMedId(actionItem.product_id ?? group.productId ?? '');
-                                    }}
-                                    className="h-7 px-2 border-border text-[11px] font-medium"
-                                    title="Liên kết với sản phẩm đã có sẵn trong kho"
-                                  >
-                                    <LinkIcon className="w-3 h-3 mr-1" />
-                                    <span>Gắn SP</span>
-                                  </Button>
-
-                                  {group.kind === 'PRACTICE' && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => handleDismissSuggestion(actionItem.id, true)}
-                                      className="h-7 px-2 border-purple-200 text-purple-700 dark:text-purple-300 hover:bg-purple-50 text-[11px]"
-                                      title="Đã lưu biện pháp vào sổ tay kỹ thuật nông vụ"
-                                    >
-                                      <Check className="w-3 h-3 mr-1" />
-                                      <span>Ghi nhận</span>
-                                    </Button>
-                                  )}
-
-                                  <Button
                                     size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDismissSuggestion(actionItem.id)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 text-[11px]"
-                                    title={`Bỏ qua cả ${group.count} gợi ý này`}
+                                    className={`h-7 px-2.5 text-xs font-semibold gap-1.5 transition-colors ${
+                                      group.status === 'PENDING'
+                                        ? 'border-emerald-600/40 text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 hover:bg-emerald-100/60 dark:bg-emerald-950/30'
+                                        : 'border-border text-foreground hover:bg-muted'
+                                    }`}
                                   >
-                                    <X className="w-3.5 h-3.5" />
+                                    <span>Thao tác</span>
+                                    <ChevronDown className="w-3.5 h-3.5 opacity-70" />
                                   </Button>
-
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDeleteSuggestion(actionItem.id, group.mentionText)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
-                                    title={`Xóa vĩnh viễn cả ${group.count} gợi ý này`}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  {group.status === 'LINKED' && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => handleUnlinkSuggestion(actionItem.id, group.mentionText)}
-                                      disabled={unlinkingId === actionItem.id}
-                                      className="h-7 px-2 text-[11px] gap-1 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-medium"
-                                      title={`Hủy gán cả ${group.count} gợi ý này, đưa về trạng thái chờ xử lý`}
-                                    >
-                                      {unlinkingId === actionItem.id ? (
-                                        <RefreshCw className="w-3 h-3 animate-spin" />
-                                      ) : (
-                                        <RotateCcw className="w-3 h-3" />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-52 text-xs p-1">
+                                  {group.status === 'PENDING' ? (
+                                    <>
+                                      <DropdownMenuItem
+                                        onClick={() => openEvidenceModal(group.items)}
+                                        className="cursor-pointer gap-2 py-2 font-medium text-emerald-700 dark:text-emerald-400 focus:text-emerald-800 focus:bg-emerald-50 dark:focus:bg-emerald-950/40"
+                                      >
+                                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>{group.kind === 'PRACTICE' ? 'Tạo vật tư canh tác' : 'Tạo sản phẩm mới'}</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setLinkingSuggestion(actionItem);
+                                          setSelectedLinkMedId(actionItem.product_id ?? group.productId ?? '');
+                                        }}
+                                        className="cursor-pointer gap-2 py-2"
+                                      >
+                                        <LinkIcon className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>Gắn vào SP trong kho</span>
+                                      </DropdownMenuItem>
+                                      {group.kind === 'PRACTICE' && (
+                                        <DropdownMenuItem
+                                          onClick={() => handleDismissSuggestion(actionItem.id, true)}
+                                          className="cursor-pointer gap-2 py-2 text-purple-700 dark:text-purple-300"
+                                        >
+                                          <Check className="w-3.5 h-3.5 text-purple-600" />
+                                          <span>Ghi nhận vào sổ tay</span>
+                                        </DropdownMenuItem>
                                       )}
-                                      <span>Hủy gán</span>
-                                    </Button>
+                                      <DropdownMenuSeparator className="my-1" />
+                                      <DropdownMenuItem
+                                        onClick={() => handleDismissSuggestion(actionItem.id)}
+                                        className="cursor-pointer gap-2 py-2 text-amber-700 dark:text-amber-400"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                        <span>Bỏ qua ({group.count} gợi ý)</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => handleDeleteSuggestion(actionItem.id, group.mentionText)}
+                                        className="cursor-pointer gap-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Xóa vĩnh viễn</span>
+                                      </DropdownMenuItem>
+                                    </>
+                                  ) : (
+                                    <>
+                                      {group.status === 'LINKED' && (
+                                        <DropdownMenuItem
+                                          onClick={() => handleUnlinkSuggestion(actionItem.id, group.mentionText)}
+                                          disabled={unlinkingId === actionItem.id}
+                                          className="cursor-pointer gap-2 py-2 text-amber-700 dark:text-amber-400 font-medium"
+                                        >
+                                          {unlinkingId === actionItem.id ? (
+                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                          ) : (
+                                            <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                                          )}
+                                          <span>Hủy gán liên kết</span>
+                                        </DropdownMenuItem>
+                                      )}
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setLinkingSuggestion(actionItem);
+                                          setSelectedLinkMedId(actionItem.product_id ?? group.productId ?? '');
+                                        }}
+                                        className="cursor-pointer gap-2 py-2"
+                                      >
+                                        <LinkIcon className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>Gắn lại sản phẩm khác</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => openEvidenceModal(group.items)}
+                                        className="cursor-pointer gap-2 py-2"
+                                      >
+                                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Tạo thêm SP từ gợi ý này</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator className="my-1" />
+                                      <DropdownMenuItem
+                                        onClick={() => handleDeleteSuggestion(actionItem.id, group.mentionText)}
+                                        className="cursor-pointer gap-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Xóa gợi ý</span>
+                                      </DropdownMenuItem>
+                                    </>
                                   )}
-                                  <span className="text-[11px] text-muted-foreground">Đã xử lý ({group.count})</span>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDeleteSuggestion(actionItem.id, group.mentionText)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
-                                    title={`Xóa vĩnh viễn cả ${group.count} gợi ý này`}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                </div>
-                              )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </td>
                           </tr>
                         );
@@ -1798,46 +1826,45 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
 
                         return (
                           <tr key={sug.id} className="hover:bg-muted/30 transition-colors">
-                            <td className="p-3 font-medium w-[150px] min-w-[130px] align-top">
-                              <div className="font-bold text-foreground flex items-center gap-1.5 flex-wrap">
-                                <span>{sug.mention_text}</span>
+                            {/* Cột 1: Vật tư & Phân loại (Line 1: Tên + Badge; Line 2: ID + Ngày) */}
+                            <td className="p-3 font-medium align-top">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-foreground text-xs">{sug.mention_text}</span>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    sug.kind === 'CHEMICAL'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300 text-[10px] py-0 px-1.5'
+                                      : sug.kind === 'BIOLOGICAL'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300 text-[10px] py-0 px-1.5'
+                                        : sug.kind === 'SUPPLY'
+                                          ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300 text-[10px] py-0 px-1.5'
+                                          : 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/30 dark:text-purple-300 text-[10px] py-0 px-1.5'
+                                  }
+                                >
+                                  {sug.kind === 'CHEMICAL'
+                                    ? 'Hóa học'
+                                    : sug.kind === 'BIOLOGICAL'
+                                      ? 'Sinh học'
+                                      : sug.kind === 'SUPPLY'
+                                        ? 'Vật tư canh tác'
+                                        : 'Biện pháp'}
+                                </Badge>
                                 {isBanned && (
                                   <Badge variant="destructive" className="text-[9px] h-4 px-1">
                                     Cấm (TT 75)
                                   </Badge>
                                 )}
                               </div>
-                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                              <div className="text-[10px] text-muted-foreground mt-1">
                                 Mã #{sug.id} • {new Date(sug.created_at).toLocaleDateString('vi-VN')}
                               </div>
                             </td>
 
-                            <td className="p-3 w-[90px] whitespace-nowrap align-top">
-                              <Badge
-                                variant="outline"
-                                className={
-                                  sug.kind === 'CHEMICAL'
-                                    ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-300'
-                                    : sug.kind === 'BIOLOGICAL'
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                      : sug.kind === 'SUPPLY'
-                                        ? 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-300'
-                                        : 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/30 dark:text-purple-300'
-                                }
-                              >
-                                {sug.kind === 'CHEMICAL'
-                                  ? 'Hóa học'
-                                  : sug.kind === 'BIOLOGICAL'
-                                    ? 'Sinh học'
-                                    : sug.kind === 'SUPPLY'
-                                      ? 'Vật tư canh tác'
-                                      : 'Biện pháp'}
-                              </Badge>
-                            </td>
-
-                            <td className="p-3 w-[150px] min-w-[130px] max-w-[170px] align-top">
+                            {/* Cột 2: Cây – Bệnh mục tiêu (Line 1: Tên cây; Line 2: Tên bệnh) */}
+                            <td className="p-3 align-top">
                               <div className="space-y-0.5">
-                                <div className="font-bold text-foreground text-xs flex items-center gap-1">
+                                <div className="font-bold text-foreground text-xs flex items-center gap-1.5">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
                                   <span className="truncate">{sug.plant_name}</span>
                                 </div>
@@ -1847,11 +1874,12 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                               </div>
                             </td>
 
-                            <td className="p-3 w-[240px] min-w-[190px] max-w-[260px] align-top">
+                            {/* Cột 3: Đoạn trích bằng chứng (Line 1: Trích dẫn; Line 2: Xem toàn văn & nguồn) */}
+                            <td className="p-3 align-top">
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
                                 "<HighlightedText text={cleanPreview} mention={sug.mention_text} />"
                               </p>
-                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -1867,7 +1895,7 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                                     });
                                     setActiveEvidenceTabIdx(0);
                                   }}
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
                                   title="Nhấn để xem toàn bộ nội dung đoạn trích và thông tin bài báo"
                                 >
                                   <Eye className="w-3 h-3" />
@@ -1888,142 +1916,164 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                               </div>
                             </td>
 
-                            <td className="p-3 w-[90px] text-center whitespace-nowrap align-top">
-                              {sug.status === 'PENDING' ? (
-                                <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
-                                  Chờ xử lý
-                                </Badge>
-                              ) : sug.status === 'LINKED' ? (
-                                <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px]">
-                                  Đã gắn SP
-                                </Badge>
-                              ) : sug.status === 'ADDED' ? (
-                                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
-                                  Đã tạo SP
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
-                                  Đã bỏ qua
-                                </Badge>
-                              )}
+                            {/* Cột 4: Trạng thái & Sản phẩm liên kết (Line 1: Badge; Line 2: SP liên kết) */}
+                            <td className="p-3 align-top">
+                              <div className="space-y-1">
+                                <div>
+                                  {sug.status === 'PENDING' ? (
+                                    <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px] font-medium">
+                                      Chờ xử lý
+                                    </Badge>
+                                  ) : sug.status === 'LINKED' ? (
+                                    <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30 text-[10px] font-medium">
+                                      Đã gắn SP
+                                    </Badge>
+                                  ) : sug.status === 'ADDED' ? (
+                                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-medium">
+                                      Đã tạo SP
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="bg-muted text-muted-foreground text-[10px]">
+                                      Đã bỏ qua
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                <div className="text-[11px] leading-snug">
+                                  {sug.product_name && sug.status === 'PENDING' ? (
+                                    <span className="text-amber-700 dark:text-amber-400 text-[10px] block" title="Cùng hoạt chất với sản phẩm trong kho. Nhấn 'Thao tác' -> 'Gắn SP' để xác nhận.">
+                                      Khớp: <b>{sug.product_name}</b>
+                                    </span>
+                                  ) : sug.product_name ? (
+                                    sug.product_id ? (
+                                      <Link
+                                        to={`/admin/inventory/products/${sug.product_id}`}
+                                        className="font-bold text-emerald-800 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 max-w-[170px] truncate"
+                                        title={`Xem sản phẩm "${sug.product_name}"`}
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate">{sug.product_name}</span>
+                                      </Link>
+                                    ) : (
+                                      <span className="font-bold text-emerald-800 dark:text-emerald-400 inline-flex items-center gap-1 max-w-[170px] truncate">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate">{sug.product_name}</span>
+                                      </span>
+                                    )
+                                  ) : (
+                                    <span className="text-muted-foreground/60 text-[10px] italic">Chưa liên kết</span>
+                                  )}
+                                </div>
+                              </div>
                             </td>
 
-                            <td className="p-3 w-[120px] text-center align-top">
-                              {sug.product_name && sug.status === 'PENDING' ? (
-                                <span className="text-amber-700 dark:text-amber-400 text-[11px]" title="Cùng hoạt chất với sản phẩm trong kho. Bấm Gắn SP để xác nhận.">
-                                  Khớp hoạt chất: <b>{sug.product_name}</b>
-                                </span>
-                              ) : sug.product_name ? (
-                                sug.product_id ? (
-                                  <Link
-                                    to={`/admin/inventory/products/${sug.product_id}`}
-                                    className="font-bold text-emerald-800 dark:text-emerald-400 hover:underline flex items-center justify-center gap-1"
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                    <span className="truncate">{sug.product_name}</span>
-                                  </Link>
-                                ) : (
-                                  <span className="font-bold text-emerald-800 dark:text-emerald-400 flex items-center justify-center gap-1">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                    <span className="truncate">{sug.product_name}</span>
-                                  </span>
-                                )
-                              ) : (
-                                <span className="text-muted-foreground italic text-[11px]">—</span>
-                              )}
-                            </td>
-
-                            <td className="p-3 w-[160px] text-right whitespace-nowrap align-top sticky right-0 bg-background/95 backdrop-blur-xs shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.06)] z-10">
-                              {sug.status === 'PENDING' ? (
-                                <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {/* Cột 5: Menu Thao tác gọn gàng (Gom toàn bộ nút vào Dropdown Menu) */}
+                            <td className="p-3 text-right whitespace-nowrap align-top sticky right-0 bg-background/95 backdrop-blur-xs shadow-[-6px_0_10px_-4px_rgba(0,0,0,0.06)] z-10">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
                                   <Button
-                                    size="sm"
-                                    onClick={() => openEvidenceModal([sug])}
-                                    className="h-7 px-2 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold gap-1"
-                                    title={sug.kind === 'PRACTICE' ? 'Tạo vật tư phục vụ biện pháp canh tác này' : 'Tạo sản phẩm mới prefilled từ gợi ý'}
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>{sug.kind === 'PRACTICE' ? 'Tạo vật tư' : 'Tạo SP'}</span>
-                                  </Button>
-
-                                  <Button
-                                    size="sm"
                                     variant="outline"
-                                    onClick={() => {
-                                      setLinkingSuggestion(sug);
-                                      setSelectedLinkMedId(sug.product_id ?? '');
-                                    }}
-                                    className="h-7 px-2 border-border text-[11px] font-medium"
-                                    title="Liên kết với sản phẩm đã có sẵn trong kho"
-                                  >
-                                    <LinkIcon className="w-3 h-3 mr-1" />
-                                    <span>Gắn SP</span>
-                                  </Button>
-
-                                  {sug.kind === 'PRACTICE' && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => handleDismissSuggestion(sug.id, true)}
-                                      className="h-7 px-2 border-purple-200 text-purple-700 dark:text-purple-300 hover:bg-purple-50 text-[11px]"
-                                      title="Đã lưu biện pháp vào sổ tay kỹ thuật nông vụ"
-                                    >
-                                      <Check className="w-3 h-3 mr-1" />
-                                      <span>Ghi nhận</span>
-                                    </Button>
-                                  )}
-
-                                  <Button
                                     size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDismissSuggestion(sug.id)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 text-[11px]"
-                                    title="Bỏ qua gợi ý này"
+                                    className={`h-7 px-2.5 text-xs font-semibold gap-1.5 transition-colors ${
+                                      sug.status === 'PENDING'
+                                        ? 'border-emerald-600/40 text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 hover:bg-emerald-100/60 dark:bg-emerald-950/30'
+                                        : 'border-border text-foreground hover:bg-muted'
+                                    }`}
                                   >
-                                    <X className="w-3.5 h-3.5" />
+                                    <span>Thao tác</span>
+                                    <ChevronDown className="w-3.5 h-3.5 opacity-70" />
                                   </Button>
-
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDeleteSuggestion(sug.id, sug.mention_text)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
-                                    title="Xóa vĩnh viễn gợi ý này"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  {sug.status === 'LINKED' && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => handleUnlinkSuggestion(sug.id, sug.mention_text)}
-                                      disabled={unlinkingId === sug.id}
-                                      className="h-7 px-2 text-[11px] gap-1 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-medium"
-                                      title="Hủy gán, đưa gợi ý về trạng thái chờ xử lý"
-                                    >
-                                      {unlinkingId === sug.id ? (
-                                        <RefreshCw className="w-3 h-3 animate-spin" />
-                                      ) : (
-                                        <RotateCcw className="w-3 h-3" />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-52 text-xs p-1">
+                                  {sug.status === 'PENDING' ? (
+                                    <>
+                                      <DropdownMenuItem
+                                        onClick={() => openEvidenceModal([sug])}
+                                        className="cursor-pointer gap-2 py-2 font-medium text-emerald-700 dark:text-emerald-400 focus:text-emerald-800 focus:bg-emerald-50 dark:focus:bg-emerald-950/40"
+                                      >
+                                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>{sug.kind === 'PRACTICE' ? 'Tạo vật tư canh tác' : 'Tạo sản phẩm mới'}</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setLinkingSuggestion(sug);
+                                          setSelectedLinkMedId(sug.product_id ?? '');
+                                        }}
+                                        className="cursor-pointer gap-2 py-2"
+                                      >
+                                        <LinkIcon className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>Gắn vào SP trong kho</span>
+                                      </DropdownMenuItem>
+                                      {sug.kind === 'PRACTICE' && (
+                                        <DropdownMenuItem
+                                          onClick={() => handleDismissSuggestion(sug.id, true)}
+                                          className="cursor-pointer gap-2 py-2 text-purple-700 dark:text-purple-300"
+                                        >
+                                          <Check className="w-3.5 h-3.5 text-purple-600" />
+                                          <span>Ghi nhận vào sổ tay</span>
+                                        </DropdownMenuItem>
                                       )}
-                                      <span>Hủy gán</span>
-                                    </Button>
+                                      <DropdownMenuSeparator className="my-1" />
+                                      <DropdownMenuItem
+                                        onClick={() => handleDismissSuggestion(sug.id)}
+                                        className="cursor-pointer gap-2 py-2 text-amber-700 dark:text-amber-400"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                        <span>Bỏ qua gợi ý</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => handleDeleteSuggestion(sug.id, sug.mention_text)}
+                                        className="cursor-pointer gap-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Xóa vĩnh viễn</span>
+                                      </DropdownMenuItem>
+                                    </>
+                                  ) : (
+                                    <>
+                                      {sug.status === 'LINKED' && (
+                                        <DropdownMenuItem
+                                          onClick={() => handleUnlinkSuggestion(sug.id, sug.mention_text)}
+                                          disabled={unlinkingId === sug.id}
+                                          className="cursor-pointer gap-2 py-2 text-amber-700 dark:text-amber-400 font-medium"
+                                        >
+                                          {unlinkingId === sug.id ? (
+                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                          ) : (
+                                            <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                                          )}
+                                          <span>Hủy gán liên kết</span>
+                                        </DropdownMenuItem>
+                                      )}
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setLinkingSuggestion(sug);
+                                          setSelectedLinkMedId(sug.product_id ?? '');
+                                        }}
+                                        className="cursor-pointer gap-2 py-2"
+                                      >
+                                        <LinkIcon className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>Gắn lại sản phẩm khác</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => openEvidenceModal([sug])}
+                                        className="cursor-pointer gap-2 py-2"
+                                      >
+                                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Tạo thêm SP từ gợi ý này</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator className="my-1" />
+                                      <DropdownMenuItem
+                                        onClick={() => handleDeleteSuggestion(sug.id, sug.mention_text)}
+                                        className="cursor-pointer gap-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Xóa gợi ý</span>
+                                      </DropdownMenuItem>
+                                    </>
                                   )}
-                                  <span className="text-[11px] text-muted-foreground">Đã xử lý</span>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDeleteSuggestion(sug.id, sug.mention_text)}
-                                    className="h-7 px-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px]"
-                                    title="Xóa vĩnh viễn gợi ý này"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                </div>
-                              )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </td>
                           </tr>
                         );
@@ -2041,48 +2091,56 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
       {/* DIALOG GẮN GỢI Ý VẬT TƯ VÀO SẢN PHẨM CÓ SẴN (2 CỘT TÁCH BIỆT: CHỌN SẢN PHẨM & LIỀU DÙNG) */}
       {/* ========================================================================= */}
       <Dialog open={!!linkingSuggestion} onOpenChange={closeLinkDialog}>
-        <DialogContent className="sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl w-[96vw] max-h-[92vh] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card">
-          <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 pr-12 relative shrink-0">
-            <DialogTitle className="text-base font-bold flex items-center gap-2 text-foreground">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 flex items-center justify-center shrink-0">
-                <LinkIcon className="w-4 h-4" />
+        <DialogContent className="sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl w-[96vw] h-[92vh] max-h-[94vh] flex flex-col p-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+          {/* HEADER GỘP THÔNG MINH: TIÊU ĐỀ + BỆNH MỤC TIÊU + TỪ KHÓA + NÚT XEM ĐOẠN TRÍCH */}
+          <DialogHeader className="px-4 py-3 sm:px-5 sm:py-3 border-b border-border/70 pr-12 relative shrink-0 bg-muted/20">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              {/* Bên trái: Icon + Tiêu đề + Bệnh mục tiêu & Từ khóa */}
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 flex items-center justify-center shrink-0">
+                  <LinkIcon className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DialogTitle className="text-sm sm:text-base font-bold text-foreground">
+                      Gắn gợi ý vào sản phẩm trong kho
+                    </DialogTitle>
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-300 text-[11px] font-bold py-0 h-5">
+                      Từ khóa: {linkingSuggestion?.mention_text}
+                    </Badge>
+                  </div>
+                  <DialogDescription className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5 truncate">
+                    <span>Mục tiêu:</span>
+                    <strong className="text-foreground font-semibold">
+                      {linkingSuggestion?.plant_name} – {linkingSuggestion?.disease_name}
+                    </strong>
+                  </DialogDescription>
+                </div>
               </div>
-              <span>Gắn gợi ý vào sản phẩm trong kho</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-              Liên kết cụm từ trích xuất <strong className="text-emerald-700 dark:text-emerald-400">"{linkingSuggestion?.mention_text}"</strong> với sản phẩm kho để trợ lý Lavi tự động đề xuất cho nông dân.
-            </DialogDescription>
+
+              {/* Bên phải: Nút xem đoạn trích gốc (Gộp vào tiêu đề cực kỳ gọn gàng) */}
+              {linkingSuggestion?.evidence_text && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowLinkSnippetDialog(true)}
+                    className="h-8 px-3 text-xs font-semibold gap-1.5 text-emerald-700 dark:text-emerald-400 border-emerald-300/80 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors shadow-2xs"
+                    title="Mở toàn văn đoạn trích tài liệu khuyến nông gốc"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Xem đoạn trích gốc</span>
+                  </Button>
+                </div>
+              )}
+            </div>
           </DialogHeader>
 
           {linkingSuggestion && (
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden text-xs">
-              {/* Thẻ tóm tắt ngữ cảnh từ khóa bài báo trên đầu */}
-              <div className="p-3 mx-4 sm:mx-5 mt-3 bg-muted/40 rounded-xl border border-border/80 space-y-1.5 shadow-2xs shrink-0">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs">
-                    <span className="text-muted-foreground">Cây – Bệnh hại mục tiêu: </span>
-                    <strong className="text-foreground">{linkingSuggestion.plant_name} – {linkingSuggestion.disease_name}</strong>
-                  </div>
-                  <Badge variant="outline" className="bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-300 text-[11px] font-bold">
-                    Từ khóa: {linkingSuggestion.mention_text}
-                  </Badge>
-                </div>
-                {linkingSuggestion.evidence_text && (
-                  <div className="bg-background/60 p-2 rounded-lg border border-border/40">
-                    <FormattedSnippet
-                      text={linkingSuggestion.evidence_text}
-                      mention={linkingSuggestion.mention_text}
-                      variant="compact"
-                      maxChars={130}
-                      sourceTitle={linkingSuggestion.source_title}
-                      sourceUrl={linkingSuggestion.source_url}
-                    />
-                  </div>
-                )}
-              </div>
-
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden text-xs">
               {/* KHÔNG GIAN 2 CỘT TÁCH BIỆT (CHỌN PRODUCT & LIỀU DÙNG THEO BỆNH) */}
-              <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 overflow-hidden mt-3 border-t border-border/60">
+              <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 overflow-hidden">
 
                 {/* CỘT TRÁI (md:col-span-5): CHỌN SẢN PHẨM TRONG KHO */}
                 <div className="md:col-span-5 flex flex-col min-h-0 border-b md:border-b-0 md:border-r border-border/70 bg-muted/10">
@@ -2567,6 +2625,60 @@ Trả lời theo đúng thứ tự 2 phần dưới đây:
                 )}
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* DIALOG XEM TOÀN VĂN ĐOẠN TRÍCH TÀI LIỆU KHUYẾN NÔNG GỐC */}
+      {/* ========================================================================= */}
+      <Dialog open={showLinkSnippetDialog} onOpenChange={setShowLinkSnippetDialog}>
+        <DialogContent className="max-w-xl max-h-[85vh] flex flex-col p-5 rounded-2xl">
+          <DialogHeader className="border-b border-border/60 pb-3">
+            <DialogTitle className="text-sm sm:text-base font-bold flex items-center gap-2 text-foreground">
+              <BookOpen className="w-4 h-4 text-emerald-600" />
+              <span>Đoạn trích tài liệu khuyến nông gốc</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+              Từ khóa trích xuất: <strong className="text-emerald-700 dark:text-emerald-400">"{linkingSuggestion?.mention_text}"</strong> trong bài viết cho <strong>{linkingSuggestion?.plant_name} – {linkingSuggestion?.disease_name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto py-3 space-y-3">
+            <div className="p-3.5 bg-muted/20 rounded-xl border border-border/60 text-xs">
+              {linkingSuggestion?.evidence_text && (
+                <FormattedSnippet
+                  text={linkingSuggestion.evidence_text}
+                  mention={linkingSuggestion.mention_text}
+                  variant="full"
+                />
+              )}
+            </div>
+
+            {linkingSuggestion?.source_title && (
+              <div className="p-2.5 bg-secondary/30 rounded-lg border border-border text-[11px] flex items-center justify-between">
+                <span className="text-muted-foreground truncate">
+                  Nguồn: <strong>{linkingSuggestion.source_title}</strong>
+                </span>
+                {linkingSuggestion.source_url && (
+                  <a
+                    href={linkingSuggestion.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline font-medium shrink-0 ml-2"
+                  >
+                    <span>Mở bài viết</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="pt-2 border-t border-border/50">
+            <Button variant="outline" size="sm" onClick={() => setShowLinkSnippetDialog(false)} className="text-xs">
+              Đóng
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
