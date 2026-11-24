@@ -574,60 +574,47 @@ export const AdminInventoryPage: React.FC = () => {
     toast.success(`Đã sao chép Prompt AI tra cứu liều dùng cho Cây ${plant} vào Clipboard!`);
   };
 
+  /** Thông báo sau khi nạp kết quả prompt liều cây (Gắn SP / bước 2 Tạo SP). */
+  const notifyCropParse = (parsed: { sourceUrl: string; note: string; droppedArticleUrl: boolean }, okMsg: string) => {
+    if (parsed.droppedArticleUrl) {
+      toast.warning('Đã bỏ link bài báo gợi ý khỏi nguồn liều (bài về bệnh, không phải trang về sản phẩm).');
+    }
+    if (!parsed.sourceUrl) {
+      toast.warning('AI chưa đưa link trang nào về chính sản phẩm. Hãy đối chiếu nhãn / trang nhà sản xuất trước khi lưu.');
+    }
+    if (parsed.note) toast.info(`Lưu ý từ AI: ${parsed.note}`, { duration: 9000 });
+    toast.success(okMsg);
+  };
+
   const handleApplyLinkAiJson = () => {
     if (!linkDevAiInput.trim()) {
       toast.error('Vui lòng dán đoạn JSON từ Gemini/AI vào ô.');
       return;
     }
-    try {
-      const raw = linkDevAiInput.trim();
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('Không tìm thấy JSON hợp lệ');
-      const parsed = JSON.parse(jsonMatch[0]);
-
-      // Nguồn URL: nhận source_url (string) hoặc source_urls (array)
-      let srcUrl =
-        (typeof parsed.source_url === 'string' && parsed.source_url.trim()) ||
-        (Array.isArray(parsed.source_urls) && typeof parsed.source_urls[0] === 'string' && parsed.source_urls[0].trim()) ||
-        '';
-      if (!srcUrl) {
-        // Fallback: tìm link trong phần văn bản bên ngoài khối JSON (ví dụ mục ## Nguồn tham khảo)
-        const urlMatches = raw.match(/https?:\/\/[^\s)\]"]+/g);
-        if (urlMatches && urlMatches.length > 0) {
-          srcUrl = urlMatches[0];
-        }
-      }
-      if (srcUrl) {
-        setLinkSourceUrl(srcUrl);
-      }
-
-      // Phiếu cách dùng: nhận usage_profile hoặc usage
-      const usageObj = parsed.usage_profile || parsed.usage;
-      if (usageObj && typeof usageObj === 'object') {
-        const normalized = normalizeUsageProfile(usageObj);
-        setLinkUsageProfile(normalized);
-
-        // Nếu dosage_instruction chưa có hoặc trống, tự động ghép từ phiếu
-        if (!parsed.dosage_instruction || !parsed.dosage_instruction.trim()) {
-          const isSupply = selectedLinkMed?.medicine_type === 'Vật tư canh tác';
-          const composed = formatUsageText(
-            normalized,
-            isSupply || selectedLinkMed?.phi_days === null ? null : Number(selectedLinkMed?.phi_days),
-            isSupply
-          );
-          if (composed) setLinkDosageText(composed);
-        }
-      }
-
-      if (parsed.dosage_instruction && typeof parsed.dosage_instruction === 'string' && parsed.dosage_instruction.trim()) {
-        setLinkDosageText(parsed.dosage_instruction.trim());
-      }
-
-      setLinkCustomDosageOpen(true);
-      toast.success('Đã áp dụng thông số liều lượng và link nguồn từ AI thành công!');
-    } catch (err: any) {
-      toast.error(`JSON không hợp lệ: ${err.message || 'Lỗi cú pháp'}`);
+    // TASK-31: link bài báo gợi ý (bài về bệnh) không được nhận làm nguồn liều
+    const articleUrls = linkingSuggestion
+      ? suggestions.filter((s) => sameSuggestionGroup(s, linkingSuggestion)).map((s) => s.source_url).concat(linkingSuggestion.source_url)
+      : [];
+    const parsed = parseCropDosageJson(linkDevAiInput, articleUrls);
+    if (!parsed) {
+      toast.error('JSON không hợp lệ: hãy copy đúng khối ```json mà AI trả về.');
+      return;
     }
+    setLinkSourceUrl(parsed.sourceUrl);
+    if (parsed.usage) setLinkUsageProfile(parsed.usage);
+    if (parsed.dosageInstruction) {
+      setLinkDosageText(parsed.dosageInstruction);
+    } else if (parsed.usage) {
+      const isSupply = selectedLinkMed?.medicine_type === 'Vật tư canh tác';
+      const composed = formatUsageText(
+        parsed.usage,
+        isSupply || selectedLinkMed?.phi_days === null ? null : Number(selectedLinkMed?.phi_days),
+        isSupply
+      );
+      if (composed) setLinkDosageText(composed);
+    }
+    setLinkCustomDosageOpen(true);
+    notifyCropParse(parsed, 'Đã áp dụng liều lượng từ AI.');
   };
 
   const closeLinkDialog = () => {
@@ -1001,7 +988,8 @@ export const AdminInventoryPage: React.FC = () => {
       return;
     }
     const contextPlants = Array.from(new Set(researchItems.map((it) => it.plant_name).filter(Boolean)));
-    const parsed = parseProductResearchJson(devGeminiInput, diseases, contextPlants);
+    // TASK-31: link bài báo gợi ý không nhận làm nguồn của sản phẩm
+    const parsed = parseProductResearchJson(devGeminiInput, diseases, contextPlants, researchItems.map((it) => it.source_url));
     if (!parsed) {
       toast.error('Không đọc được JSON. Hãy copy đúng khối ```json mà AI trả về.');
       return;
@@ -1111,7 +1099,10 @@ export const AdminInventoryPage: React.FC = () => {
   };
 
   const handleApplyCropJson = () => {
-    const parsed = parseCropDosageJson(devCropInput);
+    const parsed = parseCropDosageJson(
+      devCropInput,
+      researchItems.map((it) => it.source_url).concat(fromSuggestion?.source_url)
+    );
     if (!parsed) {
       toast.error('Không đọc được JSON. Hãy copy đúng khối ```json mà AI trả về.');
       return;
@@ -1122,9 +1113,9 @@ export const AdminInventoryPage: React.FC = () => {
       parsed.dosageInstruction ||
       (parsed.usage ? formatUsageText(parsed.usage, isSupply || newMedPhi === '' ? null : Number(newMedPhi), isSupply) : '');
     if (text) setNewCropDosage(text);
-    if (parsed.sourceUrl && isSafeHttpUrl(parsed.sourceUrl)) setNewCropSourceUrl(parsed.sourceUrl);
+    setNewCropSourceUrl(parsed.sourceUrl && isSafeHttpUrl(parsed.sourceUrl) ? parsed.sourceUrl : '');
     setDevCropInput('');
-    toast.success(`Đã điền liều cho Cây ${cropPlantName || 'trồng'}.`);
+    notifyCropParse(parsed, `Đã điền liều cho Cây ${cropPlantName || 'trồng'}.`);
   };
 
   /** Kiểm tra phần thông tin sản phẩm + liều bao bì (bước 1). Trả false và báo lỗi nếu chưa hợp lệ. */
