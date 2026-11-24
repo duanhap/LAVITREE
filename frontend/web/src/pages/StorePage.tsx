@@ -314,67 +314,68 @@ export const StorePage: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl animate-fade-in">
-      {/* Hero Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 pb-6 border-b border-border">
+    <div className="container mx-auto px-4 py-4 md:py-5 max-w-7xl animate-fade-in space-y-3.5">
+      {/* Hero Header tinh gọn */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-border/70">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            {/* BUG-51 chưa đóng: danh mục chưa đối chiếu xong với Phụ lục TT 75/2025/TT-BNNMT, không được khẳng định "đã kiểm định" */}
-            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 font-semibold text-xs px-2.5 py-0.5">
-              <AlertTriangle className="w-3.5 h-3.5 mr-1" />
-              Danh mục đang được đối chiếu với danh mục thuốc BVTV hiện hành
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl md:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
+              <ShoppingBag className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              <span>Cửa Hàng Vật Tư Nông Nghiệp</span>
+            </h1>
+            <Badge variant="outline" className="bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300/80 text-[10px] font-semibold py-0 hidden sm:inline-flex">
+              <AlertTriangle className="w-3 h-3 mr-1" />
+              Đối chiếu TT 75/2025
             </Badge>
-            <span className="text-xs text-muted-foreground">Đọc kỹ nhãn thuốc và hỏi cán bộ BVTV địa phương trước khi dùng</span>
           </div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight sm:text-4xl">
-            Cửa hàng Vật tư Nông nghiệp Lavitree
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Cung cấp thuốc BVTV sinh học, chế phẩm đối kháng vi sinh và phân bón hữu cơ an toàn. Hỗ trợ giao hàng tận nơi thanh toán COD.
+          <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
+            Thuốc BVTV sinh học, chế phẩm vi sinh & phân bón an toàn · Hỗ trợ thanh toán COD
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           <Button
             variant="outline"
-            className="relative gap-2 bg-card border-border hover:bg-muted"
+            size="sm"
+            className="h-8.5 text-xs relative gap-1.5 bg-card border-border hover:bg-muted shadow-2xs"
             onClick={() => setIsCartOpen(true)}
           >
-            <ShoppingCart className="w-4 h-4 text-primary" />
+            <ShoppingCart className="w-3.5 h-3.5 text-primary" />
             <span>Giỏ hàng</span>
             {totalItems > 0 && (
-              <span className="absolute -top-2 -right-2 bg-emerald-700 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+              <span className="absolute -top-1.5 -right-1.5 bg-emerald-700 text-white text-[10px] font-bold w-4.5 h-4.5 rounded-full flex items-center justify-center">
                 {totalItems}
               </span>
             )}
           </Button>
 
-          <Button variant="default" asChild className="gap-2 bg-emerald-700 hover:bg-emerald-800 text-white">
+          <Button variant="default" size="sm" asChild className="h-8.5 text-xs gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs">
             <Link to="/orders">
-              <Package className="w-4 h-4" />
+              <Package className="w-3.5 h-3.5" />
               <span>Đơn hàng của tôi</span>
             </Link>
           </Button>
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="bg-card rounded-xl border border-border p-4 mb-8 shadow-xs space-y-4">
-        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+      {/* Filter Toolbar tinh gọn */}
+      <div className="bg-card rounded-xl border border-border p-3 mb-4 shadow-2xs space-y-2.5">
+        <div className="flex flex-col lg:flex-row gap-2.5 items-stretch lg:items-center justify-between">
           {/* Ô tìm kiếm */}
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
               type="text"
               placeholder="Tìm theo tên thuốc hoặc hoạt chất (ví dụ: Ridomil, Mancozeb, Trichoderma)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 bg-background"
+              className="pl-8.5 h-9 text-xs bg-background"
             />
             {searchTerm && (
               <button
+                type="button"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[11px]"
               >
                 Xóa
               </button>
@@ -382,13 +383,13 @@ export const StorePage: React.FC = () => {
           </div>
 
           {/* Nhóm nút lọc loại thuốc */}
-          <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-lg border border-border shrink-0">
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border shrink-0 overflow-x-auto">
             <Button
               type="button"
               variant={typeFilter === 'ALL' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setTypeFilter('ALL')}
-              className={typeFilter === 'ALL' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-xs text-muted-foreground'}
+              className={`h-7 px-2.5 text-xs ${typeFilter === 'ALL' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-muted-foreground'}`}
             >
               Tất cả
             </Button>
@@ -397,9 +398,9 @@ export const StorePage: React.FC = () => {
               variant={typeFilter === 'Sinh học' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setTypeFilter('Sinh học')}
-              className={typeFilter === 'Sinh học' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-xs text-muted-foreground'}
+              className={`h-7 px-2.5 text-xs ${typeFilter === 'Sinh học' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-muted-foreground'}`}
             >
-              <Leaf className="w-3.5 h-3.5 mr-1" />
+              <Leaf className="w-3 h-3 mr-1" />
               Sinh học
             </Button>
             <Button
@@ -407,9 +408,9 @@ export const StorePage: React.FC = () => {
               variant={typeFilter === 'Hóa học' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setTypeFilter('Hóa học')}
-              className={typeFilter === 'Hóa học' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-xs text-muted-foreground'}
+              className={`h-7 px-2.5 text-xs ${typeFilter === 'Hóa học' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-muted-foreground'}`}
             >
-              <FlaskConical className="w-3.5 h-3.5 mr-1" />
+              <FlaskConical className="w-3 h-3 mr-1" />
               Hóa học
             </Button>
             <Button
@@ -417,18 +418,18 @@ export const StorePage: React.FC = () => {
               variant={typeFilter === 'Vật tư canh tác' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setTypeFilter('Vật tư canh tác')}
-              className={typeFilter === 'Vật tư canh tác' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-xs text-muted-foreground'}
+              className={`h-7 px-2.5 text-xs ${typeFilter === 'Vật tư canh tác' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-muted-foreground'}`}
             >
-              <Package className="w-3.5 h-3.5 mr-1" />
+              <Package className="w-3 h-3 mr-1" />
               Vật tư canh tác
             </Button>
           </div>
         </div>
 
         {/* Bộ lọc đặc thù: Cận thu hoạch (PHI <= 3) & Chống mưa & Chỉ hàng đang bán */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/60 text-xs">
-          <span className="text-muted-foreground font-medium flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5" />
+        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-border/50 text-[11px]">
+          <span className="text-muted-foreground font-semibold flex items-center gap-1 mr-1">
+            <Filter className="w-3 h-3 text-emerald-600" />
             Lọc an toàn:
           </span>
 
@@ -437,7 +438,7 @@ export const StorePage: React.FC = () => {
             size="sm"
             variant={onlySellingFilter ? 'default' : 'outline'}
             onClick={() => setOnlySellingFilter(!onlySellingFilter)}
-            className={`h-7 px-2.5 text-xs rounded-full ${onlySellingFilter
+            className={`h-6.5 px-2.5 text-[11px] rounded-full ${onlySellingFilter
               ? 'bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-700'
               : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
               }`}
@@ -450,12 +451,12 @@ export const StorePage: React.FC = () => {
             size="sm"
             variant={phiFilter ? 'default' : 'outline'}
             onClick={() => setPhiFilter(!phiFilter)}
-            className={`h-7 px-2.5 text-xs rounded-full ${phiFilter
+            className={`h-6.5 px-2.5 text-[11px] rounded-full ${phiFilter
               ? 'bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-700'
               : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
               }`}
           >
-            <Clock className="w-3 h-3 mr-1" />
+            <Clock className="w-2.5 h-2.5 mr-1" />
             PHI ≤ 3 ngày (An toàn cận thu hoạch)
           </Button>
 
@@ -464,7 +465,7 @@ export const StorePage: React.FC = () => {
             size="sm"
             variant={rainFilter ? 'default' : 'outline'}
             onClick={() => setRainFilter(!rainFilter)}
-            className={`h-7 px-2.5 text-xs rounded-full ${rainFilter
+            className={`h-6.5 px-2.5 text-[11px] rounded-full ${rainFilter
               ? 'bg-cyan-700 text-white hover:bg-cyan-800 border-cyan-700'
               : 'border-dashed border-border bg-background hover:bg-muted text-foreground'
               }`}

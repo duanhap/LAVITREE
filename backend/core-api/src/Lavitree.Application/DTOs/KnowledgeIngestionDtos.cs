@@ -210,6 +210,14 @@ public class UpdateSourceUnitRequestDto
     public string? EvidenceText { get; set; }
 }
 
+public class SplitSourceUnitRequestDto
+{
+    [Required(ErrorMessage = "Danh sách các phần sau khi tách không được rỗng.")]
+    [MinLength(2, ErrorMessage = "Cần tách thành ít nhất 2 đoạn.")]
+    [JsonPropertyName("parts")]
+    public List<string> Parts { get; set; } = new();
+}
+
 public class ApproveBatchRequestDto
 {
     [Required(ErrorMessage = "Danh sách source_ids không được để trống.")]

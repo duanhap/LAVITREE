@@ -22,15 +22,27 @@ import {
   MicOff,
   Image as ImageIcon,
   Loader2,
+  Crop,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import LeafCropper from '@/features/diagnose/components/LeafCropper';
+import { prepareImageForUpload } from '@/features/diagnose/prepare-image';
+import { getResultStatus } from '@/features/diagnose/status';
+import type { DiagnoseResponse } from '@/features/diagnose/types';
 import { useAgentChat } from '@/features/chat/useAgentChat';
 import { ChatMessageItem } from '@/features/chat/ChatMessageItem';
-import { ChatSession, ChatMessage } from '@/features/chat/types';
+import { ChatSession, ChatMessage, ImageContext, ImageDiagnosisInfo } from '@/features/chat/types';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import laviAvatarImg from '@/assets/brand/lavi-avatar-192.webp';
@@ -64,7 +76,19 @@ export const ChatPage: React.FC = () => {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     try {
       const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed: ChatSession[] = JSON.parse(saved);
+      // TASK-25: Dọn dẹp triệt để các URL dạng data: (base64) hoặc blob: cũ làm tràn bộ nhớ 5MB
+      return parsed.map(s => ({
+        ...s,
+        messages: (s.messages || []).map(m => {
+          if (m.image_url?.startsWith('data:') || m.image_url?.startsWith('blob:')) {
+            const { image_url, ...rest } = m;
+            return rest as ChatMessage;
+          }
+          return m;
+        }),
+      }));
     } catch {
       return [];
     }
@@ -95,10 +119,20 @@ export const ChatPage: React.FC = () => {
   // Chỉ tự cuộn theo câu trả lời khi người dùng đang ở cuối khung; kéo lên đọc lại thì không bị giật xuống
   const stickToBottomRef = useRef(true);
 
-  // Tự động lưu sessions vào localStorage khi có thay đổi
+  // Tự động lưu sessions vào localStorage khi có thay đổi (chỉ lưu URL thực, không lưu base64/blob)
   useEffect(() => {
     try {
-      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
+      const cleaned = sessions.map(s => ({
+        ...s,
+        messages: s.messages.map(m => {
+          if (m.image_url?.startsWith('data:') || m.image_url?.startsWith('blob:')) {
+            const { image_url, ...rest } = m;
+            return rest;
+          }
+          return m;
+        }),
+      }));
+      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(cleaned));
     } catch (e) {
       console.warn('Failed to save chat sessions to localStorage:', e);
     }
@@ -258,9 +292,20 @@ export const ChatPage: React.FC = () => {
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // Đính kèm ảnh lá cây / cây trồng
+  // Đính kèm ảnh lá cây / cây trồng & Modal cắt ảnh LeafCropper
   const [attachedImage, setAttachedImage] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [cropSourceFile, setCropSourceFile] = useState<File | null>(null);
+  const [isCropping, setIsCropping] = useState(false);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (attachedImage?.previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(attachedImage.previewUrl);
+      }
+    };
+  }, [attachedImage]);
 
   useEffect(() => {
     return () => {
@@ -370,25 +415,54 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAttachedImage({
-        file,
-        previewUrl: reader.result as string,
-      });
-      focusInput();
-    };
-    reader.readAsDataURL(file);
-
+    setCropSourceFile(file);
+    setIsCropping(true);
     e.target.value = '';
   };
 
+  const handleCropConfirm = (cropped: File) => {
+    if (attachedImage?.previewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(attachedImage.previewUrl);
+    }
+    const previewUrl = URL.createObjectURL(cropped);
+    setAttachedImage({
+      file: cropped,
+      previewUrl,
+    });
+    setIsCropping(false);
+    setCropSourceFile(null);
+    focusInput();
+  };
+
   const handleRemoveImage = () => {
+    if (attachedImage?.previewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(attachedImage.previewUrl);
+    }
     setAttachedImage(null);
   };
 
-  const handleSend = () => {
-    if ((!inputMessage.trim() && !attachedImage) || isStreaming) return;
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          if (file.size > 10 * 1024 * 1024) {
+            toast.error('Dung lượng ảnh tối đa là 10MB.');
+            return;
+          }
+          setCropSourceFile(file);
+          setIsCropping(true);
+          return;
+        }
+      }
+    }
+  };
+
+  const handleSend = async () => {
+    if ((!inputMessage.trim() && !attachedImage) || isStreaming || isAnalyzingImage) return;
     stickToBottomRef.current = true;
 
     if (isListening) {
@@ -396,12 +470,128 @@ export const ChatPage: React.FC = () => {
       setIsListening(false);
     }
 
-    const textToSend = inputMessage.trim() || 'Lavi xem giúp mình ảnh lá cây này bị bệnh gì và cách xử lý với nhé!';
-    const imgUrl = attachedImage?.previewUrl;
+    // TRƯỜNG HỢP CÓ ẢNH ĐÍNH KÈM: GỌI /diagnose TRƯỚC RỒI MỚI CHAT
+    if (attachedImage) {
+      setIsAnalyzingImage(true);
+      const currentAttached = attachedImage;
+      setAttachedImage(null);
 
-    sendMessage(textToSend, undefined, imgUrl);
-    setInputMessage('');
-    setAttachedImage(null);
+      try {
+        const processedFile = await prepareImageForUpload(currentAttached.file);
+        const formData = new FormData();
+        formData.append('image', processedFile);
+        if (contextParams.location) {
+          formData.append('notes', `Khu vực: ${contextParams.location}`);
+        }
+
+        const diagRes = await apiClient.post<DiagnoseResponse>('/diagnose', formData, {
+          timeout: 90000,
+        });
+
+        const diagData = diagRes.data;
+        const resultStatus = getResultStatus(
+          diagData.is_ood,
+          diagData.is_uncertain,
+          diagData.result?.confusion_group
+        );
+        const visualEvidence = diagData.visual_evidence;
+        const minioUrl =
+          visualEvidence?.original_image_url ||
+          visualEvidence?.gradcam_image_url ||
+          currentAttached.previewUrl;
+
+        // Nếu ảnh không phải lá cây (is_ood = true) hoặc không có kết quả nhận diện
+        if (diagData.is_ood || !diagData.result) {
+          const userText = inputMessage.trim() || 'Nhờ Lavi xem giúp hình ảnh này.';
+          const nowStr = new Date().toISOString();
+          const userMsg: ChatMessage = {
+            id: `user-${Date.now()}`,
+            role: 'user',
+            content: userText,
+            timestamp: nowStr,
+            image_url: minioUrl,
+          };
+          const assistantMsg: ChatMessage = {
+            id: `asst-${Date.now() + 1}`,
+            role: 'assistant',
+            content: diagData.is_ood
+              ? '⚠️ Ảnh bạn gửi không rõ hoặc không phải lá cây trồng trong hệ thống nhận diện của Lavi. Bạn vui lòng chụp lại cận cảnh mặt lá bị bệnh (khoảng cách 15–20cm, đủ ánh sáng, lá chiếm ≥ 70% khung hình) nhé!'
+              : '⚠️ Không thể nhận diện bệnh từ ảnh này. Bạn vui lòng chụp lại rõ nét hơn nhé!',
+            timestamp: nowStr,
+            image_diagnosis: {
+              status: 'ood',
+              disease_name: 'Không xác định',
+              plant_name: 'Không rõ',
+              class_code: 'OOD',
+              confidence: 0,
+              warning: diagData.result?.warning || 'Không nhận diện được lá cây trồng',
+            },
+          };
+          setMessages(prev => [...prev, userMsg, assistantMsg]);
+          setInputMessage('');
+          setIsAnalyzingImage(false);
+          focusInput();
+          return;
+        }
+
+        // Ảnh hợp lệ: Chuẩn bị image_context & image_diagnosis
+        const imageContext: ImageContext = {
+          class_code: diagData.result.class_code,
+          disease_name: diagData.result.disease_name,
+          plant_name: diagData.result.plant_name,
+          confidence: diagData.result.confidence,
+          is_uncertain: Boolean(diagData.is_uncertain),
+          confusion_group: diagData.result.confusion_group,
+          top3: (diagData.result.top3 || []).map(t => ({
+            class_code: t.class_code,
+            disease_name: t.disease_name,
+            confidence: t.confidence,
+          })),
+        };
+
+        const imageDiagnosis: ImageDiagnosisInfo = {
+          status: resultStatus,
+          disease_name: diagData.result.disease_name,
+          plant_name: diagData.result.plant_name,
+          class_code: diagData.result.class_code,
+          confidence: diagData.result.confidence,
+          warning: diagData.result.warning,
+          diagnosis_id: diagData.diagnosis_id,
+        };
+
+        if (diagData.result.class_code) {
+          setContextParams(prev => ({
+            ...prev,
+            current_disease_code: diagData.result?.class_code || null,
+          }));
+        }
+
+        // TASK-25 A0: Không dùng câu bịa "Lavi xem giúp mình ảnh...", mà hỏi phương án xử lý
+        const textToSend =
+          inputMessage.trim() ||
+          `Cây ${diagData.result.plant_name} có dấu hiệu ${diagData.result.disease_name}, nhờ Lavi hướng dẫn cách xử lý và biện pháp phòng ngừa an toàn nhé!`;
+
+        setIsAnalyzingImage(false);
+        sendMessage(
+          textToSend,
+          { current_disease_code: diagData.result.class_code },
+          minioUrl,
+          imageContext,
+          imageDiagnosis
+        );
+        setInputMessage('');
+      } catch (err: any) {
+        console.error('Lỗi khi chẩn đoán ảnh trước khi chat:', err);
+        toast.error(err?.response?.data?.message || err?.message || 'Không thể tải hoặc phân tích ảnh. Vui lòng thử lại.');
+        setIsAnalyzingImage(false);
+      }
+    } else {
+      // TRƯỜNG HỢP CHAT TEXT BÌNH THƯỜNG
+      const textToSend = inputMessage.trim();
+      sendMessage(textToSend);
+      setInputMessage('');
+    }
+
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -787,19 +977,42 @@ export const ChatPage: React.FC = () => {
                 <div className="text-xs truncate max-w-[180px] sm:max-w-xs">
                   <p className="font-medium text-foreground truncate">{attachedImage.file.name}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {(attachedImage.file.size / 1024).toFixed(0)} KB • Đã sẵn sàng gửi
+                    {(attachedImage.file.size / 1024).toFixed(0)} KB • Đã căn chỉnh cắt lá
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleRemoveImage}
-                  className="h-7 w-7 rounded-lg text-muted-foreground hover:text-destructive"
-                  title="Gỡ ảnh"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setCropSourceFile(attachedImage.file);
+                      setIsCropping(true);
+                    }}
+                    className="h-7 w-7 rounded-lg text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                    title="Cắt lại khung ảnh lá"
+                  >
+                    <Crop className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleRemoveImage}
+                    className="h-7 w-7 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    title="Gỡ ảnh"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Thông báo đang phân tích ảnh lá trước khi gửi */}
+            {isAnalyzingImage && (
+              <div className="mb-2 flex items-center gap-2.5 p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 rounded-xl shadow-xs text-xs text-emerald-800 dark:text-emerald-200 animate-pulse">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0 text-emerald-600" />
+                <span>Lavi đang phân tích và nhận diện lá cây qua mô hình AI Vision...</span>
               </div>
             )}
 
@@ -817,9 +1030,10 @@ export const ChatPage: React.FC = () => {
                   type="button"
                   variant="ghost"
                   size="icon"
+                  disabled={isStreaming || isAnalyzingImage}
                   onClick={() => fileInputRef.current?.click()}
-                  className="h-8.5 w-8.5 rounded-xl shrink-0 text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                  title="Gửi kèm ảnh lá cây / sâu bệnh"
+                  className="h-8.5 w-8.5 rounded-xl shrink-0 text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 disabled:opacity-40"
+                  title="Gửi kèm ảnh lá cây / sâu bệnh (Hỗ trợ cắt chỉnh trước khi gửi)"
                 >
                   <ImageIcon className="w-4 h-4" />
                 </Button>
@@ -829,7 +1043,7 @@ export const ChatPage: React.FC = () => {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  disabled={isRequestingPermission}
+                  disabled={isRequestingPermission || isStreaming || isAnalyzingImage}
                   onClick={handleToggleListening}
                   className={cn(
                     "h-8.5 w-8.5 rounded-xl shrink-0 transition-all",
@@ -842,8 +1056,8 @@ export const ChatPage: React.FC = () => {
                     isRequestingPermission
                       ? "Vui lòng bấm 'Cho phép' trên thông báo của trình duyệt..."
                       : isListening
-                      ? "Đang lắng nghe... Bấm để dừng"
-                      : "Nói câu hỏi (Microphone tiếng Việt)"
+                        ? "Đang lắng nghe... Bấm để dừng"
+                        : "Nói câu hỏi (Microphone tiếng Việt)"
                   }
                 >
                   {isRequestingPermission ? (
@@ -865,16 +1079,20 @@ export const ChatPage: React.FC = () => {
                     e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
                   }}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   placeholder={
                     isStreaming
                       ? 'Lavi đang trả lời… bạn cứ gõ câu tiếp theo'
-                      : isListening
-                      ? 'Lavi đang nghe bạn nói... hãy nói câu hỏi...'
-                      : 'Hỏi Lavi về bệnh cây, thời tiết hoặc thuốc (Enter để gửi, Shift+Enter xuống dòng)'
+                      : isAnalyzingImage
+                        ? 'Lavi đang phân tích ảnh lá cây…'
+                        : isListening
+                          ? 'Lavi đang nghe bạn nói... hãy nói câu hỏi...'
+                          : 'Hỏi Lavi về bệnh cây, thời tiết hoặc thuốc (Enter để gửi, Shift+Enter xuống dòng)'
                   }
                   maxLength={2000}
+                  disabled={isAnalyzingImage}
                   aria-label="Câu hỏi cho Lavi"
-                  className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden px-1.5 py-1.5 max-h-36 leading-relaxed"
+                  className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden px-1.5 py-1.5 max-h-36 leading-relaxed disabled:opacity-50"
                 />
 
                 <div className="shrink-0 mb-0.5 mr-0.5">
@@ -888,6 +1106,16 @@ export const ChatPage: React.FC = () => {
                     >
                       <Square className="w-3.5 h-3.5 fill-current" />
                       <span>Dừng</span>
+                    </Button>
+                  ) : isAnalyzingImage ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled
+                      className="h-8.5 px-3.5 bg-emerald-600/80 text-white text-xs gap-1.5 rounded-xl shadow-xs cursor-wait"
+                    >
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang khám...</span>
                     </Button>
                   ) : (
                     <Button
@@ -920,6 +1148,39 @@ export const ChatPage: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* POPUP CẮT & CĂN CHỈNH ẢNH LÁ (LeafCropper Modal) */}
+      <Dialog
+        open={isCropping && !!cropSourceFile}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsCropping(false);
+            setCropSourceFile(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-4 sm:p-6 bg-card border-border shadow-2xl overflow-hidden">
+          <DialogHeader className="pb-2">
+            <DialogTitle className="text-base sm:text-lg font-bold flex items-center gap-2 text-foreground">
+              <Crop className="h-4.5 w-4.5 text-emerald-600" />
+              Cắt & Căn chỉnh khung hình lá cây
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Kéo các cạnh hoặc góc để thu phóng vừa vặn vết bệnh trên lá trước khi gửi cho Lavi.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto py-1">
+            {cropSourceFile && (
+              <LeafCropper
+                file={cropSourceFile}
+                onConfirm={handleCropConfirm}
+                onChooseAnother={() => fileInputRef.current?.click()}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

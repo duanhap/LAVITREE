@@ -15,6 +15,8 @@ using System.Security.Claims;
 using Lavitree.Api.Security;
 using Microsoft.AspNetCore.Authorization;
 using Lavitree.Infrastructure.Persistence;
+using Lavitree.Application.DTOs;
+using Lavitree.Domain.Entities;
 
 namespace Lavitree.Api.Controllers;
 
@@ -453,11 +455,12 @@ public class MedicinesController : ControllerBase
             return BadRequest(new { detail = "Link nguồn phải là địa chỉ http(s) hợp lệ." });
         }
 
-        // Chốt chặn thuốc cấm: quét cả tên với mọi loại (tránh khai "vật tư" để lách)
-        if (IsBannedIngredient(dto.ActiveIngredient) || IsBannedIngredient(dto.Name))
+        // Chốt chặn thuốc cấm: quét cả tên và hoạt chất với mọi loại (tránh khai "vật tư" để lách)
+        var isBanned = IsBannedIngredient(dto.ActiveIngredient) || IsBannedIngredient(dto.Name);
+        if (isBanned && dto.IsAllowed)
         {
             var names = string.Join(", ", BannedSubstanceRegistry.FindBanned($"{dto.Name} {dto.ActiveIngredient}"));
-            return BadRequest(new { detail = $"Sản phẩm chứa hoạt chất cấm sử dụng tại Việt Nam ({names}), xem tab Chất cấm. Không được phép đưa vào lưu hành." });
+            return BadRequest(new { detail = $"Sản phẩm chứa hoạt chất cấm sử dụng tại Việt Nam ({names}) theo Thông tư 75/2025. Không thể bật lưu hành." });
         }
 
         // PHI (thời gian cách ly trước thu hoạch): KHÔNG tự điền mặc định. Con số này được hiện cho nông dân và
@@ -499,7 +502,7 @@ public class MedicinesController : ControllerBase
             Availability = availability,
             InfoSourceUrl = infoSourceUrl,
             UsageProfile = usageProfile,
-            IsAllowed = dto.IsAllowed && !IsBannedIngredient(dto.ActiveIngredient),
+            IsAllowed = !isBanned && dto.IsAllowed,
             RainResistant = false,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -939,5 +942,390 @@ public class MedicinesController : ControllerBase
         .ToList();
 
         return Ok(results);
+    }
+
+    private string CurrentActor() =>
+        User.FindFirst(ClaimTypes.Email)?.Value ?? User.FindFirst("email")?.Value
+        ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value ?? "admin";
+
+    /// <summary>
+    /// GET /api/v1/medicines/{id:int}/usage-rules
+    /// Lấy danh sách phiếu cách dùng theo bệnh của sản phẩm (TASK-22)
+    /// </summary>
+    [HttpGet("{id:int}/usage-rules")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> GetUsageRules(int id)
+    {
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm." });
+        }
+
+        var rules = await _dbContext.ProductUsageRules
+            .Include(r => r.Disease)
+                .ThenInclude(d => d!.Plant)
+            .Where(r => r.ProductId == id && !r.IsDeleted)
+            .OrderBy(r => r.Disease != null ? r.Disease.CommonNameVi : r.PlantName ?? "")
+            .ToListAsync();
+
+        // Tự động đồng bộ các quy tắc đã có từ UsageProfile.DiseaseRules nếu bảng ProductUsageRules chưa có
+        if (product.UsageProfile?.DiseaseRules != null && product.UsageProfile.DiseaseRules.Count > 0)
+        {
+            var existingCodes = rules
+                .Where(r => r.Disease != null && !string.IsNullOrWhiteSpace(r.Disease.ClassCode))
+                .Select(r => r.Disease!.ClassCode.ToLower())
+                .ToHashSet();
+
+            bool dbChanged = false;
+            foreach (var (classCode, item) in product.UsageProfile.DiseaseRules)
+            {
+                if (existingCodes.Contains(classCode.ToLower())) continue;
+
+                var d = await _dbContext.Diseases.Include(x => x.Plant)
+                    .FirstOrDefaultAsync(x => x.ClassCode.ToLower() == classCode.ToLower() && !x.IsDeleted);
+                if (d != null)
+                {
+                    var ruleProfile = item.UsageProfile ?? new UsageProfile();
+                    if (!string.IsNullOrWhiteSpace(item.DosageInstruction))
+                    {
+                        ruleProfile.DoseText ??= item.DosageInstruction;
+                    }
+                    var migrated = new ProductUsageRule
+                    {
+                        ProductId = id,
+                        DiseaseId = d.Id,
+                        PlantName = d.Plant?.Name,
+                        Profile = ruleProfile,
+                        SourceUrl = item.SourceUrl,
+                        IsVerified = item.IsVerified,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    _dbContext.ProductUsageRules.Add(migrated);
+                    rules.Add(migrated);
+                    existingCodes.Add(classCode.ToLower());
+                    dbChanged = true;
+                }
+            }
+            if (dbChanged)
+            {
+                await _dbContext.SaveChangesAsync();
+            }
+        }
+
+        var dtos = rules.Select(r => new ProductUsageRuleDto
+        {
+            Id = r.Id,
+            ProductId = r.ProductId,
+            DiseaseId = r.DiseaseId,
+            ClassCode = r.Disease?.ClassCode,
+            DiseaseName = r.Disease?.CommonNameVi,
+            PlantName = r.PlantName ?? r.Disease?.Plant?.Name,
+            Profile = r.Profile,
+            ActionGroup = r.ActionGroup,
+            SourceUrl = r.SourceUrl,
+            IsVerified = r.IsVerified,
+            VerifiedBy = r.VerifiedBy,
+            VerifiedAt = r.VerifiedAt,
+            UpdatedAt = r.UpdatedAt
+        }).ToList();
+
+        return Ok(dtos);
+    }
+
+    /// <summary>
+    /// POST /api/v1/medicines/{id:int}/usage-rules
+    /// Tạo phiếu cách dùng riêng cho một bệnh hại (TASK-22)
+    /// </summary>
+    [HttpPost("{id:int}/usage-rules")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> CreateUsageRule(int id, [FromBody] CreateProductUsageRuleDto dto)
+    {
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm." });
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.ClassCode))
+        {
+            return BadRequest(new { detail = "Mã bệnh hại (class_code) là bắt buộc." });
+        }
+
+        var disease = await _dbContext.Diseases
+            .Include(d => d.Plant)
+            .FirstOrDefaultAsync(d => d.ClassCode.ToLower() == dto.ClassCode.Trim().ToLower() && !d.IsDeleted);
+        if (disease == null)
+        {
+            return BadRequest(new { detail = $"Không tìm thấy bệnh hại với mã '{dto.ClassCode}'." });
+        }
+
+        var exists = await _dbContext.ProductUsageRules
+            .AnyAsync(r => r.ProductId == id && r.DiseaseId == disease.Id && !r.IsDeleted);
+        if (exists)
+        {
+            return Conflict(new { detail = $"Đã có phiếu cách dùng riêng cho bệnh '{disease.CommonNameVi}'. Hãy cập nhật phiếu hiện có." });
+        }
+
+        var profile = dto.Profile ?? new UsageProfile();
+        profile.Normalize();
+        if (profile.IsEmpty)
+        {
+            return BadRequest(new { detail = "Phiếu cách dùng trống, hãy nhập ít nhất một thông số liều lượng." });
+        }
+
+        var errors = profile.Validate();
+        if (errors.Count > 0)
+        {
+            return BadRequest(new { detail = "Phiếu cách dùng không hợp lệ: " + string.Join(" ", errors) });
+        }
+
+        var newRule = new ProductUsageRule
+        {
+            ProductId = id,
+            DiseaseId = disease.Id,
+            PlantName = !string.IsNullOrWhiteSpace(dto.PlantName) ? dto.PlantName.Trim() : disease.Plant?.Name,
+            Profile = profile,
+            ActionGroup = !string.IsNullOrWhiteSpace(dto.ActionGroup) ? dto.ActionGroup.Trim() : null,
+            SourceUrl = !string.IsNullOrWhiteSpace(dto.SourceUrl) ? dto.SourceUrl.Trim() : null,
+            IsVerified = false,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _dbContext.ProductUsageRules.Add(newRule);
+
+        // Đồng bộ vào Product.UsageProfile.DiseaseRules để tương thích ngược
+        product.UsageProfile ??= new UsageProfile();
+        product.UsageProfile.DiseaseRules ??= new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
+        product.UsageProfile.DiseaseRules[disease.ClassCode] = new DiseaseUsageRuleProfile
+        {
+            UsageProfile = profile,
+            DosageInstruction = profile.DoseText,
+            SourceUrl = newRule.SourceUrl,
+            IsVerified = false
+        };
+
+        await _dbContext.SaveChangesAsync();
+
+        var resultDto = new ProductUsageRuleDto
+        {
+            Id = newRule.Id,
+            ProductId = newRule.ProductId,
+            DiseaseId = newRule.DiseaseId,
+            ClassCode = disease.ClassCode,
+            DiseaseName = disease.CommonNameVi,
+            PlantName = newRule.PlantName,
+            Profile = newRule.Profile,
+            ActionGroup = newRule.ActionGroup,
+            SourceUrl = newRule.SourceUrl,
+            IsVerified = newRule.IsVerified,
+            VerifiedBy = newRule.VerifiedBy,
+            VerifiedAt = newRule.VerifiedAt,
+            UpdatedAt = newRule.UpdatedAt
+        };
+
+        return CreatedAtAction(nameof(GetUsageRules), new { id = product.Id }, resultDto);
+    }
+
+    /// <summary>
+    /// PATCH /api/v1/medicines/{id:int}/usage-rules/{ruleId:int}
+    /// Cập nhật phiếu cách dùng riêng cho bệnh (TASK-22). Mọi lần sửa tự động đặt lại IsVerified = false.
+    /// </summary>
+    [HttpPatch("{id:int}/usage-rules/{ruleId:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> UpdateUsageRule(int id, int ruleId, [FromBody] UpdateProductUsageRuleDto dto)
+    {
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm." });
+        }
+
+        var rule = await _dbContext.ProductUsageRules
+            .Include(r => r.Disease)
+                .ThenInclude(d => d!.Plant)
+            .FirstOrDefaultAsync(r => r.Id == ruleId && r.ProductId == id && !r.IsDeleted);
+        if (rule == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy phiếu cách dùng cho bệnh này." });
+        }
+
+        if (dto.Profile != null)
+        {
+            var p = dto.Profile;
+            p.Normalize();
+            if (p.IsEmpty)
+            {
+                return BadRequest(new { detail = "Phiếu cách dùng trống. Hãy xóa phiếu nếu muốn chuyển về dùng liều chung." });
+            }
+            var errors = p.Validate();
+            if (errors.Count > 0)
+            {
+                return BadRequest(new { detail = "Phiếu cách dùng không hợp lệ: " + string.Join(" ", errors) });
+            }
+            rule.Profile = p;
+        }
+
+        if (dto.ActionGroup != null)
+        {
+            var ag = dto.ActionGroup.Trim();
+            rule.ActionGroup = ag.Length > 0 ? ag : null;
+        }
+
+        if (dto.SourceUrl != null)
+        {
+            var url = dto.SourceUrl.Trim();
+            if (url.Length > 0 && !IsHttpUrl(url))
+            {
+                return BadRequest(new { detail = "Link nguồn phải là địa chỉ http(s) hợp lệ." });
+            }
+            rule.SourceUrl = url.Length > 0 ? url : null;
+        }
+
+        // Quy tắc bảo vệ: Mọi lần chỉnh sửa bắt buộc hủy xác nhận để yêu cầu đối chiếu lại với nhãn
+        rule.IsVerified = false;
+        rule.VerifiedBy = null;
+        rule.VerifiedAt = null;
+        rule.UpdatedAt = DateTime.UtcNow;
+
+        // Đồng bộ sang Product.UsageProfile.DiseaseRules
+        if (rule.Disease != null)
+        {
+            product.UsageProfile ??= new UsageProfile();
+            product.UsageProfile.DiseaseRules ??= new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
+            product.UsageProfile.DiseaseRules[rule.Disease.ClassCode] = new DiseaseUsageRuleProfile
+            {
+                UsageProfile = rule.Profile,
+                DosageInstruction = rule.Profile.DoseText,
+                SourceUrl = rule.SourceUrl,
+                IsVerified = false
+            };
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        var resultDto = new ProductUsageRuleDto
+        {
+            Id = rule.Id,
+            ProductId = rule.ProductId,
+            DiseaseId = rule.DiseaseId,
+            ClassCode = rule.Disease?.ClassCode,
+            DiseaseName = rule.Disease?.CommonNameVi,
+            PlantName = rule.PlantName ?? rule.Disease?.Plant?.Name,
+            Profile = rule.Profile,
+            ActionGroup = rule.ActionGroup,
+            SourceUrl = rule.SourceUrl,
+            IsVerified = rule.IsVerified,
+            VerifiedBy = rule.VerifiedBy,
+            VerifiedAt = rule.VerifiedAt,
+            UpdatedAt = rule.UpdatedAt
+        };
+
+        return Ok(resultDto);
+    }
+
+    /// <summary>
+    /// POST /api/v1/medicines/{id:int}/usage-rules/{ruleId:int}/verify
+    /// Xác nhận đã đối chiếu nhãn thuốc / nguồn kỹ thuật cho phiếu cách dùng (TASK-22)
+    /// </summary>
+    [HttpPost("{id:int}/usage-rules/{ruleId:int}/verify")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> VerifyUsageRule(int id, int ruleId, [FromBody] VerifyProductUsageRuleDto dto)
+    {
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm." });
+        }
+
+        var rule = await _dbContext.ProductUsageRules
+            .Include(r => r.Disease)
+                .ThenInclude(d => d!.Plant)
+            .FirstOrDefaultAsync(r => r.Id == ruleId && r.ProductId == id && !r.IsDeleted);
+        if (rule == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy phiếu cách dùng cho bệnh này." });
+        }
+
+        if (dto.Verified)
+        {
+            rule.IsVerified = true;
+            rule.VerifiedBy = CurrentActor();
+            rule.VerifiedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            rule.IsVerified = false;
+            rule.VerifiedBy = null;
+            rule.VerifiedAt = null;
+        }
+        rule.UpdatedAt = DateTime.UtcNow;
+
+        if (rule.Disease != null && product.UsageProfile?.DiseaseRules != null && product.UsageProfile.DiseaseRules.TryGetValue(rule.Disease.ClassCode, out var pRule))
+        {
+            pRule.IsVerified = rule.IsVerified;
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        var resultDto = new ProductUsageRuleDto
+        {
+            Id = rule.Id,
+            ProductId = rule.ProductId,
+            DiseaseId = rule.DiseaseId,
+            ClassCode = rule.Disease?.ClassCode,
+            DiseaseName = rule.Disease?.CommonNameVi,
+            PlantName = rule.PlantName ?? rule.Disease?.Plant?.Name,
+            Profile = rule.Profile,
+            ActionGroup = rule.ActionGroup,
+            SourceUrl = rule.SourceUrl,
+            IsVerified = rule.IsVerified,
+            VerifiedBy = rule.VerifiedBy,
+            VerifiedAt = rule.VerifiedAt,
+            UpdatedAt = rule.UpdatedAt
+        };
+
+        return Ok(resultDto);
+    }
+
+    /// <summary>
+    /// DELETE /api/v1/medicines/{id:int}/usage-rules/{ruleId:int}
+    /// Xóa phiếu cách dùng riêng của bệnh (xóa mềm). Bệnh sẽ tự động quay về dùng phiếu chung của sản phẩm.
+    /// </summary>
+    [HttpDelete("{id:int}/usage-rules/{ruleId:int}")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> DeleteUsageRule(int id, int ruleId)
+    {
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        if (product == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy sản phẩm." });
+        }
+
+        var rule = await _dbContext.ProductUsageRules
+            .Include(r => r.Disease)
+            .FirstOrDefaultAsync(r => r.Id == ruleId && r.ProductId == id && !r.IsDeleted);
+        if (rule == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy phiếu cách dùng cho bệnh này." });
+        }
+
+        rule.IsDeleted = true;
+        rule.UpdatedAt = DateTime.UtcNow;
+
+        // Xóa khỏi Product.UsageProfile.DiseaseRules nếu có
+        if (rule.Disease != null && product.UsageProfile?.DiseaseRules != null)
+        {
+            product.UsageProfile.DiseaseRules.Remove(rule.Disease.ClassCode);
+            if (product.UsageProfile.DiseaseRules.Count == 0)
+            {
+                product.UsageProfile.DiseaseRules = null;
+            }
+        }
+
+        await _dbContext.SaveChangesAsync();
+        return NoContent();
     }
 }

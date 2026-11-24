@@ -9,6 +9,9 @@ import {
   Trash2,
   FileText,
   AlertCircle,
+  ShieldCheck,
+  ShieldAlert,
+  Layers,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,8 +26,8 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { EvidenceCard } from './EvidenceCard';
-import { DiseaseUsageRule } from './DiseaseUsageRule';
-import type { GroupedDiseaseRow } from '../types';
+import { DiseaseUsageRule, type SaveDiseaseRulePayload } from './DiseaseUsageRule';
+import type { GroupedDiseaseRow, ProductUsageRuleItem } from '../types';
 import type { UsageProfile, DiseaseUsageRuleProfile } from '@/features/admin/lib/usage-profile';
 import { isUsageEmpty } from '@/features/admin/lib/usage-profile';
 
@@ -35,10 +38,12 @@ interface Props {
   defaultProfile?: UsageProfile | null;
   defaultDosage?: string;
   diseaseRules?: Record<string, DiseaseUsageRuleProfile> | null;
+  usageRules?: ProductUsageRuleItem[] | null;
   isSupply?: boolean;
   phiDays?: number | null;
-  onSaveDiseaseRule?: (modelClass: string, rule: DiseaseUsageRuleProfile) => Promise<void>;
-  onResetDiseaseRule?: (modelClass: string) => Promise<void>;
+  onSaveDiseaseRule?: (modelClass: string, payload: SaveDiseaseRulePayload) => Promise<void>;
+  onVerifyDiseaseRule?: (ruleId: number, verified: boolean) => Promise<void>;
+  onResetDiseaseRule?: (modelClass: string, ruleId?: number) => Promise<void>;
   onRemoveDisease?: (modelClass: string) => Promise<void>;
   onAddDisease?: (modelClass: string) => Promise<void>;
   onUnlinkSnippet?: (suggestionId: number) => Promise<void>;
@@ -53,9 +58,11 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
   defaultProfile,
   defaultDosage = '',
   diseaseRules,
+  usageRules,
   isSupply = false,
   phiDays = null,
   onSaveDiseaseRule,
+  onVerifyDiseaseRule,
   onResetDiseaseRule,
   onRemoveDisease,
   onAddDisease,
@@ -168,11 +175,23 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
       <div className="space-y-3">
         {rows.map((row) => {
           const isOpen = !!openMap[row.modelClass];
-          const customRule = diseaseRules?.[row.modelClass];
+
+          // Tìm quy tắc từ bảng ProductUsageRules trước (TASK-22), nếu không có thì fallback sang JSONB cũ
+          const ruleItem = usageRules?.find(
+            (r) =>
+              (r.class_code && r.class_code.toLowerCase() === row.modelClass.toLowerCase()) ||
+              (r.disease_name && r.disease_name.toLowerCase() === row.diseaseName.toLowerCase())
+          );
+          const legacyRule = diseaseRules?.[row.modelClass];
+          const effectiveRule = ruleItem || legacyRule;
+
+          const isVerified = Boolean(effectiveRule?.is_verified);
+          const actionGroup = ruleItem?.action_group;
+
           const hasCustomRule = Boolean(
-            customRule &&
-              (customRule.dosage_instruction ||
-                (customRule.usage_profile && !isUsageEmpty(customRule.usage_profile)))
+            ruleItem
+              ? ruleItem.profile && (!isUsageEmpty(ruleItem.profile) || ruleItem.profile.dose_text || ruleItem.action_group)
+              : legacyRule && (legacyRule.dosage_instruction || (legacyRule.usage_profile && !isUsageEmpty(legacyRule.usage_profile)))
           );
 
           return (
@@ -213,16 +232,31 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                       >
                         {row.diseaseName}
                       </Link>
+
+                      {actionGroup && (
+                        <Badge variant="outline" className="text-[10px] font-mono font-semibold text-blue-700 dark:text-blue-400 bg-blue-500/10 border-blue-500/20 flex items-center gap-1">
+                          <Layers className="w-2.5 h-2.5" />
+                          <span>{actionGroup}</span>
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
                       {hasCustomRule ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                          ✓ Đã có liều lượng riêng
-                        </span>
+                        isVerified ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                            <ShieldCheck className="w-3 h-3" />
+                            <span>Cách dùng riêng ✓</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                            <ShieldAlert className="w-3 h-3" />
+                            <span>Cách dùng riêng · chưa đối chiếu</span>
+                          </span>
+                        )
                       ) : (
                         <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                          Dùng liều mặc định
+                          Dùng cách dùng chung
                         </span>
                       )}
 
@@ -258,18 +292,19 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
               {/* Nội dung khi mở Accordion */}
               {isOpen && (
                 <div className="p-3.5 sm:p-5 bg-muted/10 space-y-4">
-                  {/* PHẦN 1: CÁCH DÙNG & LIỀU LƯỢNG CHO BỆNH NÀY */}
+                  {/* PHẦN 1: CÁCH DÙNG & LIỀU LƯỢNG CHO BỆNH NÀY (TASK-22) */}
                   {onSaveDiseaseRule && (
                     <DiseaseUsageRule
                       modelClass={row.modelClass}
                       plantName={row.plantName}
                       diseaseName={row.diseaseName}
-                      rule={customRule}
+                      rule={effectiveRule}
                       defaultProfile={defaultProfile}
                       defaultDosage={defaultDosage}
                       isSupply={isSupply}
                       phiDays={phiDays}
                       onSaveRule={onSaveDiseaseRule}
+                      onVerifyRule={onVerifyDiseaseRule}
                       onResetToDefault={onResetDiseaseRule}
                     />
                   )}
@@ -299,11 +334,11 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                         </p>
                       </div>
                     ) : (
-                      <div className="space-y-3 pt-1">
-                        {row.articles.map((art) => (
+                      <div className="space-y-3">
+                        {row.articles.map((article, aIdx) => (
                           <EvidenceCard
-                            key={art.sourceUrl || art.sourceTitle}
-                            article={art}
+                            key={aIdx}
+                            article={article}
                             mode={mode}
                             onUnlinkSnippet={onUnlinkSnippet}
                             unlinkingId={unlinkingId}
@@ -319,82 +354,93 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
         })}
       </div>
 
-      {/* Modal Thêm Bệnh Điều Trị */}
+      {/* MODAL THÊM BỆNH ĐIỀU TRỊ */}
       <Dialog open={addDiseaseModalOpen} onOpenChange={setAddDiseaseModalOpen}>
         <DialogContent className="max-w-md p-5 rounded-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground">
-              Thêm bệnh điều trị cho thuốc này
+              Thêm bệnh vào danh mục điều trị
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Chọn bệnh hại trong danh mục để liên kết và thiết lập liều lượng riêng.
+              Chọn bệnh hại mà thuốc này đặc trị để thiết lập phiếu lên lịch và hướng dẫn sử dụng riêng.
             </DialogDescription>
           </DialogHeader>
 
           <div className="relative my-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Tìm theo tên bệnh (đốm lá, sương mai, phấn trắng)..."
               value={diseaseSearchTerm}
               onChange={(e) => setDiseaseSearchTerm(e.target.value)}
-              className="pl-9 h-9 text-xs"
+              placeholder="Tìm theo tên bệnh, tên cây hoặc mã..."
+              className="pl-9 text-xs"
             />
           </div>
 
-          <div className="overflow-y-auto flex-1 divide-y divide-border border rounded-xl border-border max-h-[300px]">
+          <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 max-h-[300px]">
             {filteredUnassignedClasses.length === 0 ? (
-              <div className="p-6 text-center text-xs text-muted-foreground">
-                Không tìm thấy bệnh hại phù hợp.
+              <div className="p-4 text-center text-xs text-muted-foreground italic">
+                {diseaseSearchTerm
+                  ? 'Không tìm thấy bệnh hại phù hợp với từ khóa.'
+                  : 'Tất cả các bệnh trong hệ thống đã được thêm vào sản phẩm này.'}
               </div>
             ) : (
-              filteredUnassignedClasses.map((cls) => (
-                <button
-                  key={cls.classCode}
-                  type="button"
-                  onClick={async () => {
-                    if (onAddDisease) {
-                      await onAddDisease(cls.classCode);
-                      setAddDiseaseModalOpen(false);
-                      // Mở luôn accordion bệnh vừa thêm
-                      setOpenMap((prev) => ({ ...prev, [cls.classCode]: true }));
-                    }
-                  }}
-                  className="w-full text-left p-2.5 hover:bg-muted/50 transition-colors flex items-center justify-between gap-2 group"
+              filteredUnassignedClasses.map((item) => (
+                <div
+                  key={item.classCode}
+                  className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 hover:bg-muted/30 transition-colors text-xs"
                 >
-                  <div className="min-w-0">
-                    <div className="font-semibold text-xs text-foreground group-hover:text-primary transition-colors">
-                      {cls.diseaseName}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {cls.plantName} • {cls.classCode}
+                  <div className="min-w-0 pr-2">
+                    <div className="font-semibold text-foreground truncate">{item.diseaseName}</div>
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      Cây: <span className="font-medium text-foreground">{item.plantName}</span> • Mã: <span className="font-mono">{item.classCode}</span>
                     </div>
                   </div>
-                  <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0" />
-                </button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      if (onAddDisease) {
+                        onAddDisease(item.classCode);
+                        setAddDiseaseModalOpen(false);
+                      }
+                    }}
+                    className="h-7 text-xs px-2.5 font-bold shrink-0"
+                  >
+                    Thêm bệnh
+                  </Button>
+                </div>
               ))
             )}
           </div>
+
+          <DialogFooter className="pt-2 border-t border-border mt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAddDiseaseModalOpen(false)}
+              className="text-xs"
+            >
+              Đóng
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Xác nhận gỡ bệnh */}
-      <Dialog
-        open={Boolean(confirmRemoveClass)}
-        onOpenChange={(open) => !open && setConfirmRemoveClass(null)}
-      >
-        <DialogContent className="max-w-sm p-5 rounded-2xl">
+      {/* DIALOG XÁC NHẬN GỠ BỆNH */}
+      <Dialog open={!!confirmRemoveClass} onOpenChange={(open) => !open && setConfirmRemoveClass(null)}>
+        <DialogContent className="max-w-md p-5 rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-destructive" />
-              <span>Gỡ bệnh điều trị?</span>
+              <span>Gỡ bệnh khỏi danh mục điều trị?</span>
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-1">
-              Bạn có chắc chắn muốn bỏ bệnh{' '}
-              <strong>{confirmRemoveClass?.diseaseName}</strong> ({confirmRemoveClass?.plantName}) khỏi danh sách điều trị của thuốc này? Trợ lý Lavi sẽ ngừng gợi ý thuốc này cho bệnh trên.
+            <DialogDescription className="text-xs text-muted-foreground mt-2 leading-relaxed">
+              Bạn có chắc muốn gỡ bệnh <strong>{confirmRemoveClass?.diseaseName}</strong> (Cây {confirmRemoveClass?.plantName}) khỏi sản phẩm này? Mọi phiếu quy tắc cách dùng riêng của bệnh này cũng sẽ bị hủy.
             </DialogDescription>
           </DialogHeader>
 
-          <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t border-border mt-2">
+          <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t border-border mt-3">
             <Button
               type="button"
               variant="outline"
@@ -413,7 +459,7 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
               onClick={handleConfirmRemove}
               className="text-xs font-bold"
             >
-              {isRemoving ? 'Đang gỡ...' : 'Gỡ bệnh'}
+              {isRemoving ? 'Đang gỡ...' : 'Xác nhận gỡ bệnh'}
             </Button>
           </DialogFooter>
         </DialogContent>

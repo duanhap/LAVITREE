@@ -1,5 +1,11 @@
 import apiClient from '@/lib/api-client';
-import type { ProductDetailResponse, ProductEvidenceItem } from './types';
+import type {
+  ProductDetailResponse,
+  ProductEvidenceItem,
+  ProductUsageRuleItem,
+  CreateUsageRulePayload,
+  UpdateUsageRulePayload,
+} from './types';
 
 export async function getProduct(id: number): Promise<ProductDetailResponse> {
   const res = await apiClient.get<ProductDetailResponse>(`/medicines/${id}`);
@@ -33,4 +39,48 @@ export async function updateProduct(
 ): Promise<any> {
   const res = await apiClient.patch(`/medicines/${id}`, payload);
   return res.data;
+}
+
+export async function getUsageRules(productId: number): Promise<ProductUsageRuleItem[]> {
+  const res = await apiClient.get<ProductUsageRuleItem[]>(`/medicines/${productId}/usage-rules`);
+  return res.data;
+}
+
+export async function createUsageRule(
+  productId: number,
+  payload: CreateUsageRulePayload
+): Promise<ProductUsageRuleItem> {
+  const res = await apiClient.post<ProductUsageRuleItem>(
+    `/medicines/${productId}/usage-rules`,
+    payload
+  );
+  return res.data;
+}
+
+export async function updateUsageRule(
+  productId: number,
+  ruleId: number,
+  payload: UpdateUsageRulePayload
+): Promise<ProductUsageRuleItem> {
+  const res = await apiClient.patch<ProductUsageRuleItem>(
+    `/medicines/${productId}/usage-rules/${ruleId}`,
+    payload
+  );
+  return res.data;
+}
+
+export async function verifyUsageRule(
+  productId: number,
+  ruleId: number,
+  verified: boolean
+): Promise<ProductUsageRuleItem> {
+  const res = await apiClient.post<ProductUsageRuleItem>(
+    `/medicines/${productId}/usage-rules/${ruleId}/verify`,
+    { verified }
+  );
+  return res.data;
+}
+
+export async function deleteUsageRule(productId: number, ruleId: number): Promise<void> {
+  await apiClient.delete(`/medicines/${productId}/usage-rules/${ruleId}`);
 }

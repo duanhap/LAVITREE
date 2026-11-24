@@ -163,12 +163,24 @@
   - Trạng thái: `[x] DONE`
   - Đầu ra: Trang riêng `/admin/inventory/products/:id` (không popup), 2 tab: "Thông tin sản phẩm" (sửa `Product`) và "Bệnh áp dụng & căn cứ" (theo từng bệnh: công tắc khuyên dùng, bài báo đã nhắc thuốc, chừa ô "Cách dùng cho bệnh này" cho TASK-22; công tắc khuyên dùng, chỉ cho "Gỡ khỏi sản phẩm" với gợi ý); API `GET /medicines/{id}`, `GET /medicines/{id}/evidence`, `POST /knowledge/product-suggestions/{id}/unlink`; component dùng lại cho trang cửa hàng và trang "thuốc cho bệnh" sau này. Chi tiết và thiết kế giao diện: `tasks/sprint-03/task-21-admin-product-detail-page.md`.
 
-- [ ] **TASK-22: Phiếu cách dùng thuốc theo từng bệnh (`ProductUsageRules`)**
+- [x] **TASK-22: Phiếu cách dùng thuốc theo từng bệnh (`ProductUsageRules`)**
   - Trách nhiệm: **Trưởng nhóm** (giao Gemini làm). Phụ thuộc: TASK-21 xong trước
-  - Trạng thái: `[ ] TODO`
-  - Đầu ra: Bảng `ProductUsageRules` + migration (local), 5 API `/medicines/{id}/usage-rules`; ô "Cách dùng cho bệnh này" trong dòng bệnh ở Tab 2 trang chi tiết sản phẩm sửa được (tạo từ phiếu chung, sửa, xóa, đánh dấu đã đối chiếu nhãn), đặt cạnh căn cứ bài báo. `Products.UsageProfile` giữ làm phiếu chung. Là bước 1–3 lộ trình `docs/architecture/treatment-schedule-design.md`. Nhóm cần quyết: có cho Lavi đọc phiếu theo bệnh trong task này không. Chi tiết: `tasks/sprint-03/task-22-usage-rules-per-disease.md`.
+  - Trạng thái: `[x] DONE`
+  - Đầu ra: Bảng `ProductUsageRules` + migration (local), 5 API `/medicines/{id}/usage-rules`; ô "Cách dùng cho bệnh này" trong dòng bệnh ở Tab 2 trang chi tiết sản phẩm sửa được (tạo từ phiếu chung, sửa, xóa, đánh dấu đã đối chiếu nhãn), đặt cạnh căn cứ bài báo. Hỗ trợ nhóm tác động `ActionGroup` (FRAC/IRAC) cho bộ lập lịch chăm sóc nông nghiệp `CareSchedules`. `Products.UsageProfile` giữ làm phiếu chung. Là bước 1–3 lộ trình `docs/architecture/treatment-schedule-design.md`. Chi tiết: `tasks/sprint-03/task-22-usage-rules-per-disease.md`.
 
 - [x] **TASK-23: Sửa lỗi trắng trang "Đơn hàng của tôi" (`/orders`) + ErrorBoundary** (P0, lỗi production)
   - Trách nhiệm: giao agent; nghiệm thu: Claude Code / trưởng nhóm
   - Trạng thái: `[x] DONE` (22/11/2026)
   - Đầu ra: `OrdersPage.tsx` đọc đúng hợp đồng API (`order_id`, `total_price` thay cho `id`, `subtotal`), dùng `formatCurrency`/`formatDate`; `ErrorBoundary` dùng chung bọc `<Outlet />` ở `AppShell`/`AdminShell`/`AuthLayout` (bắt cả lỗi tải chunk sau deploy); thêm `total_price` vào `api-contracts.md`. Không sửa backend. Chi tiết: `tasks/sprint-03/task-23-orders-page-crash.md`.
+
+- [/] **TASK-24: Nâng cấp trải nghiệm hội thoại Trợ lý Lavi (Neural TTS & LLM văn phong linh hoạt)** (P1)
+  - Trách nhiệm: **Trưởng nhóm** (giao Antigravity làm)
+  - Trạng thái: `[/] IN PROGRESS` (Đã hoàn thành Phần 1: Giọng đọc AI tự nhiên Neural TTS, chuẩn bị sang Phần 2: LLM Model / Prompt)
+  - Đầu ra:
+    - **Phần 1 [x] DONE**: Endpoint `POST /api/v1/agent/tts` dùng thư viện `edge-tts 7.3.1` sinh luồng MP3 Neural chất lượng cao với giọng `vi-VN-HoaiMyNeural` (Nữ) và `vi-VN-NamMinhNeural` (Nam), có ngữ điệu nhấn nhá tự nhiên, phát âm chuẩn thuật ngữ song ngữ Anh - Việt; giao diện ChatMessageItem có nút `[Đọc AI]`, spinner `Loader2`, hiệu ứng sóng `VolumeX` và nút toggle `[Nữ / Nam]`, bộ nhớ đệm audio blob và fallback tự động sang Web Speech Synthesis.
+    - **Phần 2 [ ] PENDING**: Tinh chỉnh System Prompt (`app/agent/prompts.py`) và nhiệt độ (`temperature = 0.6`) để văn phong trả lời mềm mại, đan xen thuật ngữ tiếng Anh trong ngoặc đơn, linh hoạt chuyển đổi model. Chi tiết: `tasks/sprint-03/task-24-chat-voice-and-llm-enhancement.md`.
+
+- [x] **TASK-25: Chat Lavi hiểu ảnh người dùng gửi + ảnh bệnh mẫu + thẻ sản phẩm** (P1; phần A0 là P0)
+  - Trách nhiệm: giao agent; nghiệm thu: Claude Code / trưởng nhóm
+  - Trạng thái: `[x] DONE`
+  - Đầu ra: ảnh đính kèm trong chat đi qua modal cắt ảnh lá `LeafCropper` và `POST /diagnose` có sẵn (OOD / lỗi thì không gọi agent), agent nhận `image_context` và không được nói "mình thấy trong ảnh"; ảnh không còn lưu base64 trong `localStorage`; `final_answer` thêm `reference_images` (backend gom, bỏ rule 10 Markdown ảnh) và `suggested_products` (thẻ gợi ý sản phẩm trực quan, giá lấy từ Core, bấm mở `/store/:id`, không cần nút giỏ hàng); `draft_order` vẫn `null` theo BUG-106; sửa redirect `/products/:id`; bổ sung reverse proxy `/lavitree-images/` trong `nginx.conf`. Chi tiết: `tasks/sprint-03/task-25-chat-image-and-rich-cards.md`.

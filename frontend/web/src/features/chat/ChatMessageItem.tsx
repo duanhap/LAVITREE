@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  ShoppingCart,
   Loader2,
   CheckCircle2,
   Clock,
@@ -30,6 +29,9 @@ import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import laviAvatarImg from '@/assets/brand/lavi-avatar-96.webp';
+import { ReferenceImageGallery } from './ReferenceImageGallery';
+import { ProductSuggestionCards } from './ProductSuggestionCards';
+import { ResultStatusBadge } from '@/features/diagnose/components/ResultStatusBadge';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -43,7 +45,6 @@ let globalPlayingAudio: HTMLAudioElement | null = null;
 export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, diseaseCode }) => {
   const isUser = message.role === 'user';
   const [isStepsOpen, setIsStepsOpen] = useState(false);
-  const [addingToCartId, setAddingToCartId] = useState<number | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<'vi-VN-HoaiMyNeural' | 'vi-VN-NamMinhNeural'>('vi-VN-HoaiMyNeural');
@@ -191,65 +192,6 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
     }
   };
 
-  // Thêm thuốc được gợi ý vào giỏ hàng cá nhân (khớp StorePage SSOT)
-  const handleAddToCart = async (productId: number, quantity: number = 1) => {
-    try {
-      setAddingToCartId(productId);
-      // BUG-83: Gọi lại Core API lấy thông tin thuốc mới nhất từ CSDL, không tin tưởng giá từ câu trả lời LLM
-      // allowedOnly=false chỉ dành cho Admin (nông dân nhận 403); danh sách công khai chỉ có thuốc đang được bán
-      const res = await apiClient.get<{ items: any[] }>('/medicines/search', { params: { allowedOnly: true } });
-      const items = res.data?.items || [];
-      const prod = items.find((p: any) => p.id === productId);
-
-      if (!prod) {
-        toast.error('Sản phẩm này hiện không được bán trên Cửa hàng (không có trong danh mục đang lưu hành).');
-        return;
-      }
-
-      if (!prod.is_allowed) {
-        toast.error(
-          `Sản phẩm "${prod.name}" hiện chưa được cấp phép lưu hành hoặc đã bị dừng bán theo quy định!`
-        );
-        return;
-      }
-
-      // Xác định key giỏ hàng của tài khoản đang đăng nhập
-      const storedUser = localStorage.getItem('lavitree_user');
-      let userId: string | null = null;
-      if (storedUser) {
-        try {
-          userId = JSON.parse(storedUser)?.id;
-        } catch {
-          // ignore
-        }
-      }
-      const cartKey = userId ? `lavitree_cart_${userId}` : 'lavitree_cart_guest';
-
-      let currentCart: any[] = [];
-      try {
-        const saved = localStorage.getItem(cartKey);
-        currentCart = saved ? JSON.parse(saved) : [];
-      } catch {
-        currentCart = [];
-      }
-
-      const existingIndex = currentCart.findIndex((item: any) => item.product?.id === prod.id);
-      if (existingIndex >= 0) {
-        currentCart[existingIndex].quantity += quantity;
-      } else {
-        currentCart.push({ product: prod, quantity });
-      }
-
-      localStorage.setItem(cartKey, JSON.stringify(currentCart));
-      window.dispatchEvent(new Event('storage'));
-      toast.success(`Đã thêm "${prod.name}" (SL: ${quantity}) vào giỏ hàng!`);
-    } catch (err: any) {
-      toast.error('Không thể thêm sản phẩm vào giỏ hàng: ' + (err.message || 'Lỗi kết nối'));
-    } finally {
-      setAddingToCartId(null);
-    }
-  };
-
   if (isUser) {
     return (
       <div className="flex justify-end gap-3 mb-6">
@@ -392,6 +334,48 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
           </div>
         </div>
 
+        {/* Kết quả nhận diện ảnh AI Vision */}
+        {message.image_diagnosis && (
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 text-xs space-y-1.5">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                <span className="font-semibold text-emerald-900 dark:text-emerald-300">
+                  Kết quả nhận diện ảnh lá (Lavitree AI Vision):
+                </span>
+              </div>
+              <ResultStatusBadge status={message.image_diagnosis.status} size="sm" />
+            </div>
+
+            <div className="flex items-center gap-2 text-foreground font-medium">
+              <span>{message.image_diagnosis.disease_name}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">{message.image_diagnosis.plant_name}</span>
+              <span className="text-emerald-700 dark:text-emerald-400 font-bold ml-auto">
+                {Math.round(message.image_diagnosis.confidence * 100)}% độ tin cậy
+              </span>
+            </div>
+
+            {message.image_diagnosis.warning && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md p-1.5">
+                {message.image_diagnosis.warning}
+              </p>
+            )}
+
+            {message.image_diagnosis.diagnosis_id && (
+              <div className="pt-1 text-[11px]">
+                <Link
+                  to="/history"
+                  className="text-primary hover:underline inline-flex items-center gap-1 font-medium"
+                >
+                  <span>Xem hồ sơ ca chẩn đoán trong Lịch sử khám bệnh</span>
+                  <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Khối các bước suy luận ReAct (XAI Observability) */}
         {hasTraceSteps && (
           <div className="rounded-xl border border-border bg-muted/40 overflow-hidden text-xs">
@@ -507,6 +491,20 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
               ),
               img: ({ src, alt }) => {
                 if (!src) return null;
+                // Siết chặt: chỉ vẽ <img> nếu src nằm trong danh sách ảnh reference_images đã duyệt
+                const isApproved = message.reference_images?.some((r) => r.image_url === src);
+                if (!isApproved) {
+                  return (
+                    <a
+                      href={src}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline text-xs inline-flex items-center gap-1 my-1"
+                    >
+                      <span>[Ảnh minh họa: {alt || 'Liên kết ngoài'}]</span>
+                    </a>
+                  );
+                }
                 return (
                   <span className="block my-3">
                     <img
@@ -530,45 +528,14 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
           </ReactMarkdown>
         </div>
 
-        {/* Đề xuất đơn thuốc từ Draft Order (BUG-83) */}
-        {message.draft_order && message.draft_order.items && message.draft_order.items.length > 0 && (
-          <div className="mt-4 p-3.5 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-900 dark:text-emerald-300">
-              <ShoppingCart className="w-4 h-4 text-emerald-700" />
-              <span>Gợi ý Đơn thuốc điều trị (Theo dõi tồn kho thật):</span>
-            </div>
+        {/* Ảnh mẫu triệu chứng bệnh đã kiểm duyệt từ Kho tri thức */}
+        {message.reference_images && message.reference_images.length > 0 && (
+          <ReferenceImageGallery images={message.reference_images} diseaseCode={effectiveDiseaseCode} />
+        )}
 
-            <div className="space-y-2">
-              {message.draft_order.items.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between bg-card p-2.5 rounded-lg border border-border text-xs"
-                >
-                  <div>
-                    <span className="font-semibold text-foreground">
-                      {item.product_name || `Thuốc mã #${item.product_id}`}
-                    </span>
-                    <span className="text-muted-foreground ml-2">Số lượng: {item.quantity}</span>
-                  </div>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs border-emerald-600 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                    disabled={addingToCartId === item.product_id}
-                    onClick={() => handleAddToCart(item.product_id, item.quantity)}
-                  >
-                    {addingToCartId === item.product_id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                    ) : (
-                      <ShoppingCart className="w-3.5 h-3.5 mr-1" />
-                    )}
-                    Thêm vào giỏ
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* Thẻ gợi ý sản phẩm điều trị (Chuyển sang /store/:id) */}
+        {message.suggested_products && message.suggested_products.length > 0 && (
+          <ProductSuggestionCards products={message.suggested_products} />
         )}
 
         {/* Khối Danh mục Nguồn tài liệu tham khảo (BẮT BUỘC Điều 25 Luật SHTT) */}

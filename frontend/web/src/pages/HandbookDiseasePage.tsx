@@ -52,6 +52,59 @@ const formatEnglishDiseaseName = (code: string): string => {
   return diseasePart.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
 };
 
+const ProductReferenceCard: React.FC<{
+  prod: NonNullable<DiseaseDetailResponse['products']>[number];
+}> = ({ prod }) => {
+  const [imgError, setImgError] = useState(false);
+  const src = safeHref(prod.imageUrl);
+
+  return (
+    <Card className="border-border bg-card shadow-2xs hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden">
+      <div className="p-3.5 sm:p-4 flex gap-3.5 items-center">
+        {/* Thumbnail ảnh sản phẩm */}
+        <div className="w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-lg bg-white dark:bg-muted/20 border border-border/60 p-1 flex items-center justify-center overflow-hidden">
+          {src && !imgError ? (
+            <img
+              src={src}
+              alt={prod.name}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain transition-transform duration-300 hover:scale-105"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <ShoppingBag className="w-8 h-8 text-muted-foreground/30" aria-label="Chưa có ảnh sản phẩm" />
+          )}
+        </div>
+
+        {/* Thông tin sản phẩm */}
+        <div className="flex-1 min-w-0 space-y-1">
+          <CardTitle className="text-sm font-bold text-foreground line-clamp-2 leading-snug" title={prod.name}>
+            {prod.name}
+          </CardTitle>
+          <div className="text-xs font-bold text-primary tabular-nums">
+            {prod.price > 0 ? `${prod.price.toLocaleString('vi-VN')} đ` : 'Tư vấn kỹ thuật'}
+          </div>
+          {prod.activeIngredient && (
+            <p className="text-[11px] text-muted-foreground line-clamp-1" title={prod.activeIngredient}>
+              Hoạt chất: <span className="font-medium text-foreground">{prod.activeIngredient}</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="px-3.5 pb-3.5 sm:px-4 sm:pb-4 pt-0">
+        <Button asChild variant="outline" size="sm" className="w-full text-xs font-semibold h-8 border-border hover:bg-primary/10 hover:text-primary">
+          <Link to={prod.id ? `/store/${prod.id}` : '/store'}>
+            <ShoppingBag className="h-3.5 w-3.5 mr-1.5" />
+            Xem trong cửa hàng
+          </Link>
+        </Button>
+      </div>
+    </Card>
+  );
+};
+
 export const HandbookDiseasePage: React.FC = () => {
   const { classCode } = useParams<{ classCode: string }>();
   const navigate = useNavigate();
@@ -499,38 +552,7 @@ export const HandbookDiseasePage: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {disease.products.map((prod) => (
-                  <Card key={prod.id} className="border-border bg-card shadow-2xs hover:border-primary/40 transition-colors flex flex-col justify-between">
-                    <CardHeader className="p-4 pb-2 space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-sm font-bold text-foreground line-clamp-1">
-                          {prod.name}
-                        </CardTitle>
-                        <span className="text-xs font-bold text-primary shrink-0 tabular-nums">
-                          {prod.price > 0 ? `${prod.price.toLocaleString('vi-VN')} đ` : 'Tư vấn kỹ thuật'}
-                        </span>
-                      </div>
-                      {prod.activeIngredient && (
-                        <p className="text-[11px] text-muted-foreground line-clamp-1">
-                          Hoạt chất: <span className="font-medium text-foreground">{prod.activeIngredient}</span>
-                        </p>
-                      )}
-                    </CardHeader>
-                    <CardContent className="p-4 pt-1 space-y-3">
-                      {prod.dosageInstruction && (
-                        <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                          {prod.dosageInstruction}
-                        </p>
-                      )}
-                      <div className="pt-2 border-t border-border/50">
-                        <Button asChild variant="outline" size="sm" className="w-full text-xs font-semibold h-10 lg:h-8 border-border hover:bg-primary/10 hover:text-primary">
-                          <Link to="/store">
-                            <ShoppingBag className="h-3 w-3 mr-1.5" />
-                            Xem trong cửa hàng
-                          </Link>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <ProductReferenceCard key={prod.id} prod={prod} />
                 ))}
               </div>
             </section>

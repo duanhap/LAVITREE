@@ -36,17 +36,24 @@ import { PageSkeleton } from '@/components/common/PageSkeleton';
 import { ProductFormFields, type ProductFormData } from '@/features/admin/components/ProductFormFields';
 import { setBannedTerms, isIngredientBanned } from '@/features/admin/lib/guardrails';
 import { DiseaseEvidenceList } from '@/features/products/components/DiseaseEvidenceList';
+import type { SaveDiseaseRulePayload } from '@/features/products/components/DiseaseUsageRule';
 import {
   getProduct,
   getProductEvidence,
   unlinkProductSuggestion,
   updateProduct,
+  getUsageRules,
+  createUsageRule,
+  updateUsageRule,
+  verifyUsageRule,
+  deleteUsageRule,
 } from '@/features/products/api';
 import { groupProductEvidence } from '@/features/products/groupEvidence';
 import type {
   ProductDetailResponse,
   ProductEvidenceItem,
   GroupedDiseaseRow,
+  ProductUsageRuleItem,
 } from '@/features/products/types';
 import {
   emptyUsageProfile,
@@ -84,6 +91,7 @@ export const AdminProductDetailPage: React.FC = () => {
 
   const [product, setProduct] = useState<ProductDetailResponse | null>(null);
   const [evidences, setEvidences] = useState<ProductEvidenceItem[]>([]);
+  const [usageRules, setUsageRules] = useState<ProductUsageRuleItem[]>([]);
   const [availableDiseases, setAvailableDiseases] = useState<
     Array<{ classCode: string; diseaseName: string; plantName: string }>
   >([]);
@@ -144,11 +152,12 @@ export const AdminProductDetailPage: React.FC = () => {
     setLoadError(null);
 
     try {
-      const [prodRes, evRes, disRes, bannedRes] = await Promise.allSettled([
+      const [prodRes, evRes, disRes, bannedRes, rulesRes] = await Promise.allSettled([
         getProduct(productId),
         getProductEvidence(productId),
         apiClient.get<any[]>('/diseases'),
         apiClient.get<{ terms?: Array<{ text: string; substance: string }> }>('/banned-substances'),
+        getUsageRules(productId),
       ]);
 
       if (prodRes.status === 'rejected') {
@@ -166,6 +175,10 @@ export const AdminProductDetailPage: React.FC = () => {
 
       if (evRes.status === 'fulfilled') {
         setEvidences(evRes.value);
+      }
+
+      if (rulesRes.status === 'fulfilled') {
+        setUsageRules(rulesRes.value);
       }
 
       if (bannedRes.status === 'fulfilled' && bannedRes.value.data?.terms) {
@@ -335,52 +348,87 @@ export const AdminProductDetailPage: React.FC = () => {
     return groupProductEvidence(product.diseases || [], evidences, { mode: 'admin' });
   }, [product, evidences]);
 
-  // Lưu quy tắc liều lượng riêng cho từng bệnh (Lưu vào UsageProfile.DiseaseRules[modelClass])
-  const handleSaveDiseaseRule = async (modelClass: string, rule: DiseaseUsageRuleProfile) => {
+  // Lưu quy tắc liều lượng riêng cho từng bệnh (Bảng ProductUsageRules + sync UsageProfile - TASK-22)
+  const handleSaveDiseaseRule = async (modelClass: string, payload: SaveDiseaseRulePayload) => {
     if (!productId || !product) return;
 
-    const currentUsage: UsageProfile = product.usage_profile
-      ? { ...product.usage_profile }
-      : emptyUsageProfile();
-
-    const nextRules = {
-      ...(currentUsage.disease_rules || {}),
-      [modelClass]: rule,
-    };
-
-    const updatedProfile: UsageProfile = {
-      ...currentUsage,
-      disease_rules: nextRules,
-    };
+    const existingRule = payload.ruleId
+      ? usageRules.find((r) => r.id === payload.ruleId)
+      : usageRules.find((r) => r.class_code?.toLowerCase() === modelClass.toLowerCase());
 
     try {
-      await updateProduct(productId, { usage_profile: updatedProfile });
-      setProduct((prev) => (prev ? { ...prev, usage_profile: updatedProfile } : null));
+      if (existingRule) {
+        const updated = await updateUsageRule(productId, existingRule.id, {
+          profile: payload.profile,
+          action_group: payload.actionGroup,
+          source_url: payload.sourceUrl,
+        });
+        setUsageRules((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      } else {
+        const matchMeta = availableDiseases.find(
+          (d) => d.classCode.toLowerCase() === modelClass.toLowerCase()
+        );
+        const created = await createUsageRule(productId, {
+          class_code: modelClass,
+          plant_name: matchMeta?.plantName,
+          profile: payload.profile,
+          action_group: payload.actionGroup,
+          source_url: payload.sourceUrl,
+        });
+        setUsageRules((prev) => [...prev, created]);
+      }
+
+      // Tải lại sản phẩm để đồng bộ UsageProfile.DiseaseRules
+      const refreshed = await getProduct(productId);
+      setProduct(refreshed);
     } catch (err: unknown) {
       toast.error('Lỗi khi lưu liều lượng theo bệnh: ' + getErrorMessage(err));
       throw err;
     }
   };
 
-  // Khôi phục liều mặc định cho bệnh (xóa rule khỏi DiseaseRules)
-  const handleResetDiseaseRule = async (modelClass: string) => {
+  // Xác nhận đối chiếu với nhãn thuốc cho quy tắc bệnh (TASK-22)
+  const handleVerifyDiseaseRule = async (ruleId: number, verified: boolean) => {
+    if (!productId) return;
+    try {
+      const updated = await verifyUsageRule(productId, ruleId, verified);
+      setUsageRules((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      toast.success(
+        verified
+          ? 'Đã xác nhận đối chiếu phiếu cách dùng với nhãn thuốc/nguồn.'
+          : 'Đã hủy xác nhận đối chiếu.'
+      );
+    } catch (err: unknown) {
+      toast.error('Lỗi khi cập nhật đối chiếu: ' + getErrorMessage(err));
+      throw err;
+    }
+  };
+
+  // Khôi phục liều mặc định cho bệnh (xóa rule khỏi ProductUsageRules và DiseaseRules)
+  const handleResetDiseaseRule = async (modelClass: string, ruleId?: number) => {
     if (!productId || !product) return;
 
-    const currentUsage: UsageProfile = product.usage_profile
-      ? { ...product.usage_profile }
-      : emptyUsageProfile();
-
-    const nextRules = { ...(currentUsage.disease_rules || {}) };
-    delete nextRules[modelClass];
-
-    const updatedProfile: UsageProfile = {
-      ...currentUsage,
-      disease_rules: nextRules,
-    };
+    const targetRule = ruleId
+      ? usageRules.find((r) => r.id === ruleId)
+      : usageRules.find((r) => r.class_code?.toLowerCase() === modelClass.toLowerCase());
 
     try {
-      await updateProduct(productId, { usage_profile: updatedProfile });
-      setProduct((prev) => (prev ? { ...prev, usage_profile: updatedProfile } : null));
+      if (targetRule) {
+        await deleteUsageRule(productId, targetRule.id);
+        setUsageRules((prev) => prev.filter((r) => r.id !== targetRule.id));
+      } else {
+        // Fallback xóa trong JSON profile cũ nếu chưa có trong DB
+        const currentUsage: UsageProfile = product.usage_profile
+          ? { ...product.usage_profile }
+          : emptyUsageProfile();
+        const nextRules = { ...(currentUsage.disease_rules || {}) };
+        delete nextRules[modelClass];
+        const updatedProfile: UsageProfile = { ...currentUsage, disease_rules: nextRules };
+        await updateProduct(productId, { usage_profile: updatedProfile });
+      }
+
+      const refreshed = await getProduct(productId);
+      setProduct(refreshed);
     } catch (err: unknown) {
       toast.error('Lỗi khi khôi phục liều mặc định: ' + getErrorMessage(err));
       throw err;
@@ -436,6 +484,15 @@ export const AdminProductDetailPage: React.FC = () => {
       const newDiseases = (product.diseases || []).filter(
         (d) => d.class_code.toLowerCase() !== modelClass.toLowerCase()
       );
+
+      // Đồng thời dọn dẹp quy tắc ProductUsageRules nếu có
+      const targetRule = usageRules.find(
+        (r) => r.class_code?.toLowerCase() === modelClass.toLowerCase()
+      );
+      if (targetRule) {
+        await deleteUsageRule(productId, targetRule.id);
+        setUsageRules((prev) => prev.filter((r) => r.id !== targetRule.id));
+      }
 
       // Đồng thời dọn dẹp disease_rules nếu có
       let nextUsage = product.usage_profile;
@@ -950,9 +1007,11 @@ export const AdminProductDetailPage: React.FC = () => {
             defaultProfile={product.usage_profile}
             defaultDosage={productDosage}
             diseaseRules={product.usage_profile?.disease_rules}
+            usageRules={usageRules}
             isSupply={product.medicine_type === 'Vật tư canh tác'}
             phiDays={product.phi_days}
             onSaveDiseaseRule={handleSaveDiseaseRule}
+            onVerifyDiseaseRule={handleVerifyDiseaseRule}
             onResetDiseaseRule={handleResetDiseaseRule}
             onRemoveDisease={handleRemoveDisease}
             onAddDisease={handleAddDisease}

@@ -74,7 +74,7 @@ const LETTER = /\p{L}/u;
 export const containsTerm = (lowerText: string, term: string): boolean => {
   if (!term) return false;
   let from = 0;
-  for (;;) {
+  for (; ;) {
     const i = lowerText.indexOf(term, from);
     if (i < 0) return false;
     const end = i + term.length;
@@ -102,10 +102,10 @@ export const isIngredientBanned = (text?: string | null): boolean => findBannedS
 export const cleanEvidencePreview = (text: string): string => {
   if (!text) return '';
   return text
-    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/(?:^|\s)#{1,6}\s+/g, ' ')
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/\*(.*?)\*/g, '$1')
-    .replace(/^[*\-+•]\s+/gm, '')
+    .replace(/(?:^|[\n\r])\s*[-•*+–—]\s+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 };

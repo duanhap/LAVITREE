@@ -37,6 +37,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { safeHref } from '@/lib/utils';
+import { FormattedSnippet } from '@/components/common/FormattedSnippet';
+import { isUsageEmpty } from '@/features/admin/lib/usage-profile';
 import type {
   ProductDetailResponse,
   ProductEvidenceItem,
@@ -65,6 +67,23 @@ const parseDosageSections = (rawText: string) => {
     }
     return { title: 'Thông tin kỹ thuật', content: part.trim() };
   });
+};
+
+// Trích xuất phần hướng dẫn sử dụng thực tế (bỏ qua các đoạn bài văn mô tả kỹ thuật chung)
+const extractPracticalUsageText = (rawText: string) => {
+  if (!rawText) return '';
+  const sections = parseDosageSections(rawText);
+  if (!sections.length) return rawText.trim();
+  const usageSec = sections.find((s) =>
+    /hướng dẫn|cách dùng|cách pha|liều lượng/i.test(s.title)
+  );
+  if (usageSec && usageSec.content) {
+    return usageSec.content;
+  }
+  if (sections.length > 1) {
+    return sections[sections.length - 1].content;
+  }
+  return sections[0].content;
 };
 
 export const ProductDetailPage: React.FC = () => {
@@ -357,10 +376,10 @@ export const ProductDetailPage: React.FC = () => {
               <Badge
                 variant="outline"
                 className={`text-xs font-semibold shadow-xs ${isFarmingSupply
-                    ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300'
-                    : isBio
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300'
-                      : 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/70 dark:text-blue-300'
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300'
+                  : isBio
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300'
+                    : 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/70 dark:text-blue-300'
                   }`}
               >
                 <TypeIcon className="w-3.5 h-3.5 mr-1" />
@@ -609,19 +628,17 @@ export const ProductDetailPage: React.FC = () => {
                         return (
                           <Card
                             key={idx}
-                            className={`rounded-2xl border transition-all shadow-2xs ${
-                              isHighlight
+                            className={`rounded-2xl border transition-all shadow-2xs ${isHighlight
                                 ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 md:col-span-2'
                                 : 'border-border bg-card'
-                            }`}
+                              }`}
                           >
                             <CardHeader className="pb-2 pt-4 px-4 sm:px-5">
                               <CardTitle
-                                className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
-                                  isHighlight
+                                className={`text-sm sm:text-base font-bold flex items-center gap-2 ${isHighlight
                                     ? 'text-emerald-800 dark:text-emerald-300'
                                     : 'text-foreground'
-                                }`}
+                                  }`}
                               >
                                 <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
                                 <span>{sec.title}</span>
@@ -672,38 +689,55 @@ export const ProductDetailPage: React.FC = () => {
 
           {product.diseases && product.diseases.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {product.diseases.map((d, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => setSelectedPopupDisease(d)}
-                  className="p-4 sm:p-5 rounded-2xl border border-border bg-card hover:border-primary hover:shadow-xs transition-all cursor-pointer flex flex-col justify-between group space-y-3"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className="text-[10px] font-bold text-primary uppercase">
-                        {d.plant_name}
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground flex items-center gap-1 group-hover:text-primary transition-colors">
-                        <Info className="w-3.5 h-3.5" />
-                        <span>Xem chi tiết</span>
-                      </span>
+              {product.diseases.map((d, idx) => {
+                const specificRule = product.usage_profile?.disease_rules?.[d.class_code];
+                const hasSpecific = Boolean(
+                  specificRule &&
+                  (specificRule.dosage_instruction?.trim() ||
+                    (specificRule.usage_profile && !isUsageEmpty(specificRule.usage_profile)))
+                );
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => setSelectedPopupDisease(d)}
+                    className="p-4 sm:p-5 rounded-2xl border border-border bg-card hover:border-primary hover:shadow-xs transition-all cursor-pointer flex flex-col justify-between group space-y-3"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <Badge variant="outline" className="text-[10px] font-bold text-primary uppercase">
+                          {d.plant_name}
+                        </Badge>
+                        {hasSpecific ? (
+                          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-semibold border-0 flex items-center gap-1">
+                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>Có liều riêng</span>
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] bg-muted/60 text-muted-foreground border-border/70">
+                            <span>Dùng liều chung</span>
+                          </Badge>
+                        )}
+                      </div>
+
+                      <h4 className="text-base font-bold text-foreground group-hover:text-primary transition-colors pt-0.5">
+                        {d.disease_name}
+                      </h4>
+
+                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                        {hasSpecific && specificRule?.dosage_instruction
+                          ? specificRule.dosage_instruction
+                          : `Nằm trong danh mục phòng trị của ${product.name}. Nhấn để xem hướng dẫn.`}
+                      </p>
                     </div>
 
-                    <h4 className="text-base font-bold text-foreground group-hover:text-primary transition-colors pt-1">
-                      {d.disease_name}
-                    </h4>
-
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      Được kiểm chứng hiệu quả cao khi điều trị bằng {product.name}. Bấm để mở tóm tắt triệu chứng.
-                    </p>
+                    <div className="pt-3 border-t border-border/50 flex items-center justify-between text-xs font-semibold text-primary">
+                      <span>{hasSpecific ? 'Xem liều riêng' : 'Xem hướng dẫn'}</span>
+                      <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    </div>
                   </div>
-
-                  <div className="pt-3 border-t border-border/50 flex items-center justify-between text-xs font-semibold text-primary">
-                    <span>Mở phác đồ & Sổ tay</span>
-                    <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : product.target_diseases && product.target_diseases.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -751,9 +785,9 @@ export const ProductDetailPage: React.FC = () => {
                     </Badge>
                   </div>
 
-                  <p className="text-muted-foreground leading-relaxed italic bg-secondary/30 p-3 rounded-xl border border-border/40">
-                    "{item.evidence_text}"
-                  </p>
+                  <div className="bg-secondary/30 p-3.5 rounded-xl border border-border/40 text-xs">
+                    <FormattedSnippet text={item.evidence_text} variant="full" />
+                  </div>
 
                   {item.source_url && (
                     <div className="text-right pt-1">
@@ -809,60 +843,209 @@ export const ProductDetailPage: React.FC = () => {
         open={!!selectedPopupDisease}
         onOpenChange={(open) => !open && setSelectedPopupDisease(null)}
       >
-        <DialogContent className="max-w-md p-6 bg-background border border-border rounded-2xl">
-          <DialogHeader className="space-y-1.5 pb-3 border-b border-border/60">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-xs font-bold text-primary uppercase">
-                {selectedPopupDisease?.plant_name}
-              </Badge>
-            </div>
-            <DialogTitle className="text-lg font-bold text-foreground pt-1">
-              {selectedPopupDisease?.disease_name}
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-lg md:max-w-xl p-0 bg-background border border-border rounded-2xl overflow-hidden flex flex-col max-h-[88vh]">
+          {selectedPopupDisease && (() => {
+            const rule = product?.usage_profile?.disease_rules?.[selectedPopupDisease.class_code];
+            const hasRule = Boolean(
+              rule &&
+              (rule.dosage_instruction?.trim() ||
+                (rule.usage_profile && !isUsageEmpty(rule.usage_profile)))
+            );
+            const prof = rule?.usage_profile;
+            const fallbackUsage = extractPracticalUsageText(product?.dosage_instruction || '');
 
-          <div className="space-y-4 py-3 text-sm">
-            <div className="p-3.5 bg-secondary/30 rounded-xl border border-border space-y-1.5">
-              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Hiệu quả điều trị với {product.name}:
-              </span>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Sản phẩm {product.name} ({product.medicine_type}) được kiểm chứng hiệu lực cao trong việc khống chế và tiêu diệt tác nhân gây {selectedPopupDisease?.disease_name?.toLowerCase()} trên cây {selectedPopupDisease?.plant_name?.toLowerCase()}.
-              </p>
-            </div>
+            return (
+              <>
+                <DialogHeader className="p-4 sm:p-5 pb-3 border-b border-border/60 bg-muted/10 space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pr-6">
+                    <Badge variant="outline" className="text-xs font-bold text-primary uppercase">
+                      {selectedPopupDisease.plant_name}
+                    </Badge>
+                    {hasRule ? (
+                      <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-0 text-[11px] font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Đã có liều lượng riêng</span>
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300/80 text-[11px] font-medium flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Chưa thiết lập liều riêng</span>
+                      </Badge>
+                    )}
+                  </div>
+                  <DialogTitle className="text-base sm:text-lg font-bold text-foreground">
+                    {selectedPopupDisease.disease_name}
+                  </DialogTitle>
+                </DialogHeader>
 
-            <div className="space-y-1.5 text-xs">
-              <span className="font-semibold text-foreground">Liều lượng khuyến cáo cho bệnh này:</span>
-              <div className="p-2.5 bg-muted/40 rounded-lg border border-border/50 text-muted-foreground leading-relaxed">
-                {product.dosage_instruction || 'Pha theo tỷ lệ khuyến cáo của nhà sản xuất, phun ướt đều tán lá khi vết bệnh chớm xuất hiện.'}
-              </div>
-            </div>
-          </div>
+                <div className="p-4 sm:p-5 space-y-4 overflow-y-auto text-xs flex-1">
+                  {hasRule ? (
+                    /* TRƯỜNG HỢP A: ĐÃ CÓ LIỀU LƯỢNG RIÊNG ĐƯỢC THIẾT LẬP */
+                    <div className="space-y-3.5">
+                      {/* Khối hướng dẫn sử dụng riêng */}
+                      <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-900/60 space-y-1.5">
+                        <span className="font-semibold text-xs text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                          <span>Hướng dẫn sử dụng cho bệnh này:</span>
+                        </span>
+                        <p className="text-xs text-foreground leading-relaxed whitespace-pre-line font-medium">
+                          {rule?.dosage_instruction || 'Xem các thông số kỹ thuật bên dưới.'}
+                        </p>
+                      </div>
 
-          <DialogFooter className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelectedPopupDisease(null)}
-              className="text-xs"
-            >
-              Đóng
-            </Button>
-            {selectedPopupDisease && (
-              <Button
-                asChild
-                size="sm"
-                className="bg-primary hover:bg-primary-hover text-white text-xs gap-1.5"
-              >
-                <Link to={`/handbook/${encodeURIComponent(selectedPopupDisease.class_code)}`}>
-                  <BookOpen className="w-3.5 h-3.5" />
-                  <span>Xem đầy đủ trong Sổ tay</span>
-                </Link>
-              </Button>
-            )}
-          </DialogFooter>
+                      {/* Bảng thông số kỹ thuật (nếu có profile chi tiết) */}
+                      {prof && !isUsageEmpty(prof) && (
+                        <div className="space-y-1.5">
+                          <span className="font-semibold text-foreground text-[11px] block">
+                            Thông số kỹ thuật áp dụng:
+                          </span>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                            {prof.dose_amount && (
+                              <div className="p-2 rounded-lg bg-muted/40 border border-border/60">
+                                <span className="text-muted-foreground block text-[10px]">Liều pha:</span>
+                                <strong className="text-foreground">{prof.dose_amount} {prof.dose_unit || ''}</strong>
+                              </div>
+                            )}
+                            {prof.water_liters && (
+                              <div className="p-2 rounded-lg bg-muted/40 border border-border/60">
+                                <span className="text-muted-foreground block text-[10px]">Lượng nước:</span>
+                                <strong className="text-foreground">{prof.water_liters} lít / bình</strong>
+                              </div>
+                            )}
+                            {prof.dose_per_area && (
+                              <div className="p-2 rounded-lg bg-muted/40 border border-border/60 col-span-2 sm:col-span-1">
+                                <span className="text-muted-foreground block text-[10px]">Liều theo diện tích:</span>
+                                <strong className="text-foreground">
+                                  {prof.dose_per_area.min && prof.dose_per_area.max && prof.dose_per_area.min !== prof.dose_per_area.max
+                                    ? `${prof.dose_per_area.min}–${prof.dose_per_area.max}`
+                                    : prof.dose_per_area.min || prof.dose_per_area.max}{' '}
+                                  {prof.dose_per_area.unit || ''}
+                                </strong>
+                              </div>
+                            )}
+                            {prof.method && (
+                              <div className="p-2 rounded-lg bg-muted/40 border border-border/60 col-span-2">
+                                <span className="text-muted-foreground block text-[10px]">Cách dùng:</span>
+                                <strong className="text-foreground">{prof.method}</strong>
+                              </div>
+                            )}
+                            {prof.interval_days && (
+                              <div className="p-2 rounded-lg bg-muted/40 border border-border/60">
+                                <span className="text-muted-foreground block text-[10px]">Cách nhau:</span>
+                                <strong className="text-foreground">
+                                  {typeof prof.interval_days === 'object'
+                                    ? `${prof.interval_days.min || ''}–${prof.interval_days.max || ''} ngày`
+                                    : `${prof.interval_days} ngày`}
+                                </strong>
+                              </div>
+                            )}
+                            {prof.time_of_day && prof.time_of_day.length > 0 && (
+                              <div className="p-2 rounded-lg bg-muted/40 border border-border/60">
+                                <span className="text-muted-foreground block text-[10px]">Thời điểm:</span>
+                                <strong className="text-foreground">{prof.time_of_day.join(', ')}</strong>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Lưu ý an toàn nếu có */}
+                      {prof?.safety_note && (
+                        <div className="p-2.5 rounded-lg bg-muted/30 border border-border/60 text-[11px] text-muted-foreground leading-relaxed">
+                          <strong className="text-foreground font-semibold">Lưu ý an toàn: </strong>
+                          {prof.safety_note}
+                        </div>
+                      )}
+
+                      {/* Link nguồn tài liệu */}
+                      {rule?.source_url && (
+                        <div className="pt-1 text-[11px] text-muted-foreground flex items-center gap-1">
+                          <span>Nguồn tài liệu:</span>
+                          <a
+                            href={safeHref(rule.source_url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-700 dark:text-emerald-400 hover:underline inline-flex items-center gap-0.5 truncate max-w-[280px]"
+                          >
+                            <span>{rule.source_url}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* TRƯỜNG HỢP B: CHƯA CÓ LIỀU LƯỢNG RIÊNG */
+                    <div className="space-y-3.5">
+                      {/* Cảnh báo an toàn, khách quan */}
+                      <div className="p-3.5 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-900/60 space-y-1.5">
+                        <div className="font-semibold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Chưa có quy tắc liều riêng cho bệnh này</span>
+                        </div>
+                        <p className="text-xs text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
+                          Sản phẩm thuộc nhóm phòng ngừa / điều trị theo danh mục của nhà sản xuất, nhưng <strong>chưa được thiết lập phác đồ liều lượng riêng</strong> cho bệnh {selectedPopupDisease.disease_name}.
+                        </p>
+                        <p className="text-[11px] text-amber-900/80 dark:text-amber-300/80 font-medium pt-0.5">
+                          👉 Nông dân vui lòng đọc kỹ hướng dẫn sử dụng trên nhãn bao bì hoặc tham khảo ý kiến kỹ sư BVTV trước khi áp dụng.
+                        </p>
+                      </div>
+
+                      {/* Hướng dẫn sử dụng chung của bao bì (trích xuất ngắn gọn, không nhồi nhét mô tả) */}
+                      {fallbackUsage && (
+                        <div className="space-y-1.5">
+                          <span className="font-semibold text-foreground text-xs block">
+                            Hướng dẫn sử dụng chung từ nhãn bao bì (Tham khảo):
+                          </span>
+                          <div className="p-3 bg-muted/30 rounded-xl border border-border/60 text-xs text-foreground leading-relaxed whitespace-pre-line font-medium">
+                            {fallbackUsage}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Nếu là Admin: cung cấp lối tắt cấu hình ngay */}
+                      {user?.role === 'ADMIN' && (
+                        <div className="pt-1">
+                          <Button
+                            asChild
+                            variant="outline"
+                            size="sm"
+                            className="w-full text-xs border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 hover:bg-amber-100/50 gap-1.5 justify-center"
+                          >
+                            <Link to="/admin/inventory">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                              <span>⚙️ Quản trị viên: Gắn gợi ý &amp; thiết lập liều riêng tại Kho</span>
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="p-4 border-t border-border/60 bg-muted/10 flex items-center justify-between sm:justify-between gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedPopupDisease(null)}
+                    className="text-xs"
+                  >
+                    Đóng
+                  </Button>
+                  <Button
+                    asChild
+                    size="sm"
+                    className="bg-primary hover:bg-primary-hover text-white text-xs gap-1.5 font-semibold"
+                  >
+                    <Link to={`/handbook/${encodeURIComponent(selectedPopupDisease.class_code)}`}>
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>Xem phác đồ trong Sổ tay</span>
+                    </Link>
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

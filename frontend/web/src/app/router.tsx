@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { AuthLayout } from './AuthLayout';
 import { RequireRole } from './RequireRole';
@@ -52,6 +52,11 @@ const ComingSoonPage: React.FC<{ title: string; description: string; actionText?
     />
   </div>
 );
+
+const LegacyProductRedirect: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={id ? `/store/${encodeURIComponent(id)}` : '/store'} replace />;
+};
 
 export const AppRouter: React.FC = () => {
   return (
@@ -130,7 +135,7 @@ export const AppRouter: React.FC = () => {
             </Suspense>
           }
         />
-        <Route path="/products/:id" element={<Navigate to="/store/:id" replace />} />
+        <Route path="/products/:id" element={<LegacyProductRedirect />} />
 
         {/* W-11: Đơn hàng của tôi (Sprint 2 - TASK-A03) */}
         <Route

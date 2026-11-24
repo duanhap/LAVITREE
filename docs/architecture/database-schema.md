@@ -227,6 +227,29 @@ Trạng thái cấm không lưu cứng: tính từ quyết định mới nhất 
 
 Dữ liệu khởi tạo trong migration: 31 hoạt chất Phụ lục II TT 75/2025/TT-BNNMT + paraquat, 2,4-D, chlorpyrifos, glyphosate (danh sách cũ, ghi chú cần bổ sung văn bản).
 
+### Nhóm 5: Quy tắc cách dùng thuốc theo từng bệnh (`ProductUsageRules` — TASK-22)
+
+Lưu trữ phiếu cách dùng và định lượng chi tiết cho từng cặp `(ProductId, DiseaseId)` phục vụ lập lịch phun thuốc (`CareSchedules`/`CareTasks`) của AI Agent.
+
+#### Bảng `ProductUsageRules`
+| Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `Id` | `SERIAL` | PK | Khóa chính tự tăng |
+| `ProductId` | `INT` | FK $\rightarrow$ Products (CASCADE), NOT NULL | Thuốc / vật tư áp dụng |
+| `DiseaseId` | `INT` | FK $\rightarrow$ Diseases (SET NULL), NULL | Bệnh hại áp dụng (null = áp dụng mọi bệnh của cây) |
+| `PlantName` | `VARCHAR(100)` | NULL | Tên loài cây trồng áp dụng |
+| `Profile` | `jsonb` | NOT NULL | Cấu trúc `UsageProfile` (liều, lượng nước, cách phun, khoảng cách ngày, thời tiết...) |
+| `ActionGroup` | `VARCHAR(20)` | NULL | Nhóm cơ chế tác động (FRAC / IRAC) để luân phiên thuốc chống kháng |
+| `SourceUrl` | `VARCHAR(500)` | NULL | Link bài báo kỹ thuật hoặc nhãn thuốc tham khảo |
+| `IsVerified` | `BOOLEAN` | DEFAULT FALSE | Trạng thái đã đối chiếu với nhãn thuốc bởi Admin (chỉ rule đã đối chiếu mới dùng lập lịch) |
+| `VerifiedBy` | `VARCHAR(100)` | NULL | Email Admin thực hiện xác nhận đối chiếu |
+| `VerifiedAt` | `TIMESTAMPTZ` | NULL | Thời điểm xác nhận đối chiếu |
+| `CreatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm tạo |
+| `UpdatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm cập nhật cuối (mỗi lần sửa tự reset `IsVerified = false`) |
+| `IsDeleted` | `BOOLEAN` | DEFAULT FALSE | Xóa mềm quy tắc |
+
+- **Chỉ mục duy nhất có điều kiện**: `IX_ProductUsageRules_ProductId_DiseaseId_PlantName` trên `("ProductId", "DiseaseId", "PlantName") WHERE "IsDeleted" = false`.
+
 ---
 
 ## 3. CHIẾN LƯỢC SEED DATA (NẠP DỮ LIỆU BAN ĐẦU)
