@@ -609,6 +609,8 @@ export const AdminProductDetailPage: React.FC = () => {
       currentName: formData.name,
       activeIngredient: formData.active_ingredient,
       sourceUrl: formData.info_source_url,
+      // Kết quả nạp vào tab Thông tin = liều BAO BÌ của sản phẩm → prompt tìm liều theo nhãn, không theo cây của căn cứ
+      usageMode: 'package',
     });
 
     navigator.clipboard?.writeText(promptText);
@@ -1119,6 +1121,8 @@ export const AdminProductDetailPage: React.FC = () => {
             usageRules={usageRules}
             isSupply={product.medicine_type === 'Vật tư canh tác'}
             phiDays={product.phi_days}
+            medicineType={product.medicine_type}
+            activeIngredient={product.active_ingredient}
             onSaveDiseaseRule={handleSaveDiseaseRule}
             onSaveCropRule={handleSaveCropRule}
             onVerifyDiseaseRule={handleVerifyDiseaseRule}

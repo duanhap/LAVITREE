@@ -1161,13 +1161,15 @@ export const AdminIngestPage: React.FC = () => {
       } catch (err) {
         lastError = err;
         const status = (err as { response?: { status?: number } })?.response?.status;
-        // Nếu Core API chủ động từ chối (400/401/403/422), không bỏ qua kiểm tra của Core
-        if (status && [400, 401, 403, 422].includes(status)) {
+        // Nếu Core API chủ động từ chối bảo mật (400 SSRF/URL nội bộ, 401/403 quyền Admin), không fallback
+        // Chú ý: Mã 422 là do website gốc từ chối kết nối (như Cloudflare / Geo-IP chặn server AWS EC2 ở nước ngoài),
+        // vẫn cho phép fallback sang Dev proxy (chạy từ máy local admin có IP VN và có kiểm tra DNS chống SSRF riêng).
+        if (status && [400, 401, 403].includes(status)) {
           coreRejected = true;
         }
       }
 
-      // Tầng 2: Chỉ fallback sang Vite Dev Middleware khi đang chạy dev và Core chưa sẵn sàng (404/lỗi mạng)
+      // Tầng 2: Fallback sang Vite Dev Middleware khi đang chạy dev (tự kiểm tra DNS chống SSRF, IP VN của Admin)
       if (!html && import.meta.env.DEV && !coreRejected) {
         try {
           const devRes = await fetch(`/__dev/fetch-url?url=${encodeURIComponent(targetUrl)}`, {
