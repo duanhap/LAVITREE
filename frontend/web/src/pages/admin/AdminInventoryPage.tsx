@@ -76,6 +76,7 @@ import {
   usageProfileForApi,
   type UsageProfile,
   mergeEvidencesByArticle,
+  keyMentionSentences,
   MAX_PROMPT_EVIDENCES,
   parseProductResearchJson,
   kindFromMedicineType,
@@ -540,10 +541,31 @@ export const AdminInventoryPage: React.FC = () => {
     const isSupply = medType === 'Vật tư canh tác';
     const doseHint = isSupply ? 'liều lượng bón / cách dùng' : 'liều lượng pha bình 16 lít và cách phun';
 
+    // Câu trong đoạn trích có nhắc tên vật tư (các gợi ý cùng tên, cùng cây), để AI tìm đúng loại như bài mô tả
+    const mentionKey = linkingSuggestion.mention_text.trim().toLowerCase();
+    const plantPrefix = (linkingSuggestion.model_class || '').split('___')[0];
+    const sameMention = suggestions.filter(
+      (s) =>
+        s.mention_text.trim().toLowerCase() === mentionKey &&
+        (s.model_class || '').split('___')[0] === plantPrefix
+    );
+    const keySentences = keyMentionSentences(
+      toResearchEvidences(sameMention.length ? sameMention : [linkingSuggestion]),
+      linkingSuggestion.mention_text
+    );
+    const excerptBlock = keySentences.length
+      ? [
+          '',
+          '## Đoạn trích bài báo nhắc tới vật tư này (để xác định đúng loại, không phải nguồn số liệu)',
+          ...keySentences.map((x) => `- "${x}"`),
+          '',
+        ].join('\n')
+      : '';
+
     const prompt = `Tìm trên Google: "${name}" ${active ? `(${active})` : ''} liều lượng cách dùng trên cây "${plant}" ${doseHint} tại Việt Nam. Đọc nhãn thuốc của nhà sản xuất hoặc khuyến nông, ghi lại các con số cụ thể.
 
 ## Vai trò
-Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin thiết lập QUY TẮC LIỀU LƯỢNG & HƯỚNG DẪN SỬ DỤNG cho sản phẩm "${name}" trên CÂY TRỒNG "${plant}" (áp dụng cho bệnh "${disease}" và các bệnh tương đương trên cây ${plant}).
+Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin thiết lập LIỀU DÙNG CHUNG của sản phẩm "${name}" trên CÂY TRỒNG "${plant}". Liều này áp dụng cho MỌI bệnh của cây ${plant} mà sản phẩm được dùng (bệnh đang gắn: "${disease}").
 
 ## Ngữ cảnh
 - Tên sản phẩm: "${name}" (#${selectedLinkMed.id})
@@ -551,19 +573,19 @@ Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin t
 - Hoạt chất chính: ${active || 'Chế phẩm sinh học / Không có hoạt chất hóa học'}
 - Cây trồng mục tiêu: "${plant}" (Bệnh liên kết: "${disease}")
 ${linkingSuggestion.source_url ? `- Link bài báo gợi ý: ${linkingSuggestion.source_url}` : ''}
-
+${excerptBlock}
 ## Nhiệm vụ
 Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant}":
 1. Liều lượng pha (g hoặc ml cho bình 16L hoặc 200L) và lượng nước (ví dụ: 40-50g / bình 16 lít).
 2. Lượng nước phun/ha (ví dụ: 400 - 600 lít/ha) hoặc liều theo gốc/diện tích.
 3. Cách dùng (phun ướt đều tán lá / tưới gốc...).
 4. Thời điểm phun, khoảng cách giữa các lần (7-10 ngày), số ngày cách ly (PHI).
-5. Soạn câu "dosage_instruction" súc tích, chuyên nghiệp cho trợ lý AI Lavi đọc tư vấn cho nông dân.
+5. Soạn câu "dosage_instruction" súc tích, chuyên nghiệp cho trợ lý AI Lavi đọc tư vấn cho nông dân. Viết cho CÂY ${plant} nói chung: KHÔNG nêu tên một bệnh cụ thể (không viết "Với bệnh ..."), vì câu này hiển thị cho mọi bệnh của cây.
 
 ## Định dạng đầu ra JSON (đặt ở đầu tiên):
 \`\`\`json
 {
-  "dosage_instruction": "Câu hướng dẫn sử dụng chi tiết cách pha và sử dụng ${name} trên cây ${plant} cho bệnh ${disease}...",
+  "dosage_instruction": "Câu hướng dẫn chi tiết cách pha và sử dụng ${name} trên cây ${plant} (không nêu tên bệnh)...",
   "source_url": "https://link-trang-web-nhan-thuoc-da-tim",
   "usage_profile": {
     "dose_amount": 50,
@@ -1121,12 +1143,11 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
       toast.error('Link nguồn phải bắt đầu bằng http:// hoặc https://.');
       return;
     }
-    if (fromSuggestion) {
-      const usageError = validateUsageProfile(newMedUsage);
-      if (usageError) {
-        toast.error(`Phiếu cách dùng: ${usageError}`);
-        return;
-      }
+    // TASK-30: cả 2 luồng đều hiện phiếu cách dùng nên đều kiểm tra (trước đây luồng "Thêm sản phẩm" lưu ngầm phiếu do AI điền)
+    const usageError = validateUsageProfile(newMedUsage);
+    if (usageError) {
+      toast.error(`Phiếu cách dùng: ${usageError}`);
+      return;
     }
 
     try {
@@ -1134,9 +1155,9 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
       const defaultDosage = isSupply
         ? 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'
         : 'Pha theo hướng dẫn trên bao bì';
-      const dosageToUse = fromSuggestion && newMedDosage.trim()
-        ? newMedDosage.trim()
-        : defaultDosage;
+      // Ô còn câu mặc định (của loại cũ) → dùng câu mặc định đúng loại hiện tại
+      const isDefaultText = ['Pha theo hướng dẫn trên bao bì', 'Sử dụng theo diện tích canh tác và hướng dẫn nhà sản xuất'].includes(newMedDosage.trim());
+      const dosageToUse = newMedDosage.trim() && !isDefaultText ? newMedDosage.trim() : defaultDosage;
       const combinedDosage = newMedDescription.trim()
         ? combineDescriptionDosage(newMedDescription, dosageToUse)
         : dosageToUse;
@@ -1156,6 +1177,13 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
         is_allowed: isBanned ? false : newMedIsAllowed,
         usage_profile: usageProfileForApi(newMedUsage),
         suggestion_id: fromSuggestion ? fromSuggestion.id : undefined,
+        // TASK-29: liều trên cây của bài → server lưu thêm thành liều chung của cây (khi các bệnh thuộc 1 cây)
+        plant_usage: fromSuggestion
+          ? {
+              dosage_instruction: dosageToUse !== defaultDosage ? dosageToUse : undefined,
+              usage_profile: usageProfileForApi(newMedUsage),
+            }
+          : undefined,
       };
 
       const res = await apiClient.post('/medicines', payload);
@@ -3763,9 +3791,17 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
                 />
               </div>
 
-              {fromSuggestion ? (
-                <>
-                  {/* PHIẾU CÁCH DÙNG (KHI TẠO TỪ GỢI Ý BÀI BÁO) */}
+              {/* PHIẾU CÁCH DÙNG: hiện cho cả "Tạo SP" từ gợi ý và "Thêm sản phẩm" (TASK-30: không lưu ngầm số liệu AI) */}
+              <>
+                {fromSuggestion ? null : (
+                  <div className="p-2.5 bg-muted/40 border border-border rounded-lg text-muted-foreground text-[11px] leading-relaxed flex items-start gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                    <span>
+                      Đây là <strong>liều chung của sản phẩm</strong> (theo nhãn / bao bì), dùng khi cây chưa có liều riêng. Để trống nếu chưa có nguồn.
+                      Liều theo từng cây thiết lập ở trang <strong>Chi tiết sản phẩm</strong> sau khi tạo.
+                    </span>
+                  </div>
+                )}
                   <UsageProfileEditor
                     value={newMedUsage}
                     onChange={setNewMedUsage}
@@ -3797,16 +3833,7 @@ Trích xuất liều lượng và hướng dẫn sử dụng trên Cây "${plant
                       Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.
                     </p>
                   </div>
-                </>
-              ) : (
-                /* GHI CHÚ LIỀU LƯỢNG RIÊNG THEO BỆNH CHO NÚT THÊM SẢN PHẨM MỚI TẠI KHO */
-                <div className="p-3 bg-muted/40 border border-border rounded-lg text-muted-foreground text-xs leading-relaxed flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>
-                    <strong>Liều lượng &amp; Cách dùng theo bệnh:</strong> Sau khi tạo sản phẩm, bạn có thể thiết lập cách dùng và phiếu lên lịch riêng cho từng bệnh hại tại trang <strong>Chi tiết sản phẩm</strong>.
-                  </span>
-                </div>
-              )}
+              </>
 
               <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <input

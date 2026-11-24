@@ -63,6 +63,7 @@ import {
 import {
   buildGoogleQueries,
   buildProductResearchPrompt,
+  kindFromMedicineType,
   parseProductResearchJson,
   type ResearchEvidence,
   type ResearchDisease,
@@ -546,7 +547,7 @@ export const AdminProductDetailPage: React.FC = () => {
     return buildGoogleQueries({
       name: formData.name,
       activeIngredient: formData.active_ingredient,
-      kind: formData.medicine_type,
+      kind: kindFromMedicineType(formData.medicine_type),
     });
   }, [formData.name, formData.active_ingredient, formData.medicine_type]);
 
@@ -568,7 +569,8 @@ export const AdminProductDetailPage: React.FC = () => {
 
     const promptText = buildProductResearchPrompt({
       mention: formData.name,
-      kind: formData.medicine_type,
+      // Hàm cần mã loại (CHEMICAL / BIOLOGICAL / SUPPLY), không phải nhãn tiếng Việt "Hóa học"...
+      kind: kindFromMedicineType(formData.medicine_type),
       evidences: researchEvidences,
       diseases: researchDiseases,
       currentName: formData.name,

@@ -1,0 +1,59 @@
+[
+ {
+  "id": 1,
+  "name": "Ridomil Gold 68WG",
+  "usage_profile": {
+   "method": "phun đều dung dịch thuốc lên cây trồng khi bệnh xuất hiện hoặc phun phòng theo hướng dẫn",
+   "version": 1,
+   "dose_text": "Không có liều riêng cho cà chua trên các trang đã đọc; tham khảo mức 50g/ bình 16 lít (lúa) hoặc 100g/ bình 16 lít (ngô, lạc) trên trang cửa hàng vật tư",
+   "dose_unit": null,
+   "stop_when": null,
+   "source_url": null,
+   "start_when": "phun thuốc khi tỷ lệ bệnh xuất hiện hoặc phun phòng theo hướng dẫn",
+   "dose_amount": null,
+   "safety_note": "mang đồ bảo hộ phù hợp trong quá trình pha và phun thuốc, tránh để thuốc tiếp xúc trực tiếp với da, mắt và không ăn uống khi sử dụng",
+   "time_of_day": null,
+   "water_liters": 16,
+   "weather_note": null,
+   "dose_per_area": null,
+   "interval_days": null,
+   "times_per_day": null,
+   "avoid_rain_hours": null,
+   "spray_volume_per_ha": {
+    "max": 500,
+    "min": 400
+   },
+   "max_applications_per_season": null
+  },
+  "updated_at": "2026-11-24 06:01:43.916112+00:00"
+ },
+ {
+  "id": 6,
+  "name": "Vôi bột đá vôi nông nghiệp (CaCO3)",
+  "usage_profile": {
+   "method": "Rải đều trên mặt đất hoặc trộn vào đất khi làm đất; ưu tiên sử dụng theo kết quả đo pH đất. Không phun lên lá.",
+   "version": 1,
+   "dose_text": "Rải đều trên đất hoặc trộn vào đất khi làm đất; liều tham khảo riêng cho cà chua là 400 kg/ha khi pH đất dưới 5, theo quy trình giống C95 của VAAS. Đây không phải liều đã xác nhận cho xử lý đất sau ổ bệnh.",
+   "dose_unit": null,
+   "stop_when": "Khi đã đạt mức pH đất phù hợp với cây trồng; không tiếp tục bón theo lịch cố định nếu chưa kiểm tra lại độ chua.",
+   "source_url": null,
+   "start_when": "Khi chuẩn bị đất trước trồng hoặc khi có kết quả kiểm tra cho thấy đất chua cần cải tạo. Với đất sau khi nhổ bỏ cây cà chua bị bệnh, chỉ sử dụng khi xác định được nhu cầu cải tạo đất và liều phù hợp.",
+   "dose_amount": null,
+   "safety_note": "Mang khẩu trang chống bụi, kính bảo hộ, găng tay và quần áo dài. Tránh hít bụi, tiếp xúc mắt và da. Không để trẻ em, vật nuôi tiếp xúc với khu vực đang xử lý. Nếu sản phẩm là CaO, phải đặc biệt tránh tiếp xúc với nước và da vì phản ứng tỏa nhiệt, có nguy cơ gây bỏng.",
+   "time_of_day": null,
+   "water_liters": null,
+   "weather_note": "Không có nguồn riêng quy định điều kiện thời tiết hoặc số giờ tránh mưa cho việc xử lý đất bằng vôi trong trường hợp này. Tránh thao tác khi gió mạnh làm bụi vôi phát tán.",
+   "dose_per_area": {
+    "max": 400,
+    "min": 400,
+    "unit": "kg/ha"
+   },
+   "interval_days": null,
+   "times_per_day": null,
+   "avoid_rain_hours": null,
+   "spray_volume_per_ha": null,
+   "max_applications_per_season": null
+  },
+  "updated_at": "2026-11-17 23:25:34.997542+00:00"
+ }
+]

@@ -580,7 +580,9 @@ export const DiseaseEvidenceList: React.FC<Props> = ({
                       {crop.cropProfile && !isUsageEmpty(crop.cropProfile) && (
                         <div className="pt-2 border-t border-border/50 space-y-1.5">
                           <span className="font-semibold text-foreground text-[11px] block">
-                            Thông số kỹ thuật áp dụng:
+                            {crop.cropProfile === defaultProfile
+                              ? 'Thông số chung của sản phẩm (chưa có liều riêng cho cây này):'
+                              : 'Thông số kỹ thuật áp dụng:'}
                           </span>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
                             {crop.cropProfile.dose_amount && (

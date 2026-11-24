@@ -456,6 +456,25 @@ public class CreateProductRequestDto
     /// <summary>Phiếu cách dùng có cấu trúc (TASK-18); null hoặc phiếu rỗng = không lưu.</summary>
     [JsonPropertyName("usage_profile")]
     public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
+
+    /// <summary>
+    /// TASK-29: liều trên cây của gợi ý (form "Tạo SP" từ vật tư gợi ý). Khi mọi bệnh được gắn thuộc MỘT cây,
+    /// server lưu thêm thành liều chung của cây đó trong ProductUsageRules. Nhiều cây → bỏ qua (không biết liều của cây nào).
+    /// </summary>
+    [JsonPropertyName("plant_usage")]
+    public PlantUsageInputDto? PlantUsage { get; set; }
+}
+
+public class PlantUsageInputDto
+{
+    [JsonPropertyName("dosage_instruction")]
+    public string? DosageInstruction { get; set; }
+
+    [JsonPropertyName("usage_profile")]
+    public Lavitree.Domain.Entities.UsageProfile? UsageProfile { get; set; }
+
+    [JsonPropertyName("source_url")]
+    public string? SourceUrl { get; set; }
 }
 
 public class AgentReindexRequest

@@ -190,6 +190,11 @@
   - Trạng thái: `[x] DONE`
   - Đầu ra: Thêm 2 endpoint Core API `GET /api/v1/orders/admin` (bộ lọc `status`, tìm kiếm đa trường) và `PATCH /api/v1/orders/{id}/status` (chuyển đổi `PENDING` -> `CONFIRMED` -> `SHIPPING` -> `COMPLETED` -> `CANCELLED`, hoàn trả tồn kho tự động khi hủy đơn); trang `AdminOrdersPage.tsx` thay thế `ComingSoonPage` gồm 4 Thẻ chỉ số tổng quan, thanh lọc tab trạng thái, bảng quản lý chi tiết, modal xem hóa đơn xuất xưởng và dialog xác nhận hủy đơn; bổ sung lối tắt trên `AdminOverviewPage.tsx`.
 
+- [ ] **TASK-27: Quản trị Biên tập Cẩm nang Bệnh học (Handbook CMS), Bảng `HandbookDiseases` & Cơ chế Cảnh báo Lỗi thời (Staleness Invalidation)** (P1)
+  - Trách nhiệm: **Trưởng nhóm** (giao Antigravity làm)
+  - Trạng thái: `[ ] PENDING`
+  - Đầu ra: Bảng mới `HandbookDiseases` (1-1 với `Diseases`, lưu `ContentMarkdown`, `FaqJson`, `AuthorName`, `Status`, `ReviewReason`); các endpoint Core API CRUD bài cẩm nang; cơ chế tự động đánh dấu `NEEDS_REVIEW` khi Admin xóa/bỏ duyệt đoạn trích tri thức nguồn trong `KnowledgeController`; trang `/admin/diseases` tích hợp Badge trạng thái & Trình soạn thảo Markdown 2 cột Live Preview song song kho đoạn trích; trang `/handbook/:classCode` ưu tiên hiển thị bài cẩm nang chuẩn biên tập, có banner cảnh báo Admin khi nguồn trích dẫn bị thay đổi và fallback an toàn sang TASK-20 khi chưa có bài. Chi tiết: `tasks/sprint-03/task-27-disease-handbook-editorial-and-staleness.md`.
+
 - [x] **TASK-28: Phân cấp Quy tắc Liều lượng & Căn cứ Khoa học theo Cây trồng (Crop-Centric Rules & Evidence)** (P1)
   - Trách nhiệm: **Trưởng nhóm** (giao Antigravity làm)
   - Trạng thái: `[x] DONE` (24/11/2026)
@@ -201,3 +206,9 @@
   - Trạng thái: `[~] Code xong + thử trên DB local; chờ đồng ý migrate Supabase và deploy`
   - Nhánh Git: `feat/task-29-usage-rules-relational`
   - Đầu ra: `ProductUsageRules` thêm `PlantId` (FK), `DosageInstruction`, 2 chỉ mục duy nhất (liều chung theo cây / ngoại lệ theo bệnh); thứ tự lấy liều tính ở backend (ngoại lệ bệnh → liều cây → phiếu bao bì); API sửa từng dòng, `GET` không ghi DB; web bỏ nút "Đồng bộ cho n bệnh" và các đoạn tự đoán liều; migration chuyển dữ liệu JSON cũ (cần đồng ý trước khi áp Supabase). Chi tiết: `tasks/sprint-03/task-29-usage-rules-relational.md`.
+
+- [~] **TASK-30: Prompt AI theo cây, lưu liều cây khi tạo từ gợi ý, chặn lưu ngầm liều chung sản phẩm** (P1)
+  - Trách nhiệm: **Trưởng nhóm** (Claude làm)
+  - Trạng thái: `[~] Code xong + thử DB local; đã xóa phiếu chung #1, #6 trên Supabase (có sao lưu). Chưa commit.`
+  - Nhánh Git: `feat/task-29-usage-rules-relational`
+  - Đầu ra: prompt "Gắn SP" / "Tạo SP" viết liều theo cây (không nêu tên bệnh, không gộp liều nhiều cây); `POST /medicines` nhận `plant_usage` → liều chung cây khi tạo từ gợi ý; form "Thêm sản phẩm" hiện phiếu (hết lưu ngầm); sửa `kind` ở prompt trang chi tiết; ô thông số từ phiếu chung ghi rõ "Thông số chung của sản phẩm". Chi tiết: `tasks/sprint-03/task-30-ai-prompts-and-package-dosage.md`.

@@ -534,6 +534,34 @@ public class MedicinesController : ControllerBase
                     ProductId = product.Id
                 });
             }
+
+            // TASK-29: tạo từ gợi ý → liều trên cây của bài thành liều chung của cây (chỉ khi các bệnh thuộc đúng 1 cây)
+            var plantIds = diseases.Select(d => d.PlantId).Distinct().ToList();
+            if (dto.PlantUsage != null && plantIds.Count == 1)
+            {
+                var plantText = string.IsNullOrWhiteSpace(dto.PlantUsage.DosageInstruction) ? null : dto.PlantUsage.DosageInstruction.Trim();
+                var plantProfile = dto.PlantUsage.UsageProfile ?? new UsageProfile();
+                plantProfile.Normalize();
+                var plantSource = string.IsNullOrWhiteSpace(dto.PlantUsage.SourceUrl) ? null : dto.PlantUsage.SourceUrl.Trim();
+                if (plantSource != null && (!IsHttpUrl(plantSource) || plantSource.Length > 500)) plantSource = null;
+                if ((plantText != null || !plantProfile.IsEmpty) && plantProfile.Validate().Count == 0)
+                {
+                    var now = DateTime.UtcNow;
+                    _dbContext.ProductUsageRules.Add(new ProductUsageRule
+                    {
+                        ProductId = product.Id,
+                        PlantId = plantIds[0],
+                        DiseaseId = null,
+                        DosageInstruction = plantText,
+                        Profile = plantProfile,
+                        SourceUrl = plantSource ?? (infoSourceUrl is { Length: <= 500 } ? infoSourceUrl : null),
+                        IsVerified = false,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    });
+                }
+            }
+
             if (diseases.Count > 0)
             {
                 await _dbContext.SaveChangesAsync();

@@ -403,6 +403,8 @@ export const ProductDetailPage: React.FC = () => {
         plant_name: string;
         cropDosageText?: string;
         cropProfile?: UsageProfile | null;
+        /** TASK-30: ô thông số đang lấy từ phiếu chung của sản phẩm (cây chưa có liều riêng). */
+        cropProfileIsPackage?: boolean;
         diseases: Array<{
           class_code: string;
           disease_name: string;
@@ -478,18 +480,23 @@ export const ProductDetailPage: React.FC = () => {
       // Kế thừa hồ sơ thông số kỹ thuật (các ô kỹ thuật: liều pha, lượng nước, chu kỳ...) cho cây
       if (plantRule?.usage_profile && !isUsageEmpty(plantRule.usage_profile)) {
         entry.cropProfile = plantRule.usage_profile;
+        entry.cropProfileIsPackage = false;
       } else if (!entry.cropProfile || isUsageEmpty(entry.cropProfile)) {
-        if (hasSpecific && specificRule?.usage_profile && !isUsageEmpty(specificRule.usage_profile)) {
+        // Liều riêng của một bệnh không được hiện thành thông số của cả cây (TASK-29/30)
+        if (!isOwnRule && specificRule?.usage_profile && !isUsageEmpty(specificRule.usage_profile)) {
           entry.cropProfile = specificRule.usage_profile;
+          entry.cropProfileIsPackage = false;
         } else if (product.usage_profile && !isUsageEmpty(product.usage_profile)) {
           entry.cropProfile = product.usage_profile;
+          entry.cropProfileIsPackage = true;
         }
       }
     }
 
     // Đảm bảo nhóm cây có văn bản liều nếu có thông số dose_text trong profile
     for (const entry of map.values()) {
-      if (!entry.cropDosageText && entry.cropProfile?.dose_text?.trim()) {
+      // dose_text của phiếu chung sản phẩm không được hiện thành liều của cây
+      if (!entry.cropDosageText && !entry.cropProfileIsPackage && entry.cropProfile?.dose_text?.trim()) {
         entry.cropDosageText = entry.cropProfile.dose_text.trim();
       }
     }
@@ -967,7 +974,7 @@ export const ProductDetailPage: React.FC = () => {
 
                 const cropDosage =
                   crop.cropDosageText ||
-                  crop.cropProfile?.dose_text ||
+                  (!crop.cropProfileIsPackage ? crop.cropProfile?.dose_text : '') ||
                   'Tuân thủ theo liều khuyến cáo chung và hướng dẫn kỹ thuật trên nhãn bao bì.';
 
                 return (
@@ -1033,7 +1040,9 @@ export const ProductDetailPage: React.FC = () => {
                       {crop.cropProfile && !isUsageEmpty(crop.cropProfile) && (
                         <div className="pt-2 border-t border-border/50 space-y-1.5">
                           <span className="font-semibold text-foreground text-[11px] block">
-                            Thông số kỹ thuật áp dụng:
+                            {crop.cropProfileIsPackage
+                              ? 'Thông số chung của sản phẩm (chưa có liều riêng cho cây này):'
+                              : 'Thông số kỹ thuật áp dụng:'}
                           </span>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
                             {crop.cropProfile.dose_amount && (
