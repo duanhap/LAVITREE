@@ -211,6 +211,8 @@ export const AdminInventoryPage: React.FC = () => {
   const [newCropDosage, setNewCropDosage] = useState<string>('');
   const [newCropSourceUrl, setNewCropSourceUrl] = useState<string>('');
   const [devCropInput, setDevCropInput] = useState<string>('');
+  // TASK-31: "Tạo SP" từ gợi ý chia 2 bước: 1 = thông tin sản phẩm + liều bao bì, 2 = liều cho cây của bài
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [aiImageCandidates, setAiImageCandidates] = useState<string[]>([]);
   // TASK-18-R4: câu trích nguyên văn trong "Nguồn đã dùng" để kiểm tra với trang thật
   // Lưu ý của Gemini (scope_note, loại vật tư...) hiện ngay trong form thay cho toast dài (TASK-18-R5)
@@ -859,6 +861,7 @@ export const AdminInventoryPage: React.FC = () => {
     setNewCropDosage('');
     setNewCropSourceUrl('');
     setDevCropInput('');
+    setCreateStep(1);
     setShowDevMode(false);
     setDevGeminiInput('');
 
@@ -1104,7 +1107,7 @@ export const AdminInventoryPage: React.FC = () => {
         fromSuggestion.mention_text
       ),
     });
-    copyText(prompt, `Đã sao chép prompt tìm liều cho Cây ${plant}. Dán câu trả lời của AI vào ô ở khung 2.`);
+    copyText(prompt, `Đã sao chép prompt tìm liều cho Cây ${plant}. Dán câu trả lời của AI vào ô bên dưới.`);
   };
 
   const handleApplyCropJson = () => {
@@ -1121,39 +1124,61 @@ export const AdminInventoryPage: React.FC = () => {
     if (text) setNewCropDosage(text);
     if (parsed.sourceUrl && isSafeHttpUrl(parsed.sourceUrl)) setNewCropSourceUrl(parsed.sourceUrl);
     setDevCropInput('');
-    toast.success(`Đã điền liều cho Cây ${cropPlantName || 'trồng'} (khung 2).`);
+    toast.success(`Đã điền liều cho Cây ${cropPlantName || 'trồng'}.`);
   };
 
-  const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /** Kiểm tra phần thông tin sản phẩm + liều bao bì (bước 1). Trả false và báo lỗi nếu chưa hợp lệ. */
+  const validateCreateStep1 = (): boolean => {
     if (!newMedName.trim()) {
       toast.error('Vui lòng nhập tên sản phẩm.');
-      return;
+      return false;
     }
     const isSupply = newMedType === 'Vật tư canh tác';
     const isBanned = isIngredientBanned(newMedName) || (!isSupply && isIngredientBanned(newMedActiveIngredient));
     if (isBanned && newMedIsAllowed) {
       toast.error('Sản phẩm chứa hoạt chất cấm theo Thông tư 75/2025. Không thể bật lưu hành sản phẩm này.');
-      return;
+      return false;
     }
     if (!isSupply && (newMedPhi === '' || Number.isNaN(Number(newMedPhi)))) {
       toast.error('Thuốc hóa học/sinh học bắt buộc nhập thời gian cách ly (PHI) theo nhãn thuốc hoặc nguồn tra cứu.');
-      return;
+      return false;
     }
     if (!isSupply && (Number(newMedPhi) < 0 || Number(newMedPhi) > 365)) {
       toast.error('Thời gian cách ly (PHI) phải từ 0 đến 365 ngày.');
-      return;
+      return false;
     }
     if (newMedSourceUrl.trim() && !/^https?:\/\//i.test(newMedSourceUrl.trim())) {
       toast.error('Link nguồn phải bắt đầu bằng http:// hoặc https://.');
-      return;
+      return false;
     }
     // TASK-30: cả 2 luồng đều hiện phiếu cách dùng nên đều kiểm tra (trước đây luồng "Thêm sản phẩm" lưu ngầm phiếu do AI điền)
     const usageError = validateUsageProfile(newMedUsage);
     if (usageError) {
-      toast.error(`Phiếu cách dùng: ${usageError}`);
+      toast.error(`Phiếu liều bao bì: ${usageError}`);
+      return false;
+    }
+    return true;
+  };
+
+  const goToCropStep = () => {
+    if (!validateCreateStep1()) return;
+    setShowDevMode(false);
+    setCreateStep(2);
+  };
+
+  const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // Enter ở bước 1 → sang bước 2, không tạo sản phẩm khi chưa xem phần liều cây
+    if (fromSuggestion && createStep === 1) {
+      goToCropStep();
       return;
     }
+    if (!validateCreateStep1()) {
+      setCreateStep(1);
+      return;
+    }
+    const isSupply = newMedType === 'Vật tư canh tác';
+    const isBanned = isIngredientBanned(newMedName) || (!isSupply && isIngredientBanned(newMedActiveIngredient));
     if (fromSuggestion) {
       const cropError = validateUsageProfile(newCropUsage);
       if (cropError) {
@@ -3264,7 +3289,9 @@ export const AdminInventoryPage: React.FC = () => {
                 <Plus className="w-4 h-4 text-emerald-700" />
                 <span>
                   {fromSuggestion
-                    ? `Thêm sản phẩm từ gợi ý: "${fromSuggestion.mention_text}"`
+                    ? createStep === 1
+                      ? `Bước 1/2 · Thông tin sản phẩm "${newMedName.trim() || fromSuggestion.mention_text}"`
+                      : `Bước 2/2 · Liều cho Cây ${cropPlantName || '(chưa rõ cây)'} · ${newMedName.trim() || fromSuggestion.mention_text}`
                     : 'Thêm thuốc / Vật tư mới'}
                 </span>
               </DialogTitle>
@@ -3275,6 +3302,7 @@ export const AdminInventoryPage: React.FC = () => {
                 size="sm"
                 variant="outline"
                 onClick={() => setShowDevMode((v) => !v)}
+                disabled={!!fromSuggestion && createStep === 2}
                 className={`h-7 w-7 p-0 font-mono font-bold transition-colors flex items-center justify-center shrink-0 ${showDevMode
                   ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-400 shadow-xs'
                   : 'bg-background hover:bg-blue-50 text-blue-700 dark:text-blue-400 border-border'
@@ -3287,13 +3315,15 @@ export const AdminInventoryPage: React.FC = () => {
 
             <DialogDescription className="text-xs mt-1">
               {fromSuggestion
-                ? 'Tên và thông tin trích xuất từ bài báo. Có thể cập nhật ảnh, mô tả hoặc tra cứu nhanh để điền thông số.'
+                ? createStep === 1
+                  ? 'Thông tin chung của sản phẩm và liều in trên bao bì (nếu có). Liều cho cây của bài báo nhập ở bước 2.'
+                  : `Liều áp dụng cho mọi bệnh của Cây ${cropPlantName || 'này'}${fromSuggestion.source_title ? ` theo bài "${fromSuggestion.source_title}"` : ''}. Lưu thành liều chung của cây, không phải liều bao bì.`
                 : 'Thêm sản phẩm thuốc bảo vệ thực vật hoặc vật tư canh tác vào danh mục.'}
             </DialogDescription>
           </DialogHeader>
 
           {/* NẾU MỞ CHẾ ĐỘ DEV: HIỂN THỊ KHUNG SAO CHÉP PROMPT VÀ DÁN JSON TỪ GEMINI */}
-          {showDevMode && (
+          {showDevMode && !(fromSuggestion && createStep === 2) && (
             <div className="p-3 my-2 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 dark:text-blue-300">
@@ -3342,6 +3372,39 @@ export const AdminInventoryPage: React.FC = () => {
 
           <div className="space-y-3 pt-2">
             <form onSubmit={handleCreateMedicineSubmit} className="space-y-3 text-xs">
+              {fromSuggestion && (
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { n: 1 as const, label: 'Thông tin sản phẩm & liều bao bì' },
+                    { n: 2 as const, label: `Liều cho Cây ${cropPlantName || '…'}` },
+                  ].map((st) => (
+                    <button
+                      key={st.n}
+                      type="button"
+                      onClick={() => (st.n === 2 ? goToCropStep() : setCreateStep(1))}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${
+                        createStep === st.n
+                          ? st.n === 1
+                            ? 'border-blue-400 bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200'
+                            : 'border-emerald-400 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200'
+                          : 'border-border bg-background text-muted-foreground hover:bg-muted/50'
+                      }`}
+                    >
+                      <span
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
+                          createStep === st.n ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {st.n}
+                      </span>
+                      <span className="truncate">{st.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* BƯỚC 1 (ẩn khi đang ở bước 2, giữ nguyên dữ liệu đã nhập) */}
+              <div className={fromSuggestion && createStep === 2 ? 'hidden' : 'space-y-3'}>
               {/* 1. KHỐI LINK TRANG SẢN PHẨM / NHÃN THUỐC (URL) */}
               <div className="p-3 bg-secondary/30 rounded-xl border border-border space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-1.5">
@@ -3825,9 +3888,9 @@ export const AdminInventoryPage: React.FC = () => {
               >
                 {fromSuggestion ? (
                   <div>
-                    <h4 className="font-bold text-xs text-blue-900 dark:text-blue-300">Khung 1 – Liều bao bì của sản phẩm (tùy chọn)</h4>
+                    <h4 className="font-bold text-xs text-blue-900 dark:text-blue-300">Liều bao bì của sản phẩm (tùy chọn)</h4>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Chỉ điền khi biết thông số in trên nhãn / bao bì của nhà sản xuất; chưa có thì để trống. Điền nhanh bằng <strong>Prompt 1</strong> ở chế độ Dev (nút <code>&lt;/&gt;</code> trên cùng).
+                      Chỉ điền khi biết thông số in trên nhãn / bao bì của nhà sản xuất; chưa có thì để trống. Điền nhanh bằng <strong>Prompt 1</strong> ở chế độ Dev (nút <code>&lt;/&gt;</code> trên cùng). Liều cho cây của bài báo nhập ở bước 2.
                     </p>
                   </div>
                 ) : (
@@ -3870,18 +3933,21 @@ export const AdminInventoryPage: React.FC = () => {
                   />
                   <p className="text-[10px] text-muted-foreground mt-0.5">
                     {fromSuggestion
-                      ? 'Lavi đọc ô này. Để trống (hoặc giữ câu mặc định) thì Lavi đọc liều ở khung 2, kèm chữ "Trên cây …".'
+                      ? 'Lavi đọc ô này. Để trống (hoặc giữ câu mặc định) thì Lavi đọc liều cây ở bước 2, kèm chữ "Trên cây …".'
                       : 'Trợ lý Lavi đọc nguyên văn ô này; con số liều lượng phải có ở đây thì Lavi mới được nói.'}
                   </p>
                 </div>
               </div>
 
-              {fromSuggestion && (
+              </div>
+              {/* HẾT BƯỚC 1 */}
+
+              {fromSuggestion && createStep === 2 && (
                 <div className="p-3 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-2.5">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <h4 className="font-bold text-xs text-emerald-900 dark:text-emerald-300">
-                        Khung 2 – Liều cho Cây {cropPlantName || '(chưa rõ cây)'}
+                        Liều cho Cây {cropPlantName || '(chưa rõ cây)'}
                       </h4>
                       <p className="text-[11px] text-muted-foreground mt-0.5">
                         Áp dụng cho mọi bệnh của cây này
@@ -3918,7 +3984,7 @@ export const AdminInventoryPage: React.FC = () => {
                         className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] gap-1"
                       >
                         <Sparkles className="w-3 h-3" />
-                        <span>⚡ Điền khung 2 từ AI</span>
+                        <span>⚡ Điền liều cây từ AI</span>
                       </Button>
                     </div>
                   </div>
@@ -3957,7 +4023,7 @@ export const AdminInventoryPage: React.FC = () => {
                 </div>
               )}
 
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
+              <label className={`flex items-center gap-2 cursor-pointer pt-1 ${fromSuggestion && createStep === 2 ? 'hidden' : ''}`}>
                 <input
                   type="checkbox"
                   disabled={isIngredientBanned(newMedActiveIngredient) || isIngredientBanned(newMedName)}
@@ -3973,12 +4039,26 @@ export const AdminInventoryPage: React.FC = () => {
               </label>
 
               <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
-                  Hủy
-                </Button>
-                <Button type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
-                  {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
-                </Button>
+                {/* key riêng cho từng nút: nếu React dùng lại cùng 1 <button> và đổi type="button" → "submit" ngay trong lúc bấm,
+                    trình duyệt sẽ gửi form luôn (bấm "Tiếp tục" mà sản phẩm đã bị tạo) */}
+                {fromSuggestion && createStep === 2 ? (
+                  <Button key="back" type="button" variant="outline" size="sm" onClick={() => setCreateStep(1)} disabled={creatingMed}>
+                    ← Quay lại bước 1
+                  </Button>
+                ) : (
+                  <Button key="cancel" type="button" variant="outline" size="sm" onClick={() => setCreateMedModalOpen(false)} disabled={creatingMed}>
+                    Hủy
+                  </Button>
+                )}
+                {fromSuggestion && createStep === 1 ? (
+                  <Button key="next" type="button" size="sm" onClick={goToCropStep} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
+                    Tiếp tục: Liều cho Cây {cropPlantName || '…'} →
+                  </Button>
+                ) : (
+                  <Button key="submit" type="submit" size="sm" disabled={creatingMed} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold">
+                    {creatingMed ? 'Đang tạo sản phẩm...' : 'Tạo sản phẩm'}
+                  </Button>
+                )}
               </DialogFooter>
             </form>
           </div>

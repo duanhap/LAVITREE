@@ -42,6 +42,13 @@ Ngoài ra danh sách "Vật tư gợi ý" và 4 thao tác hàng loạt ở backe
 - **`AdminInventoryPage`**: danh sách gộp theo (tên + loại + cây), nhóm không rõ bệnh hiện "Chưa rõ cây"; cập nhật tại chỗ sau Gắn / Bỏ qua / Xóa khớp server, Hủy gán tải lại danh sách. Form "Tạo SP" từ gợi ý: Khung 1 (xanh dương, liều bao bì tùy chọn, Prompt 1 ở chế độ Dev) + Khung 2 (xanh lá, "Liều cho Cây X theo bài …", nút Prompt 2, ô dán + "Điền khung 2 từ AI", phiếu, ô Hướng dẫn cho cây, link nguồn). Lưu: `usage_profile` = khung 1, `plant_usage` = khung 2 (+ `class_code`), `dosage_instruction` = liều bao bì hoặc "Trên cây X: <liều cây>".
 - **`AdminProductDetailPage`**: tab Thông tin, nếu câu liều bắt đầu bằng "Trên cây …" thì ghi chú "chưa có liều bao bì".
 
+## 2c. Đổi sang 2 bước (theo người dùng, 24/11 tối)
+Form một trang dài khó dùng → "Tạo SP" từ gợi ý chia **2 bước** có thanh bước và tiêu đề riêng:
+- **Bước 1/2 · Thông tin sản phẩm "…"**: thông tin chung + liều bao bì (tùy chọn) + Prompt 1 (chế độ Dev). Nút **"Tiếp tục: Liều cho Cây X →"** kiểm tra phần này rồi mới sang bước 2; nhấn Enter ở bước 1 cũng chỉ sang bước 2.
+- **Bước 2/2 · Liều cho Cây X · <tên SP>**: Prompt 2 + ô dán + phiếu + câu hướng dẫn cho cây + link nguồn. Nút **"← Quay lại bước 1"** và **"Tạo sản phẩm"**. Dữ liệu 2 bước giữ nguyên khi qua lại.
+- Lỗi phát hiện khi thử: nút "Tiếp tục" (type=button) và "Tạo sản phẩm" (type=submit) dùng chung 1 phần tử → bấm Tiếp tục là form bị gửi luôn. Sửa bằng `key` riêng cho từng nút; test kiểm tra "bấm Tiếp tục không tạo sản phẩm".
+- Playwright 13/13 PASS (thêm: bước 1 không thấy liều cây, bấm Tiếp tục không tạo SP, quay lại / sang lại giữ dữ liệu).
+
 ## 3. Kiểm thử
 | # | Tình huống | Kỳ vọng |
 |---|---|---|
