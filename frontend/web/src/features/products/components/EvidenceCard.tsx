@@ -122,7 +122,7 @@ export const EvidenceCard: React.FC<Props> = ({
 
               {expanded ? (
                 <div className="bg-muted/30 p-3 rounded-lg border border-border/60 text-foreground leading-relaxed text-xs font-normal">
-                  <FormattedSnippet text={snippet.evidenceText} variant="full" />
+                  <FormattedSnippet text={snippet.evidenceText} mention={snippet.mentionText} variant="full" />
                 </div>
               ) : (
                 <div className="bg-muted/20 p-2.5 rounded-lg border border-border/50 text-foreground leading-relaxed text-xs italic">

@@ -453,36 +453,37 @@
 
 ---
 
-### 3.4.0c. Quản lý Phiếu cách dùng thuốc theo từng bệnh (`ProductUsageRules` — TASK-22)
-*Cung cấp dữ liệu chi tiết có kiểm định để AI Agent lập lịch phun và nhắc nhở (CareSchedules / CareTasks).*
+### 3.4.0c. Liều dùng theo cây / bệnh (`ProductUsageRules` — TASK-22, chuyển hẳn sang bảng ở TASK-29)
+*Mỗi liều là một dòng riêng. Không còn lưu `disease_rules` / `plant_rules` lồng trong `Products.UsageProfile`.*
+
+- **Hai loại liều**:
+  - `scope = "plant"` (`disease_id = null`): **liều chung** của vật tư cho một cây. Mọi bệnh của cây dùng liều này.
+  - `scope = "disease"`: **liều riêng** (ngoại lệ) cho một bệnh, bệnh phải thuộc đúng cây đó.
+- **Ràng buộc**: mỗi (vật tư, cây) có tối đa 1 liều chung; mỗi (vật tư, bệnh) có tối đa 1 liều riêng (chỉ mục duy nhất, bỏ qua dòng đã xóa mềm).
+- **Thứ tự lấy liều cho một bệnh** (backend, `UsageRuleResolver`): liều riêng của bệnh → liều chung của cây → không có thì client hiển thị phiếu bao bì của sản phẩm (`usage_profile` phẳng + `dosage_instruction`), kèm ghi chú "liều chung của sản phẩm".
+- **Bản xem trong sản phẩm**: `GET /medicines/{id}`, `GET /medicines/search`, `PATCH /medicines/{id}` trả `usage_profile` = phiếu bao bì + 2 từ điển **chỉ đọc**, giữ hình dạng cũ để web không phải đổi cách đọc:
+  ```json
+  "usage_profile": {
+    "dose_amount": 20, "dose_unit": "g", "water_liters": 16,
+    "plant_rules":   { "Cà chua": { "rule_id": 12, "scope": "plant", "plant_name": "Cà chua", "dosage_instruction": "...", "usage_profile": { }, "source_url": null, "is_verified": false } },
+    "disease_rules": { "Tomato___Late_blight": { "rule_id": 12, "scope": "plant", "...": "..." } }
+  }
+  ```
+  `disease_rules` liệt kê liều **đang áp dụng** cho từng bệnh đã gắn (`scope` cho biết là liều cây hay liều riêng). Gửi lại 2 từ điển này trong `PATCH /medicines/{id}` thì server **bỏ qua**; sửa liều bằng các endpoint dưới đây.
 
 #### 1. `GET /api/v1/medicines/{id}/usage-rules`
-- **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
-- **Mô tả**: Lấy danh sách quy tắc cách dùng theo bệnh của sản phẩm. Tự động di trú dữ liệu cũ từ `UsageProfile.DiseaseRules` sang bảng `ProductUsageRules` nếu chưa có.
-- **Response Body (`200 OK`)**:
+- **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly). **Chỉ đọc**, không ghi DB.
+- **Response Body (`200 OK`)**, sắp theo cây → liều chung trước → tên bệnh:
   ```json
   [
     {
-      "id": 1,
-      "product_id": 1,
-      "disease_id": 15,
-      "class_code": "Tomato___Late_blight",
-      "disease_name": "Bệnh mốc sương",
-      "plant_name": "Cà chua",
-      "profile": {
-        "dose_amount": 50,
-        "dose_unit": "g",
-        "water_liters": 16,
-        "dose_text": "Pha 50g cho bình 16 lít nước...",
-        "method": "phun ướt đều 2 mặt lá",
-        "interval_days": { "min": 7, "max": 10 }
-      },
-      "action_group": "FRAC 4",
-      "source_url": "https://syngenta.com.vn/ridomil-gold",
-      "is_verified": true,
-      "verified_by": "admin@lavitree.vn",
-      "verified_at": "2026-11-23T07:15:00Z",
-      "updated_at": "2026-11-23T07:15:00Z"
+      "id": 12, "product_id": 3, "scope": "plant",
+      "plant_id": 3, "plant_name": "Cà chua",
+      "disease_id": null, "class_code": null, "disease_name": null,
+      "dosage_instruction": "Với cây cà chua, dùng ...",
+      "profile": { "dose_amount": 40, "dose_unit": "ml", "water_liters": 25, "interval_days": { "min": 10, "max": 15 } },
+      "action_group": null, "source_url": "https://...",
+      "is_verified": false, "verified_by": null, "verified_at": null, "updated_at": "2026-11-24T11:30:00Z"
     }
   ]
   ```
@@ -490,36 +491,30 @@
 #### 2. `POST /api/v1/medicines/{id}/usage-rules`
 - **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
 - **Request Body**:
-  ```json
-  {
-    "class_code": "Tomato___Late_blight",
-    "plant_name": "Cà chua",
-    "profile": {
-      "dose_amount": 50,
-      "dose_unit": "g",
-      "water_liters": 16,
-      "dose_text": "Pha 50g cho bình 16 lít..."
-    },
-    "action_group": "FRAC 4",
-    "source_url": "https://syngenta.com.vn/ridomil-gold"
-  }
-  ```
-- **Xử lý**: Kiểm tra trùng bệnh (`409 Conflict`), kiểm tra hợp lệ phiếu (`400 Bad Request`), tạo mới và đồng bộ vào `Product.UsageProfile.DiseaseRules`. `IsVerified` mặc định là `false`.
+  - Liều chung của cây: `{ "plant_name": "Cà chua", "dosage_instruction": "...", "profile": { ... }, "source_url": "..." }` (hoặc `plant_id`). Tên cây so khớp bỏ tiền tố "Cây", không phân biệt hoa thường.
+  - Liều riêng của bệnh: `{ "class_code": "Tomato___Late_blight", "dosage_instruction": "...", "profile": { ... } }` (cây lấy theo bệnh).
+- **Lỗi**: `400` khi không xác định được cây, bệnh không thuộc cây, liều trống (không có chữ và không có thông số), phiếu sai giới hạn, link không phải http(s); `409` khi đã có liều cùng loại (hãy `PATCH`). `is_verified` mặc định `false`.
+- **Response**: `201 Created` + dòng vừa tạo (dạng như mục 1).
 
 #### 3. `PATCH /api/v1/medicines/{id}/usage-rules/{ruleId}`
 - **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
-- **Request Body**: `{ "profile": { ... }, "action_group": "FRAC 4", "source_url": "..." }`
-- **Quy tắc bảo vệ**: Mọi lần chỉnh sửa bắt buộc tự động đặt lại `is_verified = false`, `verified_by = null`, `verified_at = null` để yêu cầu Admin đối chiếu lại với nhãn thuốc.
+- **Request Body**: `{ "dosage_instruction": "...", "profile": { ... }, "action_group": "FRAC 4", "source_url": "..." }`. Trường không gửi = giữ nguyên; `dosage_instruction: ""` = xóa đoạn chữ. Liều trở thành trống → `400`.
+- **Chỉ sửa đúng dòng này**. Mọi lần sửa tự đặt lại `is_verified = false`, `verified_by = null`, `verified_at = null`.
 
 #### 4. `POST /api/v1/medicines/{id}/usage-rules/{ruleId}/verify`
 - **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
-- **Request Body**: `{ "verified": true }`
-- **Mô tả**: Xác nhận (hoặc hủy xác nhận) đã đối chiếu nhãn thuốc / nguồn kỹ thuật. Ghi nhận `VerifiedBy` (email admin hiện tại) và `VerifiedAt`.
+- **Request Body**: `{ "verified": true }`. Ghi `verified_by` (email admin) và `verified_at`.
 
 #### 5. `DELETE /api/v1/medicines/{id}/usage-rules/{ruleId}`
 - **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
-- **Mô tả**: Xóa mềm quy tắc của bệnh. Bệnh sẽ tự động quay về sử dụng phiếu cách dùng chung của sản phẩm.
+- **Mô tả**: Xóa mềm đúng một liều. Xóa liều riêng → bệnh quay về liều chung của cây; xóa liều chung → các bệnh của cây dùng phiếu bao bì.
 - **Response**: `204 No Content`.
+
+#### 6. Gắn gợi ý vật tư — `POST /api/v1/knowledge/product-suggestions/{id}/link` (phần liều)
+Body giữ nguyên `{ product_id, dosage_instruction?, usage_profile?, source_url? }`. Khi có liều:
+- cây của bệnh **chưa có liều chung** → tạo liều chung cho cây;
+- liều gửi lên **giống** liều chung (cùng chữ + cùng phiếu) → không tạo gì, bệnh dùng liều cây;
+- liều gửi lên **khác** → tạo (hoặc sửa) liều riêng cho đúng bệnh đó; không đụng bệnh khác.
 
 ---
 
@@ -1161,7 +1156,7 @@
 - **Quy chuẩn An toàn**:
   - Đối chiếu với danh sách `BANNED_INGREDIENTS` của `backend/agent-service/app/agent/guardrails.py` (8 hoạt chất: `paraquat`, `2,4-d`, `chlorpyrifos`, `carbofuran`, `glyphosate`, `monocrotophos`, `methamidophos`, `endosulfan`, kèm các cách viết khác và tên thương phẩm `gramoxone`; chưa đối chiếu từng dòng với phụ lục TT 75/2025, xem BUG-93), quét cả tên và hoạt chất với mọi loại sản phẩm. Trùng thì trả `400`, không tạo sản phẩm; `PATCH` cũng không bật được `is_allowed`.
   - Thuốc (`Hóa học`, `Sinh học`) bắt buộc có `phi_days` (0–365). `info_source_url` tùy chọn, phải là http/https nếu có. CSDL có CHECK `CK_Products_PhiDays_RequiredForMedicine`.
-  - `usage_profile` (TASK-18, tùy chọn): phiếu cách dùng có cấu trúc, lưu ở `Products.UsageProfile` (jsonb). Server cắt khoảng trắng, chuỗi rỗng thành `null`, bỏ buổi trùng; phiếu rỗng → không lưu. `dose_per_area` = `{ min, max, unit }` cho phân, vôi, chế phẩm rắc (ví dụ 20–30 `tấn/ha`), bắt buộc có `unit`. Từ chối `400` khi: liều / lượng nước < 0, `times_per_day` ngoài 1–10, `max_applications_per_season` ngoài 1–50, `avoid_rain_hours` ngoài 0–72, `interval_days` ngoài 0–365 hoặc `min > max`, `source_url` không phải http(s). Thời gian cách ly KHÔNG nằm trong phiếu (dùng `phi_days`). `GET /medicines/search` trả kèm `usage_profile`; agent hiện bỏ qua trường này.
+  - `usage_profile` (TASK-18, tùy chọn): phiếu cách dùng có cấu trúc, lưu ở `Products.UsageProfile` (jsonb). Server cắt khoảng trắng, chuỗi rỗng thành `null`, bỏ buổi trùng; phiếu rỗng → không lưu. `dose_per_area` = `{ min, max, unit }` cho phân, vôi, chế phẩm rắc (ví dụ 20–30 `tấn/ha`), bắt buộc có `unit`. Từ chối `400` khi: liều / lượng nước < 0, `times_per_day` ngoài 1–10, `max_applications_per_season` ngoài 1–50, `avoid_rain_hours` ngoài 0–72, `interval_days` ngoài 0–365 hoặc `min > max`, `source_url` không phải http(s). Thời gian cách ly KHÔNG nằm trong phiếu (dùng `phi_days`). `GET /medicines/search` trả kèm `usage_profile` (phiếu bao bì + bản xem `plant_rules` / `disease_rules` chỉ đọc, xem mục 3.4.0c); agent hiện bỏ qua trường này.
   - `medicine_type` chỉ nhận `Hóa học` | `Sinh học` | `Vật tư canh tác`; `availability` chỉ nhận `IN_STOCK` | `OUT_OF_STOCK` | `NOT_SOLD` (CHECK `CK_Products_Availability`).
   - `is_allowed` mặc định `false`: Admin phải tick "Đã đối chiếu Danh mục thuốc BVTV được phép" mới bật.
   - Nếu `MedicineType = 'Vật tư canh tác'`: Không yêu cầu `PhiDays` (cho phép `null`), không bắt buộc `ActiveIngredient`.

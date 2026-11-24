@@ -23,6 +23,7 @@ using Lavitree.Api.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Lavitree.Application.DTOs;
+using Lavitree.Application.Services;
 using Lavitree.Application.Interfaces;
 using Lavitree.Domain.Entities;
 using Lavitree.Infrastructure.Persistence;
@@ -3090,26 +3091,73 @@ public class KnowledgeController : ControllerBase
                 }
             }
 
-            // Cập nhật quy tắc liều lượng riêng cho bệnh này nếu Admin có nhập hoặc cung cấp
+            // TASK-29: liều lưu ở ProductUsageRules theo cây trồng, không lồng trong Products.UsageProfile nữa.
+            // - Cây chưa có liều chung → liều Admin nhập thành liều chung của cây (mọi bệnh của cây dùng chung).
+            // - Cây đã có liều chung và Admin giữ nguyên → không tạo gì (bệnh tự dùng liều cây).
+            // - Admin nhập liều khác liều chung → tạo / sửa liều riêng cho đúng bệnh này, không đụng bệnh khác.
             if (!string.IsNullOrWhiteSpace(suggestion.ModelClass) &&
-                (!string.IsNullOrWhiteSpace(dto.DosageInstruction) || dto.UsageProfile != null || !string.IsNullOrWhiteSpace(dto.SourceUrl)))
+                (!string.IsNullOrWhiteSpace(dto.DosageInstruction) || dto.UsageProfile != null))
             {
-                var profile = product.UsageProfile ?? new UsageProfile();
-                profile.DiseaseRules ??= new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
+                var linkCode = suggestion.ModelClass.Trim().ToLower();
+                var targetDisease = await _dbContext.Diseases
+                    .FirstOrDefaultAsync(d => d.ClassCode.ToLower() == linkCode && !d.IsDeleted, cancellationToken);
 
-                var effectiveSourceUrl = !string.IsNullOrWhiteSpace(dto.SourceUrl)
-                    ? dto.SourceUrl.Trim()
-                    : suggestion.KnowledgeSource?.SourceUrl;
-
-                profile.DiseaseRules[suggestion.ModelClass] = new DiseaseUsageRuleProfile
+                var ruleText = string.IsNullOrWhiteSpace(dto.DosageInstruction) ? null : dto.DosageInstruction.Trim();
+                var ruleProfile = dto.UsageProfile ?? new UsageProfile();
+                ruleProfile.Normalize();
+                var profileErrors = ruleProfile.Validate();
+                if (profileErrors.Count > 0)
                 {
-                    DosageInstruction = !string.IsNullOrWhiteSpace(dto.DosageInstruction) ? dto.DosageInstruction.Trim() : null,
-                    UsageProfile = dto.UsageProfile?.Normalize(),
-                    SourceUrl = effectiveSourceUrl,
-                    IsVerified = true,
-                };
+                    return BadRequest(new { detail = "Phiếu cách dùng không hợp lệ: " + string.Join(" ", profileErrors) });
+                }
 
-                product.UsageProfile = profile.Normalize();
+                if (targetDisease != null && (ruleText != null || !ruleProfile.IsEmpty))
+                {
+                    var rawSource = !string.IsNullOrWhiteSpace(dto.SourceUrl)
+                        ? dto.SourceUrl.Trim()
+                        : suggestion.KnowledgeSource?.SourceUrl;
+                    var ruleSource = Uri.TryCreate(rawSource, UriKind.Absolute, out var srcUri)
+                                     && (srcUri.Scheme == Uri.UriSchemeHttp || srcUri.Scheme == Uri.UriSchemeHttps)
+                        ? rawSource
+                        : null;
+
+                    var relatedRules = await _dbContext.ProductUsageRules
+                        .Where(r => r.ProductId == product.Id && !r.IsDeleted &&
+                                    (r.DiseaseId == targetDisease.Id || (r.DiseaseId == null && r.PlantId == targetDisease.PlantId)))
+                        .ToListAsync(cancellationToken);
+                    var overrideRule = relatedRules.FirstOrDefault(r => r.DiseaseId == targetDisease.Id);
+                    var plantRule = relatedRules.FirstOrDefault(r => r.DiseaseId == null);
+                    var now = DateTime.UtcNow;
+
+                    if (overrideRule != null)
+                    {
+                        if (!UsageRuleResolver.SameContent(overrideRule, ruleText, ruleProfile))
+                        {
+                            overrideRule.DosageInstruction = ruleText;
+                            overrideRule.Profile = ruleProfile;
+                            overrideRule.SourceUrl = ruleSource ?? overrideRule.SourceUrl;
+                            overrideRule.IsVerified = false;
+                            overrideRule.VerifiedBy = null;
+                            overrideRule.VerifiedAt = null;
+                            overrideRule.UpdatedAt = now;
+                        }
+                    }
+                    else if (plantRule == null || !UsageRuleResolver.SameContent(plantRule, ruleText, ruleProfile))
+                    {
+                        _dbContext.ProductUsageRules.Add(new ProductUsageRule
+                        {
+                            ProductId = product.Id,
+                            PlantId = targetDisease.PlantId,
+                            DiseaseId = plantRule == null ? null : targetDisease.Id,
+                            DosageInstruction = ruleText,
+                            Profile = ruleProfile,
+                            SourceUrl = ruleSource,
+                            IsVerified = false,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        });
+                    }
+                }
             }
 
             await _dbContext.SaveChangesAsync(cancellationToken);

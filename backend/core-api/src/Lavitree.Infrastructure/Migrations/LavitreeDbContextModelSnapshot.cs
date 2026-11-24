@@ -675,15 +675,17 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Property<int?>("DiseaseId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("DosageInstruction")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsVerified")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("PlantName")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                    b.Property<int>("PlantId")
+                        .HasColumnType("integer");
 
                     b.Property<int>("ProductId")
                         .HasColumnType("integer");
@@ -710,9 +712,17 @@ namespace Lavitree.Infrastructure.Migrations
 
                     b.HasIndex("DiseaseId");
 
-                    b.HasIndex("ProductId", "DiseaseId", "PlantName")
+                    b.HasIndex("PlantId");
+
+                    b.HasIndex("ProductId", "DiseaseId")
                         .IsUnique()
-                        .HasFilter("\"IsDeleted\" = false");
+                        .HasDatabaseName("UX_ProductUsageRules_DiseaseOverride")
+                        .HasFilter("\"IsDeleted\" = false AND \"DiseaseId\" IS NOT NULL");
+
+                    b.HasIndex("ProductId", "PlantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ProductUsageRules_PlantDefault")
+                        .HasFilter("\"IsDeleted\" = false AND \"DiseaseId\" IS NULL");
 
                     b.ToTable("ProductUsageRules");
                 });
@@ -911,7 +921,13 @@ namespace Lavitree.Infrastructure.Migrations
                     b.HasOne("Lavitree.Domain.Entities.Disease", "Disease")
                         .WithMany("UsageRules")
                         .HasForeignKey("DiseaseId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Lavitree.Domain.Entities.PlantCategory", "Plant")
+                        .WithMany("UsageRules")
+                        .HasForeignKey("PlantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("Lavitree.Domain.Entities.Product", "Product")
                         .WithMany("UsageRules")
@@ -920,6 +936,8 @@ namespace Lavitree.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Disease");
+
+                    b.Navigation("Plant");
 
                     b.Navigation("Product");
                 });
@@ -964,6 +982,8 @@ namespace Lavitree.Infrastructure.Migrations
             modelBuilder.Entity("Lavitree.Domain.Entities.PlantCategory", b =>
                 {
                     b.Navigation("Diseases");
+
+                    b.Navigation("UsageRules");
                 });
 
             modelBuilder.Entity("Lavitree.Domain.Entities.Product", b =>

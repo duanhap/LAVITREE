@@ -348,6 +348,17 @@ export const buildProductResearchPrompt = (opts: {
     .join('\n');
 
   const cropText = plants.length ? plants.join(', ') : 'các loại cây trồng phù hợp tại Việt Nam';
+  // TASK-29: tạo từ gợi ý thì usage là liều chung của CÂY trong đoạn trích (lưu thành liều cây); không có đoạn trích thì liều chung của sản phẩm
+  const usageRule = plants.length
+    ? [
+        `- usage là LIỀU DÙNG TRÊN CÂY ${plants[0]}${
+          plants.length > 1
+            ? ` (cây chính trong đoạn trích). Đoạn trích còn nhắc ${plants.slice(1).join(', ')}: KHÔNG gộp liều các cây; ghi liều của các cây đó (kèm nguồn) vào scope_note`
+            : ''
+        }. Nếu nguồn chỉ có liều chung không theo cây thì dùng liều đó và ghi rõ trong scope_note.`,
+        `- usage áp dụng cho MỌI bệnh của cây ${plants[0]}: dose_text / method KHÔNG nêu tên một bệnh cụ thể (không viết "Với bệnh ...").`,
+      ].join('\n')
+    : `- usage áp dụng chung cho ${cropText}. Nếu nhãn ghi liều khác nhau theo cây, lấy mức phổ biến và ghi các liều khác trong phần lưu ý.`;
   const keySentences = keyMentionSentences(evidences, mention);
   const scopeBlock = keySentences.length
     ? `\n## 1b. Đoạn trích tham khảo về vật tư này\n${keySentences
@@ -388,7 +399,7 @@ ${evidenceBlock}
    Nếu các đoạn trích nói về những thứ KHÁC NHAU, đặt "mentions_differ": true, giải thích trong "differ_note" và điền theo nghĩa xuất hiện nhiều nhất.
 2. Tổng hợp từ 2–5 nguồn TẠI VIỆT NAM đã tìm ở dòng đầu (bài báo ở mục 2 không tính là nguồn số liệu nếu nó không ghi con số), ưu tiên: ${preferredSources(opts.kind, ctx)}.
    Thông tin và mô tả kỹ thuật phải mang tính TỔNG QUAN VỀ SẢN PHẨM/VẬT TƯ: bao quát công dụng nông nghiệp, đặc tính, các nhóm cây trồng áp dụng phổ biến tại Việt Nam${plants.length ? ` (bao gồm cả ${plants.join(', ')})` : ''}.
-3. Tổng hợp ĐẦY ĐỦ cách dùng thực tế: liều lượng và lượng nước pha, lượng phun/bón trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng, khoảng cách ngày, thời gian cách ly trước thu hoạch, bảo hộ an toàn.
+3. Tổng hợp ĐẦY ĐỦ cách dùng thực tế trên cây ${plants[0] || 'trồng phổ biến nhất trong nguồn'}: liều lượng và lượng nước pha, lượng phun/bón trên ha, cách dùng (phun / tưới gốc / rắc / ngâm hạt…), buổi dùng, khoảng cách ngày, thời gian cách ly trước thu hoạch, bảo hộ an toàn.
 4. Trả lời theo ĐÚNG thứ tự ở mục 4: khối \`\`\`json trước, sau đó danh sách nguồn và ảnh. Không viết lời dẫn trước khối JSON.
 
 ## 4. Định dạng trả lời
@@ -440,7 +451,7 @@ ${evidenceBlock}
 
 ## 5. Quy tắc
 - KHÔNG ĐOÁN SỐ: con số nào (liều, lượng nước, số lần, khoảng cách ngày, PHI, số giờ tránh mưa) không có nguồn ghi rõ thì để null. Chỉ có mô tả bằng chữ thì ghi vào dose_text / method / weather_note.
-- usage áp dụng chung cho ${cropText}. Nếu nhãn ghi liều khác nhau theo cây, lấy mức phổ biến và ghi các liều khác trong phần lưu ý.
+${usageRule}
 - Khoảng giá trị (ví dụ "7–10 ngày") ghi {"min": 7, "max": 10}; một giá trị thì min = max.
 - Liều: thuốc pha nước dùng dose_amount + dose_unit + water_liters (liều cho 1 bình); phân, vôi, chế phẩm rắc / bón theo diện tích dùng dose_per_area {min, max, unit} với unit như "tấn/ha", "kg/ha", "kg/1000 m²", "kg/sào". Có con số theo diện tích thì PHẢI ghi vào dose_per_area, không chỉ để trong dose_text.
 - time_of_day và times_per_day: CHỈ điền khi nguồn ghi rõ (ví dụ "phun lúc chiều mát", "ngày 2 lần"). Bón lót, bón thúc, rắc, xử lý đất theo đợt → times_per_day: null; không tự thêm "sáng sớm / chiều mát" nếu nguồn không nói.
@@ -449,7 +460,7 @@ ${evidenceBlock}
 - target_diseases: CHỈ chọn mã trong danh sách ở mục 6, theo công dụng thực tế của sản phẩm. Có thể chọn nhiều mã. Với vật tư cải tạo đất chung (như vôi bột, phân bón lót không đặc hiệu cho bệnh nào) → để [].
 - description: ĐÂY LÀ MÔ TẢ TỔNG QUAN SẢN PHẨM/VẬT TƯ CHO TOÀN BỘ KHO.
   Mỗi mục một dòng bắt đầu bằng "• ", viết cụ thể, dễ hiểu với nông dân, 200–350 từ.
-  QUY TẮC BẮT BUỘC: TUYỆT ĐỐI KHÔNG bó hẹp mô tả chỉ xoay quanh duy nhất một bệnh hại hay một cây trồng đơn lẻ (ví dụ: KHÔNG viết câu phủ định kiểu "vôi bột không có hoạt chất đăng ký trị bệnh đốm vòng trên cà chua" hay chỉ nhắc đến duy nhất cà chua nếu sản phẩm là Vôi bột dùng chung cho nông nghiệp). Mọi liều lượng và cách dùng riêng cho từng bệnh cụ thể sẽ được cấu hình riêng trong phần Bệnh điều trị & Liều lượng của sản phẩm.
+  QUY TẮC BẮT BUỘC: TUYỆT ĐỐI KHÔNG bó hẹp mô tả chỉ xoay quanh duy nhất một bệnh hại hay một cây trồng đơn lẻ (ví dụ: KHÔNG viết câu phủ định kiểu "vôi bột không có hoạt chất đăng ký trị bệnh đốm vòng trên cà chua" hay chỉ nhắc đến duy nhất cà chua nếu sản phẩm là Vôi bột dùng chung cho nông nghiệp). Liều lượng theo từng cây trồng (và ngoại lệ cho bệnh đặc thù) được cấu hình ở phần Bệnh điều trị & Liều lượng của sản phẩm; liều trên cây chính ghi ở usage.
   Cấu trúc các mục chuẩn:
   • Bản chất & Phân loại: Thành phần chính, dạng chế phẩm, nguồn gốc.
   • Cơ chế tác động & Đặc tính: Cơ chế cải thiện đất/phòng trừ, đặc tính lý hóa hoặc sinh học.

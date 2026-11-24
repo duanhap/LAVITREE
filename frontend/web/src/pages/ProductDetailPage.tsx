@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ChevronDown,
   ShieldAlert,
+  Microscope,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
@@ -36,9 +37,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { safeHref } from '@/lib/utils';
+import { safeHref, cn } from '@/lib/utils';
 import { FormattedSnippet } from '@/components/common/FormattedSnippet';
-import { isUsageEmpty } from '@/features/admin/lib/usage-profile';
+import { isUsageEmpty, type UsageProfile } from '@/features/admin/lib/usage-profile';
 import type {
   ProductDetailResponse,
   ProductEvidenceItem,
@@ -86,6 +87,37 @@ const extractPracticalUsageText = (rawText: string) => {
   return sections[0].content;
 };
 
+// Trích xuất các từ khóa tên thuốc/hoạt chất để bôi vàng nổi bật trong đoạn trích khoa học
+const getEvidenceHighlightKeywords = (
+  item: ProductEvidenceItem,
+  prod?: ProductDetailResponse | null
+): string[] => {
+  const keywords: string[] = [];
+  if (item.mention_text?.trim()) {
+    keywords.push(item.mention_text.trim());
+  }
+  if (prod?.active_ingredient?.trim()) {
+    keywords.push(prod.active_ingredient.trim());
+    prod.active_ingredient.split(/[+;,]/).forEach((p) => {
+      const clean = p.trim().replace(/\s*\([^)]*\)/g, '').replace(/\s*(spp\.?|sp\.?)$/i, '');
+      if (clean.length >= 3) keywords.push(clean);
+    });
+  }
+  if (prod?.name?.trim()) {
+    const cleanName = prod.name
+      .replace(/^(Chế phẩm sinh học|Thuốc trừ bệnh|Thuốc trừ sâu|Thuốc BVTV|Phân bón lá)\s+/i, '')
+      .trim();
+    if (cleanName.length >= 3) {
+      keywords.push(cleanName);
+      const firstWord = cleanName.split(/\s+/)[0];
+      if (firstWord && firstWord.length >= 3) {
+        keywords.push(firstWord);
+      }
+    }
+  }
+  return Array.from(new Set(keywords));
+};
+
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -102,6 +134,27 @@ export const ProductDetailPage: React.FC = () => {
 
   // Popup cho bệnh khi người dùng bấm vào thẻ trong lưới (Tab 2)
   const [selectedPopupDisease, setSelectedPopupDisease] = useState<ProductDiseaseInfo | null>(null);
+
+  // Tab đang hoạt động trong trang chi tiết
+  const [activeTab, setActiveTab] = useState<string>('instructions');
+
+  // Lọc theo Cây trồng cho Tab 2 (Cây trồng & Bệnh đặc trị) - TASK-28
+  const [selectedCropPlant, setSelectedCropPlant] = useState<string>('');
+
+  // Lọc theo Cây trồng và Bệnh cho Tab 3 (Căn cứ khoa học) - TASK-28
+  const [selectedEvidencePlant, setSelectedEvidencePlant] = useState<string>('');
+  const [selectedEvidenceDisease, setSelectedEvidenceDisease] = useState<string>('');
+
+  // Chuyển thẳng từ nút bệnh ở Tab 2 sang xem Căn cứ khoa học của đúng bệnh đó ở Tab 3
+  const handleSelectDiseaseForEvidence = (plantName: string, diseaseName: string) => {
+    setSelectedEvidencePlant(plantName);
+    setSelectedEvidenceDisease(diseaseName);
+    setActiveTab('evidence');
+    const el = document.getElementById('product-detail-tabs');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   const cartStorageKey = user?.id ? `lavitree_cart_${user.id}` : 'lavitree_cart_guest';
 
@@ -275,6 +328,181 @@ export const ProductDetailPage: React.FC = () => {
       [groupId]: !prev[groupId],
     }));
   };
+
+  // TASK-28: Helper lấy biểu tượng sinh động cho từng loại cây / loại quả
+  const getPlantEmoji = (plantName?: string | null): string => {
+    if (!plantName) return '🌱';
+    const p = plantName.toLowerCase();
+    if (p.includes('cà chua') || p.includes('tomato')) return '🍅';
+    if (p.includes('ngô') || p.includes('bắp') || p.includes('corn') || p.includes('maize')) return '🌽';
+    if (p.includes('nho') || p.includes('grape')) return '🍇';
+    if (p.includes('khoai tây') || p.includes('potato')) return '🥔';
+    if (p.includes('lúa') || p.includes('gạo') || p.includes('rice')) return '🌾';
+    if (p.includes('táo') || p.includes('apple')) return '🍎';
+    if (p.includes('ớt') || p.includes('pepper')) return '🌶️';
+    if (p.includes('cam') || p.includes('quýt') || p.includes('bưởi') || p.includes('citrus')) return '🍊';
+    if (p.includes('dưa hấu') || p.includes('watermelon')) return '🍉';
+    if (p.includes('dưa chuột') || p.includes('cucumber')) return '🥒';
+    if (p.includes('dâu tây') || p.includes('strawberry')) return '🍓';
+    return '🌿';
+  };
+
+  // TASK-28: Gom nhóm Căn cứ khoa học theo Cây trồng / Loại quả
+  const groupedEvidenceByPlant = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        plant_name: string;
+        items: ProductEvidenceItem[];
+        diseaseCounts: Map<string, number>;
+      }
+    >();
+
+    for (const item of evidenceList) {
+      const rawPlant = (item.plant_name || '').trim();
+      const plant = rawPlant || 'Cây trồng';
+      const key = plant.toLowerCase();
+
+      if (!map.has(key)) {
+        map.set(key, {
+          plant_name: plant,
+          items: [],
+          diseaseCounts: new Map<string, number>(),
+        });
+      }
+
+      const group = map.get(key)!;
+      group.items.push(item);
+      const dName = item.disease_name?.trim() || 'Bệnh cây trồng';
+      group.diseaseCounts.set(dName, (group.diseaseCounts.get(dName) || 0) + 1);
+    }
+
+    return Array.from(map.values()).map((g) => ({
+      plant_name: g.plant_name,
+      items: g.items,
+      diseases: Array.from(g.diseaseCounts.entries()).map(([name, count]) => ({ name, count })),
+    }));
+  }, [evidenceList]);
+
+  // Danh sách các nhóm Cây trồng hiển thị theo bộ lọc Tab con
+  const visibleEvidencePlantGroups = useMemo(() => {
+    if (selectedEvidencePlant === 'ALL') {
+      return groupedEvidenceByPlant;
+    }
+    return groupedEvidenceByPlant.filter(
+      (g) => g.plant_name.toLowerCase() === selectedEvidencePlant.toLowerCase()
+    );
+  }, [groupedEvidenceByPlant, selectedEvidencePlant]);
+
+  // TASK-28: Gom nhóm Bệnh đặc trị theo Cây trồng cho Tab 2
+  const groupedDiseasesByPlant = useMemo(() => {
+    if (!product?.diseases || product.diseases.length === 0) return [];
+    const map = new Map<
+      string,
+      {
+        plant_name: string;
+        cropDosageText?: string;
+        cropProfile?: UsageProfile | null;
+        /** TASK-30: ô thông số đang lấy từ phiếu chung của sản phẩm (cây chưa có liều riêng). */
+        cropProfileIsPackage?: boolean;
+        diseases: Array<{
+          class_code: string;
+          disease_name: string;
+          plant_name: string;
+          hasSpecificRule: boolean;
+          dosage_instruction?: string;
+        }>;
+      }
+    >();
+
+    for (const d of product.diseases) {
+      const rawPlant = (d.plant_name || '').trim();
+      const plant = rawPlant || 'Cây trồng';
+      const key = plant.toLowerCase();
+
+      if (!map.has(key)) {
+        map.set(key, {
+          plant_name: plant,
+          diseases: [],
+        });
+      }
+
+      const specificRule =
+        product.usage_profile?.disease_rules?.[d.class_code] ||
+        Object.entries(product.usage_profile?.disease_rules || {}).find(
+          ([k]) => k.toLowerCase() === (d.class_code || '').toLowerCase()
+        )?.[1];
+
+      // TASK-29: scope "plant" = bệnh đang dùng liều chung của cây, không phải liều riêng
+      const isOwnRule = Boolean(specificRule && specificRule.scope !== 'plant');
+      const hasSpecific = Boolean(
+        specificRule && isOwnRule &&
+        (specificRule.dosage_instruction?.trim() ||
+          (specificRule.usage_profile && !isUsageEmpty(specificRule.usage_profile)))
+      );
+
+      const entry = map.get(key)!;
+      entry.diseases.push({
+        ...d,
+        hasSpecificRule: hasSpecific,
+        dosage_instruction: specificRule?.dosage_instruction,
+      });
+
+      const plantRule =
+        product.usage_profile?.plant_rules?.[plant] ||
+        product.usage_profile?.plant_rules?.[d.plant_name] ||
+        product.usage_profile?.plant_rules?.[`Cây ${plant}`] ||
+        product.usage_profile?.plant_rules?.[plant.replace(/^Cây\s+/i, '')] ||
+        Object.entries(product.usage_profile?.plant_rules || {}).find(
+          ([k]) =>
+            k.toLowerCase() === plant.toLowerCase() ||
+            k.toLowerCase() === `cây ${plant}`.toLowerCase() ||
+            k.toLowerCase().replace(/^cây\s+/i, '') === plant.toLowerCase().replace(/^cây\s+/i, '')
+        )?.[1];
+
+      // 1. Ưu tiên liều của Cây trồng từ plant_rules
+      if (plantRule?.dosage_instruction?.trim()) {
+        entry.cropDosageText = plantRule.dosage_instruction.trim();
+      } else if (!isOwnRule) {
+        // 2. Dữ liệu cũ chưa có scope: lấy đoạn của bệnh. Liều riêng của một bệnh (scope "disease")
+        //    không được hiện thành liều của cả cây.
+        const disText = specificRule?.dosage_instruction?.trim();
+        if (disText) {
+          // Ưu tiên đoạn hướng dẫn chi tiết đầy đủ của bệnh
+          if (!entry.cropDosageText || disText.length > entry.cropDosageText.length) {
+            entry.cropDosageText = disText;
+          }
+        } else if (!entry.cropDosageText && specificRule?.usage_profile?.dose_text?.trim()) {
+          entry.cropDosageText = specificRule.usage_profile.dose_text.trim();
+        }
+      }
+
+      // Kế thừa hồ sơ thông số kỹ thuật (các ô kỹ thuật: liều pha, lượng nước, chu kỳ...) cho cây
+      if (plantRule?.usage_profile && !isUsageEmpty(plantRule.usage_profile)) {
+        entry.cropProfile = plantRule.usage_profile;
+        entry.cropProfileIsPackage = false;
+      } else if (!entry.cropProfile || isUsageEmpty(entry.cropProfile)) {
+        // Liều riêng của một bệnh không được hiện thành thông số của cả cây (TASK-29/30)
+        if (!isOwnRule && specificRule?.usage_profile && !isUsageEmpty(specificRule.usage_profile)) {
+          entry.cropProfile = specificRule.usage_profile;
+          entry.cropProfileIsPackage = false;
+        } else if (product.usage_profile && !isUsageEmpty(product.usage_profile)) {
+          entry.cropProfile = product.usage_profile;
+          entry.cropProfileIsPackage = true;
+        }
+      }
+    }
+
+    // Đảm bảo nhóm cây có văn bản liều nếu có thông số dose_text trong profile
+    for (const entry of map.values()) {
+      // dose_text của phiếu chung sản phẩm không được hiện thành liều của cây
+      if (!entry.cropDosageText && !entry.cropProfileIsPackage && entry.cropProfile?.dose_text?.trim()) {
+        entry.cropDosageText = entry.cropProfile.dose_text.trim();
+      }
+    }
+
+    return Array.from(map.values());
+  }, [product?.diseases, product?.usage_profile]);
 
   if (loading) {
     return (
@@ -539,7 +767,12 @@ export const ProductDetailPage: React.FC = () => {
       </div>
 
       {/* 3. KHU VỰC CHI TIẾT DƯỚI DẠNG TABS THEO YÊU CẦU NGƯỜI DÙNG */}
-      <Tabs defaultValue="instructions" className="w-full space-y-6 pt-6 border-t border-border/80">
+      <Tabs
+        id="product-detail-tabs"
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="w-full space-y-6 pt-6 border-t border-border/80"
+      >
         <TabsList className="w-full justify-start border-b border-border rounded-none h-auto p-0 bg-transparent gap-2 sm:gap-6 flex-wrap">
           <TabsTrigger
             value="instructions"
@@ -679,65 +912,191 @@ export const ProductDetailPage: React.FC = () => {
           </Card>
         </TabsContent>
 
-        {/* TAB 2: CÂY TRỒNG & BỆNH ĐẶC TRỊ (DẠNG GRID + POPUP MODAL THEO YÊU CẦU) */}
+        {/* TAB 2: CÂY TRỒNG & BỆNH ĐẶC TRỊ (GOM NHÓM THEO CÂY TRỒNG / LOẠI QUẢ - TASK-28) */}
         <TabsContent value="diseases" className="space-y-4 pt-1">
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              Bấm vào từng thẻ bệnh để xem tóm tắt triệu chứng và hướng dẫn điều trị chi tiết:
+              Phân cấp liều lượng và danh mục bệnh đặc trị theo từng loại cây trồng. Bấm vào từng bệnh để xem trực tiếp căn cứ khoa học:
             </p>
           </div>
 
-          {product.diseases && product.diseases.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {product.diseases.map((d, idx) => {
-                const specificRule = product.usage_profile?.disease_rules?.[d.class_code];
-                const hasSpecific = Boolean(
-                  specificRule &&
-                  (specificRule.dosage_instruction?.trim() ||
-                    (specificRule.usage_profile && !isUsageEmpty(specificRule.usage_profile)))
-                );
+          {groupedDiseasesByPlant.length > 0 ? (
+            <div className="space-y-4">
+              {/* TẦNG 1: TAB CÂY TRỒNG (MỖI CÂY 1 TAB, KHÔNG ĐỂ ALL ĐẦU - TASK-28) */}
+              {groupedDiseasesByPlant.length > 1 && (
+                <div className="flex items-center gap-2 border-b border-border pb-2 overflow-x-auto scrollbar-none">
+                  {groupedDiseasesByPlant.map((crop) => {
+                    const activeCropName =
+                      selectedCropPlant || groupedDiseasesByPlant[0]?.plant_name;
+                    const isCropActive =
+                      activeCropName.toLowerCase() === crop.plant_name.toLowerCase();
+
+                    return (
+                      <button
+                        key={crop.plant_name}
+                        type="button"
+                        onClick={() => setSelectedCropPlant(crop.plant_name)}
+                        className={cn(
+                          'px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold shrink-0 transition-all cursor-pointer flex items-center gap-2 border',
+                          isCropActive
+                            ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                            : 'bg-card text-muted-foreground border-border hover:text-foreground hover:bg-muted/50'
+                        )}
+                      >
+                        <span className="text-base leading-none">{getPlantEmoji(crop.plant_name)}</span>
+                        <span>{crop.plant_name.startsWith('Cây') ? crop.plant_name : `Cây ${crop.plant_name}`}</span>
+                        <span
+                          className={cn(
+                            'px-1.5 py-0.2 rounded-full text-[10px]',
+                            isCropActive
+                              ? 'bg-primary-foreground/25 text-primary-foreground font-bold'
+                              : 'bg-muted text-muted-foreground'
+                          )}
+                        >
+                          {crop.diseases.length}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* NỘI DUNG DUY NHẤT CỦA CÂY ĐANG CHỌN (KHÔNG ĐỂ TẤT CẢ DỌC) */}
+              {(() => {
+                const activeCropName =
+                  selectedCropPlant || groupedDiseasesByPlant[0]?.plant_name;
+                const crop =
+                  groupedDiseasesByPlant.find(
+                    (c) => c.plant_name.toLowerCase() === activeCropName.toLowerCase()
+                  ) || groupedDiseasesByPlant[0];
+
+                if (!crop) return null;
+
+                const cropDosage =
+                  crop.cropDosageText ||
+                  (!crop.cropProfileIsPackage ? crop.cropProfile?.dose_text : '') ||
+                  'Tuân thủ theo liều khuyến cáo chung và hướng dẫn kỹ thuật trên nhãn bao bì.';
 
                 return (
                   <div
-                    key={idx}
-                    onClick={() => setSelectedPopupDisease(d)}
-                    className="p-4 sm:p-5 rounded-2xl border border-border bg-card hover:border-primary hover:shadow-xs transition-all cursor-pointer flex flex-col justify-between group space-y-3"
+                    key={crop.plant_name}
+                    className="rounded-2xl border border-border bg-card p-5 space-y-4 shadow-2xs hover:border-primary/40 transition-all"
                   >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-1.5">
-                        <Badge variant="outline" className="text-[10px] font-bold text-primary uppercase">
-                          {d.plant_name}
-                        </Badge>
-                        {hasSpecific ? (
-                          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-semibold border-0 flex items-center gap-1">
-                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                            <span>Có liều riêng</span>
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px] bg-muted/60 text-muted-foreground border-border/70">
-                            <span>Dùng liều chung</span>
-                          </Badge>
-                        )}
+                    {/* Header Cây trồng */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl p-2 rounded-xl bg-primary/10 shrink-0 leading-none">
+                          {getPlantEmoji(crop.plant_name)}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-extrabold text-base sm:text-lg text-foreground">
+                              {crop.plant_name.startsWith('Cây') ? crop.plant_name : `Cây ${crop.plant_name}`}
+                            </h3>
+                            <Badge className="bg-primary/10 text-primary border border-primary/20 text-[11px] font-bold">
+                              {crop.diseases.length} bệnh đặc trị
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Áp dụng phác đồ phòng trị và liều lượng chuyên biệt cho cây trồng này
+                          </p>
+                        </div>
                       </div>
-
-                      <h4 className="text-base font-bold text-foreground group-hover:text-primary transition-colors pt-0.5">
-                        {d.disease_name}
-                      </h4>
-
-                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                        {hasSpecific && specificRule?.dosage_instruction
-                          ? specificRule.dosage_instruction
-                          : `Nằm trong danh mục phòng trị của ${product.name}. Nhấn để xem hướng dẫn.`}
-                      </p>
                     </div>
 
-                    <div className="pt-3 border-t border-border/50 flex items-center justify-between text-xs font-semibold text-primary">
-                      <span>{hasSpecific ? 'Xem liều riêng' : 'Xem hướng dẫn'}</span>
-                      <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    {/* 1. ĐẦU TIÊN: DANH MỤC CÁC BỆNH ĐẶC TRỊ TRÊN CÂY TRỒNG NÀY (BẤM VÀO ĐỂ XEM CĂN CỨ KHOA HỌC) */}
+                    <div className="space-y-2 pt-1">
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
+                        Danh mục bệnh hại phòng trị (Bấm vào để xem căn cứ khoa học):
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {crop.diseases.map((d, dIdx) => (
+                          <button
+                            key={dIdx}
+                            type="button"
+                            onClick={() => handleSelectDiseaseForEvidence(crop.plant_name, d.disease_name)}
+                            className="px-3 py-2 rounded-xl border border-border bg-background hover:border-primary hover:bg-primary/5 hover:text-primary transition-all text-xs font-semibold flex items-center gap-2 shadow-2xs cursor-pointer group"
+                            title={`Bấm để xem căn cứ khoa học chứng minh hiệu quả trị ${d.disease_name}`}
+                          >
+                            <span className="text-sm">🦠</span>
+                            <span>{d.disease_name}</span>
+                            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 2. CHO XUỐNG DƯỚI: KHỐI LIỀU LƯỢNG ÁP DỤNG CHO CÂY TRỒNG NÀY */}
+                    <div className="p-3.5 rounded-xl bg-muted/30 border border-border/80 space-y-2.5 text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-foreground">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Liều lượng khuyến cáo cho {crop.plant_name}:</span>
+                      </div>
+                      <p className="text-foreground/90 leading-relaxed font-medium whitespace-pre-line">
+                        {cropDosage}
+                      </p>
+
+                      {/* CÁC Ô THÔNG SỐ KỸ THUẬT ÁP DỤNG CHO CÂY TRỒNG NÀY */}
+                      {crop.cropProfile && !isUsageEmpty(crop.cropProfile) && (
+                        <div className="pt-2 border-t border-border/50 space-y-1.5">
+                          <span className="font-semibold text-foreground text-[11px] block">
+                            {crop.cropProfileIsPackage
+                              ? 'Thông số chung của sản phẩm (chưa có liều riêng cho cây này):'
+                              : 'Thông số kỹ thuật áp dụng:'}
+                          </span>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                            {crop.cropProfile.dose_amount && (
+                              <div className="p-2 rounded-lg bg-background border border-border/60 shadow-2xs">
+                                <span className="text-muted-foreground block text-[10px]">Liều pha:</span>
+                                <strong className="text-foreground">{crop.cropProfile.dose_amount} {crop.cropProfile.dose_unit || ''}</strong>
+                              </div>
+                            )}
+                            {crop.cropProfile.water_liters && (
+                              <div className="p-2 rounded-lg bg-background border border-border/60 shadow-2xs">
+                                <span className="text-muted-foreground block text-[10px]">Lượng nước:</span>
+                                <strong className="text-foreground">{crop.cropProfile.water_liters} lít / bình</strong>
+                              </div>
+                            )}
+                            {crop.cropProfile.dose_per_area && (
+                              <div className="p-2 rounded-lg bg-background border border-border/60 shadow-2xs col-span-2 sm:col-span-1">
+                                <span className="text-muted-foreground block text-[10px]">Liều theo diện tích:</span>
+                                <strong className="text-foreground">
+                                  {crop.cropProfile.dose_per_area.min && crop.cropProfile.dose_per_area.max && crop.cropProfile.dose_per_area.min !== crop.cropProfile.dose_per_area.max
+                                    ? `${crop.cropProfile.dose_per_area.min}–${crop.cropProfile.dose_per_area.max}`
+                                    : crop.cropProfile.dose_per_area.min || crop.cropProfile.dose_per_area.max}{' '}
+                                  {crop.cropProfile.dose_per_area.unit || ''}
+                                </strong>
+                              </div>
+                            )}
+                            {crop.cropProfile.method && (
+                              <div className="p-2 rounded-lg bg-background border border-border/60 shadow-2xs col-span-2">
+                                <span className="text-muted-foreground block text-[10px]">Cách dùng:</span>
+                                <strong className="text-foreground">{crop.cropProfile.method}</strong>
+                              </div>
+                            )}
+                            {crop.cropProfile.interval_days && (
+                              <div className="p-2 rounded-lg bg-background border border-border/60 shadow-2xs">
+                                <span className="text-muted-foreground block text-[10px]">Cách nhau:</span>
+                                <strong className="text-foreground">
+                                  {typeof crop.cropProfile.interval_days === 'object'
+                                    ? `${crop.cropProfile.interval_days.min || ''}–${crop.cropProfile.interval_days.max || ''} ngày`
+                                    : `${crop.cropProfile.interval_days} ngày`}
+                                </strong>
+                              </div>
+                            )}
+                            {crop.cropProfile.time_of_day && crop.cropProfile.time_of_day.length > 0 && (
+                              <div className="p-2 rounded-lg bg-background border border-border/60 shadow-2xs">
+                                <span className="text-muted-foreground block text-[10px]">Thời điểm:</span>
+                                <strong className="text-foreground">{crop.cropProfile.time_of_day.join(', ')}</strong>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
-              })}
+              })()}
             </div>
           ) : product.target_diseases && product.target_diseases.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -767,44 +1126,212 @@ export const ProductDetailPage: React.FC = () => {
           )}
         </TabsContent>
 
-        {/* TAB 3: CĂN CỨ KHOA HỌC & TRÍCH DẪN KHUYẾN NÔNG */}
+        {/* TAB 3: CĂN CỨ KHOA HỌC & TRÍCH DẪN KHUYẾN NÔNG (2 TẦNG: CÂY TRỒNG & BỆNH MỤC TIÊU - CHỐNG DÀI DÒNG) */}
         {evidenceList.length > 0 && (
-          <TabsContent value="evidence" className="space-y-4 pt-1">
-            <p className="text-xs text-muted-foreground">
-              Sản phẩm được trích dẫn trực tiếp từ các phác đồ điều trị và tài liệu khuyến nông đã qua kiểm duyệt:
-            </p>
-            <div className="space-y-3">
-              {evidenceList.map((item, idx) => (
-                <div key={idx} className="p-4 rounded-2xl border border-border bg-card space-y-2 text-xs shadow-2xs">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="font-semibold text-foreground text-sm">
-                      {item.source_title || 'Tài liệu hướng dẫn kỹ thuật BVTV'}
-                    </span>
-                    <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                      {item.organization || 'Khuyến nông'}
-                    </Badge>
-                  </div>
-
-                  <div className="bg-secondary/30 p-3.5 rounded-xl border border-border/40 text-xs">
-                    <FormattedSnippet text={item.evidence_text} variant="full" />
-                  </div>
-
-                  {item.source_url && (
-                    <div className="text-right pt-1">
-                      <a
-                        href={item.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline font-medium"
-                      >
-                        <span>Xem tài liệu gốc</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                  )}
-                </div>
-              ))}
+          <TabsContent value="evidence" className="space-y-5 pt-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Sản phẩm được trích dẫn trực tiếp từ các phác đồ điều trị và tài liệu khuyến nông đã qua kiểm duyệt:
+              </p>
+              <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium shrink-0 flex items-center gap-1">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-200 border border-amber-400 dark:bg-amber-400" />
+                <span>Tên thuốc &amp; hoạt chất được bôi vàng trong văn bản</span>
+              </span>
             </div>
+
+            {groupedEvidenceByPlant.length > 0 && (
+              <div className="space-y-4">
+                {/* TẦNG 1: TAB CÂY TRỒNG (MỖI CÂY 1 TAB) */}
+                {groupedEvidenceByPlant.length > 1 && (
+                  <div className="flex items-center gap-2 border-b border-border pb-2 overflow-x-auto scrollbar-none">
+                    {groupedEvidenceByPlant.map((group) => {
+                      const isPlantActive =
+                        selectedEvidencePlant.toLowerCase() === group.plant_name.toLowerCase() ||
+                        (selectedEvidencePlant === 'ALL' &&
+                          groupedEvidenceByPlant[0]?.plant_name === group.plant_name);
+
+                      return (
+                        <button
+                          key={group.plant_name}
+                          type="button"
+                          onClick={() => {
+                            setSelectedEvidencePlant(group.plant_name);
+                            setSelectedEvidenceDisease(group.diseases[0]?.name || '');
+                          }}
+                          className={cn(
+                            'px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold shrink-0 transition-all cursor-pointer flex items-center gap-2 border',
+                            isPlantActive
+                              ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                              : 'bg-card text-muted-foreground border-border hover:text-foreground hover:bg-muted/50'
+                          )}
+                        >
+                          <span className="text-base leading-none">{getPlantEmoji(group.plant_name)}</span>
+                          <span>{group.plant_name.startsWith('Cây') ? group.plant_name : `Cây ${group.plant_name}`}</span>
+                          <span
+                            className={cn(
+                              'px-1.5 py-0.2 rounded-full text-[10px]',
+                              isPlantActive
+                                ? 'bg-primary-foreground/25 text-primary-foreground font-bold'
+                                : 'bg-muted text-muted-foreground'
+                            )}
+                          >
+                            {group.items.length}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* NỘI DUNG CỦA CÂY ĐANG CHỌN (GỌN GÀNG, KHÔNG LÊ THÊ) */}
+                {(() => {
+                  const currentPlantGroup =
+                    groupedEvidenceByPlant.find(
+                      (g) => g.plant_name.toLowerCase() === selectedEvidencePlant.toLowerCase()
+                    ) || groupedEvidenceByPlant[0];
+
+                  if (!currentPlantGroup) return null;
+
+                  const activeDisease =
+                    selectedEvidenceDisease && selectedEvidenceDisease !== 'ALL'
+                      ? selectedEvidenceDisease
+                      : currentPlantGroup.diseases[0]?.name || '';
+
+                  const filteredItems = currentPlantGroup.items.filter(
+                    (item) => (item.disease_name || '').toLowerCase() === activeDisease.toLowerCase()
+                  );
+
+                  return (
+                    <div className="rounded-2xl border border-border bg-card p-5 space-y-4 shadow-2xs">
+                      {/* Tiêu đề nhóm Cây trồng */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl p-2 rounded-xl bg-primary/10 shrink-0 leading-none">
+                            {getPlantEmoji(currentPlantGroup.plant_name)}
+                          </span>
+                          <div>
+                            <h3 className="font-extrabold text-base text-foreground">
+                              Căn cứ khoa học trên {currentPlantGroup.plant_name.startsWith('Cây') ? currentPlantGroup.plant_name : `Cây ${currentPlantGroup.plant_name}`}
+                            </h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Chọn từng bệnh bên dưới để xem đúng bài báo chứng minh hiệu quả điều trị
+                            </p>
+                          </div>
+                        </div>
+
+                        <Badge variant="secondary" className="text-xs font-semibold self-start sm:self-auto">
+                          {filteredItems.length} tài liệu
+                        </Badge>
+                      </div>
+
+                      {/* TẦNG 2: SUB-TABS CHỌN TỪNG BỆNH CỦA CÂY ĐÓ (KHÔNG ĐỂ ALL ĐẦU - TASK-28) */}
+                      {currentPlantGroup.diseases.length > 0 && (
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1">
+                          {currentPlantGroup.diseases.map((d) => {
+                            const isDiseaseActive = activeDisease.toLowerCase() === d.name.toLowerCase();
+                            return (
+                              <button
+                                key={d.name}
+                                type="button"
+                                onClick={() => setSelectedEvidenceDisease(d.name)}
+                                className={cn(
+                                  'px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all cursor-pointer flex items-center gap-1.5',
+                                  isDiseaseActive
+                                    ? 'bg-primary text-primary-foreground shadow-xs'
+                                    : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
+                                )}
+                              >
+                                <span>🎯 {d.name}</span>
+                                <span
+                                  className={cn(
+                                    'px-1.5 py-0.2 rounded-full text-[10px]',
+                                    isDiseaseActive
+                                      ? 'bg-primary-foreground/25 text-primary-foreground font-bold'
+                                      : 'bg-background/80 text-muted-foreground'
+                                  )}
+                                >
+                                  {d.count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* DANH SÁCH BÀI BÁO GỌN GÀNG ĐÚNG BỆNH ĐANG CHỌN */}
+                      <div className="space-y-3.5 pt-1">
+                        {filteredItems.length > 0 ? (
+                          filteredItems.map((item, idx) => {
+                            const highlightKeywords = getEvidenceHighlightKeywords(item, product);
+
+                            return (
+                              <div
+                                key={idx}
+                                className="p-4 rounded-xl border border-border/80 bg-muted/20 space-y-2.5 text-xs shadow-2xs hover:border-primary/40 transition-colors"
+                              >
+                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                  <div className="space-y-1 min-w-0 flex-1">
+                                    <span className="font-bold text-foreground text-sm block leading-snug">
+                                      {item.source_title || 'Tài liệu hướng dẫn kỹ thuật BVTV'}
+                                    </span>
+                                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] font-medium bg-background text-primary border-primary/30"
+                                      >
+                                        🎯 Trị bệnh: {item.disease_name || 'Bệnh hại'}
+                                      </Badge>
+                                      <span>{item.organization || 'Khuyến nông'}</span>
+                                      {item.published_date && (
+                                        <>
+                                          <span>·</span>
+                                          <span>{item.published_date}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <Badge variant="outline" className="text-[10px] font-medium bg-background shrink-0">
+                                    {item.is_verbatim ? 'Trích nguyên văn' : 'Tóm tắt phác đồ'}
+                                  </Badge>
+                                </div>
+
+                                {/* Đoạn trích dẫn có bôi vàng tên thuốc & hoạt chất */}
+                                <div className="bg-background/90 p-3.5 rounded-xl border border-border/60 text-xs">
+                                  <FormattedSnippet
+                                    text={item.evidence_text}
+                                    mention={highlightKeywords}
+                                    variant="full"
+                                  />
+                                </div>
+
+                                {item.source_url && (
+                                  <div className="text-right pt-0.5">
+                                    <a
+                                      href={item.source_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
+                                    >
+                                      <span>Xem tài liệu gốc</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="p-8 text-center text-xs text-muted-foreground border border-dashed rounded-xl bg-card">
+                            Chưa có bài báo khoa học nào cho bệnh này trên cây {currentPlantGroup.plant_name}.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </TabsContent>
         )}
 

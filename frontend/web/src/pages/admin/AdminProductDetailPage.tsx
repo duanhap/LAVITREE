@@ -56,16 +56,14 @@ import type {
   ProductUsageRuleItem,
 } from '@/features/products/types';
 import {
-  emptyUsageProfile,
   splitDescriptionDosage,
   combineDescriptionDosage,
   formatUsageText,
-  type UsageProfile,
-  type DiseaseUsageRuleProfile,
 } from '@/features/admin/lib/usage-profile';
 import {
   buildGoogleQueries,
   buildProductResearchPrompt,
+  kindFromMedicineType,
   parseProductResearchJson,
   type ResearchEvidence,
   type ResearchDisease,
@@ -348,7 +346,7 @@ export const AdminProductDetailPage: React.FC = () => {
     return groupProductEvidence(product.diseases || [], evidences, { mode: 'admin' });
   }, [product, evidences]);
 
-  // Lưu quy tắc liều lượng riêng cho từng bệnh (Bảng ProductUsageRules + sync UsageProfile - TASK-22)
+  // Lưu liều riêng cho một bệnh (1 dòng ProductUsageRules scope "disease" - TASK-22/29)
   const handleSaveDiseaseRule = async (modelClass: string, payload: SaveDiseaseRulePayload) => {
     if (!productId || !product) return;
 
@@ -359,18 +357,16 @@ export const AdminProductDetailPage: React.FC = () => {
     try {
       if (existingRule) {
         const updated = await updateUsageRule(productId, existingRule.id, {
+          dosage_instruction: payload.dosageInstruction ?? '',
           profile: payload.profile,
           action_group: payload.actionGroup,
           source_url: payload.sourceUrl,
         });
         setUsageRules((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
       } else {
-        const matchMeta = availableDiseases.find(
-          (d) => d.classCode.toLowerCase() === modelClass.toLowerCase()
-        );
         const created = await createUsageRule(productId, {
           class_code: modelClass,
-          plant_name: matchMeta?.plantName,
+          dosage_instruction: payload.dosageInstruction,
           profile: payload.profile,
           action_group: payload.actionGroup,
           source_url: payload.sourceUrl,
@@ -378,11 +374,43 @@ export const AdminProductDetailPage: React.FC = () => {
         setUsageRules((prev) => [...prev, created]);
       }
 
-      // Tải lại sản phẩm để đồng bộ UsageProfile.DiseaseRules
+      // Tải lại sản phẩm để lấy bản xem liều theo cây / bệnh mới
       const refreshed = await getProduct(productId);
       setProduct(refreshed);
     } catch (err: unknown) {
       toast.error('Lỗi khi lưu liều lượng theo bệnh: ' + getErrorMessage(err));
+      throw err;
+    }
+  };
+
+  // TASK-29: liều chung của cây = 1 dòng ProductUsageRules (scope "plant"). Mọi bệnh của cây tự dùng liều này,
+  // trừ bệnh có liều riêng. Chỉ tạo / sửa đúng dòng đó, không chép đè lên liều của bệnh nào.
+  const handleSaveCropRule = async (plantName: string, payload: SaveDiseaseRulePayload) => {
+    if (!productId || !product) return;
+    const norm = (v?: string | null) => (v || '').trim().toLowerCase().replace(/^cây\s+/i, '');
+    const existing = usageRules.find((r) => r.scope === 'plant' && norm(r.plant_name) === norm(plantName));
+    try {
+      if (existing) {
+        const updated = await updateUsageRule(productId, existing.id, {
+          dosage_instruction: payload.dosageInstruction ?? '',
+          profile: payload.profile,
+          source_url: payload.sourceUrl,
+        });
+        setUsageRules((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      } else {
+        const created = await createUsageRule(productId, {
+          plant_name: plantName,
+          dosage_instruction: payload.dosageInstruction,
+          profile: payload.profile,
+          source_url: payload.sourceUrl,
+        });
+        setUsageRules((prev) => [...prev, created]);
+      }
+      const refreshed = await getProduct(productId);
+      setProduct(refreshed);
+      toast.success(`Đã lưu liều chung cho Cây ${plantName}.`);
+    } catch (err: unknown) {
+      toast.error('Lỗi khi lưu liều dùng theo cây: ' + getErrorMessage(err));
       throw err;
     }
   };
@@ -413,19 +441,12 @@ export const AdminProductDetailPage: React.FC = () => {
       : usageRules.find((r) => r.class_code?.toLowerCase() === modelClass.toLowerCase());
 
     try {
-      if (targetRule) {
-        await deleteUsageRule(productId, targetRule.id);
-        setUsageRules((prev) => prev.filter((r) => r.id !== targetRule.id));
-      } else {
-        // Fallback xóa trong JSON profile cũ nếu chưa có trong DB
-        const currentUsage: UsageProfile = product.usage_profile
-          ? { ...product.usage_profile }
-          : emptyUsageProfile();
-        const nextRules = { ...(currentUsage.disease_rules || {}) };
-        delete nextRules[modelClass];
-        const updatedProfile: UsageProfile = { ...currentUsage, disease_rules: nextRules };
-        await updateProduct(productId, { usage_profile: updatedProfile });
+      if (!targetRule) {
+        toast.info('Bệnh này không có liều riêng, đang dùng liều chung của cây.');
+        return;
       }
+      await deleteUsageRule(productId, targetRule.id);
+      setUsageRules((prev) => prev.filter((r) => r.id !== targetRule.id));
 
       const refreshed = await getProduct(productId);
       setProduct(refreshed);
@@ -494,25 +515,9 @@ export const AdminProductDetailPage: React.FC = () => {
         setUsageRules((prev) => prev.filter((r) => r.id !== targetRule.id));
       }
 
-      // Đồng thời dọn dẹp disease_rules nếu có
-      let nextUsage = product.usage_profile;
-      if (product.usage_profile?.disease_rules?.[modelClass]) {
-        const nextRules = { ...product.usage_profile.disease_rules };
-        delete nextRules[modelClass];
-        nextUsage = { ...product.usage_profile, disease_rules: nextRules };
-        await updateProduct(productId, { usage_profile: nextUsage });
-      }
-
-      setProduct((prev) =>
-        prev
-          ? {
-              ...prev,
-              target_diseases: nextCodes,
-              diseases: newDiseases,
-              usage_profile: nextUsage,
-            }
-          : null
-      );
+      // Tải lại để bản xem liều (usage_profile.disease_rules) bỏ bệnh vừa gỡ
+      const refreshedAfterRemove = await getProduct(productId);
+      setProduct({ ...refreshedAfterRemove, target_diseases: nextCodes, diseases: newDiseases });
       toast.success(`Đã bỏ bệnh ${modelClass} khỏi danh sách điều trị của thuốc.`);
     } catch (err: unknown) {
       toast.error('Lỗi khi gỡ bệnh: ' + getErrorMessage(err));
@@ -542,7 +547,7 @@ export const AdminProductDetailPage: React.FC = () => {
     return buildGoogleQueries({
       name: formData.name,
       activeIngredient: formData.active_ingredient,
-      kind: formData.medicine_type,
+      kind: kindFromMedicineType(formData.medicine_type),
     });
   }, [formData.name, formData.active_ingredient, formData.medicine_type]);
 
@@ -564,7 +569,8 @@ export const AdminProductDetailPage: React.FC = () => {
 
     const promptText = buildProductResearchPrompt({
       mention: formData.name,
-      kind: formData.medicine_type,
+      // Hàm cần mã loại (CHEMICAL / BIOLOGICAL / SUPPLY), không phải nhãn tiếng Việt "Hóa học"...
+      kind: kindFromMedicineType(formData.medicine_type),
       evidences: researchEvidences,
       diseases: researchDiseases,
       currentName: formData.name,
@@ -1007,10 +1013,12 @@ export const AdminProductDetailPage: React.FC = () => {
             defaultProfile={product.usage_profile}
             defaultDosage={productDosage}
             diseaseRules={product.usage_profile?.disease_rules}
+            plantRules={product.usage_profile?.plant_rules}
             usageRules={usageRules}
             isSupply={product.medicine_type === 'Vật tư canh tác'}
             phiDays={product.phi_days}
             onSaveDiseaseRule={handleSaveDiseaseRule}
+            onSaveCropRule={handleSaveCropRule}
             onVerifyDiseaseRule={handleVerifyDiseaseRule}
             onResetDiseaseRule={handleResetDiseaseRule}
             onRemoveDisease={handleRemoveDisease}
