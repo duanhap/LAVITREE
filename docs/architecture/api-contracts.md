@@ -453,6 +453,76 @@
 
 ---
 
+### 3.4.0c. Quản lý Phiếu cách dùng thuốc theo từng bệnh (`ProductUsageRules` — TASK-22)
+*Cung cấp dữ liệu chi tiết có kiểm định để AI Agent lập lịch phun và nhắc nhở (CareSchedules / CareTasks).*
+
+#### 1. `GET /api/v1/medicines/{id}/usage-rules`
+- **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
+- **Mô tả**: Lấy danh sách quy tắc cách dùng theo bệnh của sản phẩm. Tự động di trú dữ liệu cũ từ `UsageProfile.DiseaseRules` sang bảng `ProductUsageRules` nếu chưa có.
+- **Response Body (`200 OK`)**:
+  ```json
+  [
+    {
+      "id": 1,
+      "product_id": 1,
+      "disease_id": 15,
+      "class_code": "Tomato___Late_blight",
+      "disease_name": "Bệnh mốc sương",
+      "plant_name": "Cà chua",
+      "profile": {
+        "dose_amount": 50,
+        "dose_unit": "g",
+        "water_liters": 16,
+        "dose_text": "Pha 50g cho bình 16 lít nước...",
+        "method": "phun ướt đều 2 mặt lá",
+        "interval_days": { "min": 7, "max": 10 }
+      },
+      "action_group": "FRAC 4",
+      "source_url": "https://syngenta.com.vn/ridomil-gold",
+      "is_verified": true,
+      "verified_by": "admin@lavitree.vn",
+      "verified_at": "2026-11-23T07:15:00Z",
+      "updated_at": "2026-11-23T07:15:00Z"
+    }
+  ]
+  ```
+
+#### 2. `POST /api/v1/medicines/{id}/usage-rules`
+- **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
+- **Request Body**:
+  ```json
+  {
+    "class_code": "Tomato___Late_blight",
+    "plant_name": "Cà chua",
+    "profile": {
+      "dose_amount": 50,
+      "dose_unit": "g",
+      "water_liters": 16,
+      "dose_text": "Pha 50g cho bình 16 lít..."
+    },
+    "action_group": "FRAC 4",
+    "source_url": "https://syngenta.com.vn/ridomil-gold"
+  }
+  ```
+- **Xử lý**: Kiểm tra trùng bệnh (`409 Conflict`), kiểm tra hợp lệ phiếu (`400 Bad Request`), tạo mới và đồng bộ vào `Product.UsageProfile.DiseaseRules`. `IsVerified` mặc định là `false`.
+
+#### 3. `PATCH /api/v1/medicines/{id}/usage-rules/{ruleId}`
+- **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
+- **Request Body**: `{ "profile": { ... }, "action_group": "FRAC 4", "source_url": "..." }`
+- **Quy tắc bảo vệ**: Mọi lần chỉnh sửa bắt buộc tự động đặt lại `is_verified = false`, `verified_by = null`, `verified_at = null` để yêu cầu Admin đối chiếu lại với nhãn thuốc.
+
+#### 4. `POST /api/v1/medicines/{id}/usage-rules/{ruleId}/verify`
+- **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
+- **Request Body**: `{ "verified": true }`
+- **Mô tả**: Xác nhận (hoặc hủy xác nhận) đã đối chiếu nhãn thuốc / nguồn kỹ thuật. Ghi nhận `VerifiedBy` (email admin hiện tại) và `VerifiedAt`.
+
+#### 5. `DELETE /api/v1/medicines/{id}/usage-rules/{ruleId}`
+- **Headers**: `Authorization: Bearer <admin_jwt_token>` (AdminOnly).
+- **Mô tả**: Xóa mềm quy tắc của bệnh. Bệnh sẽ tự động quay về sử dụng phiếu cách dùng chung của sản phẩm.
+- **Response**: `204 No Content`.
+
+---
+
 ### 3.4.1. `GET /api/v1/diseases` (Danh mục Sổ tay Bệnh học & Cây trồng)
 *Phục vụ màn hình W-07 Sổ tay Bệnh học 14 loài cây & 40 danh mục chẩn đoán chuẩn Khuyến nông*
 - **Query Params**: `plantId` (GUID/int, optional), `search` (string, optional)
@@ -1195,10 +1265,22 @@ Trả `{ dry_run, results: [{ common_name, aliases, category, status, message, e
     "conversation_id": "conv-a1b2c3d4",
     "location": "Hà Nam",
     "harvest_days_left": 2,
-    "current_disease_code": "Tomato___Late_blight"
+    "current_disease_code": "Tomato___Late_blight",
+    "image_context": {
+      "disease_name": "Bệnh mốc sương",
+      "plant_name": "Cà chua",
+      "confidence": 0.88,
+      "status": "definite",
+      "top3": [
+        { "disease_name": "Bệnh mốc sương", "confidence": 0.88 }
+      ],
+      "minio_url": "http://localhost:9000/lavitree-diagnoses/a1b2c3d4_orig.jpg",
+      "has_gradcam": true
+    }
   }
   ```
   - `conversation_id`: (string, optional). Nếu Client không gửi, Server Agent tự sinh `UUIDv4` mới và trả về ngay trong sự kiện `trace_start`.
+  - `image_context`: (object, optional - TASK-25). Ngữ cảnh ảnh lá cây do AI Vision (`/api/v1/diagnose`) phân tích trước đó, giúp Agent nắm chắc độ tin cậy và không trả lời bịa.
   - Giới hạn độ dài (vượt thì `422`): `message` 1–2000 ký tự, `conversation_id` ≤ 64, `location` ≤ 120, `current_disease_code` ≤ 100, `harvest_days_left` từ 0 đến 3650.
   - `harvest_days_left`: (int, optional). Nếu Client bỏ trống (null/omitted), Agent mặc định giả định tình huống cận thu hoạch an toàn nhất ($DaysToHarvest = 0 \rightarrow$ chặn toàn bộ thuốc hóa học) và gắn câu hỏi yêu cầu nông dân xác nhận lại số ngày dự kiến thu hoạch trong câu trả lời.
 
@@ -1233,6 +1315,29 @@ Trả `{ dry_run, results: [{ common_name, aliases, category, status, message, e
     "draft_order": null,
     "guardrail_triggered": "HARVEST_BEFORE_PHI_VIOLATION",
     "is_offline_fallback": false,
+    "reference_images": [
+      {
+        "id": 1,
+        "image_url": "http://localhost:9000/lavitree-images/sample1.jpg",
+        "plant_part": "LEAF",
+        "caption": "Mặt dưới lá có lớp mốc trắng xám",
+        "organization": "Trung tâm Khuyến nông Quốc gia",
+        "license_type": "CC-BY-4.0",
+        "disease_code": "Tomato___Late_blight",
+        "source_url": "https://khuyennongvn.gov.vn/..."
+      }
+    ],
+    "suggested_products": [
+      {
+        "id": 1,
+        "name": "Ridomil Gold 68WG",
+        "active_ingredient": "Mancozeb 64% + Metalaxyl-M 4%",
+        "medicine_type": "Hóa học",
+        "phi_days": 7,
+        "avoid_rain_hours": 2,
+        "image_url": "http://localhost:9000/lavitree-images/ridomil.jpg"
+      }
+    ],
     "citations": [
       {
         "source_id": "0f801a5b-9ad7-40fa-ba30-efe06296910f",

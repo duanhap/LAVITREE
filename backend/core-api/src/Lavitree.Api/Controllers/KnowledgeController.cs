@@ -915,12 +915,11 @@ public class KnowledgeController : ControllerBase
         {
             if (source.IsVerbatim)
             {
-                // Sửa chữ thì không còn là nguyên văn của bài báo, Lavi sẽ trích sai lời nguồn
-                return BadRequest(new { detail = "Không sửa chữ trong đoạn nguyên văn. Nếu cần đoạn khác, hãy xoá đoạn này rồi dán lại bài để chọn đoạn mới." });
+                return BadRequest(new { detail = "Đoạn trích dẫn nguyên văn không được phép chỉnh sửa nội dung theo Điều 25 Luật SHTT. Vui lòng sử dụng tính năng Tách đoạn." });
             }
             if (dto.EvidenceText.Trim().Length < 20)
             {
-                return BadRequest(new { detail = "Đoạn tóm tắt phải có ít nhất 20 ký tự." });
+                return BadRequest(new { detail = "Đoạn trích phải có ít nhất 20 ký tự." });
             }
             source.EvidenceText = dto.EvidenceText.Trim();
             changed = true;
@@ -938,6 +937,89 @@ public class KnowledgeController : ControllerBase
 
         var reindexStatus = await TriggerReindexAsync(source.Id.ToString(), "unapprove");
         return Ok(new { source_id = source.Id, is_manual_approved = false, reindex_status = reindexStatus });
+    }
+
+    // 4.2c2. POST /api/v1/knowledge/sources/{id}/split (Tách 1 đoạn đã lưu thành 2 hoặc nhiều đoạn)
+    [HttpPost("sources/{id:guid}/split")]
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> SplitSourceUnit(Guid id, [FromBody] SplitSourceUnitRequestDto dto)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        if (dto.Parts == null || dto.Parts.Count < 2)
+        {
+            return BadRequest(new { detail = "Vui lòng cung cấp ít nhất 2 đoạn văn sau khi tách." });
+        }
+
+        var source = await _dbContext.KnowledgeSources.FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted);
+        if (source == null)
+        {
+            return NotFound(new { detail = "Không tìm thấy đoạn tri thức cần tách." });
+        }
+
+        // Kiểm tra độ dài mỗi đoạn con
+        for (int i = 0; i < dto.Parts.Count; i++)
+        {
+            var p = (dto.Parts[i] ?? string.Empty).Trim();
+            if (p.Length < 20)
+            {
+                return BadRequest(new { detail = $"Đoạn #{i + 1} quá ngắn (< 20 ký tự). Vui lòng chọn mốc ngắt hợp lý." });
+            }
+        }
+
+        var now = DateTime.UtcNow;
+
+        // 1. Cập nhật đoạn gốc thành Part 0
+        source.EvidenceText = dto.Parts[0].Trim();
+        source.IsManualApproved = false;
+        source.ReviewerNotes = $"Đã tách đoạn vào ngày {now:dd/MM/yyyy HH:mm}";
+        source.UpdatedAt = now;
+
+        // 2. Tạo các đoạn mới cho Part 1..k
+        var newSourceIds = new List<Guid> { source.Id };
+        for (int i = 1; i < dto.Parts.Count; i++)
+        {
+            var newSource = new KnowledgeSource
+            {
+                Id = Guid.NewGuid(),
+                ModelClass = source.ModelClass,
+                PlantName = source.PlantName,
+                DiseaseName = source.DiseaseName,
+                SourceUrl = source.SourceUrl,
+                SourceTitle = source.SourceTitle,
+                Organization = source.Organization,
+                PublishedDate = source.PublishedDate,
+                SourceScope = source.SourceScope,
+                SourceQuality = source.SourceQuality,
+                MatchLevel = source.MatchLevel,
+                HasCultivationTechnique = source.HasCultivationTechnique,
+                UnitType = source.UnitType,
+                ContentType = source.ContentType,
+                EvidenceText = dto.Parts[i].Trim(),
+                IsVerbatim = source.IsVerbatim,
+                IsManualApproved = false,
+                ReviewerNotes = $"Tách từ đoạn {source.Id} vào ngày {now:dd/MM/yyyy HH:mm}",
+                CreatedAt = source.CreatedAt.AddMilliseconds(i * 100),
+                UpdatedAt = now
+            };
+            _dbContext.KnowledgeSources.Add(newSource);
+            newSourceIds.Add(newSource.Id);
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        // Kích hoạt reindex unapprove cho đoạn gốc
+        var reindexStatus = await TriggerReindexAsync(source.Id.ToString(), "unapprove");
+
+        return Ok(new
+        {
+            message = $"Đã tách thành công thành {dto.Parts.Count} đoạn.",
+            source_ids = newSourceIds,
+            reindex_status = reindexStatus
+        });
     }
 
     // 4.2d. POST /api/v1/knowledge/fetch-url (Tải HTML bài báo từ URL an toàn chống SSRF cho Admin)
@@ -2930,61 +3012,74 @@ public class KnowledgeController : ControllerBase
         [FromBody] LinkProductSuggestionRequestDto dto,
         CancellationToken cancellationToken = default)
     {
-        var suggestion = await _dbContext.ProductSuggestions
-            .Include(ps => ps.KnowledgeSource)
-            .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
-
-        if (suggestion == null)
+        try
         {
-            return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
-        }
+            var suggestion = await _dbContext.ProductSuggestions
+                .Include(ps => ps.KnowledgeSource)
+                .FirstOrDefaultAsync(ps => ps.Id == id && !ps.IsDeleted, cancellationToken);
 
-        var product = await _dbContext.Products
-            .FirstOrDefaultAsync(p => p.Id == dto.ProductId && !p.IsDeleted, cancellationToken);
+            if (suggestion == null)
+            {
+                return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
+            }
 
-        if (product == null)
-        {
-            return NotFound(new { detail = "Không tìm thấy sản phẩm cần gắn kết." });
-        }
+            var product = await _dbContext.Products
+                .FirstOrDefaultAsync(p => p.Id == dto.ProductId && !p.IsDeleted, cancellationToken);
 
-        if (suggestion.Status != "PENDING")
-        {
-            return Conflict(new { detail = "Gợi ý này đã được xử lý trước đó." });
-        }
+            if (product == null)
+            {
+                return NotFound(new { detail = "Không tìm thấy sản phẩm cần gắn kết." });
+            }
 
-        // Không bao giờ gắn thuốc cấm vào bệnh, kể cả khi trang kết quả khám đã lọc IsAllowed
-        if (MedicinesController.IsBannedIngredient(product.Name) || MedicinesController.IsBannedIngredient(product.ActiveIngredient))
-        {
-            return BadRequest(new { detail = $"Sản phẩm '{product.Name}' chứa hoạt chất cấm, không được gắn vào bệnh." });
-        }
+            if (suggestion.Status != "PENDING")
+            {
+                return Conflict(new { detail = "Gợi ý này đã được xử lý trước đó." });
+            }
 
-        // Tự động gắn kết cho tất cả các bản ghi có cùng mention_text đang chờ xử lý
-        var targetMention = suggestion.MentionText.Trim().ToLower();
-        var sameSuggestions = await _dbContext.ProductSuggestions
-            .Where(ps => !ps.IsDeleted && ps.Status == "PENDING" && ps.MentionText.Trim().ToLower() == targetMention)
-            .ToListAsync(cancellationToken);
+            // Không bao giờ gắn thuốc cấm vào bệnh, kể cả khi trang kết quả khám đã lọc IsAllowed
+            if (MedicinesController.IsBannedIngredient(product.Name) || MedicinesController.IsBannedIngredient(product.ActiveIngredient))
+            {
+                return BadRequest(new { detail = $"Sản phẩm '{product.Name}' chứa hoạt chất cấm, không được gắn vào bệnh." });
+            }
 
-        if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
-        {
-            sameSuggestions.Add(suggestion);
-        }
+            // Tự động gắn kết cho tất cả các bản ghi có cùng mention_text đang chờ xử lý
+            var targetMention = suggestion.MentionText.Trim().ToLower();
+            var sameSuggestions = await _dbContext.ProductSuggestions
+                .Where(ps => !ps.IsDeleted && ps.Status == "PENDING" && ps.MentionText.Trim().ToLower() == targetMention)
+                .ToListAsync(cancellationToken);
 
-        foreach (var s in sameSuggestions)
-        {
-            s.Status = "LINKED";
-            s.ProductId = product.Id;
-            s.ResolvedAt = DateTime.UtcNow;
+            if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
+            {
+                sameSuggestions.Add(suggestion);
+            }
 
-            // Tự động liên kết vào DiseaseProducts nếu bệnh đã có trong bảng Diseases
-            if (!string.IsNullOrWhiteSpace(s.ModelClass))
+            var diseaseCodesToLink = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var s in sameSuggestions)
+            {
+                s.Status = "LINKED";
+                s.ProductId = product.Id;
+                s.ResolvedAt = DateTime.UtcNow;
+
+                if (!string.IsNullOrWhiteSpace(s.ModelClass))
+                {
+                    diseaseCodesToLink.Add(s.ModelClass.Trim());
+                }
+            }
+
+            // Tự động liên kết vào DiseaseProducts cho các bệnh chưa liên kết (tránh trùng khóa / duplicate tracking)
+            foreach (var code in diseaseCodesToLink)
             {
                 var disease = await _dbContext.Diseases
-                    .FirstOrDefaultAsync(d => d.ClassCode == s.ModelClass, cancellationToken);
+                    .FirstOrDefaultAsync(d => d.ClassCode == code, cancellationToken);
                 if (disease != null)
                 {
-                    var exists = await _dbContext.DiseaseProducts
+                    var existsInDb = await _dbContext.DiseaseProducts
                         .AnyAsync(dp => dp.DiseaseId == disease.Id && dp.ProductId == product.Id, cancellationToken);
-                    if (!exists)
+                    var existsInLocal = _dbContext.DiseaseProducts.Local
+                        .Any(dp => dp.DiseaseId == disease.Id && dp.ProductId == product.Id);
+
+                    if (!existsInDb && !existsInLocal)
                     {
                         _dbContext.DiseaseProducts.Add(new DiseaseProduct
                         {
@@ -2994,32 +3089,37 @@ public class KnowledgeController : ControllerBase
                     }
                 }
             }
-        }
 
-        // Cập nhật quy tắc liều lượng riêng cho bệnh này nếu Admin có nhập hoặc cung cấp
-        if (!string.IsNullOrWhiteSpace(suggestion.ModelClass) &&
-            (!string.IsNullOrWhiteSpace(dto.DosageInstruction) || dto.UsageProfile != null || !string.IsNullOrWhiteSpace(dto.SourceUrl)))
-        {
-            var profile = product.UsageProfile ?? new UsageProfile();
-            profile.DiseaseRules ??= new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
-
-            var effectiveSourceUrl = !string.IsNullOrWhiteSpace(dto.SourceUrl)
-                ? dto.SourceUrl.Trim()
-                : suggestion.KnowledgeSource?.SourceUrl;
-
-            profile.DiseaseRules[suggestion.ModelClass] = new DiseaseUsageRuleProfile
+            // Cập nhật quy tắc liều lượng riêng cho bệnh này nếu Admin có nhập hoặc cung cấp
+            if (!string.IsNullOrWhiteSpace(suggestion.ModelClass) &&
+                (!string.IsNullOrWhiteSpace(dto.DosageInstruction) || dto.UsageProfile != null || !string.IsNullOrWhiteSpace(dto.SourceUrl)))
             {
-                DosageInstruction = !string.IsNullOrWhiteSpace(dto.DosageInstruction) ? dto.DosageInstruction.Trim() : null,
-                UsageProfile = dto.UsageProfile?.Normalize(),
-                SourceUrl = effectiveSourceUrl,
-                IsVerified = true,
-            };
+                var profile = product.UsageProfile ?? new UsageProfile();
+                profile.DiseaseRules ??= new Dictionary<string, DiseaseUsageRuleProfile>(StringComparer.OrdinalIgnoreCase);
 
-            product.UsageProfile = profile.Normalize();
+                var effectiveSourceUrl = !string.IsNullOrWhiteSpace(dto.SourceUrl)
+                    ? dto.SourceUrl.Trim()
+                    : suggestion.KnowledgeSource?.SourceUrl;
+
+                profile.DiseaseRules[suggestion.ModelClass] = new DiseaseUsageRuleProfile
+                {
+                    DosageInstruction = !string.IsNullOrWhiteSpace(dto.DosageInstruction) ? dto.DosageInstruction.Trim() : null,
+                    UsageProfile = dto.UsageProfile?.Normalize(),
+                    SourceUrl = effectiveSourceUrl,
+                    IsVerified = true,
+                };
+
+                product.UsageProfile = profile.Normalize();
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return Ok(new { message = $"Đã gắn gợi ý '{suggestion.MentionText}' (áp dụng cho {sameSuggestions.Count} đoạn) với sản phẩm '{product.Name}' thành công." });
         }
-
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        return Ok(new { message = $"Đã gắn gợi ý '{suggestion.MentionText}' (áp dụng cho {sameSuggestions.Count} đoạn) với sản phẩm '{product.Name}' thành công." });
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi liên kết gợi ý vật tư ID {SuggestionId} vào sản phẩm ID {ProductId}", id, dto?.ProductId);
+            return StatusCode(500, new { detail = $"Lỗi máy chủ khi liên kết sản phẩm: {ex.Message}" });
+        }
     }
 
     // 6.2b. POST /api/v1/knowledge/product-suggestions/{id:int}/unlink (TASK-21)

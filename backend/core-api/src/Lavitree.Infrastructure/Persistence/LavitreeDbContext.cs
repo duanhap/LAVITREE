@@ -29,6 +29,7 @@ public class LavitreeDbContext : DbContext
     public DbSet<ProductSuggestion> ProductSuggestions => Set<ProductSuggestion>();
     public DbSet<BannedSubstance> BannedSubstances => Set<BannedSubstance>();
     public DbSet<BannedSubstanceDecision> BannedSubstanceDecisions => Set<BannedSubstanceDecision>();
+    public DbSet<ProductUsageRule> ProductUsageRules => Set<ProductUsageRule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -106,6 +107,40 @@ public class LavitreeDbContext : DbContext
             entity.HasOne(ps => ps.Product)
                 .WithMany(p => p.ProductSuggestions)
                 .HasForeignKey(ps => ps.ProductId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ProductUsageRule configuration (TASK-22)
+        modelBuilder.Entity<ProductUsageRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.PlantName).HasMaxLength(100);
+            entity.Property(e => e.ActionGroup).HasMaxLength(20);
+            entity.Property(e => e.SourceUrl).HasMaxLength(500);
+            entity.Property(e => e.VerifiedBy).HasMaxLength(200);
+
+            entity.Property(e => e.Profile)
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => string.IsNullOrWhiteSpace(v) ? new UsageProfile() : (JsonSerializer.Deserialize<UsageProfile>(v, (JsonSerializerOptions?)null) ?? new UsageProfile()),
+                    new ValueComparer<UsageProfile>(
+                        (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
+                        v => v == null ? 0 : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+                        v => v == null ? new UsageProfile() : (JsonSerializer.Deserialize<UsageProfile>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null), (JsonSerializerOptions?)null) ?? new UsageProfile())));
+
+            entity.HasIndex(e => new { e.ProductId, e.DiseaseId, e.PlantName })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
+
+            entity.HasOne(r => r.Product)
+                .WithMany(p => p.UsageRules)
+                .HasForeignKey(r => r.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(r => r.Disease)
+                .WithMany(d => d.UsageRules)
+                .HasForeignKey(r => r.DiseaseId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

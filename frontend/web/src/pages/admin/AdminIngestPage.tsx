@@ -182,6 +182,9 @@ export const AdminIngestPage: React.FC = () => {
   // Tách đoạn an toàn theo dấu câu (Điều 25 Luật SHTT - Không sửa đổi nguyên văn)
   const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
   const [splitTargetPara, setSplitTargetPara] = useState<ParagraphItem | null>(null);
+  const [splitTargetSavedRow, setSplitTargetSavedRow] = useState<KnowledgeSourceItem | null>(null);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState<string>('');
   const [splitPart1, setSplitPart1] = useState<string>('');
   const [splitPart2, setSplitPart2] = useState<string>('');
   const [selectedCutIndex, setSelectedCutIndex] = useState<number>(-1);
@@ -1870,6 +1873,7 @@ export const AdminIngestPage: React.FC = () => {
   };
 
   const handleOpenSplitModal = (para: ParagraphItem) => {
+    setSplitTargetSavedRow(null);
     setSplitTargetPara(para);
     const { part1, part2 } = autoSplitText(para.text);
     setSplitPart1(part1);
@@ -1892,7 +1896,106 @@ export const AdminIngestPage: React.FC = () => {
     setSplitModalOpen(true);
   };
 
-  const handleConfirmSplit = () => {
+  const handleOpenSplitModalForSaved = (row: KnowledgeSourceItem) => {
+    setSplitTargetPara(null);
+    setSplitTargetSavedRow(row);
+    const { part1, part2 } = autoSplitText(row.evidenceText);
+    setSplitPart1(part1);
+    setSplitPart2(part2);
+
+    const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
+    const matches = row.evidenceText.match(regex);
+    const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [row.evidenceText];
+
+    let bestIdx = 0;
+    let accumulated = '';
+    for (let i = 0; i < sents.length - 1; i++) {
+      accumulated = (accumulated ? accumulated + ' ' : '') + sents[i];
+      if (accumulated.trim().length <= part1.length) {
+        bestIdx = i;
+      }
+    }
+    setSelectedCutIndex(bestIdx);
+    setSelectedCutIndices(sents.length > 1 ? [bestIdx] : []);
+    setSplitModalOpen(true);
+  };
+
+  const handleConfirmSplit = async () => {
+    // Trường hợp 1: Tách đoạn đã lưu trong CSDL (Tab 1)
+    if (splitTargetSavedRow) {
+      const parts = computeSplitParts(splitTargetSavedRow.evidenceText, selectedCutIndices);
+      if (parts.length < 2) {
+        toast.error('Vui lòng chọn ít nhất 1 mốc ngắt câu để chia đoạn.');
+        return;
+      }
+      const hasInvalid = parts.some((p) => p.length < 20 || p.length > MAX_SNIPPET_CHARS);
+      if (hasInvalid) {
+        toast.error(`Mỗi đoạn con sau khi chia phải có từ 20 đến ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự.`);
+        return;
+      }
+      try {
+        setEditSaving(true);
+        try {
+          await apiClient.post(`/knowledge/sources/${splitTargetSavedRow.id}/split`, { parts });
+        } catch (apiErr: any) {
+          // Fallback tự động nếu backend server chưa deploy endpoint /split (trả về 404)
+          if (apiErr?.response?.status === 404) {
+            // 1. Tạo các đoạn con mới từ part 1..k
+            for (let i = 1; i < parts.length; i++) {
+              await apiClient.post('/knowledge/sources', {
+                modelClass: splitTargetSavedRow.modelClass,
+                sourceUrl: splitTargetSavedRow.sourceUrl,
+                sourceTitle: splitTargetSavedRow.sourceTitle,
+                organization: splitTargetSavedRow.organization,
+                publishedDate: splitTargetSavedRow.publishedDate,
+                sourceScope: splitTargetSavedRow.sourceScope,
+                evidenceText: parts[i],
+                contentType: splitTargetSavedRow.contentType,
+                isManualApproved: false,
+                reviewerNotes: 'Tách từ đoạn gốc',
+              });
+            }
+
+            // 2. Thử cập nhật Part 0 cho đoạn gốc, nếu server cũ chặn sửa nguyên văn thì tạo Part 0 mới và xóa đoạn gốc
+            let part0Updated = false;
+            try {
+              await apiClient.patch(`/knowledge/sources/${splitTargetSavedRow.id}`, {
+                evidence_text: parts[0],
+              });
+              part0Updated = true;
+            } catch {
+              await apiClient.post('/knowledge/sources', {
+                modelClass: splitTargetSavedRow.modelClass,
+                sourceUrl: splitTargetSavedRow.sourceUrl,
+                sourceTitle: splitTargetSavedRow.sourceTitle,
+                organization: splitTargetSavedRow.organization,
+                publishedDate: splitTargetSavedRow.publishedDate,
+                sourceScope: splitTargetSavedRow.sourceScope,
+                evidenceText: parts[0],
+                contentType: splitTargetSavedRow.contentType,
+                isManualApproved: false,
+                reviewerNotes: 'Tách từ đoạn gốc (phần 1)',
+              });
+              await apiClient.delete(`/knowledge/sources/${splitTargetSavedRow.id}`);
+              part0Updated = true;
+            }
+          } else {
+            throw apiErr;
+          }
+        }
+        toast.success(`Đã tách thành công thành ${parts.length} đoạn!`);
+        setSplitModalOpen(false);
+        setSplitTargetSavedRow(null);
+        if (editUrl) await loadArticleForEdit(editUrl, true);
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+      } finally {
+        setEditSaving(false);
+      }
+      return;
+    }
+
+    // Trường hợp 2: Tách đoạn xem trước khi nhập bài mới (Tab 2 / Ingestion Preview)
     if (!splitTargetPara || !ingestionResult) return;
     const parts = computeSplitParts(splitTargetPara.text, selectedCutIndices);
     if (parts.length < 2) {
@@ -3934,6 +4037,7 @@ export const AdminIngestPage: React.FC = () => {
                                     </div>
 
                                     <div className="flex items-center gap-1.5 shrink-0">
+                                      {/* Trạng thái duyệt */}
                                       {row.isManualApproved ? (
                                         <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-semibold gap-1 px-2 py-0.5 shadow-2xs">
                                           <Check className="w-3 h-3" />
@@ -3946,6 +4050,7 @@ export const AdminIngestPage: React.FC = () => {
                                         </Badge>
                                       )}
 
+                                      {/* Nút Duyệt / Bỏ duyệt */}
                                       <Button
                                         type="button"
                                         size="sm"
@@ -3959,16 +4064,53 @@ export const AdminIngestPage: React.FC = () => {
                                         {row.isManualApproved ? 'Bỏ duyệt' : 'Duyệt'}
                                       </Button>
 
-                                      <Button
+                                      {/* Vạch ngăn cách nhẹ nhàng */}
+                                      <div className="h-3.5 w-px bg-border/80 mx-0.5" />
+
+                                      {/* Nút Tách đoạn: Button vuông vức đẹp mắt, hover hiện title Tách đoạn */}
+                                      <button
                                         type="button"
-                                        size="sm"
-                                        variant="ghost"
+                                        onClick={() => handleOpenSplitModalForSaved(row)}
+                                        className="h-6 w-6 rounded-md flex items-center justify-center text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 hover:text-emerald-950 border border-emerald-300 dark:border-emerald-700 transition-colors shadow-2xs cursor-pointer"
+                                        title="Tách đoạn trích này thành các đoạn nhỏ"
+                                      >
+                                        <Scissors className="w-3 h-3" />
+                                        <span className="sr-only">Tách đoạn</span>
+                                      </button>
+
+                                      {/* Nút Sửa chữ: Chỉ hiện cho Tóm tắt / FAQ */}
+                                      {!row.isVerbatim && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (editingRowId === row.id) {
+                                              setEditingRowId(null);
+                                            } else {
+                                              setEditingRowId(row.id);
+                                              setEditingText(row.evidenceText);
+                                            }
+                                          }}
+                                          className={`h-6 w-6 rounded-md flex items-center justify-center transition-colors shadow-2xs border cursor-pointer ${editingRowId === row.id
+                                              ? 'bg-amber-100 text-amber-900 border-amber-400 font-bold'
+                                              : 'bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted border-border'
+                                            }`}
+                                          title={editingRowId === row.id ? 'Đang sửa tóm tắt' : 'Sửa nội dung tóm tắt'}
+                                        >
+                                          <Edit3 className="w-3 h-3" />
+                                          <span className="sr-only">Sửa tóm tắt</span>
+                                        </button>
+                                      )}
+
+                                      {/* Nút Xóa */}
+                                      <button
+                                        type="button"
                                         onClick={() => handleDeleteSingleSource(row.id)}
-                                        className="h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                        className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 border border-transparent transition-colors cursor-pointer"
                                         title="Xóa đoạn này khỏi bài viết"
                                       >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </Button>
+                                        <Trash2 className="w-3 h-3" />
+                                        <span className="sr-only">Xóa đoạn</span>
+                                      </button>
                                     </div>
                                   </div>
 
@@ -3997,10 +4139,64 @@ export const AdminIngestPage: React.FC = () => {
                                     </span>
                                   </div>
 
-                                  {/* Hàng 3: Hộp nội dung văn bản định dạng đẹp với viền xanh trái */}
-                                  <div className="rounded-lg bg-muted/20 dark:bg-muted/10 border border-border/60 p-3 pl-3.5 border-l-4 border-l-emerald-600 shadow-2xs max-h-72 overflow-y-auto space-y-1">
-                                    {renderParagraphWithHighlight(row.id, row.evidenceText)}
-                                  </div>
+                                  {/* Hàng 3: Hộp nội dung văn bản hoặc Khung chỉnh sửa trực tiếp (Chỉ cho phép sửa với Tóm tắt / FAQ) */}
+                                  {!row.isVerbatim && editingRowId === row.id ? (
+                                    <div className="space-y-2 rounded-lg bg-background border border-amber-400 p-2.5 shadow-sm animate-in fade-in-50">
+                                      <div className="flex items-center justify-between text-[11px] text-amber-900 font-medium">
+                                        <span className="flex items-center gap-1 font-semibold">
+                                          <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                                          Chế độ chỉnh sửa trực tiếp Đoạn #{rIdx + 1}:
+                                        </span>
+                                        <span className={`font-mono text-xs ${editingText.length > MAX_SNIPPET_CHARS ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+                                          {editingText.length.toLocaleString('vi-VN')} / {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự
+                                        </span>
+                                      </div>
+                                      <textarea
+                                        value={editingText}
+                                        onChange={(e) => setEditingText(e.target.value)}
+                                        rows={6}
+                                        className="w-full text-xs font-sans p-2.5 rounded border border-border bg-card focus:outline-none focus:ring-1 focus:ring-emerald-600 leading-relaxed resize-y"
+                                        placeholder="Nhập nội dung đoạn trích..."
+                                      />
+                                      <div className="flex items-center justify-between text-[11px] pt-1">
+                                        <span className="text-muted-foreground text-[10px]">
+                                          {row.isVerbatim ? '⚠️ Lưu ý: Sau khi lưu câu chữ mới, đoạn sẽ tự động chuyển sang Chờ duyệt.' : 'Đoạn tóm tắt tổng hợp'}
+                                        </span>
+                                        <div className="flex items-center gap-1.5">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => setEditingRowId(null)}
+                                            disabled={editSaving}
+                                            className="h-7 text-xs px-2.5"
+                                          >
+                                            Hủy
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={async () => {
+                                              if (editingText.trim().length < 20) {
+                                                toast.error('Đoạn trích phải có ít nhất 20 ký tự.');
+                                                return;
+                                              }
+                                              await updateSavedUnit(row, { evidence_text: editingText.trim() });
+                                              setEditingRowId(null);
+                                            }}
+                                            disabled={editSaving || editingText.trim() === row.evidenceText.trim()}
+                                            className="h-7 text-xs px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1"
+                                          >
+                                            <span>💾 Lưu nội dung</span>
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="rounded-lg bg-muted/20 dark:bg-muted/10 border border-border/60 p-3 pl-3.5 border-l-4 border-l-emerald-600 shadow-2xs max-h-72 overflow-y-auto space-y-1">
+                                      {renderParagraphWithHighlight(row.id, row.evidenceText)}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -4820,24 +5016,40 @@ export const AdminIngestPage: React.FC = () => {
       {/* ========================================================================================= */}
       {/* DIALOG TÁCH ĐOẠN TRÍCH DẪN (AN TOÀN NGUYÊN VĂN THEO LUẬT SHTT) */}
       {/* ========================================================================================= */}
-      <Dialog open={splitModalOpen} onOpenChange={setSplitModalOpen}>
+      <Dialog open={splitModalOpen} onOpenChange={(open) => {
+        setSplitModalOpen(open);
+        if (!open) {
+          setSplitTargetSavedRow(null);
+          setSplitTargetPara(null);
+        }
+      }}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base font-bold flex items-center gap-2">
               <Scissors className="w-4 h-4 text-emerald-700" />
-              <span>Chia đoạn trích dẫn {splitTargetPara ? `(${splitTargetPara.id})` : ''}</span>
+              <span>
+                Chia đoạn trích dẫn {splitTargetSavedRow ? `(Đoạn #${editRows.findIndex((r) => r.id === splitTargetSavedRow.id) + 1})` : splitTargetPara ? `(${splitTargetPara.id})` : ''}
+              </span>
             </DialogTitle>
             <DialogDescription className="text-xs">
               Mỗi đoạn tối đa {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự. Bạn có thể nhấp chuột vào biểu tượng ✂️ sau bất kỳ câu nào để đặt một hoặc nhiều mốc cắt, chia thành nhiều đoạn nhỏ tùy ý.
             </DialogDescription>
           </DialogHeader>
 
-          {splitTargetPara && (() => {
+          {(() => {
+            const activeText = splitTargetSavedRow ? splitTargetSavedRow.evidenceText : splitTargetPara ? splitTargetPara.text : '';
+            if (!activeText) return null;
+
+            const targetTitle = splitTargetSavedRow
+              ? `Đoạn #${editRows.findIndex((r) => r.id === splitTargetSavedRow.id) + 1}`
+              : splitTargetPara?.id || '';
+            const minCharLen = splitTargetSavedRow ? 20 : 30;
+
             const regex = /[^.!?;\r\n]+(?:[.!?;\r\n]+|$)/g;
-            const matches = splitTargetPara.text.match(regex);
-            const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [splitTargetPara.text];
-            const parts = computeSplitParts(splitTargetPara.text, selectedCutIndices);
-            const hasInvalidPart = parts.some(p => p.length < 30 || p.length > MAX_SNIPPET_CHARS);
+            const matches = activeText.match(regex);
+            const sents = matches ? matches.map((s) => s.trim()).filter(Boolean) : [activeText];
+            const parts = computeSplitParts(activeText, selectedCutIndices);
+            const hasInvalidPart = parts.some((p) => p.length < minCharLen || p.length > MAX_SNIPPET_CHARS);
 
             return (
               <div className="space-y-4 py-2 text-xs">
@@ -4850,7 +5062,7 @@ export const AdminIngestPage: React.FC = () => {
 
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-muted/40 p-2.5 rounded-lg border border-border">
                   <div>
-                    <span>Đoạn gốc: <strong className="font-mono text-foreground">{splitTargetPara.text.length}</strong> ký tự ({sents.length} câu)</span>
+                    <span>Đoạn gốc: <strong className="font-mono text-foreground">{activeText.length}</strong> ký tự ({sents.length} câu)</span>
                     <span className="mx-2 text-muted-foreground/40">•</span>
                     <span className="font-semibold text-emerald-800">
                       Đang chọn chia thành {parts.length} đoạn ({selectedCutIndices.length} mốc cắt)
@@ -4892,18 +5104,19 @@ export const AdminIngestPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedCutIndices(prev => {
+                                  setSelectedCutIndices((prev) => {
                                     if (prev.includes(idx)) {
-                                      return prev.filter(x => x !== idx).sort((a, b) => a - b);
+                                      return prev.filter((x) => x !== idx).sort((a, b) => a - b);
                                     } else {
                                       return [...prev, idx].sort((a, b) => a - b);
                                     }
                                   });
                                 }}
-                                className={`inline-flex items-center gap-1 mx-1 my-0.5 px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${isCutAfterThis
+                                className={`inline-flex items-center gap-1 mx-1 my-0.5 px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                                  isCutAfterThis
                                     ? 'bg-emerald-700 text-white shadow-xs scale-105'
                                     : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
-                                  }`}
+                                }`}
                                 title={isCutAfterThis ? 'Bấm để hủy mốc cắt này' : 'Bấm để ngắt câu tại đây'}
                               >
                                 <Scissors className="w-2.5 h-2.5" />
@@ -4923,7 +5136,7 @@ export const AdminIngestPage: React.FC = () => {
                     <span>Xem trước {parts.length} đoạn con sau khi chia:</span>
                     {hasInvalidPart && (
                       <span className="text-destructive text-[11px] font-normal">
-                        Có đoạn con vượt quá {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự hoặc quá ngắn (&lt; 30 ký tự)
+                        Có đoạn con vượt quá {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự hoặc quá ngắn (&lt; {minCharLen} ký tự)
                       </span>
                     )}
                   </div>
@@ -4931,17 +5144,21 @@ export const AdminIngestPage: React.FC = () => {
                     {parts.map((partText, pIdx) => {
                       const len = partText.length;
                       const isTooLong = len > MAX_SNIPPET_CHARS;
-                      const isTooShort = len < 30;
+                      const isTooShort = len < minCharLen;
 
                       return (
                         <div key={pIdx} className="p-2.5 bg-background rounded-lg border border-border space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-emerald-800 text-xs">
-                              Đoạn #{pIdx + 1} ({splitTargetPara.id}_{pIdx + 1})
+                              Đoạn #{pIdx + 1} ({targetTitle}_{pIdx + 1})
                             </span>
-                            <span className={`text-[11px] font-mono font-medium ${isTooLong || isTooShort ? 'text-destructive font-bold' : 'text-emerald-700'
-                              }`}>
-                              {len} / {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự {isTooLong ? `(Quá dài > ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')})` : isTooShort ? '(Quá ngắn < 30)' : '(Hợp lệ)'}
+                            <span
+                              className={`text-[11px] font-mono font-medium ${
+                                isTooLong || isTooShort ? 'text-destructive font-bold' : 'text-emerald-700'
+                              }`}
+                            >
+                              {len} / {MAX_SNIPPET_CHARS.toLocaleString('vi-VN')} ký tự{' '}
+                              {isTooLong ? `(Quá dài > ${MAX_SNIPPET_CHARS.toLocaleString('vi-VN')})` : isTooShort ? `(Quá ngắn < ${minCharLen})` : '(Hợp lệ)'}
                             </span>
                           </div>
                           <p className="text-xs text-foreground/80 italic leading-relaxed line-clamp-3 select-all bg-muted/30 p-2 rounded">
@@ -4957,17 +5174,27 @@ export const AdminIngestPage: React.FC = () => {
           })()}
 
           <DialogFooter className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="outline" onClick={() => setSplitModalOpen(false)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setSplitModalOpen(false);
+                setSplitTargetSavedRow(null);
+                setSplitTargetPara(null);
+              }}
+            >
               Hủy
             </Button>
             <Button
               size="sm"
               onClick={handleConfirmSplit}
-              disabled={
-                !splitTargetPara ||
-                selectedCutIndices.length === 0 ||
-                computeSplitParts(splitTargetPara.text, selectedCutIndices).some(p => p.length < 30 || p.length > MAX_SNIPPET_CHARS)
-              }
+              disabled={(() => {
+                const activeText = splitTargetSavedRow ? splitTargetSavedRow.evidenceText : splitTargetPara ? splitTargetPara.text : '';
+                if (!activeText || selectedCutIndices.length === 0) return true;
+                const minCharLen = splitTargetSavedRow ? 20 : 30;
+                const parts = computeSplitParts(activeText, selectedCutIndices);
+                return parts.length < 2 || parts.some((p) => p.length < minCharLen || p.length > MAX_SNIPPET_CHARS);
+              })()}
               className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
             >
               Xác nhận chia thành {selectedCutIndices.length + 1} đoạn

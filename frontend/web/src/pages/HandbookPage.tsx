@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { cleanRawMarkdown, cleanSymptomText } from '@/lib/snippet-format';
 import {
   BookOpen,
   Search,
@@ -30,13 +31,15 @@ export interface DiseaseListItem {
 
 export const HandbookPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const plantQuery = searchParams.get('plant');
 
   const [diseases, setDiseases] = useState<DiseaseListItem[]>([]);
   const [imageMap, setImageMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedPlant, setSelectedPlant] = useState<string>('Tất cả');
+  const [selectedPlant, setSelectedPlant] = useState<string>(plantQuery || 'Tất cả');
   const [selectedPathogen, setSelectedPathogen] = useState<string>('Tất cả');
 
   // Tải danh sách bệnh và ảnh triệu chứng từ API
@@ -92,6 +95,47 @@ export const HandbookPage: React.FC = () => {
     return ['Tất cả', ...plants.sort()];
   }, [diseases]);
 
+  // Đồng bộ URL parameter (?plant=...) vào state selectedPlant
+  useEffect(() => {
+    if (plantQuery && plantOptions.length > 0) {
+      const cleanQuery = plantQuery.trim().toLowerCase();
+      // 1. Khớp chính xác
+      const exact = plantOptions.find((p) => p.toLowerCase() === cleanQuery);
+      if (exact) {
+        setSelectedPlant(exact);
+        return;
+      }
+      // 2. Khớp một phần / tương đối (ví dụ: "Cam / Có múi" khớp "Cam / Cây có múi", "Bí đỏ (Bí ngô)" khớp "Bí đỏ / Bí ngô", "Đậu nành" khớp "Đậu nành (Đậu tương)")
+      const partial = plantOptions.find((p) => {
+        const lp = p.toLowerCase();
+        const baseQuery = cleanQuery.split(/[\/\(]/)[0].trim();
+        const baseP = lp.split(/[\/\(]/)[0].trim();
+        return (
+          lp.includes(cleanQuery) ||
+          cleanQuery.includes(baseP) ||
+          lp.includes(baseQuery)
+        );
+      });
+      if (partial) {
+        setSelectedPlant(partial);
+      } else {
+        setSelectedPlant(plantQuery);
+      }
+    } else if (!plantQuery) {
+      setSelectedPlant('Tất cả');
+    }
+  }, [plantQuery, plantOptions]);
+
+  const handleSelectPlant = (plant: string) => {
+    setSelectedPlant(plant);
+    if (plant === 'Tất cả') {
+      searchParams.delete('plant');
+    } else {
+      searchParams.set('plant', plant);
+    }
+    setSearchParams(searchParams, { replace: true });
+  };
+
   // Bộ lọc dữ liệu theo Tìm kiếm, Loài cây và Tác nhân
   const filteredDiseases = useMemo(() => {
     return diseases.filter((d) => {
@@ -101,7 +145,21 @@ export const HandbookPage: React.FC = () => {
         d.classCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (d.pathogenName && d.pathogenName.toLowerCase().includes(searchTerm.toLowerCase()));
 
-      const matchPlant = selectedPlant === 'Tất cả' || d.plantName === selectedPlant;
+      const matchPlant = (() => {
+        if (selectedPlant === 'Tất cả') return true;
+        const sp = selectedPlant.toLowerCase();
+        const dp = d.plantName.toLowerCase();
+        const baseSp = sp.split(/[\/\(]/)[0].trim();
+        const baseDp = dp.split(/[\/\(]/)[0].trim();
+        return (
+          dp === sp ||
+          dp.includes(sp) ||
+          sp.includes(dp) ||
+          dp.includes(baseSp) ||
+          sp.includes(baseDp)
+        );
+      })();
+
       const matchPathogen =
         selectedPathogen === 'Tất cả' ||
         (d.pathogenType && d.pathogenType.toLowerCase().includes(selectedPathogen.toLowerCase()));
@@ -111,74 +169,86 @@ export const HandbookPage: React.FC = () => {
   }, [diseases, searchTerm, selectedPlant, selectedPathogen]);
 
   return (
-    <div className="container mx-auto px-4 py-6 md:py-10 max-w-6xl space-y-8">
-      {/* Header */}
-      <div className="text-center space-y-2">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-secondary text-primary text-xs font-semibold">
-          <BookOpen className="h-3.5 w-3.5" />
-          <span>Cẩm nang Khoa học Nông nghiệp Chuẩn Khuyến nông</span>
+    <div className="container mx-auto px-4 py-4 md:py-6 max-w-6xl space-y-4">
+      {/* Header tinh gọn & súc tích */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 pb-1">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl md:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>Sổ Tay Bệnh Học & Cây Trồng</span>
+            </h1>
+            <Badge variant="outline" className="hidden sm:inline-flex bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-300 text-[10px] font-semibold py-0">
+              Chuẩn Khuyến nông
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Tra cứu triệu chứng, tác nhân và phác đồ điều trị IPM trên {plantOptions.length > 1 ? plantOptions.length - 1 : 14} loài cây trồng
+          </p>
         </div>
-        <h1 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
-          Sổ Tay Bệnh Học & Cây Trồng
-        </h1>
-        <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto">
-          Tra cứu triệu chứng, tác nhân gây bệnh, biện pháp canh tác phòng ngừa và phác đồ điều trị IPM trên 14 loài cây trồng. Dữ liệu trích dẫn trực tiếp từ các nghiên cứu và tài liệu khuyến nông đã kiểm duyệt.
-        </p>
       </div>
 
-      {/* THANH TÌM KIẾM & BỘ LỌC */}
-      <div className="space-y-4 rounded-2xl border border-border bg-card p-4 md:p-6 shadow-xs">
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Tìm theo tên bệnh (sương mai, thán thư...), loài cây hoặc tên khoa học (*Latin*)..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 h-11 text-sm bg-background border-border"
-          />
-        </div>
-
-        {/* Bộ lọc loài cây (Category Pills) */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <Filter className="h-3.5 w-3.5" />
-            <span>Chọn loài cây trồng:</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {plantOptions.map((plant) => (
+      {/* THANH TÌM KIẾM & BỘ LỌC TINH GỌN */}
+      <div className="space-y-2.5 rounded-xl border border-border bg-card p-3 md:p-3.5 shadow-2xs">
+        {/* Hàng 1: Ô tìm kiếm + Bộ lọc tác nhân nhanh */}
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Tìm theo tên bệnh, loài cây hoặc tác nhân (sương mai, thán thư, cà chua...)..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 h-9 text-xs bg-background border-border"
+            />
+            {searchTerm && (
               <button
-                key={plant}
                 type="button"
-                onClick={() => setSelectedPlant(plant)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${selectedPlant === plant
-                  ? 'bg-primary text-white shadow-xs'
-                  : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border/50'
-                  }`}
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[11px]"
               >
-                {plant}
+                Xóa
               </button>
-            ))}
+            )}
           </div>
-        </div>
 
-        {/* Bộ lọc Tác nhân gây bệnh */}
-        <div className="space-y-2 pt-2 border-t border-border/50">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <span>Tác nhân gây bệnh:</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
+          {/* Bộ lọc Tác nhân gây bệnh (nằm ngang hàng ô search trên desktop) */}
+          <div className="flex items-center gap-1 shrink-0 overflow-x-auto pb-0.5 sm:pb-0">
+            <span className="text-[11px] font-semibold text-muted-foreground mr-1 shrink-0 hidden md:inline">Tác nhân:</span>
             {['Tất cả', 'Nấm', 'Vi khuẩn', 'Virus', 'Nhện hại'].map((pathogen) => (
               <button
                 key={pathogen}
                 type="button"
                 onClick={() => setSelectedPathogen(pathogen)}
-                className={`rounded-md px-2.5 py-1 text-xs transition-all ${selectedPathogen === pathogen
-                  ? 'bg-foreground text-background font-semibold shadow-xs'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-border/30'
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-all shrink-0 ${selectedPathogen === pathogen
+                  ? 'bg-emerald-700 text-white shadow-2xs'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-border/40'
                   }`}
               >
                 {pathogen}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Hàng 2: Bộ lọc loài cây (Category Pills dạng cuộn ngang mượt mà / flex gọn) */}
+        <div className="pt-2 border-t border-border/50 flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+          <span className="text-[11px] font-semibold text-muted-foreground shrink-0 flex items-center gap-1">
+            <Filter className="h-3 w-3 text-emerald-600" />
+            <span>Cây trồng:</span>
+          </span>
+          <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+            {plantOptions.map((plant) => (
+              <button
+                key={plant}
+                type="button"
+                onClick={() => handleSelectPlant(plant)}
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all shrink-0 ${selectedPlant === plant
+                  ? 'bg-primary text-white shadow-2xs'
+                  : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border/50'
+                  }`}
+              >
+                {plant}
               </button>
             ))}
           </div>
@@ -232,6 +302,8 @@ export const HandbookPage: React.FC = () => {
               setSearchTerm('');
               setSelectedPlant('Tất cả');
               setSelectedPathogen('Tất cả');
+              searchParams.delete('plant');
+              setSearchParams(searchParams, { replace: true });
             }}
             className="text-xs border-border"
           >
@@ -270,12 +342,12 @@ export const HandbookPage: React.FC = () => {
                         variant="secondary"
                         title={d.pathogenName || undefined}
                         className={`text-[11px] font-medium border shadow-xs ${d.pathogenType?.includes('Nấm')
-                            ? 'bg-amber-500/90 text-white border-amber-600'
-                            : d.pathogenType?.includes('Vi khuẩn')
-                              ? 'bg-blue-500/90 text-white border-blue-600'
-                              : d.pathogenType?.includes('Virus')
-                                ? 'bg-purple-500/90 text-white border-purple-600'
-                                : 'bg-zinc-800/90 text-white border-zinc-700'
+                          ? 'bg-amber-500/90 text-white border-amber-600'
+                          : d.pathogenType?.includes('Vi khuẩn')
+                            ? 'bg-blue-500/90 text-white border-blue-600'
+                            : d.pathogenType?.includes('Virus')
+                              ? 'bg-purple-500/90 text-white border-purple-600'
+                              : 'bg-zinc-800/90 text-white border-zinc-700'
                           }`}
                       >
                         {d.pathogenType || 'Chưa phân loại'}
@@ -294,12 +366,12 @@ export const HandbookPage: React.FC = () => {
                         variant="secondary"
                         title={d.pathogenName || undefined}
                         className={`text-[11px] font-medium border ${d.pathogenType?.includes('Nấm')
-                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
-                            : d.pathogenType?.includes('Vi khuẩn')
-                              ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20'
-                              : d.pathogenType?.includes('Virus')
-                                ? 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20'
-                                : 'bg-secondary text-foreground'
+                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+                          : d.pathogenType?.includes('Vi khuẩn')
+                            ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20'
+                            : d.pathogenType?.includes('Virus')
+                              ? 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20'
+                              : 'bg-secondary text-foreground'
                           }`}
                       >
                         {d.pathogenType || 'Chưa phân loại'}
@@ -322,14 +394,16 @@ export const HandbookPage: React.FC = () => {
                 <CardContent className="p-4 pt-1 space-y-3 flex-1 flex flex-col justify-between">
                   <div className="space-y-1">
                     {hasKnowledge ? (
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-medium">
-                        <BookOpen className="h-3.5 w-3.5 text-primary shrink-0" />
-                        <span>{d.approvedKnowledgeCount} đoạn tài liệu đã kiểm duyệt</span>
-                      </div>
+                      <p
+                        className="text-xs text-muted-foreground line-clamp-2 leading-relaxed"
+                        title={cleanSymptomText(d.symptoms, d.commonNameVi, d.plantName)}
+                      >
+                        {cleanSymptomText(d.symptoms, d.commonNameVi, d.plantName)}
+                      </p>
                     ) : (
-                      <div className="flex items-center gap-1.5 text-[11px] text-status-ood font-medium">
-                        <span>Chưa có tài liệu kiểm duyệt</span>
-                      </div>
+                      <p className="text-xs italic text-muted-foreground/60">
+                        Chưa có nội dung
+                      </p>
                     )}
                   </div>
 

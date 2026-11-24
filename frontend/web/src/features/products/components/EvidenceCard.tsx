@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { safeHref } from '@/lib/utils';
+import { FormattedSnippet } from '@/components/common/FormattedSnippet';
 import type { GroupedArticleEvidence, EvidenceSnippet } from '../types';
 
 interface Props {
@@ -120,13 +121,13 @@ export const EvidenceCard: React.FC<Props> = ({
               )}
 
               {expanded ? (
-                <div className="bg-muted/30 p-2.5 rounded-lg border border-border/60 text-foreground leading-relaxed whitespace-pre-line text-xs font-normal">
-                  {snippet.evidenceText}
+                <div className="bg-muted/30 p-3 rounded-lg border border-border/60 text-foreground leading-relaxed text-xs font-normal">
+                  <FormattedSnippet text={snippet.evidenceText} variant="full" />
                 </div>
               ) : (
                 <div className="bg-muted/20 p-2.5 rounded-lg border border-border/50 text-foreground leading-relaxed text-xs italic">
                   <span>“</span>
-                  <span>{before}</span>
+                  <span>{before.replace(/^[#\s*•–—\-]+/, '')}</span>
                   {match && (
                     <mark className="bg-primary/20 text-primary font-bold px-1 py-0.2 rounded not-italic">
                       {match}

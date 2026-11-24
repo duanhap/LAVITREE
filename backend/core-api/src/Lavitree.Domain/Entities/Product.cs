@@ -28,4 +28,5 @@ public class Product : BaseEntity
     public ICollection<DiseaseProduct> DiseaseProducts { get; set; } = new List<DiseaseProduct>();
     public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
     public ICollection<ProductSuggestion> ProductSuggestions { get; set; } = new List<ProductSuggestion>();
+    public ICollection<ProductUsageRule> UsageRules { get; set; } = new List<ProductUsageRule>();
 }

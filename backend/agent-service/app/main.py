@@ -7,7 +7,7 @@ import secrets
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Literal, Optional, AsyncGenerator
+from typing import Literal, Optional, AsyncGenerator, List, Dict, Any
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -72,12 +72,27 @@ def check_internal_auth(request: Request):
 # Bảo vệ toàn bộ endpoint MCP bằng khóa API nội bộ X-Internal-Key (SSOT: api-contracts.md)
 app.include_router(mcp_router, dependencies=[Depends(check_internal_auth)])
 
+class ImageContextTop(BaseModel):
+    class_code: str = Field(..., min_length=1, max_length=100)
+    disease_name: str = Field("", max_length=200)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+class ImageContext(BaseModel):
+    class_code: str = Field(..., min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_(),\- ]+$")
+    disease_name: str = Field("", max_length=200)
+    plant_name: str = Field("", max_length=100)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    is_uncertain: bool = False
+    confusion_group: Optional[str] = Field(None, max_length=100)
+    top3: List[ImageContextTop] = Field(default_factory=list, max_length=3)
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     conversation_id: Optional[str] = Field(None, max_length=64)
     location: Optional[str] = Field(None, max_length=120)
     harvest_days_left: Optional[int] = Field(None, ge=0, le=3650)
     current_disease_code: Optional[str] = Field(None, max_length=100)
+    image_context: Optional[ImageContext] = None
 
 class ReindexRequest(BaseModel):
     source_id: Optional[str] = Field(None, max_length=64)
@@ -179,13 +194,22 @@ async def stream_react_chat(
     Generator streaming ReAct Loop thời gian thực (SSOT api-contracts.md Mục 4.1).
     Nối trực tiếp vào react_agent.run_stream(), xuất các sự kiện SSE chuẩn.
     """
+    effective_disease = request.current_disease_code
+    img_ctx_dict = None
+    if request.image_context:
+        img_ctx_dict = request.image_context.model_dump()
+        if not effective_disease or effective_disease != request.image_context.class_code:
+            effective_disease = request.image_context.class_code
+            logger.info(f"[Chat] Using class_code '{effective_disease}' from image_context.")
+
     async for event_name, event_data in react_agent.run_stream(
         message=request.message,
         conversation_id=conv_id,
-        disease_code=request.current_disease_code,
+        disease_code=effective_disease,
         location=request.location,
         harvest_days_left=request.harvest_days_left,
-        owner_id=owner_id
+        owner_id=owner_id,
+        image_context=img_ctx_dict
     ):
         yield f"event: {event_name}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
 
@@ -197,12 +221,20 @@ def run_agent_turn(request: ChatRequest):
     Thực thi chu trình ReAct Loop đầy đủ (Gemini + FastMCP Tools + Hard Code Guardrails + STM).
     Trả về cấu trúc AgentResponse đầy đủ (steps, citations, fallback status, latency).
     """
+    effective_disease = request.current_disease_code
+    img_ctx_dict = None
+    if request.image_context:
+        img_ctx_dict = request.image_context.model_dump()
+        if not effective_disease or effective_disease != request.image_context.class_code:
+            effective_disease = request.image_context.class_code
+
     response = react_agent.run(
         message=request.message,
         conversation_id=request.conversation_id,
-        disease_code=request.current_disease_code,
+        disease_code=effective_disease,
         location=request.location,
-        harvest_days_left=request.harvest_days_left
+        harvest_days_left=request.harvest_days_left,
+        image_context=img_ctx_dict
     )
     return response.to_dict()
 

@@ -130,16 +130,20 @@ class CoreApiClient:
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, list):
-                    return [
-                        {
-                            "image_url": item.get("image_url") or item.get("thumbnail_url"),
+                    result = []
+                    for item in data:
+                        raw_url = (item.get("image_url") or item.get("thumbnail_url") or "").strip()
+                        if not raw_url or raw_url.startswith("data:") or raw_url.startswith("javascript:"):
+                            continue
+                        result.append({
+                            "image_url": raw_url,
                             "caption": item.get("caption") or "Ảnh triệu chứng thực tế",
                             "plant_part": item.get("plant_part") or "LEAF",
-                            "credit": item.get("credit") or item.get("source_title") or ""
-                        }
-                        for item in data
-                        if item.get("image_url") or item.get("thumbnail_url")
-                    ]
+                            "credit": item.get("credit") or item.get("source_title") or "",
+                            "source_url": item.get("source_url") or "",
+                            "license_note": item.get("license_note") or ""
+                        })
+                    return result
         except Exception as e:
             logger.warning(f"Could not fetch symptom images for {model_class}: {e}")
         return []

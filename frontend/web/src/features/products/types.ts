@@ -80,3 +80,33 @@ export interface GroupedDiseaseRow {
   articles: GroupedArticleEvidence[];
   totalEvidenceCount: number;
 }
+
+export interface ProductUsageRuleItem {
+  id: number;
+  product_id: number;
+  disease_id: number | null;
+  class_code: string | null;
+  disease_name: string | null;
+  plant_name: string | null;
+  profile: UsageProfile;
+  action_group: string | null;
+  source_url: string | null;
+  is_verified: boolean;
+  verified_by: string | null;
+  verified_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateUsageRulePayload {
+  class_code: string;
+  plant_name?: string;
+  profile: UsageProfile;
+  action_group?: string;
+  source_url?: string;
+}
+
+export interface UpdateUsageRulePayload {
+  profile?: UsageProfile;
+  action_group?: string;
+  source_url?: string;
+}

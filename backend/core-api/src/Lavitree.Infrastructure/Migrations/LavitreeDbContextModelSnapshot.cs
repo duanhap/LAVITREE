@@ -657,6 +657,66 @@ namespace Lavitree.Infrastructure.Migrations
                     b.ToTable("ProductSuggestions");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.ProductUsageRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActionGroup")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DiseaseId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsVerified")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PlantName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("ProductId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Profile")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("SourceUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerifiedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DiseaseId");
+
+                    b.HasIndex("ProductId", "DiseaseId", "PlantName")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("ProductUsageRules");
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.TreatmentPlan", b =>
                 {
                     b.Property<int>("Id")
@@ -846,6 +906,24 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.ProductUsageRule", b =>
+                {
+                    b.HasOne("Lavitree.Domain.Entities.Disease", "Disease")
+                        .WithMany("UsageRules")
+                        .HasForeignKey("DiseaseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Lavitree.Domain.Entities.Product", "Product")
+                        .WithMany("UsageRules")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Disease");
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.TreatmentPlan", b =>
                 {
                     b.HasOne("Lavitree.Domain.Entities.Disease", "Disease")
@@ -869,6 +947,8 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("DiseaseProducts");
 
                     b.Navigation("TreatmentPlans");
+
+                    b.Navigation("UsageRules");
                 });
 
             modelBuilder.Entity("Lavitree.Domain.Entities.KnowledgeSource", b =>
@@ -893,6 +973,8 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("OrderItems");
 
                     b.Navigation("ProductSuggestions");
+
+                    b.Navigation("UsageRules");
                 });
 
             modelBuilder.Entity("Lavitree.Domain.Entities.User", b =>

@@ -21,6 +21,7 @@ from app.agent.guardrails import (
 from app.agent.resilience import circuit_breaker, offline_router
 from app.agent.gemini_client import gemini_client
 from app.agent.trace_logger import trace_logger, clean_payload_for_client
+from app.agent.product_cards import build_suggested_products
 from app.mcp.server import mcp_server
 
 logger = logging.getLogger("agent.react")
@@ -93,6 +94,8 @@ class AgentResponse:
     final_answer: str
     steps: List[AgentStep] = field(default_factory=list)
     citations: List[Dict[str, Any]] = field(default_factory=list)
+    reference_images: List[Dict[str, Any]] = field(default_factory=list)
+    suggested_products: List[Dict[str, Any]] = field(default_factory=list)
     is_offline_fallback: bool = False
     guardrail_triggered: Optional[str] = None
     latency_ms: float = 0.0
@@ -109,6 +112,8 @@ class AgentResponse:
                 {key: value for key, value in citation.items() if key != "full_text"}
                 for citation in self.citations
             ],
+            "reference_images": self.reference_images,
+            "suggested_products": self.suggested_products,
             "guardrail_triggered": self.guardrail_triggered,
             "is_offline_fallback": self.is_offline_fallback,
             "latency_ms": round(self.latency_ms, 2)
@@ -169,9 +174,10 @@ class ReActAgent:
         disease_code: Optional[str] = None,
         location: Optional[str] = None,
         harvest_days_left: Optional[int] = None,
-        owner_id: Optional[str] = None
+        owner_id: Optional[str] = None,
+        image_context: Optional[Dict[str, Any]] = None
     ) -> AgentResponse:
-        events = self._events(message, conversation_id, disease_code, location, harvest_days_left, owner_id)
+        events = self._events(message, conversation_id, disease_code, location, harvest_days_left, owner_id, image_context)
         while True:
             done, value = _advance(events)
             if done:
@@ -184,13 +190,14 @@ class ReActAgent:
         disease_code: Optional[str] = None,
         location: Optional[str] = None,
         harvest_days_left: Optional[int] = None,
-        owner_id: Optional[str] = None
+        owner_id: Optional[str] = None,
+        image_context: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[AgentEvent, None]:
         """
         Streaming SSE chuẩn api-contracts.md Mục 4.1: trace_start, thought, action, observation phát ngay khi có.
         Token 'delta' chỉ được cắt từ câu trả lời SAU KHI đã qua toàn bộ chốt chặn hậu kiểm.
         """
-        events = self._events(message, conversation_id, disease_code, location, harvest_days_left, owner_id)
+        events = self._events(message, conversation_id, disease_code, location, harvest_days_left, owner_id, image_context)
         while True:
             # Gemini và MCP là lời gọi chặn: chạy ở luồng khác để không làm đứng các luồng SSE khác
             done, value = await asyncio.to_thread(_advance, events)
@@ -211,6 +218,8 @@ class ReActAgent:
             "guardrail_triggered": response.guardrail_triggered,
             "is_offline_fallback": response.is_offline_fallback,
             "citations": response.to_dict()["citations"],
+            "reference_images": response.reference_images,
+            "suggested_products": response.suggested_products,
             "total_latency_ms": int(response.latency_ms)
         })
 
@@ -221,7 +230,8 @@ class ReActAgent:
         disease_code: Optional[str],
         location: Optional[str],
         harvest_days_left: Optional[int],
-        owner_id: Optional[str]
+        owner_id: Optional[str],
+        image_context: Optional[Dict[str, Any]] = None
     ) -> Generator[AgentEvent, None, AgentResponse]:
         start_time = time.perf_counter()
         conv_id = conversation_id or f"conv-{uuid.uuid4().hex[:12]}"
@@ -239,7 +249,8 @@ class ReActAgent:
 
         context = dict(
             message=message, conv_id=conv_id, trace_id=trace_id, disease_code=disease_code,
-            location=location, harvest_days=effective_harvest_days, owner_id=owner_id, start_time=start_time
+            location=location, harvest_days=effective_harvest_days, owner_id=owner_id, start_time=start_time,
+            image_context=image_context
         )
 
         # 1. KIỂM TRA CIRCUIT BREAKER & DỊCH VỤ NGOẠI VI
@@ -332,6 +343,27 @@ class ReActAgent:
         else:
             context_lines.append(f"- Số ngày thu hoạch: Không rõ (BẮT BUỘC COI NHƯ SẮP THU HOẠCH - KHÔNG DÙNG THUỐC HÓA HỌC)")
 
+        img_ctx = context.get("image_context")
+        if img_ctx and isinstance(img_ctx, dict):
+            is_uncertain = img_ctx.get("is_uncertain", False)
+            status_text = "KHÔNG CHẮC CHẮN (độ tin cậy thấp hoặc thuộc nhóm dễ nhầm)" if is_uncertain else "CHẮC CHẮN THAM KHẢO"
+            conf_group = img_ctx.get("confusion_group")
+            if conf_group:
+                status_text += f"; nhóm dễ nhầm: {conf_group}"
+
+            context_lines.append("")
+            context_lines.append("[KẾT QUẢ NHẬN DIỆN ẢNH TỪ MÔ HÌNH LAVITREE AI VISION]")
+            context_lines.append("Người dùng vừa gửi 1 ảnh chiếc lá. Bạn KHÔNG nhìn thấy ảnh; đây là kết quả của mô hình nhận diện:")
+            context_lines.append(f"- Dự đoán: {img_ctx.get('disease_name', '')} trên {img_ctx.get('plant_name', '')} (mã {img_ctx.get('class_code', '')}), độ tin cậy {img_ctx.get('confidence', 0):.0%}.")
+            context_lines.append(f"- Trạng thái: {status_text}")
+            top3 = img_ctx.get("top3", [])
+            if top3 and (is_uncertain or conf_group):
+                top3_str = ", ".join([f"{t.get('disease_name', t.get('class_code', ''))} ({t.get('confidence', 0):.0%})" for t in top3])
+                context_lines.append(f"- Các khả năng khác trong Top 3: {top3_str}")
+            context_lines.append("LƯU Ý: Luôn bắt đầu câu trả lời bằng cách thông báo: 'Theo kết quả nhận diện ảnh (độ tin cậy xx%)...'. Tuyệt đối không nói 'mình nhìn thấy trong ảnh'.")
+            if is_uncertain:
+                context_lines.append("Vì kết quả KHÔNG CHẮC CHẮN: KHÔNG gọi query_pesticide_store, KHÔNG gợi ý thuốc hóa học. Nêu các khả năng và khuyên chụp lại rõ nét hơn hoặc gửi chuyên gia.")
+
         context_prompt = "\n".join(context_lines)
 
         contents: List[Any] = []
@@ -346,8 +378,11 @@ class ReActAgent:
         current_iteration = 0
         observed_weather_info: Optional[Dict[str, Any]] = None
         store_checked = False
+        is_fallback_catalog = False
         allowed_medicines: List[Dict[str, Any]] = []
         blocked_medicines: List[Dict[str, Any]] = []
+        collected_reference_images: List[Dict[str, Any]] = []
+        seen_image_urls = set()
 
         while current_iteration < self.max_iterations:
             current_iteration += 1
@@ -456,6 +491,8 @@ class ReActAgent:
 
                     # CHỐT CHẶN TIỀN LỌC (HARD PRE-FILTER GUARDRAIL)
                     if fn_name == "query_pesticide_store" and not tool_resp.is_error and isinstance(tool_data, dict):
+                        if tool_data.get("is_fallback"):
+                            is_fallback_catalog = True
                         raw_items = tool_data.get("items", [])
                         filtered_items, violated, blocked_reasons = pre_filter_medicines(raw_items, effective_harvest_days)
                         blocked_items = [item for item in raw_items if item not in filtered_items]
@@ -483,6 +520,11 @@ class ReActAgent:
                     elif fn_name == "lookup_disease_knowledge" and not tool_resp.is_error and isinstance(tool_data, dict):
                         for citation in tool_data.get("citations", []):
                             collected_citations[citation["source_id"]] = citation
+                        for img in tool_data.get("reference_images", []):
+                            u = (img.get("image_url") or "").strip()
+                            if u and u not in seen_image_urls and len(collected_reference_images) < 3:
+                                seen_image_urls.add(u)
+                                collected_reference_images.append(img)
 
                     # Ghi nhận bước Observation; client chỉ nhận bản đã bỏ full_text và cắt bớt
                     steps.append(AgentStep(
@@ -561,6 +603,18 @@ class ReActAgent:
         # Gắn nhãn HITL bắt buộc [DRAFT_RECOMMENDATION]
         final_answer_text = apply_hitl_tag(final_answer_text)
 
+        # Xây dựng danh sách gợi ý sản phẩm (nếu có và đáp ứng an toàn)
+        img_ctx = context.get("image_context")
+        img_uncertain = bool(img_ctx.get("is_uncertain", False)) if img_ctx else False
+        is_guardrail_blocked = (HARVEST_BEFORE_PHI_VIOLATION if PHI_WARNING_TITLE in final_answer_text else None) is not None
+        suggested_products = build_suggested_products(
+            final_answer_text,
+            allowed_medicines,
+            is_fallback_catalog=is_fallback_catalog,
+            image_uncertain=img_uncertain,
+            guardrail_blocked=is_guardrail_blocked
+        )
+
         # Lưu lượt hội thoại mới vào bộ nhớ ngắn hạn STM
         stm_memory.add_turn(conv_id, message, final_answer_text, owner_id=context["owner_id"])
 
@@ -572,6 +626,8 @@ class ReActAgent:
             final_answer=final_answer_text,
             steps=steps,
             citations=list(collected_citations.values()),
+            reference_images=collected_reference_images,
+            suggested_products=suggested_products,
             is_offline_fallback=False,
             guardrail_triggered=HARVEST_BEFORE_PHI_VIOLATION if PHI_WARNING_TITLE in final_answer_text else None,
             latency_ms=(time.perf_counter() - context["start_time"]) * 1000.0,

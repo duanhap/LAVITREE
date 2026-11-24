@@ -1,6 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import { ChatMessage, ChatContextParams, TraceStep } from './types';
+import {
+  ChatMessage,
+  ChatContextParams,
+  TraceStep,
+  ImageContext,
+  ImageDiagnosisInfo,
+  ReferenceImage,
+  SuggestedProduct,
+} from './types';
 import apiClient from '@/lib/api-client';
 
 export interface UseAgentChatOptions {
@@ -63,7 +71,13 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
   }, []);
 
   const sendMessage = useCallback(
-    async (userInput: string, overrideParams?: Partial<ChatContextParams>, imageUrl?: string) => {
+    async (
+      userInput: string,
+      overrideParams?: Partial<ChatContextParams>,
+      imageUrl?: string,
+      imageContext?: ImageContext,
+      imageDiagnosis?: ImageDiagnosisInfo
+    ) => {
       const trimmed = userInput.trim();
       if (!trimmed || isStreaming) return;
 
@@ -89,6 +103,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         role: 'assistant',
         content: '',
         traceSteps: [],
+        image_diagnosis: imageDiagnosis,
         timestamp: new Date().toISOString(),
         isStreaming: true,
       };
@@ -115,13 +130,16 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const payload = {
+        const payload: Record<string, any> = {
           message: trimmed,
           conversation_id: conversationId || undefined,
           location: mergedParams.location?.trim() || null,
           harvest_days_left: mergedParams.harvest_days_left ?? null,
           current_disease_code: mergedParams.current_disease_code || null,
         };
+        if (imageContext) {
+          payload.image_context = imageContext;
+        }
 
         const response = await fetch('/api/v1/agent/chat', {
           method: 'POST',
@@ -193,6 +211,8 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
         let accumulatedContent = '';
         let currentTraceSteps: TraceStep[] = [];
         let finalCitations = undefined;
+        let finalReferenceImages: ReferenceImage[] | undefined = undefined;
+        let finalSuggestedProducts: SuggestedProduct[] | undefined = undefined;
         let finalGuardrail: string | null = null;
         let finalOfflineFallback = false;
         let finalDraftOrder = null;
@@ -294,6 +314,8 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
                   }
                   receivedFinal = true;
                   finalCitations = data.citations;
+                  finalReferenceImages = data.reference_images || [];
+                  finalSuggestedProducts = data.suggested_products || [];
                   // Agent trả mã chốt chặn (ví dụ HARVEST_BEFORE_PHI_VIOLATION) hoặc null
                   finalGuardrail = data.guardrail_triggered ? String(data.guardrail_triggered) : null;
                   finalOfflineFallback = Boolean(data.is_offline_fallback);
@@ -315,6 +337,8 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
                     content: accumulatedContent,
                     traceSteps: currentTraceSteps,
                     citations: finalCitations,
+                    reference_images: finalReferenceImages,
+                    suggested_products: finalSuggestedProducts,
                     guardrail_triggered: finalGuardrail,
                     is_offline_fallback: finalOfflineFallback,
                     draft_order: finalDraftOrder,
@@ -347,7 +371,7 @@ export function useAgentChat(options: UseAgentChatOptions = {}) {
               content: receivedFinal
                 ? current.content
                 : accumulatedContentOr(current.content) ||
-                  '⚠️ *Không nhận được câu trả lời hoàn chỉnh. Vui lòng thử lại.*',
+                '⚠️ *Không nhận được câu trả lời hoàn chỉnh. Vui lòng thử lại.*',
               isStreaming: false,
             };
           }
