@@ -20,35 +20,85 @@ export const foldVi = (text: string): string =>
     })
     .join('');
 
-/** Tách chuỗi thành các phân đoạn khớp / không khớp từ khóa mention (không phân biệt hoa thường / dấu). */
-export const splitByMention = (text: string, mention?: string): TextSegment[] => {
+/** Tách chuỗi thành các phân đoạn khớp / không khớp từ khóa mention (hỗ trợ 1 hoặc nhiều từ khóa, không phân biệt hoa thường / dấu). */
+export const splitByMention = (text: string, mention?: string | string[]): TextSegment[] => {
   const src = text || '';
-  const needle = foldVi((mention || '').trim());
-  if (!src || needle.length < 2) return [{ text: src, match: false }];
+  if (!src || !mention) return [{ text: src, match: false }];
+
+  const rawNeedles = Array.isArray(mention) ? mention : [mention];
+  const needles = Array.from(
+    new Set(
+      rawNeedles
+        .flatMap((m) => (m ? m.split(/[,;/+]+/) : []))
+        .map((m) => foldVi(m.trim()))
+        .filter((m) => m.length >= 2)
+    )
+  ).sort((a, b) => b.length - a.length);
+
+  if (needles.length === 0) return [{ text: src, match: false }];
 
   const chars = Array.from(src);
   const hayChars = Array.from(foldVi(src)).map((c) => (c.length === 1 ? c : '\u0000'));
   if (hayChars.length !== chars.length) return [{ text: src, match: false }];
 
-  const segments: TextSegment[] = [];
-  let pos = 0;
-  let last = 0;
   const hayStr = hayChars.join('');
+  const isWord = (ch: string) => /[\p{L}\p{N}]/u.test(ch);
 
-  while (pos <= hayStr.length - needle.length) {
-    const idx = hayStr.indexOf(needle, pos);
-    if (idx === -1) break;
-    const before = idx === 0 ? ' ' : hayStr[idx - 1];
-    const after = hayStr[idx + needle.length] ?? ' ';
-    const isWord = (ch: string) => /[\p{L}\p{N}]/u.test(ch);
-    if (!isWord(before) && !isWord(after)) {
-      if (idx > last) segments.push({ text: chars.slice(last, idx).join(''), match: false });
-      segments.push({ text: chars.slice(idx, idx + needle.length).join(''), match: true });
-      last = idx + needle.length;
-    }
-    pos = idx + 1;
+  // Thu thập tất cả các khoảng khớp hợp lệ [start, end]
+  interface Range {
+    start: number;
+    end: number;
   }
-  if (last < chars.length) segments.push({ text: chars.slice(last).join(''), match: false });
+  const matches: Range[] = [];
+
+  for (const needle of needles) {
+    let pos = 0;
+    while (pos <= hayStr.length - needle.length) {
+      const idx = hayStr.indexOf(needle, pos);
+      if (idx === -1) break;
+      const before = idx === 0 ? ' ' : hayStr[idx - 1];
+      const after = idx + needle.length >= hayStr.length ? ' ' : hayStr[idx + needle.length];
+      if (!isWord(before) && !isWord(after)) {
+        matches.push({ start: idx, end: idx + needle.length });
+      }
+      pos = idx + 1;
+    }
+  }
+
+  if (matches.length === 0) return [{ text: src, match: false }];
+
+  // Sắp xếp các khoảng khớp theo vị trí bắt đầu
+  matches.sort((a, b) => a.start - b.start || b.end - a.end);
+
+  // Hợp nhất các khoảng trùng hoặc giao nhau
+  const merged: Range[] = [];
+  for (const m of matches) {
+    if (merged.length === 0) {
+      merged.push({ ...m });
+    } else {
+      const last = merged[merged.length - 1];
+      if (m.start <= last.end) {
+        last.end = Math.max(last.end, m.end);
+      } else {
+        merged.push({ ...m });
+      }
+    }
+  }
+
+  // Tách text thành các đoạn match / non-match
+  const segments: TextSegment[] = [];
+  let lastPos = 0;
+  for (const m of merged) {
+    if (m.start > lastPos) {
+      segments.push({ text: chars.slice(lastPos, m.start).join(''), match: false });
+    }
+    segments.push({ text: chars.slice(m.start, m.end).join(''), match: true });
+    lastPos = m.end;
+  }
+  if (lastPos < chars.length) {
+    segments.push({ text: chars.slice(lastPos).join(''), match: false });
+  }
+
   return segments.length ? segments : [{ text: src, match: false }];
 };
 

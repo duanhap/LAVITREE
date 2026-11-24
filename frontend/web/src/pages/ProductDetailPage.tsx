@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ChevronDown,
   ShieldAlert,
+  Microscope,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
@@ -36,7 +37,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { safeHref } from '@/lib/utils';
+import { safeHref, cn } from '@/lib/utils';
 import { FormattedSnippet } from '@/components/common/FormattedSnippet';
 import { isUsageEmpty } from '@/features/admin/lib/usage-profile';
 import type {
@@ -86,6 +87,37 @@ const extractPracticalUsageText = (rawText: string) => {
   return sections[0].content;
 };
 
+// Trích xuất các từ khóa tên thuốc/hoạt chất để bôi vàng nổi bật trong đoạn trích khoa học
+const getEvidenceHighlightKeywords = (
+  item: ProductEvidenceItem,
+  prod?: ProductDetailResponse | null
+): string[] => {
+  const keywords: string[] = [];
+  if (item.mention_text?.trim()) {
+    keywords.push(item.mention_text.trim());
+  }
+  if (prod?.active_ingredient?.trim()) {
+    keywords.push(prod.active_ingredient.trim());
+    prod.active_ingredient.split(/[+;,]/).forEach((p) => {
+      const clean = p.trim().replace(/\s*\([^)]*\)/g, '').replace(/\s*(spp\.?|sp\.?)$/i, '');
+      if (clean.length >= 3) keywords.push(clean);
+    });
+  }
+  if (prod?.name?.trim()) {
+    const cleanName = prod.name
+      .replace(/^(Chế phẩm sinh học|Thuốc trừ bệnh|Thuốc trừ sâu|Thuốc BVTV|Phân bón lá)\s+/i, '')
+      .trim();
+    if (cleanName.length >= 3) {
+      keywords.push(cleanName);
+      const firstWord = cleanName.split(/\s+/)[0];
+      if (firstWord && firstWord.length >= 3) {
+        keywords.push(firstWord);
+      }
+    }
+  }
+  return Array.from(new Set(keywords));
+};
+
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -102,6 +134,9 @@ export const ProductDetailPage: React.FC = () => {
 
   // Popup cho bệnh khi người dùng bấm vào thẻ trong lưới (Tab 2)
   const [selectedPopupDisease, setSelectedPopupDisease] = useState<ProductDiseaseInfo | null>(null);
+
+  // Lọc theo bệnh cho Tab 3 (Căn cứ khoa học)
+  const [selectedEvidenceDisease, setSelectedEvidenceDisease] = useState<string>('ALL');
 
   const cartStorageKey = user?.id ? `lavitree_cart_${user.id}` : 'lavitree_cart_guest';
 
@@ -275,6 +310,43 @@ export const ProductDetailPage: React.FC = () => {
       [groupId]: !prev[groupId],
     }));
   };
+
+  // Gom nhóm căn cứ khoa học theo từng bệnh mục tiêu
+  const groupedEvidenceList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        model_class: string;
+        disease_name: string;
+        plant_name: string;
+        items: ProductEvidenceItem[];
+      }
+    >();
+
+    for (const item of evidenceList) {
+      const key = (item.model_class || item.disease_name || 'Khác').toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          model_class: item.model_class || '',
+          disease_name: item.disease_name || 'Bệnh hại cây trồng',
+          plant_name: item.plant_name || 'Cây trồng',
+          items: [],
+        });
+      }
+      map.get(key)!.items.push(item);
+    }
+    return Array.from(map.values());
+  }, [evidenceList]);
+
+  // Danh sách các nhóm bệnh hiển thị theo bộ lọc Tab con
+  const visibleEvidenceGroups = useMemo(() => {
+    if (selectedEvidenceDisease === 'ALL') {
+      return groupedEvidenceList;
+    }
+    return groupedEvidenceList.filter(
+      (g) => (g.model_class || g.disease_name).toLowerCase() === selectedEvidenceDisease.toLowerCase()
+    );
+  }, [groupedEvidenceList, selectedEvidenceDisease]);
 
   if (loading) {
     return (
@@ -767,41 +839,156 @@ export const ProductDetailPage: React.FC = () => {
           )}
         </TabsContent>
 
-        {/* TAB 3: CĂN CỨ KHOA HỌC & TRÍCH DẪN KHUYẾN NÔNG */}
+        {/* TAB 3: CĂN CỨ KHOA HỌC & TRÍCH DẪN KHUYẾN NÔNG (CHIA THEO BỆNH & BÔI VÀNG TÊN THUỐC) */}
         {evidenceList.length > 0 && (
-          <TabsContent value="evidence" className="space-y-4 pt-1">
-            <p className="text-xs text-muted-foreground">
-              Sản phẩm được trích dẫn trực tiếp từ các phác đồ điều trị và tài liệu khuyến nông đã qua kiểm duyệt:
-            </p>
-            <div className="space-y-3">
-              {evidenceList.map((item, idx) => (
-                <div key={idx} className="p-4 rounded-2xl border border-border bg-card space-y-2 text-xs shadow-2xs">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="font-semibold text-foreground text-sm">
-                      {item.source_title || 'Tài liệu hướng dẫn kỹ thuật BVTV'}
-                    </span>
-                    <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                      {item.organization || 'Khuyến nông'}
+          <TabsContent value="evidence" className="space-y-5 pt-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Sản phẩm được trích dẫn trực tiếp từ các phác đồ điều trị và tài liệu khuyến nông đã qua kiểm duyệt:
+              </p>
+              <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium shrink-0 flex items-center gap-1">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-200 border border-amber-400 dark:bg-amber-400" />
+                <span>Tên thuốc & hoạt chất được bôi vàng trong văn bản</span>
+              </span>
+            </div>
+
+            {/* Thanh lọc nhanh theo từng loại bệnh mục tiêu */}
+            {groupedEvidenceList.length > 1 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setSelectedEvidenceDisease('ALL')}
+                  className={cn(
+                    'px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all cursor-pointer',
+                    selectedEvidenceDisease === 'ALL'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
+                      : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                >
+                  Tất cả bệnh ({evidenceList.length})
+                </button>
+                {groupedEvidenceList.map((group) => {
+                  const key = group.model_class || group.disease_name;
+                  const isActive = selectedEvidenceDisease.toLowerCase() === key.toLowerCase();
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSelectedEvidenceDisease(key)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all cursor-pointer flex items-center gap-1.5',
+                        isActive
+                          ? 'bg-primary text-primary-foreground shadow-xs'
+                          : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      )}
+                    >
+                      <span>{group.plant_name} · {group.disease_name}</span>
+                      <span
+                        className={cn(
+                          'px-1.5 py-0.2 rounded-full text-[10px]',
+                          isActive
+                            ? 'bg-primary-foreground/25 text-primary-foreground font-bold'
+                            : 'bg-background/80 text-muted-foreground'
+                        )}
+                      >
+                        {group.items.length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Danh sách căn cứ gom nhóm rõ ràng theo từng loại bệnh */}
+            <div className="space-y-6">
+              {visibleEvidenceGroups.map((group) => (
+                <div
+                  key={group.model_class || group.disease_name}
+                  className="rounded-2xl border border-border bg-card overflow-hidden shadow-2xs space-y-4 p-4 sm:p-5"
+                >
+                  {/* Tiêu đề nhóm bệnh */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-primary/10 text-primary shrink-0">
+                        <Microscope className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="text-[10px] font-bold text-primary uppercase">
+                            {group.plant_name}
+                          </Badge>
+                          <h3 className="font-bold text-base text-foreground">
+                            {group.disease_name}
+                          </h3>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {group.items.length} tài liệu khuyến nông & phác đồ chứng minh hiệu quả
+                        </p>
+                      </div>
+                    </div>
+
+                    <Badge variant="secondary" className="text-xs font-semibold self-start sm:self-auto shrink-0">
+                      {group.items.length} căn cứ
                     </Badge>
                   </div>
 
-                  <div className="bg-secondary/30 p-3.5 rounded-xl border border-border/40 text-xs">
-                    <FormattedSnippet text={item.evidence_text} variant="full" />
-                  </div>
+                  {/* Các đoạn trích bài báo thuộc bệnh này */}
+                  <div className="space-y-3.5">
+                    {group.items.map((item, idx) => {
+                      const highlightKeywords = getEvidenceHighlightKeywords(item, product);
 
-                  {item.source_url && (
-                    <div className="text-right pt-1">
-                      <a
-                        href={item.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline font-medium"
-                      >
-                        <span>Xem tài liệu gốc</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                  )}
+                      return (
+                        <div
+                          key={idx}
+                          className="p-4 rounded-xl border border-border/80 bg-muted/20 space-y-2.5 text-xs shadow-2xs hover:border-primary/40 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-2 flex-wrap">
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <span className="font-bold text-foreground text-sm block leading-snug">
+                                {item.source_title || 'Tài liệu hướng dẫn kỹ thuật BVTV'}
+                              </span>
+                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+                                <span>{item.organization || 'Khuyến nông'}</span>
+                                {item.published_date && (
+                                  <>
+                                    <span>·</span>
+                                    <span>{item.published_date}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            <Badge variant="outline" className="text-[10px] font-medium bg-background shrink-0">
+                              {item.is_verbatim ? 'Trích nguyên văn' : 'Tóm tắt phác đồ'}
+                            </Badge>
+                          </div>
+
+                          {/* Đoạn trích dẫn có bôi vàng tên thuốc & hoạt chất */}
+                          <div className="bg-background/90 p-3.5 rounded-xl border border-border/60 text-xs">
+                            <FormattedSnippet
+                              text={item.evidence_text}
+                              mention={highlightKeywords}
+                              variant="full"
+                            />
+                          </div>
+
+                          {item.source_url && (
+                            <div className="text-right pt-0.5">
+                              <a
+                                href={item.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
+                              >
+                                <span>Xem tài liệu gốc</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>

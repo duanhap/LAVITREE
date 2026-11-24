@@ -31,8 +31,8 @@ export {
 // 1. RENDER INLINE MARKDOWN & HIGHLIGHT TỪ KHÓA
 // ============================================================================
 
-const renderInlineSegments = (text: string, mention?: string): React.ReactNode => {
-  if (!mention) return text;
+const renderInlineSegments = (text: string, mention?: string | string[]): React.ReactNode => {
+  if (!mention || (Array.isArray(mention) && mention.length === 0)) return text;
   const segments = splitByMention(text, mention);
   return (
     <>
@@ -40,7 +40,7 @@ const renderInlineSegments = (text: string, mention?: string): React.ReactNode =
         seg.match ? (
           <mark
             key={i}
-            className="bg-amber-100 dark:bg-amber-900/60 text-amber-950 dark:text-amber-100 font-bold px-1 py-0.5 rounded not-italic border border-amber-300/60 dark:border-amber-700/60"
+            className="bg-amber-200 dark:bg-amber-400 text-amber-950 font-bold px-1.5 py-0.5 rounded not-italic border border-amber-400 dark:border-amber-500 shadow-2xs"
           >
             {seg.text}
           </mark>
@@ -52,7 +52,7 @@ const renderInlineSegments = (text: string, mention?: string): React.ReactNode =
   );
 };
 
-const renderInlineMarkdown = (line: string, mention?: string): React.ReactNode => {
+const renderInlineMarkdown = (line: string, mention?: string | string[]): React.ReactNode => {
   const cleanedLine = line.replace(/(?:^|\s)#{1,6}\s+/g, ' ');
   const boldSegments = cleanedLine.split(/(\*\*[^*\n]+\*\*)/g);
   return (
@@ -80,8 +80,8 @@ const renderInlineMarkdown = (line: string, mention?: string): React.ReactNode =
 export interface FormattedSnippetProps {
   /** Nội dung đoạn trích hoặc văn bản bằng chứng */
   text: string;
-  /** Từ khóa cần highlight nổi bật (ví dụ: tên hoạt chất, tên nấm "Trichoderma") */
-  mention?: string;
+  /** Từ khóa cần highlight nổi bật (ví dụ: tên hoạt chất, tên nấm "Trichoderma" hoặc danh sách từ khóa) */
+  mention?: string | string[];
   /**
    * Chế độ hiển thị:
    * - 'full': Đầy đủ phân cấp thẻ tiêu đề, vạch màu, thẻ FAQ, gạch đầu dòng en-dash thụt lề
