@@ -107,6 +107,28 @@ public class OrderResponseDto
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; }
 
+    [JsonPropertyName("updated_at")]
+    public DateTime? UpdatedAt { get; set; }
+
+    [JsonPropertyName("user_id")]
+    public Guid? UserId { get; set; }
+
+    [JsonPropertyName("customer_name")]
+    public string? CustomerName { get; set; }
+
+    [JsonPropertyName("customer_email")]
+    public string? CustomerEmail { get; set; }
+
+    [JsonPropertyName("customer_phone")]
+    public string? CustomerPhone { get; set; }
+
     [JsonPropertyName("items")]
     public List<OrderItemResponseDto> Items { get; set; } = new();
+}
+
+public class UpdateOrderStatusDto
+{
+    [Required(ErrorMessage = "Trạng thái đơn hàng không được để trống.")]
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
 }

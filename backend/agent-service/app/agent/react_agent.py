@@ -23,6 +23,7 @@ from app.agent.gemini_client import gemini_client
 from app.agent.trace_logger import trace_logger, clean_payload_for_client
 from app.agent.product_cards import build_suggested_products
 from app.mcp.server import mcp_server
+from app.mcp.schema import MCPCallResponse
 
 logger = logging.getLogger("agent.react")
 
@@ -383,6 +384,8 @@ class ReActAgent:
         blocked_medicines: List[Dict[str, Any]] = []
         collected_reference_images: List[Dict[str, Any]] = []
         seen_image_urls = set()
+        image_disease_code: Optional[str] = context.get("disease_code") or None
+        image_uncertain = bool((context.get("image_context") or {}).get("is_uncertain", False))
 
         while current_iteration < self.max_iterations:
             current_iteration += 1
@@ -472,7 +475,23 @@ class ReActAgent:
 
                     # Thực thi tool qua MCP Server
                     tool_start = time.perf_counter()
-                    tool_resp = mcp_server.call_tool(fn_name, fn_args)
+                    if fn_name == "query_pesticide_store" and image_uncertain:
+                        # TASK-25: chốt cứng bằng code. Ảnh nhận diện KHÔNG CHẮC CHẮN thì không tra kho thuốc,
+                        # để mô hình không có tên thuốc nào để nêu (không chỉ dựa vào prompt).
+                        tool_resp = MCPCallResponse(
+                            tool=fn_name,
+                            is_error=False,
+                            result={
+                                "total": 0,
+                                "disease_code": str(fn_args.get("disease_code", "")),
+                                "is_fallback": False,
+                                "items": [],
+                                "note": "Kết quả nhận diện ảnh KHÔNG CHẮC CHẮN: hệ thống không tra kho thuốc. "
+                                        "Chỉ khuyên biện pháp canh tác/IPM, chụp lại ảnh hoặc hỏi chuyên gia.",
+                            },
+                        )
+                    else:
+                        tool_resp = mcp_server.call_tool(fn_name, fn_args)
                     tool_duration = (time.perf_counter() - tool_start) * 1000.0
 
                     # KIỂM SOÁT SỰ CỐ CORE API / MCP UPSTREAM
@@ -520,11 +539,17 @@ class ReActAgent:
                     elif fn_name == "lookup_disease_knowledge" and not tool_resp.is_error and isinstance(tool_data, dict):
                         for citation in tool_data.get("citations", []):
                             collected_citations[citation["source_id"]] = citation
-                        for img in tool_data.get("reference_images", []):
-                            u = (img.get("image_url") or "").strip()
-                            if u and u not in seen_image_urls and len(collected_reference_images) < 3:
-                                seen_image_urls.add(u)
-                                collected_reference_images.append(img)
+                        # TASK-25 mục 6.2: chỉ lấy ảnh của bệnh được tư vấn chính (mã của lượt hoặc của ảnh);
+                        # chưa có mã chính thì lấy theo bệnh được tra đầu tiên.
+                        looked_up_code = str(fn_args.get("disease_code") or tool_data.get("disease_code") or "")
+                        if image_disease_code is None and looked_up_code:
+                            image_disease_code = looked_up_code
+                        if looked_up_code and looked_up_code == image_disease_code:
+                            for img in tool_data.get("reference_images", []):
+                                u = (img.get("image_url") or "").strip()
+                                if u and u not in seen_image_urls and len(collected_reference_images) < 3:
+                                    seen_image_urls.add(u)
+                                    collected_reference_images.append(img)
 
                     # Ghi nhận bước Observation; client chỉ nhận bản đã bỏ full_text và cắt bớt
                     steps.append(AgentStep(
@@ -604,14 +629,12 @@ class ReActAgent:
         final_answer_text = apply_hitl_tag(final_answer_text)
 
         # Xây dựng danh sách gợi ý sản phẩm (nếu có và đáp ứng an toàn)
-        img_ctx = context.get("image_context")
-        img_uncertain = bool(img_ctx.get("is_uncertain", False)) if img_ctx else False
-        is_guardrail_blocked = (HARVEST_BEFORE_PHI_VIOLATION if PHI_WARNING_TITLE in final_answer_text else None) is not None
+        is_guardrail_blocked = PHI_WARNING_TITLE in final_answer_text
         suggested_products = build_suggested_products(
             final_answer_text,
             allowed_medicines,
             is_fallback_catalog=is_fallback_catalog,
-            image_uncertain=img_uncertain,
+            image_uncertain=image_uncertain,
             guardrail_blocked=is_guardrail_blocked
         )
 

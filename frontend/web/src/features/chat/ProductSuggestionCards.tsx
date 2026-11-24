@@ -29,7 +29,7 @@ export const ProductSuggestionCards: React.FC<ProductSuggestionCardsProps> = ({ 
     setLoading(true);
 
     apiClient
-      .get<{ items: MedicineDetails[] }>('/medicines/search?allowedOnly=true')
+      .get<{ items: MedicineDetails[] }>('/medicines/search', { params: { allowedOnly: true } })
       .then((res) => {
         if (!isMounted) return;
         const map: Record<number, MedicineDetails> = {};
@@ -74,7 +74,16 @@ export const ProductSuggestionCards: React.FC<ProductSuggestionCardsProps> = ({ 
           return (
             <div
               key={p.product_id}
+              role="link"
+              tabIndex={0}
+              aria-label={`Xem chi tiết ${p.product_name}`}
               onClick={() => navigate(`/store/${p.product_id}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  navigate(`/store/${p.product_id}`);
+                }
+              }}
               className="group flex flex-col justify-between p-3 rounded-xl bg-card border border-border hover:border-emerald-500/60 hover:shadow-md transition-all cursor-pointer relative overflow-hidden"
               title="Bấm để mở trang chi tiết sản phẩm"
             >
@@ -105,7 +114,7 @@ export const ProductSuggestionCards: React.FC<ProductSuggestionCardsProps> = ({ 
 
                   {/* Giá sản phẩm lấy từ Core */}
                   <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                    {price !== undefined ? formatCurrency(price) : loading ? 'Đang cập nhật giá...' : 'Xem giá tại quầy'}
+                    {price !== undefined ? formatCurrency(price) : loading ? 'Đang cập nhật giá...' : 'Xem giá trong Cửa hàng'}
                   </div>
                 </div>
               </div>

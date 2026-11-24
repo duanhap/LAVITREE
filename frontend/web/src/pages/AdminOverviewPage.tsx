@@ -8,6 +8,7 @@ import {
   Package,
   RefreshCw,
   ShieldCheck,
+  ShoppingCart,
   UserCheck,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
@@ -243,6 +244,7 @@ export const AdminOverviewPage: React.FC = () => {
               <QuickLink to="/admin/ingest" icon={FileText} label="Nhập bài báo khuyến nông mới" />
               <QuickLink to="/admin/knowledge" icon={ShieldCheck} label="Duyệt đoạn tri thức" />
               <QuickLink to="/admin/inventory" icon={Package} label="Cập nhật kho thuốc" />
+              <QuickLink to="/admin/orders" icon={ShoppingCart} label="Quản lý đơn hàng đặt mua" />
             </CardContent>
           </Card>
 

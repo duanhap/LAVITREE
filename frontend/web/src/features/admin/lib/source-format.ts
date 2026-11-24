@@ -51,6 +51,14 @@ export const inferSourceScope = (
   organization?: string | null,
   savedScope?: string | null
 ): 'Việt Nam' | 'Quốc tế' => {
+  // 1. Ưu tiên số 1: Giá trị đã lưu trong Cơ sở dữ liệu của bài viết
+  if (savedScope && savedScope.trim()) {
+    const s = savedScope.trim();
+    if (/quốc tế|nước ngoài|international|foreign/i.test(s)) return 'Quốc tế';
+    if (/việt nam|trong nước|vietnam|\bvn\b/i.test(s)) return 'Việt Nam';
+  }
+
+  // 2. Suy luận theo tên miền (URL)
   let host = '';
   if (sourceUrl) {
     try {
@@ -61,37 +69,50 @@ export const inferSourceScope = (
   }
   const org = (organization || '').toLowerCase();
 
+  // Tên miền Việt Nam
   if (host.endsWith('.vn')) return 'Việt Nam';
+
+  // Tên miền giáo dục/chính phủ nước ngoài
   if ((host.endsWith('.edu') || host.endsWith('.gov') || host.includes('.ac.')) && !host.endsWith('.vn')) {
     return 'Quốc tế';
   }
+
+  // Tạp chí & Cổng tri thức nông nghiệp quốc tế uy tín
   if (
-    host.includes('extension.') ||
+    host.includes('frontiersin.org') ||
+    host.includes('sciencedirect.com') ||
+    host.includes('springer.com') ||
+    host.includes('nature.com') ||
+    host.includes('wiley.com') ||
+    host.includes('mdpi.com') ||
     host.includes('cabi.org') ||
     host.includes('fao.org') ||
     host.includes('apsnet.org') ||
-    host.includes('mdpi.com') ||
-    host.includes('sciencedirect.com') ||
-    /\b(extension|university|usda|cabi|fao)\b/i.test(org) ||
-    org.includes('đại học tiểu bang')
+    host.includes('extension.') ||
+    /\b(extension|university|usda|cabi|fao|springer|nature|frontiers)\b/i.test(org) ||
+    org.includes('đại học tiểu bang') ||
+    org.includes('nam phi') ||
+    org.includes('hoa kỳ')
   ) {
     return 'Quốc tế';
   }
+
+  // Cơ quan, viện nghiên cứu chính thống tại Việt Nam
   if (
     org.includes('việt nam') ||
-    org.includes('khuyến nông') ||
+    org.includes('cục bảo vệ thực vật') ||
     org.includes('cục bvtv') ||
-    org.includes('nông nghiệp') ||
-    org.includes('viện cây') ||
-    org.includes('học viện nông nghiệp') ||
-    org.includes('sở nn') ||
-    org.includes('trung tâm sản phẩm sinh học')
+    org.includes('trung tâm khuyến nông') ||
+    org.includes('khuyến nông quốc gia') ||
+    org.includes('học viện nông nghiệp việt nam') ||
+    org.includes('viện bảo vệ thực vật') ||
+    org.includes('viện cây lương thực') ||
+    org.includes('bộ nông nghiệp') ||
+    org.includes('sở nông nghiệp')
   ) {
     return 'Việt Nam';
   }
-  if (savedScope && /quốc tế|nước ngoài|international|foreign/i.test(savedScope)) {
-    return 'Quốc tế';
-  }
+
   return 'Việt Nam';
 };
 

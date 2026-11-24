@@ -118,6 +118,8 @@ export const ChatPage: React.FC = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Chỉ tự cuộn theo câu trả lời khi người dùng đang ở cuối khung; kéo lên đọc lại thì không bị giật xuống
   const stickToBottomRef = useRef(true);
+  // Chỉ báo lỗi hết dung lượng lưu lịch sử 1 lần mỗi lần mở trang
+  const storageQuotaWarnedRef = useRef(false);
 
   // Tự động lưu sessions vào localStorage khi có thay đổi (chỉ lưu URL thực, không lưu base64/blob)
   useEffect(() => {
@@ -132,9 +134,32 @@ export const ChatPage: React.FC = () => {
           return m;
         }),
       }));
-      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(cleaned));
+      // Hết dung lượng: bỏ dần phiên cũ nhất (giữ ít nhất phiên mới nhất) rồi thử lại, báo người dùng 1 lần
+      let toSave = cleaned;
+      let droppedOldSessions = false;
+      for (;;) {
+        try {
+          localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(toSave));
+          break;
+        } catch (err) {
+          if (toSave.length <= 1) throw err;
+          const oldest = toSave.reduce((a, b) =>
+            new Date(a.updatedAt || a.createdAt).getTime() <= new Date(b.updatedAt || b.createdAt).getTime() ? a : b
+          );
+          toSave = toSave.filter(s => s !== oldest);
+          droppedOldSessions = true;
+        }
+      }
+      if (droppedOldSessions && !storageQuotaWarnedRef.current) {
+        storageQuotaWarnedRef.current = true;
+        toast.warning('Bộ nhớ trình duyệt đã đầy: Lavi đã bỏ bớt các cuộc trò chuyện cũ nhất để lưu cuộc mới.');
+      }
     } catch (e) {
       console.warn('Failed to save chat sessions to localStorage:', e);
+      if (!storageQuotaWarnedRef.current) {
+        storageQuotaWarnedRef.current = true;
+        toast.error('Không lưu được lịch sử trò chuyện vào trình duyệt (bộ nhớ đầy).');
+      }
     }
   }, [sessions]);
 
@@ -470,18 +495,23 @@ export const ChatPage: React.FC = () => {
       setIsListening(false);
     }
 
-    // TRƯỜNG HỢP CÓ ẢNH ĐÍNH KÈM: GỌI /diagnose TRƯỚC RỒI MỚI CHAT
+    // TRƯỜNG HỢP CÓ ẢNH ĐÍNH KÈM: GỌI /diagnose TRƯỚC RỒI MỚI CHAT (TASK-25 mục 5.3)
     if (attachedImage) {
       setIsAnalyzingImage(true);
       const currentAttached = attachedImage;
-      setAttachedImage(null);
+      const typedText = inputMessage.trim();
 
       try {
         const processedFile = await prepareImageForUpload(currentAttached.file);
         const formData = new FormData();
         formData.append('image', processedFile);
-        if (contextParams.location) {
-          formData.append('notes', `Khu vực: ${contextParams.location}`);
+        // notes là ghi chú của người dùng cho ca chẩn đoán (≤ 1000 ký tự)
+        const notes = [typedText, contextParams.location ? `Khu vực: ${contextParams.location}` : '']
+          .filter(Boolean)
+          .join(' | ')
+          .slice(0, 1000);
+        if (notes) {
+          formData.append('notes', notes);
         }
 
         const diagRes = await apiClient.post<DiagnoseResponse>('/diagnose', formData, {
@@ -494,55 +524,56 @@ export const ChatPage: React.FC = () => {
           diagData.is_uncertain,
           diagData.result?.confusion_group
         );
-        const visualEvidence = diagData.visual_evidence;
-        const minioUrl =
-          visualEvidence?.original_image_url ||
-          visualEvidence?.gradcam_image_url ||
-          currentAttached.previewUrl;
+        // Chỉ hiển thị ảnh gốc đã lưu MinIO. Không dùng ảnh heatmap thay ảnh người dùng,
+        // không dùng blob: tạm (bị thu hồi ngay khi gỡ ảnh khỏi ô soạn tin).
+        const storedImageUrl = diagData.visual_evidence?.original_image_url || undefined;
+        const warningText = diagData.warning || diagData.result?.warning || null;
 
-        // Nếu ảnh không phải lá cây (is_ood = true) hoặc không có kết quả nhận diện
+        // Ảnh không phải lá cây (is_ood) hoặc không có kết quả: KHÔNG gọi agent
         if (diagData.is_ood || !diagData.result) {
-          const userText = inputMessage.trim() || 'Nhờ Lavi xem giúp hình ảnh này.';
           const nowStr = new Date().toISOString();
           const userMsg: ChatMessage = {
             id: `user-${Date.now()}`,
             role: 'user',
-            content: userText,
+            content: typedText || 'Nhờ Lavi xem giúp hình ảnh này.',
             timestamp: nowStr,
-            image_url: minioUrl,
+            image_url: storedImageUrl,
+            image_status: storedImageUrl ? 'done' : 'not_stored',
           };
           const assistantMsg: ChatMessage = {
             id: `asst-${Date.now() + 1}`,
             role: 'assistant',
             content: diagData.is_ood
-              ? '⚠️ Ảnh bạn gửi không rõ hoặc không phải lá cây trồng trong hệ thống nhận diện của Lavi. Bạn vui lòng chụp lại cận cảnh mặt lá bị bệnh (khoảng cách 15–20cm, đủ ánh sáng, lá chiếm ≥ 70% khung hình) nhé!'
-              : '⚠️ Không thể nhận diện bệnh từ ảnh này. Bạn vui lòng chụp lại rõ nét hơn nhé!',
+              ? `⚠️ ${warningText || 'Ảnh bạn gửi có vẻ không phải lá của các cây trồng Lavi hỗ trợ nhận diện.'}\n\nBạn vui lòng chụp lại cận cảnh một phiến lá bị bệnh (cách 15–20cm, đủ ánh sáng, lá chiếm phần lớn khung hình) nhé!`
+              : '⚠️ Lavi chưa nhận diện được bệnh từ ảnh này. Bạn vui lòng chụp lại rõ nét hơn nhé!',
             timestamp: nowStr,
+            receivedFinal: true,
             image_diagnosis: {
               status: 'ood',
               disease_name: 'Không xác định',
               plant_name: 'Không rõ',
               class_code: 'OOD',
               confidence: 0,
-              warning: diagData.result?.warning || 'Không nhận diện được lá cây trồng',
+              warning: warningText,
             },
           };
           setMessages(prev => [...prev, userMsg, assistantMsg]);
+          setAttachedImage(null);
           setInputMessage('');
           setIsAnalyzingImage(false);
           focusInput();
           return;
         }
 
-        // Ảnh hợp lệ: Chuẩn bị image_context & image_diagnosis
+        const result = diagData.result;
         const imageContext: ImageContext = {
-          class_code: diagData.result.class_code,
-          disease_name: diagData.result.disease_name,
-          plant_name: diagData.result.plant_name,
-          confidence: diagData.result.confidence,
+          class_code: result.class_code,
+          disease_name: result.disease_name,
+          plant_name: result.plant_name,
+          confidence: result.confidence,
           is_uncertain: Boolean(diagData.is_uncertain),
-          confusion_group: diagData.result.confusion_group,
-          top3: (diagData.result.top3 || []).map(t => ({
+          confusion_group: result.confusion_group,
+          top3: (result.top3 || []).slice(0, 3).map(t => ({
             class_code: t.class_code,
             disease_name: t.disease_name,
             confidence: t.confidence,
@@ -551,38 +582,49 @@ export const ChatPage: React.FC = () => {
 
         const imageDiagnosis: ImageDiagnosisInfo = {
           status: resultStatus,
-          disease_name: diagData.result.disease_name,
-          plant_name: diagData.result.plant_name,
-          class_code: diagData.result.class_code,
-          confidence: diagData.result.confidence,
-          warning: diagData.result.warning,
+          disease_name: result.disease_name,
+          plant_name: result.plant_name,
+          class_code: result.class_code,
+          confidence: result.confidence,
+          warning: warningText,
           diagnosis_id: diagData.diagnosis_id,
         };
 
-        if (diagData.result.class_code) {
-          setContextParams(prev => ({
-            ...prev,
-            current_disease_code: diagData.result?.class_code || null,
-          }));
-        }
+        setContextParams(prev => ({
+          ...prev,
+          current_disease_code: result.class_code || null,
+        }));
 
-        // TASK-25 A0: Không dùng câu bịa "Lavi xem giúp mình ảnh...", mà hỏi phương án xử lý
+        // TASK-25 A0: câu mặc định trung tính, không khẳng định bệnh thay cho kết quả nhận diện
         const textToSend =
-          inputMessage.trim() ||
-          `Cây ${diagData.result.plant_name} có dấu hiệu ${diagData.result.disease_name}, nhờ Lavi hướng dẫn cách xử lý và biện pháp phòng ngừa an toàn nhé!`;
+          typedText || 'Mình vừa gửi ảnh lá cây, Lavi tư vấn giúp mình theo kết quả nhận diện nhé.';
 
+        setAttachedImage(null);
+        setInputMessage('');
         setIsAnalyzingImage(false);
         sendMessage(
           textToSend,
-          { current_disease_code: diagData.result.class_code },
-          minioUrl,
+          { current_disease_code: result.class_code },
+          storedImageUrl,
           imageContext,
           imageDiagnosis
         );
-        setInputMessage('');
       } catch (err: any) {
         console.error('Lỗi khi chẩn đoán ảnh trước khi chat:', err);
-        toast.error(err?.response?.data?.message || err?.message || 'Không thể tải hoặc phân tích ảnh. Vui lòng thử lại.');
+        const status: number | undefined = err?.response?.status;
+        const detail: string | undefined = err?.response?.data?.detail || err?.response?.data?.message;
+        let msg: string;
+        if (status === 400 || status === 422) {
+          msg = detail || 'Ảnh không hợp lệ. Vui lòng chọn ảnh JPG, PNG hoặc WEBP dưới 10MB.';
+        } else if (status === 429) {
+          msg = 'Bạn đã gửi quá nhiều ảnh, vui lòng thử lại sau ít phút.';
+        } else if (status === 401) {
+          msg = detail || 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+        } else {
+          msg = 'Chưa phân tích được ảnh (dịch vụ nhận diện đang bận). Vui lòng thử lại.';
+        }
+        // Không gọi agent; giữ nguyên ảnh và chữ đã gõ để người dùng gửi lại
+        toast.error(msg);
         setIsAnalyzingImage(false);
       }
     } else {

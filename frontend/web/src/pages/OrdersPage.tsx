@@ -1,36 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Package, Clock, CheckCircle2, AlertCircle,
-  Truck, ArrowLeft, RefreshCw, Calendar, MapPin
+  Package, AlertCircle, ArrowLeft, RefreshCw, Calendar, MapPin, ChevronRight
 } from 'lucide-react';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import laviWavingImg from '@/assets/brand/lavi-waving-3d.webp';
+import type { OrderResponseDto } from '@/features/orders/types';
+import { getPaymentMethodLabel } from '@/features/orders/status';
+import { OrderStatusBadge } from '@/features/orders/components/OrderStatusBadge';
 
-interface OrderItemDto {
-  product_id: number;
-  product_name: string;
-  quantity: number;
-  unit_price: number;
-  total_price: number;
-}
-
-interface OrderResponseDto {
-  order_id: string;
-  total_amount: number;
-  payment_method: string;
-  order_status: string;
-  receiver_name?: string | null;
-  notes?: string | null;
-  shipping_address: string;
-  phone_number: string;
-  created_at: string;
-  items: OrderItemDto[];
-}
+// Mỗi thẻ chỉ hiện vài sản phẩm đầu cho gọn; xem đủ ở trang chi tiết
+const PREVIEW_ITEM_COUNT = 2;
 
 export const OrdersPage: React.FC = () => {
   const [orders, setOrders] = useState<OrderResponseDto[]>([]);
@@ -53,44 +36,6 @@ export const OrdersPage: React.FC = () => {
   useEffect(() => {
     fetchOrders();
   }, []);
-
-  const getStatusBadge = (status: string) => {
-    switch ((status ?? '').toUpperCase()) {
-      case 'PENDING':
-      case 'PENDING_CONFIRMATION':
-        return (
-          <Badge className="bg-amber-100 text-amber-900 border-amber-300">
-            <Clock className="w-3 h-3 mr-1" />
-            Chờ xác nhận
-          </Badge>
-        );
-      case 'CONFIRMED':
-      case 'SHIPPING':
-        return (
-          <Badge className="bg-blue-100 text-blue-900 border-blue-300">
-            <Truck className="w-3 h-3 mr-1" />
-            Đang vận chuyển
-          </Badge>
-        );
-      case 'DELIVERED':
-      case 'COMPLETED':
-        return (
-          <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300">
-            <CheckCircle2 className="w-3 h-3 mr-1" />
-            Đã giao hàng
-          </Badge>
-        );
-      case 'CANCELLED':
-        return (
-          <Badge variant="destructive">
-            <AlertCircle className="w-3 h-3 mr-1" />
-            Đã hủy
-          </Badge>
-        );
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl animate-fade-in">
@@ -168,87 +113,86 @@ export const OrdersPage: React.FC = () => {
           </Button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {orders.map((order) => (
-            <Card key={order.order_id} className="border-border bg-card shadow-xs overflow-hidden">
-              <CardHeader className="bg-muted/30 p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Package className="w-4 h-4 text-emerald-700" />
-                    <CardTitle className="text-sm font-bold text-foreground">
-                      Mã đơn: <span className="font-mono text-primary">{order.order_id}</span>
-                    </CardTitle>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5" />
-                      {formatDate(order.created_at)}
-                    </span>
-                    <span>•</span>
-                    <span>Thanh toán: <strong className="text-foreground">{order.payment_method}</strong></span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  {getStatusBadge(order.order_status)}
-                  <span className="text-base font-extrabold text-emerald-800">
-                    {formatCurrency(order.total_amount)}
-                  </span>
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-4 sm:p-5 space-y-4">
-                {/* Danh sách sản phẩm trong đơn */}
-                <div className="divide-y divide-border/60">
-                  {order.items.map((item) => (
-                    <div key={`${order.order_id}-${item.product_id}`} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between text-xs gap-2">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="w-6 h-6 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center justify-center font-bold text-[11px] shrink-0">
-                          {item.quantity}x
-                        </span>
-                        <div className="min-w-0">
-                          <span className="font-semibold text-foreground text-sm block truncate">{item.product_name}</span>
-                          <div className="text-muted-foreground text-[11px]">
-                            Đơn giá: {formatCurrency(item.unit_price)}
-                          </div>
+        <ul className="space-y-4">
+          {orders.map((order) => {
+            const preview = order.items.slice(0, PREVIEW_ITEM_COUNT);
+            const hiddenCount = order.items.length - preview.length;
+            const itemCount = order.items.reduce((sum, i) => sum + i.quantity, 0);
+            return (
+              <li key={order.order_id}>
+                <Link
+                  to={`/orders/${encodeURIComponent(order.order_id)}`}
+                  className="group block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  aria-label={`Xem chi tiết đơn ${order.order_id}`}
+                >
+                  <Card className="border-border bg-card shadow-xs overflow-hidden transition-all group-hover:border-primary/50 group-hover:shadow-md">
+                    <CardHeader className="bg-muted/30 p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 space-y-0">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Package className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+                          <CardTitle className="text-sm font-bold text-foreground">
+                            Mã đơn: <span className="font-mono text-primary">{order.order_id}</span>
+                          </CardTitle>
+                          <OrderStatusBadge status={order.order_status} />
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5" aria-hidden="true" />
+                            {formatDate(order.created_at)}
+                          </span>
+                          <span aria-hidden="true">•</span>
+                          <span>{itemCount} sản phẩm</span>
+                          <span aria-hidden="true">•</span>
+                          <span>{getPaymentMethodLabel(order.payment_method).short}</span>
                         </div>
                       </div>
 
-                      <span className="font-bold text-foreground whitespace-nowrap shrink-0">
-                        {formatCurrency(item.total_price)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-3">
+                        <span className="text-base font-extrabold text-emerald-800 dark:text-emerald-400">
+                          {formatCurrency(order.total_amount)}
+                        </span>
+                        <span className="inline-flex items-center text-xs font-semibold text-primary">
+                          Xem chi tiết
+                          <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                        </span>
+                      </div>
+                    </CardHeader>
 
-                {/* Thông tin giao hàng */}
-                <div className="bg-muted/20 p-3 rounded-lg border border-border text-xs space-y-1 text-muted-foreground">
-                  <div className="flex items-start gap-2">
-                    <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" />
-                    <span className="break-words">
-                      Giao tới:{' '}
-                      {order.receiver_name ? (
-                        <>
-                          <strong className="text-foreground">{order.receiver_name}</strong>{' '}
-                          ({order.phone_number}) – {order.shipping_address}
-                        </>
-                      ) : (
-                        <>
-                          ({order.phone_number}) – {order.shipping_address}
-                        </>
+                    <CardContent className="p-4 sm:p-5 space-y-3">
+                      <div className="divide-y divide-border/60">
+                        {preview.map((item) => (
+                          <div key={`${order.order_id}-${item.product_id}`} className="py-2 first:pt-0 last:pb-0 flex items-center justify-between text-xs gap-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className="w-7 h-6 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center font-bold text-[11px] shrink-0">
+                                {item.quantity}x
+                              </span>
+                              <span className="font-semibold text-foreground text-sm truncate">{item.product_name}</span>
+                            </div>
+                            <span className="font-bold text-foreground whitespace-nowrap shrink-0">
+                              {formatCurrency(item.total_price)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {hiddenCount > 0 && (
+                        <p className="text-xs text-muted-foreground">+ {hiddenCount} sản phẩm khác</p>
                       )}
-                    </span>
-                  </div>
-                  {order.notes && (
-                    <div className="text-[11px] italic pl-5">
-                      Ghi chú: {order.notes}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+
+                      <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" aria-hidden="true" />
+                        <span className="truncate">
+                          {order.receiver_name ? <strong className="text-foreground">{order.receiver_name}</strong> : null}
+                          {order.receiver_name ? ' · ' : ''}
+                          {order.shipping_address}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

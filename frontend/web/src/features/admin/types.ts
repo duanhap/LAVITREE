@@ -39,8 +39,10 @@ export interface KnowledgeSourceItem {
   organization: string;
   publishedDate?: string;
   sourceScope?: string;
+  matchLevel?: string;
   evidenceText: string;
   contentType: string;
+  hasCultivationTechnique?: boolean;
   unitType?: string;
   isVerbatim: boolean;
   isManualApproved: boolean;

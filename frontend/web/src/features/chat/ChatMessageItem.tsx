@@ -206,6 +206,11 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
               />
             </div>
           )}
+          {!message.image_url && message.image_status === 'not_stored' && (
+            <p className="mb-1.5 text-[11px] italic text-emerald-100">
+              📷 Đã gửi 1 ảnh (ảnh không được lưu vì không nhận diện được lá cây)
+            </p>
+          )}
           <p className="whitespace-pre-wrap leading-relaxed text-sm sm:text-base font-normal">
             {message.content}
           </p>
@@ -365,7 +370,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message, disea
             {message.image_diagnosis.diagnosis_id && (
               <div className="pt-1 text-[11px]">
                 <Link
-                  to="/history"
+                  to={`/history/${encodeURIComponent(message.image_diagnosis.diagnosis_id)}`}
                   className="text-primary hover:underline inline-flex items-center gap-1 font-medium"
                 >
                   <span>Xem hồ sơ ca chẩn đoán trong Lịch sử khám bệnh</span>

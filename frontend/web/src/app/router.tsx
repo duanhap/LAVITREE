@@ -26,9 +26,11 @@ const AdminDiseasesPage = React.lazy(() => import('@/pages/admin/AdminDiseasesPa
 const AdminEscalationsPage = React.lazy(() => import('@/pages/admin/AdminEscalationsPage'));
 const AdminInventoryPage = React.lazy(() => import('@/pages/admin/AdminInventoryPage'));
 const AdminProductDetailPage = React.lazy(() => import('@/pages/admin/AdminProductDetailPage'));
+const AdminOrdersPage = React.lazy(() => import('@/pages/admin/AdminOrdersPage'));
 const AdminOverviewPage = React.lazy(() => import('@/pages/AdminOverviewPage'));
 const StorePage = React.lazy(() => import('@/pages/StorePage'));
 const ProductDetailPage = React.lazy(() => import('@/pages/ProductDetailPage'));
+const OrderDetailPage = React.lazy(() => import('@/pages/OrderDetailPage'));
 const OrdersPage = React.lazy(() => import('@/pages/OrdersPage'));
 const ChatPage = React.lazy(() => import('@/pages/ChatPage'));
 const AccountPage = React.lazy(() => import('@/pages/AccountPage'));
@@ -148,6 +150,16 @@ export const AppRouter: React.FC = () => {
             </RequireRole>
           }
         />
+        <Route
+          path="/orders/:orderId"
+          element={
+            <RequireRole allowedRoles={['FARMER', 'ADMIN']}>
+              <Suspense fallback={<PageSkeleton variant="detail" />}>
+                <OrderDetailPage />
+              </Suspense>
+            </RequireRole>
+          }
+        />
 
         {/* Điều hướng đường dẫn cũ về Admin */}
         <Route path="/knowledge" element={<Navigate to="/admin/knowledge" replace />} />
@@ -235,12 +247,9 @@ export const AppRouter: React.FC = () => {
         <Route
           path="/admin/orders"
           element={
-            <ComingSoonPage
-              title="Quản lý Đơn hàng Toàn sàn"
-              description="Xem và duyệt đơn hàng đặt mua vật tư từ bà con nông dân."
-              actionText="Về Tổng quan Admin"
-              actionHref="/admin"
-            />
+            <Suspense fallback={<PageSkeleton variant="list" />}>
+              <AdminOrdersPage />
+            </Suspense>
           }
         />
         <Route

@@ -736,6 +736,35 @@
   ```
   *(Ghi chú: `total_price` = `unit_price × quantity`, backend tính).*
 
+### 3.6.3. `GET /api/v1/orders/admin` (Admin: Toàn bộ đơn hàng của mọi người dùng)
+- **Headers**: `Authorization: Bearer <jwt_token>` (chỉ `ADMIN`, chính sách `AdminOnly`; người khác → `403`).
+- **Query (tùy chọn)**: `status` (`PENDING` | `CONFIRMED` | `SHIPPING` | `COMPLETED` | `CANCELLED` | `ALL`, không phân biệt hoa thường), `search` (tìm theo mã đơn `ord-xxxxxxxx`, tên người nhận, SĐT, địa chỉ, tên hoặc email tài khoản đặt).
+- **Response (`200 OK`)**: mảng đơn, mới nhất trước. Mỗi phần tử giống mục 3.6.2 và có thêm `user_id`, `customer_name`, `customer_email`, `customer_phone`. Các trường thêm này **chỉ có giá trị ở endpoint Admin**; `GET /orders` và `GET /orders/{id}` trả `null`. Riêng `updated_at` (lần đổi trạng thái gần nhất, `null` nếu chưa đổi) có ở cả 4 endpoint đơn hàng.
+- *Hiện chưa phân trang; khi số đơn lớn cần thêm `page` / `page_size`.*
+
+### 3.6.4. `PATCH /api/v1/orders/{id}/status` (Admin: Cập nhật trạng thái đơn)
+- **Headers**: `Authorization: Bearer <jwt_token>` (chỉ `ADMIN`).
+- **Path**: `id` như mục 3.6.2. Mã ngắn trùng nhiều đơn → `409`.
+- **Request Body**: `{ "status": "CONFIRMED" }`
+- **Luồng trạng thái hợp lệ** (khác luồng → `400`; trùng trạng thái hiện tại → `200` không đổi gì):
+  - `PENDING` → `CONFIRMED` | `SHIPPING` | `CANCELLED`
+  - `CONFIRMED` → `SHIPPING` | `CANCELLED`
+  - `SHIPPING` → `COMPLETED` | `CANCELLED`
+  - `COMPLETED`, `CANCELLED`: trạng thái cuối, không đổi được nữa.
+- **Hủy đơn**: hoàn trả tồn kho (`StockQuantity + quantity`) cho từng sản phẩm, **cùng transaction** với việc đổi trạng thái.
+- **Đồng thời**: chỉ cập nhật khi đơn vẫn ở trạng thái vừa đọc. Hai Admin cùng thao tác thì người sau nhận `409` (kho không bị cộng hoàn 2 lần).
+- **Response (`200 OK`)**: đơn sau cập nhật, cùng dạng mục 3.6.3. Trạng thái lưu dạng chữ hoa. Đơn cũ có thể còn `"Pending"`; client so sánh không phân biệt hoa thường.
+
+### 3.6.5. `POST /api/v1/orders/{id}/cancel` (Người dùng tự hủy đơn của mình)
+- **Headers**: `Authorization: Bearer <jwt_token>` (mọi tài khoản đã đăng nhập; chỉ hủy được **đơn của chính mình**, kể cả Admin).
+- **Path**: `id` như mục 3.6.2. Không có Request Body.
+- **Điều kiện**: đơn đang `PENDING` (không phân biệt hoa thường). Hoàn trả tồn kho cùng transaction, cập nhật có điều kiện như mục 3.6.4.
+- **Mã lỗi**:
+  - `404`: không có đơn, hoặc đơn của người khác (không phân biệt hai trường hợp để không lộ đơn có tồn tại).
+  - `409`: đơn đã hủy trước đó; cửa hàng đã xác nhận / đang giao / đã giao (`detail` hướng dẫn liên hệ cửa hàng, kèm `order_status`); hoặc đơn vừa bị đổi trạng thái đồng thời; hoặc mã ngắn trùng nhiều đơn.
+- **Response (`200 OK`)**: đơn sau khi hủy, cùng dạng mục 3.6.2 (`order_status: "CANCELLED"`, có `updated_at`).
+- *Chưa lưu lý do hủy (bảng `Orders` chưa có cột này).*
+
 ---
 
 ### 3.7. `PATCH /api/v1/knowledge/sources/{id}/approve` & `PATCH /api/v1/knowledge/sources/approve-batch` (Duyệt Nguồn Tri thức Đơn lẻ & Hàng loạt - HITL)
