@@ -3005,6 +3005,18 @@ public class KnowledgeController : ControllerBase
         return Ok(results);
     }
 
+    /// <summary>
+    /// TASK-31: khóa "cây" của gợi ý = phần trước "___" của mã bệnh (Tomato___Late_blight → tomato).
+    /// Gợi ý không có mã bệnh → "" (nhóm "Chưa rõ cây"). Dùng để gộp / thao tác hàng loạt theo (tên vật tư + cây).
+    /// </summary>
+    public static string SuggestionPlantKey(string? modelClass)
+    {
+        if (string.IsNullOrWhiteSpace(modelClass)) return string.Empty;
+        var code = modelClass.Trim();
+        var idx = code.IndexOf("___", StringComparison.Ordinal);
+        return (idx > 0 ? code[..idx] : code).ToLowerInvariant();
+    }
+
     // 6.2. POST /api/v1/knowledge/product-suggestions/{id}/link
     [HttpPost("product-suggestions/{id}/link")]
     [Authorize(Policy = AuthPolicies.AdminOnly)]
@@ -3043,11 +3055,14 @@ public class KnowledgeController : ControllerBase
                 return BadRequest(new { detail = $"Sản phẩm '{product.Name}' chứa hoạt chất cấm, không được gắn vào bệnh." });
             }
 
-            // Tự động gắn kết cho tất cả các bản ghi có cùng mention_text đang chờ xử lý
+            // Tự động gắn kết cho các gợi ý đang chờ có cùng tên vật tư VÀ cùng cây (TASK-31: không lan sang cây khác)
             var targetMention = suggestion.MentionText.Trim().ToLower();
-            var sameSuggestions = await _dbContext.ProductSuggestions
+            var targetPlant = SuggestionPlantKey(suggestion.ModelClass);
+            var sameSuggestions = (await _dbContext.ProductSuggestions
                 .Where(ps => !ps.IsDeleted && ps.Status == "PENDING" && ps.MentionText.Trim().ToLower() == targetMention)
-                .ToListAsync(cancellationToken);
+                .ToListAsync(cancellationToken))
+                .Where(ps => SuggestionPlantKey(ps.ModelClass) == targetPlant)
+                .ToList();
 
             if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
             {
@@ -3245,11 +3260,14 @@ public class KnowledgeController : ControllerBase
             return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
         }
 
-        // Tự động bỏ qua cho tất cả các bản ghi có cùng mention_text đang chờ xử lý
+        // Bỏ qua các gợi ý đang chờ có cùng tên vật tư VÀ cùng cây (TASK-31)
         var targetMention = suggestion.MentionText.Trim().ToLower();
-        var sameSuggestions = await _dbContext.ProductSuggestions
+        var targetPlant = SuggestionPlantKey(suggestion.ModelClass);
+        var sameSuggestions = (await _dbContext.ProductSuggestions
             .Where(ps => !ps.IsDeleted && ps.Status == "PENDING" && ps.MentionText.Trim().ToLower() == targetMention)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken))
+            .Where(ps => SuggestionPlantKey(ps.ModelClass) == targetPlant)
+            .ToList();
 
         if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
         {
@@ -3281,11 +3299,16 @@ public class KnowledgeController : ControllerBase
             return NotFound(new { detail = "Không tìm thấy gợi ý vật tư." });
         }
 
-        // Tự động xóa mềm cho tất cả các bản ghi có cùng mention_text
+        // Xóa mềm kèm các gợi ý cùng tên vật tư, cùng cây và CHƯA xử lý (TASK-31: không xóa gợi ý đã LINKED / ADDED,
+        // vì đó là căn cứ của sản phẩm; không lan sang cây khác)
         var targetMention = suggestion.MentionText.Trim().ToLower();
-        var sameSuggestions = await _dbContext.ProductSuggestions
-            .Where(ps => !ps.IsDeleted && ps.MentionText.Trim().ToLower() == targetMention)
-            .ToListAsync(cancellationToken);
+        var targetPlant = SuggestionPlantKey(suggestion.ModelClass);
+        var sameSuggestions = (await _dbContext.ProductSuggestions
+            .Where(ps => !ps.IsDeleted && ps.MentionText.Trim().ToLower() == targetMention
+                         && ps.Status != "LINKED" && ps.Status != "ADDED")
+            .ToListAsync(cancellationToken))
+            .Where(ps => SuggestionPlantKey(ps.ModelClass) == targetPlant)
+            .ToList();
 
         if (!sameSuggestions.Any(s => s.Id == suggestion.Id))
         {
