@@ -22,4 +22,5 @@ public class Disease : BaseEntity
     public ICollection<DiseaseProduct> DiseaseProducts { get; set; } = new List<DiseaseProduct>();
     public ICollection<DiagnosisRecord> DiagnosisRecords { get; set; } = new List<DiagnosisRecord>();
     public ICollection<ProductUsageRule> UsageRules { get; set; } = new List<ProductUsageRule>();
+    public HandbookDisease? HandbookArticle { get; set; }
 }

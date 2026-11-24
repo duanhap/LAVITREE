@@ -1477,6 +1477,50 @@ Trả `{ dry_run, results: [{ common_name, aliases, category, status, message, e
 
 ---
 
+
+### 3.12. Quản trị & Hiển thị Cẩm nang Bệnh học Biên tập (`/api/v1/handbook/...` — TASK-27)
+
+#### 3.12.1. `GET /api/v1/handbook/articles/{classCode}` (Công khai)
+*Lấy bài viết cẩm nang chuẩn biên tập cho trang `/handbook/:classCode`. Nếu chưa có bài hoặc bài đang là DRAFT, trả về `is_fallback: true` để frontend tự động hiển thị ghép nối đoạn trích cũ theo TASK-20.*
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "class_code": "Tomato___Late_blight",
+    "is_fallback": false,
+    "status": "PUBLISHED",
+    "article": {
+      "content_markdown": "# Bệnh mốc sương...",
+      "faq": [
+        { "question": "Nên phun thuốc lúc nào?", "answer": "Phun vào lúc chiều mát..." }
+      ],
+      "author_name": "Ban Biên tập Kỹ thuật Lavitree",
+      "updated_at": "2026-11-25T02:50:00Z",
+      "review_reason": null
+    }
+  }
+  ```
+
+#### 3.12.2. `GET /api/v1/handbook/admin/articles/{classCode}` (`AdminOnly`)
+*Lấy đầy đủ thông tin bài viết biên tập (kể cả DRAFT, NEEDS_REVIEW), kèm danh sách các đoạn trích tri thức nguồn đã duyệt để phục vụ trình soạn thảo Markdown 2 cột.*
+- **Headers**: `Authorization: Bearer <jwt_token>`
+
+#### 3.12.3. `PUT /api/v1/handbook/admin/articles/{classCode}` (`AdminOnly`)
+*Lưu nháp hoặc xuất bản bài cẩm nang bệnh học.*
+- **Request Body**:
+  ```json
+  {
+    "content_markdown": "## Giới thiệu bệnh...",
+    "faq": [
+      { "question": "Câu hỏi 1", "answer": "Trả lời 1" }
+    ],
+    "author_name": "Kỹ sư Nguyễn Văn A",
+    "status": "PUBLISHED"
+  }
+  ```
+
+#### 3.12.4. `POST /api/v1/handbook/admin/articles/{classCode}/review-ack` (`AdminOnly`)
+*Admin xác nhận đã rà soát bài viết sau khi có cảnh báo dữ liệu nguồn thay đổi (`NEEDS_REVIEW` $\rightarrow$ `PUBLISHED`).*
+
 ### 4.4. `POST /internal/knowledge/label-paragraphs` (AI gợi ý nhãn và trích xuất thông tin bài báo — Nội bộ)
 *Core API gọi khi Admin nhập bài báo (Mục 3.10). Agent trả về **số đoạn + nhãn** và **thông tin bài đề xuất (`metadata`)**, không viết ra chữ đoạn trích nào, nên không thể bịa đoạn trích. Không đọc / ghi PostgreSQL.*
 - **Network Scope & Headers**: giống Mục 4.3 (chỉ trong mạng Docker, bắt buộc `X-Internal-Key`).

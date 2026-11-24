@@ -30,6 +30,7 @@ public class LavitreeDbContext : DbContext
     public DbSet<BannedSubstance> BannedSubstances => Set<BannedSubstance>();
     public DbSet<BannedSubstanceDecision> BannedSubstanceDecisions => Set<BannedSubstanceDecision>();
     public DbSet<ProductUsageRule> ProductUsageRules => Set<ProductUsageRule>();
+    public DbSet<HandbookDisease> HandbookDiseases => Set<HandbookDisease>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -195,6 +196,29 @@ public class LavitreeDbContext : DbContext
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Email)
             .IsUnique();
+
+        // HandbookDisease configuration (TASK-27)
+        modelBuilder.Entity<HandbookDisease>(entity =>
+        {
+            entity.ToTable("HandbookDiseases");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ClassCode).IsRequired().HasMaxLength(150);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(250);
+            entity.Property(e => e.Summary).HasMaxLength(1000);
+            entity.Property(e => e.AuthorName).IsRequired().HasMaxLength(150).HasDefaultValue("Ban Chuyên môn BVTV Lavitree");
+            entity.Property(e => e.ContentMarkdown).IsRequired().HasColumnType("text");
+            entity.Property(e => e.FaqJson).IsRequired().HasColumnType("jsonb").HasDefaultValue("[]");
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(30).HasDefaultValue("DRAFT");
+            entity.Property(e => e.ReviewReason).HasMaxLength(1000);
+
+            entity.HasIndex(e => e.ClassCode).IsUnique();
+            entity.HasIndex(e => e.DiseaseId).IsUnique();
+
+            entity.HasOne(e => e.Disease)
+                .WithOne(d => d.HandbookArticle)
+                .HasForeignKey<HandbookDisease>(e => e.DiseaseId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

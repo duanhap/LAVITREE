@@ -258,6 +258,85 @@ namespace Lavitree.Infrastructure.Migrations
                     b.ToTable("DiseaseProducts");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.HandbookDisease", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AuthorName")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasDefaultValue("Ban Chuyên môn BVTV Lavitree");
+
+                    b.Property<string>("ClassCode")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("ContentMarkdown")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DiseaseId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FaqJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValue("[]");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("DRAFT");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClassCode")
+                        .IsUnique();
+
+                    b.HasIndex("DiseaseId")
+                        .IsUnique();
+
+                    b.ToTable("HandbookDiseases", (string)null);
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.KnowledgeImage", b =>
                 {
                     b.Property<int>("Id")
@@ -868,6 +947,17 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("Lavitree.Domain.Entities.HandbookDisease", b =>
+                {
+                    b.HasOne("Lavitree.Domain.Entities.Disease", "Disease")
+                        .WithOne("HandbookArticle")
+                        .HasForeignKey("Lavitree.Domain.Entities.HandbookDisease", "DiseaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Disease");
+                });
+
             modelBuilder.Entity("Lavitree.Domain.Entities.Order", b =>
                 {
                     b.HasOne("Lavitree.Domain.Entities.User", "User")
@@ -963,6 +1053,8 @@ namespace Lavitree.Infrastructure.Migrations
                     b.Navigation("DiagnosisRecords");
 
                     b.Navigation("DiseaseProducts");
+
+                    b.Navigation("HandbookArticle");
 
                     b.Navigation("TreatmentPlans");
 

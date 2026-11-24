@@ -252,6 +252,28 @@ Lưu trữ phiếu cách dùng và định lượng chi tiết cho từng cặp 
 
 ---
 
+
+### Nhóm 6: Cẩm nang Bệnh học Biên tập (`HandbookDiseases` — TASK-27)
+
+Lưu trữ bài viết cẩm nang bệnh học chuyên sâu do Admin / Kỹ sư BVTV biên tập chuẩn mực bằng Markdown và danh sách câu hỏi thường gặp (FAQ) dạng JSON, thay thế việc ghép nối đoạn trích rời rạc thô. Hỗ trợ vòng đời xuất bản và cơ chế cảnh báo lỗi thời khi nguồn trích dẫn tri thức bị thay đổi/bỏ duyệt.
+
+#### Bảng `HandbookDiseases`
+| Cột (Column) | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `Id` | `SERIAL` | PK | Khóa chính tự tăng |
+| `DiseaseId` | `INT` | FK $\rightarrow$ Diseases (CASCADE), NOT NULL | Mã định danh bệnh học liên kết (1-1) |
+| `ClassCode` | `VARCHAR(100)` | NOT NULL | Mã định danh chuẩn bệnh (38 lớp PlantVillage) |
+| `ContentMarkdown` | `TEXT` | NOT NULL | Nội dung cẩm nang bệnh học biên tập bằng Markdown |
+| `FaqJson` | `TEXT` | NULL | Danh sách FAQ thực tế lưu dạng JSON mảng `[{"question": "...", "answer": "..."}]` |
+| `AuthorName` | `VARCHAR(200)` | NOT NULL | Tên kỹ sư BVTV / chuyên gia biên tập (mặc định: Ban Biên tập Kỹ thuật Lavitree) |
+| `Status` | `VARCHAR(20)` | NOT NULL, DEFAULT 'DRAFT' | Trạng thái: `DRAFT` (Nháp), `PUBLISHED` (Đã xuất bản), `NEEDS_REVIEW` (Cần rà soát lại) |
+| `ReviewReason` | `TEXT` | NULL | Lý do yêu cầu rà soát khi có đoạn trích tri thức nguồn bị xóa hoặc bỏ duyệt |
+| `LastReviewedAt` | `TIMESTAMPTZ` | NULL | Thời điểm Admin xác nhận đã rà soát nội dung |
+| `CreatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm tạo bài cẩm nang |
+| `UpdatedAt` | `TIMESTAMPTZ` | DEFAULT NOW() | Thời điểm cập nhật cẩm nang lần cuối |
+
+- **Chỉ mục duy nhất**: `IX_HandbookDiseases_ClassCode` (UNIQUE), `IX_HandbookDiseases_DiseaseId` (UNIQUE).
+
 ## 3. CHIẾN LƯỢC SEED DATA (NẠP DỮ LIỆU BAN ĐẦU)
 
 Khi khởi động hệ thống lần đầu:
