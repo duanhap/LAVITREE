@@ -622,7 +622,10 @@ export const parseProductResearchJson = (
   const after = raw.slice(Math.max(raw.lastIndexOf('```'), 0));
   const tailUrls = uniq((after.match(/https?:\/\/[^\s<>"'()\]]+/g) || []).map((u) => u.replace(/[.,;:]+$/, '')));
   const isImage = (u: string) => /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(u);
-  const sourceUrls = excludeArticleUrls(uniq([...httpList(data.source_urls), ...tailUrls.filter((u) => !isImage(u))]), articleUrls);
+  const rawSourceUrls = uniq([...httpList(data.source_urls), ...tailUrls.filter((u) => !isImage(u))]);
+  const nonArticleSrc = excludeArticleUrls(rawSourceUrls, articleUrls);
+  const articleSrcMatches = rawSourceUrls.filter((u) => !nonArticleSrc.includes(u));
+  const sourceUrls = nonArticleSrc.length ? [...nonArticleSrc, ...articleSrcMatches] : rawSourceUrls;
   const imageCandidates = uniq([
     ...httpList(data.image_candidates),
     ...httpList(data.image_url),
@@ -663,7 +666,7 @@ export const buildCropDosagePrompt = (opts: {
   const excerptBlock = opts.keySentences && opts.keySentences.length
     ? [
         '',
-        '## Đoạn trích bài báo nhắc tới vật tư này (để xác định đúng loại, không phải nguồn số liệu)',
+        '## Đoạn trích từ bài báo gợi ý (ngữ cảnh và hướng dẫn nếu có)',
         ...opts.keySentences.map((x) => `- "${x}"`),
         '',
       ].join('\n')
@@ -681,15 +684,18 @@ Bạn là kỹ sư bảo vệ thực vật tại VIỆT NAM. Bạn giúp Admin t
 - Hoạt chất / thành phần: ${active || '(chưa rõ, hãy tra theo tên)'}
 - Cây trồng: "${plant}"${disease ? ` (bệnh liên kết: "${disease}")` : ''}
 ${excerptBlock}${opts.articleUrl ? `
-## Bài báo gợi ý (CHỈ để biết ngữ cảnh)
+## Bài báo / tài liệu gợi ý đi kèm
 ${opts.articleUrl}
-Đây là bài viết về BỆNH, chỉ nhắc tới vật tư này, thường KHÔNG có liều chi tiết. KHÔNG dùng bài này làm nguồn số liệu và KHÔNG đưa link này vào source_url / source_urls.
+Lưu ý về bài viết này:
+- Vẫn ưu tiên tìm đọc thêm các trang nhãn mác / thông tin sản phẩm trên Google để nắm quy cách đóng gói và nồng độ pha chuẩn.
+- TUY NHIÊN, nếu chính bài viết này có hướng dẫn cụ thể cách dùng sản phẩm "${name}" trên cây "${plant}" (như liều pha theo lít nước, cách phun ướt lá/tưới gốc, thời điểm phun khi lộc non/hoa/quả, buổi sáng/chiều, định kỳ số ngày...), bạn HOÀN TOÀN ĐƯỢC PHÉP trích xuất các thông tin đó để điền vào các trường tương ứng trong usage_profile (đặc biệt là method, time_of_day, start_when, interval_days, dose_text, avoid_rain_hours...).
+- Nếu bài viết thực sự cung cấp thông tin kỹ thuật cho cây "${plant}", hãy đưa link này vào danh sách source_urls. Nếu bài chỉ nhắc tên chung chung mà không có số liệu thì bỏ qua.
 ` : ''}
 ## Nhiệm vụ
-Từ các trang đã tìm, tổng hợp liều và cách dùng "${name}" trên cây "${plant}":
-1. Liều pha và lượng nước (ví dụ g hoặc ml cho bình 16 lít / 25 lít / 200 lít), hoặc liều theo diện tích / theo gốc (kg/ha, kg/1000 m², g/gốc) với phân bón, chế phẩm rắc / tưới.
+Từ các trang đã tìm và bài viết gợi ý (nếu có hướng dẫn), tổng hợp liều và cách dùng "${name}" trên cây "${plant}":
+1. Liều pha và lượng nước (ví dụ g hoặc ml cho bình 16 lít / 25 lít / 200 lít), hoặc liều theo diện tích / theo gốc (kg/ha, kg/1000 m², g/gốc) với phân bón, chế phẩm rắc / tưới. Nếu nguồn ghi pha theo chai/phuy (ví dụ: 1 chai 250ml pha 200L nước), hãy ghi rõ trong dose_text và quy đổi tương đương ra liều bình 16L/25L nếu tiện cho nông dân.
 2. Lượng dung dịch phun trên 1 ha (nếu là thuốc phun).
-3. Cách dùng (phun ướt đều tán lá / tưới gốc / rắc / trộn đất / ủ phân…), buổi dùng.
+3. Cách dùng (phun ướt đều tán lá / tưới gốc / rắc / trộn đất / ủ phân…), buổi dùng (sáng sớm / chiều mát).
 4. Thời điểm bắt đầu, khi nào ngừng, khoảng cách giữa 2 lần (ngày), số lần tối đa mỗi vụ, lưu ý thời tiết / tránh mưa, bảo hộ an toàn.
 5. Nếu nguồn chia liều theo giai đoạn (bón lót / bón thúc, phòng / trị) thì ghi đủ các giai đoạn trong dose_text hoặc method.
 6. Soạn "dosage_instruction" súc tích, đầy đủ con số cho trợ lý Lavi đọc cho nông dân. Viết cho CÂY ${plant} nói chung: KHÔNG nêu tên một bệnh cụ thể (không viết "Với bệnh ..."), vì câu này hiển thị cho mọi bệnh của cây.
@@ -724,8 +730,8 @@ Từ các trang đã tìm, tổng hợp liều và cách dùng "${name}" trên c
 (Các con số trong mẫu chỉ minh họa định dạng, KHÔNG chép lại. Phân bón / chế phẩm rắc / bón theo diện tích: để dose_amount / water_liters / spray_volume_per_ha là null và dùng "dose_per_area": { "min": 2, "max": 3, "unit": "kg/1000 m²" }.)
 
 ## Nguồn đã dùng (sau khối JSON)
-1. <URL> — <loại trang: nhãn / nhà sản xuất / đại lý / khuyến nông> — "<đoạn COPY NGUYÊN VĂN 5–20 chữ có chứa con số đã dùng>"
-(Mỗi con số trong usage_profile phải có ít nhất 1 đoạn trích. Link để trần, không đặt trong ngoặc kép. KHÔNG liệt kê link bài báo gợi ý ở trên.)`;
+1. <URL> — <loại trang: nhãn / nhà sản xuất / đại lý / khuyến nông / bài viết kỹ thuật> — "<đoạn COPY NGUYÊN VĂN 5–20 chữ có chứa con số đã dùng>"
+(Mỗi con số trong usage_profile phải có ít nhất 1 đoạn trích. Link để trần, không đặt trong ngoặc kép.)`;
 };
 
 /** So sánh 2 link bỏ qua http/https, www., dấu / cuối và chữ hoa. */
@@ -762,8 +768,11 @@ export const parseCropDosageJson = (
   const after = text.slice(text.indexOf(m[0]) + m[0].length);
   const tail = (after.match(/https?:\/\/[^\s<>"'()\]]+/g) || []).map((u) => u.replace(/[.,;:]+$/, ''));
   const all = Array.from(new Set([...listed, ...tail]));
-  const sourceUrls = excludeArticleUrls(all, articleUrls);
-  const droppedArticleUrl = sourceUrls.length < all.length;
+  // Ưu tiên link về trang sản phẩm trước; nếu chỉ có link bài báo gợi ý thì vẫn giữ lại làm nguồn căn cứ
+  const nonArticle = excludeArticleUrls(all, articleUrls);
+  const articleMatches = all.filter((u) => !nonArticle.includes(u));
+  const sourceUrls = nonArticle.length ? [...nonArticle, ...articleMatches] : all;
+  const droppedArticleUrl = false;
   const sourceUrl = sourceUrls[0] || '';
   const usageObj = parsed.usage_profile || parsed.usage;
   const usage = usageObj && typeof usageObj === 'object' ? normalizeUsageProfile(usageObj) : null;
