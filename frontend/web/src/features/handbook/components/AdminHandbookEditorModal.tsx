@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { safeHref } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -268,7 +269,7 @@ Nhiệm vụ của bạn là tổng hợp và biên soạn một bài CẨM NANG
 THÔNG TIN ĐỐI TƯỢNG:
 - Cây trồng: ${plantName}
 - Tên bệnh tiếng Việt: ${formattedDiseaseTitle}
-- Mã định danh khoa học: ${classCode}
+// Lưu ý kỹ thuật nội bộ: Mã hệ thống là "${classCode}" (TUYỆT ĐỐI KHÔNG đưa mã máy nội bộ này vào bài viết).
 
 DỮ LIỆU CĂN CỨ KHOA HỌC ĐÃ ĐƯỢC PHÊ DUYỆT TRONG HỆ THỐNG:
 ---
@@ -283,10 +284,12 @@ ${formatSnippetList(treatmentSnippets)}
 ${otherSnippets.length > 0 ? `\n[4. TƯ LIỆU THAM KHẢO KHÁC]:\n${formatSnippetList(otherSnippets)}` : ''}
 ---
 
-YÊU CẦU BIÊN TẬP:
-1. Văn phong chuẩn mực khoa học nông nghiệp nhưng mộc mạc, mạch lạc, dễ nhớ, thiết thực cho bà con nông dân.
-2. KHÔNG chép thô nguyên khối các đoạn trích. Hãy đúc kết, liên kết các số liệu (nhiệt độ, ẩm độ, mật độ, liều lượng) thành các câu văn gãy gọn, có danh sách gạch đầu dòng rõ ràng.
-3. Nội dung Markdown BẮT BUỘC theo cấu trúc 5 phần sau:
+YÊU CẦU BIÊN TẬP & QUY TẮC BẮT BUỘC:
+1. QUY TẮC CẤM: TUYỆT ĐỐI KHÔNG ghi mã máy nội bộ như "${classCode}" vào bất kỳ đâu trong bài viết, tiêu đề hay tóm tắt. Nông dân chỉ cần đọc Tên bệnh tiếng Việt (ví dụ: "${formattedDiseaseTitle}") và Tên khoa học chuẩn Latin của nấm/khuẩn gây bệnh (ví dụ: Venturia inaequalis).
+2. LƯU Ý BẢNG BIỂU MARKDOWN: Bảng tóm tắt ở Mục 5 BẮT BUỘC phải xuống dòng (\\n) sau mỗi hàng của bảng (ví dụ: | Cột 1 | Cột 2 |\\n|---|---|\\n| Dòng 1 | Dòng 2 |\\n). TUYỆT ĐỐI KHÔNG ghép các hàng trên cùng một dòng bằng dấu "| |" vì sẽ làm hỏng định dạng bảng.
+3. Văn phong chuẩn mực khoa học nông nghiệp nhưng mộc mạc, mạch lạc, dễ nhớ, thiết thực cho bà con nông dân.
+4. KHÔNG chép thô nguyên khối các đoạn trích. Hãy đúc kết, liên kết các số liệu (nhiệt độ, ẩm độ, mật độ, liều lượng) thành các câu văn gãy gọn, có danh sách gạch đầu dòng rõ ràng.
+5. Nội dung Markdown BẮT BUỘC theo cấu trúc 5 phần sau:
    - ## 1. Giới thiệu chung và Tác nhân gây bệnh
    - ## 2. Triệu chứng nhận biết trên đồng ruộng (phân kỳ: chớm bệnh, phát triển mạnh, hậu quả thất thu)
    - ## 3. Điều kiện phát sinh và lây lan (thời tiết, ẩm độ, mùa vụ, cơ chế lây truyền)
@@ -294,9 +297,9 @@ YÊU CẦU BIÊN TẬP:
      - ### 4.1. Canh tác nông nghiệp & Vệ sinh đồng ruộng
      - ### 4.2. Biện pháp sinh học (các chế phẩm đối kháng như Trichoderma, Bacillus...)
      - ### 4.3. Biện pháp hóa học (các hoạt chất đặc trị được phép, nguyên tắc luân phiên thuốc chống kháng)
-   - ## 5. Bảng tóm tắt hoạt chất và lưu ý an toàn (bảng Markdown: Cột 1: Hoạt chất / Nhóm thuốc | Cột 2: Cơ chế tác động | Cột 3: Lưu ý cách ly PHI)
+   - ## 5. Bảng tóm tắt hoạt chất và lưu ý an toàn (bảng Markdown: Cột 1: Hoạt chất / Nhóm thuốc | Cột 2: Cơ chế tác động | Cột 3: Lưu ý cách ly PHI & An toàn)
 
-4. Kèm theo danh sách 3–5 câu hỏi thường gặp (FAQ) sát với thực tế đồng ruộng kèm câu giải đáp súc tích, dễ hiểu.
+6. Kèm theo danh sách 3–5 câu hỏi thường gặp (FAQ) sát với thực tế đồng ruộng kèm câu giải đáp súc tích, dễ hiểu.
 
 ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:
 Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không thêm văn bản giải thích ngoài JSON):
@@ -329,6 +332,27 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
       return;
     }
 
+    // Làm sạch mã classCode nội bộ nếu AI vô tình chèn vào
+    const sanitizeClassCode = (text: string) => {
+      if (!text) return '';
+      let cleaned = text;
+      if (classCode) {
+        const escaped = classCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        cleaned = cleaned
+          .replace(new RegExp(`\\s*\\(${escaped}\\)`, 'gi'), '')
+          .replace(new RegExp(`\\s*\\[${escaped}\\]`, 'gi'), '')
+          .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '')
+          .replace(/\s{2,}/g, ' ');
+      }
+      return cleaned.trim();
+    };
+
+    // Sửa lỗi bảng nếu AI nối các hàng bằng `| |` thay vì xuống dòng `\n`
+    const sanitizeMarkdownTable = (md: string) => {
+      if (!md) return '';
+      return md.replace(/\|\s*\|\s*/g, '|\n|');
+    };
+
     try {
       let jsonString = rawText.trim();
       const codeBlockMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -347,19 +371,19 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
         const parsed = JSON.parse(jsonString);
 
         if (parsed.title && typeof parsed.title === 'string') {
-          setTitle(parsed.title.trim());
+          setTitle(sanitizeClassCode(parsed.title));
         }
         if (parsed.summary && typeof parsed.summary === 'string') {
-          setSummary(parsed.summary.trim());
+          setSummary(sanitizeClassCode(parsed.summary));
         }
         if (parsed.content_markdown && typeof parsed.content_markdown === 'string') {
-          setContentMarkdown(parsed.content_markdown.trim());
+          setContentMarkdown(sanitizeMarkdownTable(sanitizeClassCode(parsed.content_markdown)));
         }
         if (Array.isArray(parsed.faq) && parsed.faq.length > 0) {
           const validFaqs: FaqItem[] = parsed.faq
             .map((item: any) => ({
-              question: String(item.question || item.q || item.cau_hoi || '').trim(),
-              answer: String(item.answer || item.a || item.cau_tra_loi || '').trim(),
+              question: sanitizeClassCode(String(item.question || item.q || item.cau_hoi || '')),
+              answer: sanitizeClassCode(String(item.answer || item.a || item.cau_tra_loi || '')),
             }))
             .filter((f: FaqItem) => f.question || f.answer);
 
@@ -376,7 +400,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
 
       // Fallback: Nếu AI trả về Markdown thuần
       if (rawText.includes('#') || rawText.includes('##')) {
-        setContentMarkdown(rawText.trim());
+        setContentMarkdown(sanitizeMarkdownTable(sanitizeClassCode(rawText)));
         toast.success('Đã nạp nội dung Markdown vào bài viết!');
         setIsAiModalOpen(false);
         setAiInputText('');
@@ -824,6 +848,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
                   {/* Rendered Markdown Preview */}
                   <div className="prose prose-xs sm:prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed">
                     <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
                       components={{
                         h2: ({ children }) => (
                           <h2 className="text-sm font-bold text-foreground mt-4 mb-2 pb-1 border-b border-border">
@@ -856,11 +881,26 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
                           </blockquote>
                         ),
                         table: ({ children }) => (
-                          <div className="overflow-x-auto my-3 rounded-md border border-border">
+                          <div className="overflow-x-auto my-3 rounded-lg border border-border">
                             <table className="w-full text-xs text-left border-collapse">
                               {children}
                             </table>
                           </div>
+                        ),
+                        thead: ({ children }) => (
+                          <thead className="bg-muted/80 text-foreground border-b border-border font-semibold">
+                            {children}
+                          </thead>
+                        ),
+                        tbody: ({ children }) => (
+                          <tbody className="divide-y divide-border/60">
+                            {children}
+                          </tbody>
+                        ),
+                        tr: ({ children }) => (
+                          <tr className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                            {children}
+                          </tr>
                         ),
                         th: ({ children }) => (
                           <th className="bg-muted px-2.5 py-1.5 font-semibold text-foreground border-b border-border">

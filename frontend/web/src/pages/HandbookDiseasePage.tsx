@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { useAuth } from '@/context/AuthContext';
 import { safeHref } from '@/lib/utils';
@@ -548,11 +549,13 @@ export const HandbookDiseasePage: React.FC = () => {
                       )}
                     </div>
                     <h1 className="text-xl sm:text-2xl font-bold text-foreground leading-snug">
-                      {curatedArticle.title}
+                      {curatedArticle.title?.replace(new RegExp(`\\s*\\(${decodedClassCode}\\)`, 'gi'), '')}
                     </h1>
                     {curatedArticle.summary && (
                       <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed">
-                        {curatedArticle.summary}
+                        {curatedArticle.summary
+                          .replace(new RegExp(`\\s*\\(${decodedClassCode}\\)`, 'gi'), '')
+                          .replace(new RegExp(`\\b${decodedClassCode}\\b`, 'gi'), '')}
                       </div>
                     )}
                   </div>
@@ -560,6 +563,7 @@ export const HandbookDiseasePage: React.FC = () => {
                   {/* Markdown content */}
                   <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none text-foreground leading-relaxed pt-2">
                     <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
                       components={{
                         h2: ({ children }) => (
                           <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
@@ -598,6 +602,21 @@ export const HandbookDiseasePage: React.FC = () => {
                             </table>
                           </div>
                         ),
+                        thead: ({ children }) => (
+                          <thead className="bg-muted text-foreground border-b border-border font-semibold">
+                            {children}
+                          </thead>
+                        ),
+                        tbody: ({ children }) => (
+                          <tbody className="divide-y divide-border/60">
+                            {children}
+                          </tbody>
+                        ),
+                        tr: ({ children }) => (
+                          <tr className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                            {children}
+                          </tr>
+                        ),
                         th: ({ children }) => (
                           <th className="bg-muted px-3 py-2 font-semibold text-foreground border-b border-border">
                             {children}
@@ -620,7 +639,9 @@ export const HandbookDiseasePage: React.FC = () => {
                         ),
                       }}
                     >
-                      {curatedArticle.content_markdown}
+                      {(curatedArticle.content_markdown || '')
+                        .replace(new RegExp(`\\s*\\(${decodedClassCode}\\)`, 'gi'), '')
+                        .replace(/\|\s*\|\s*/g, '|\n|')}
                     </ReactMarkdown>
                   </div>
                 </div>
