@@ -145,14 +145,16 @@ export const AdminHandbookEditorModal: React.FC<AdminHandbookEditorModalProps> =
           }
         } else {
           // Initialize template for new article
-          setTitle(`Cẩm nang nhận biết và phòng trị ${diseaseName} trên cây ${plantName}`);
+          const cleanDisease = diseaseName.trim().replace(/^bệnh\s+/i, '');
+          const formattedDiseaseTitle = `Bệnh ${cleanDisease}`;
+          setTitle(`Cẩm nang nhận biết và phòng trị ${formattedDiseaseTitle} trên cây ${plantName}`);
           setAuthorName('Ban Chuyên môn BVTV Lavitree');
-          setSummary(`Hướng dẫn toàn diện về tác nhân, triệu chứng đặc trưng và phác đồ điều trị hiệu quả bệnh ${diseaseName} cho bà con nông dân trồng ${plantName}.`);
+          setSummary(`Hướng dẫn toàn diện về tác nhân, triệu chứng đặc trưng và phác đồ điều trị hiệu quả ${formattedDiseaseTitle} cho bà con nông dân trồng ${plantName}.`);
           setStatus('DRAFT');
           setReviewReason(null);
           setFaqList([
             {
-              question: `Bệnh ${diseaseName} trên cây ${plantName} phát sinh mạnh nhất vào thời điểm nào?`,
+              question: `${formattedDiseaseTitle} trên cây ${plantName} phát sinh mạnh nhất vào thời điểm nào?`,
               answer: 'Bệnh thường phát triển mạnh trong điều kiện ẩm độ cao, mưa kéo dài hoặc chênh lệch nhiệt độ lớn giữa ngày và đêm.',
             },
           ]);
@@ -160,7 +162,7 @@ export const AdminHandbookEditorModal: React.FC<AdminHandbookEditorModalProps> =
           // Suggest initial markdown structure
           setContentMarkdown(
 `## 1. Giới thiệu chung và Tác nhân gây bệnh
-Bệnh **${diseaseName}** là một trong những đối tượng dịch hại nguy hiểm thường gặp trên cây **${plantName}**, gây ảnh hưởng trực tiếp đến sinh trưởng và năng suất thu hoạch.
+${formattedDiseaseTitle} là một trong những đối tượng dịch hại nguy hiểm thường gặp trên cây **${plantName}**, gây ảnh hưởng trực tiếp đến sinh trưởng và năng suất thu hoạch.
 
 ## 2. Triệu chứng nhận biết trên đồng ruộng
 - **Giai đoạn đầu:** Xuất hiện các vết chấm nhỏ hoặc biến đổi màu sắc trên bề mặt lá/thân.
@@ -375,8 +377,8 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
         ) : (
           <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-border">
             {/* Left Column: Markdown & FAQ Editor (7 cols) */}
-            <div className="lg:col-span-7 flex flex-col min-h-0 h-full overflow-y-auto p-4 sm:p-5 space-y-4">
-              <div className="space-y-1.5">
+            <div className="lg:col-span-7 flex flex-col h-full overflow-y-auto p-4 sm:p-5 space-y-5">
+              <div className="space-y-1.5 shrink-0">
                 <label className="text-xs font-semibold text-foreground">
                   Tiêu đề bài cẩm nang <span className="text-destructive">*</span>
                 </label>
@@ -388,7 +390,7 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground">Tác giả / Ban biên tập</label>
                   <Input
@@ -410,7 +412,7 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
               </div>
 
               {/* Markdown Toolbar */}
-              <div className="space-y-1.5 flex-1 flex flex-col min-h-[320px]">
+              <div className="space-y-1.5 shrink-0">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-primary" />
@@ -507,12 +509,13 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                   value={contentMarkdown}
                   onChange={(e) => setContentMarkdown(e.target.value)}
                   placeholder="Nhập nội dung bài cẩm nang bằng Markdown..."
-                  className="flex-1 min-h-[300px] font-mono text-xs p-3 rounded-t-none border-t-0 focus-visible:ring-0 leading-relaxed resize-y"
+                  rows={18}
+                  className="w-full min-h-[380px] font-mono text-xs p-3.5 rounded-t-none border-t-0 focus-visible:ring-0 leading-relaxed resize-y bg-background block"
                 />
               </div>
 
               {/* FAQ Section Builder */}
-              <div className="pt-2 border-t border-border space-y-3">
+              <div className="pt-4 border-t border-border space-y-3 shrink-0 pb-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <HelpCircle className="w-4 h-4 text-primary" />
