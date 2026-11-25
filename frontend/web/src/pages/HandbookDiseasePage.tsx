@@ -77,6 +77,22 @@ const formatEnglishDiseaseName = (code: string): string => {
   return diseasePart.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
 };
 
+// Loại bỏ triệt để mã máy, mã dataset nội bộ (như Apple___Apple_scab) khỏi văn bản hiển thị cho nông dân
+const cleanDatasetCodes = (text: string | null | undefined, classCode?: string): string => {
+  if (!text) return '';
+  let cleaned = text;
+  if (classCode) {
+    const escaped = classCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    cleaned = cleaned
+      .replace(new RegExp(`\\s*\\(${escaped}\\)`, 'gi'), '')
+      .replace(new RegExp(`\\s*\\[${escaped}\\]`, 'gi'), '')
+      .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '');
+  }
+  cleaned = cleaned.replace(/\s*\([A-Za-z0-9_]+___[A-Za-z0-9_]+\)/g, '');
+  cleaned = cleaned.replace(/\b[A-Za-z0-9_]+___[A-Za-z0-9_]+\b/g, '');
+  return cleaned;
+};
+
 const ProductReferenceCard: React.FC<{
   prod: NonNullable<DiseaseDetailResponse['products']>[number];
 }> = ({ prod }) => {
@@ -157,6 +173,19 @@ export const HandbookDiseasePage: React.FC = () => {
   const decodedClassCode = useMemo(() => {
     return classCode ? decodeURIComponent(classCode) : '';
   }, [classCode]);
+
+  const curatedContentMarkdown = useMemo(() => {
+    if (!curatedArticle?.content_markdown) return '';
+    let md = curatedArticle.content_markdown;
+    // Sửa lỗi bảng dính hàng || hoặc | | thành |\n|
+    md = md.replace(/\|\s*\|+/g, '|\n|');
+    // Đảm bảo trước đường kẻ ngang --- có ngắt dòng
+    md = md.replace(/([^\n])\n*---/g, (_, p1) => p1 + '\n\n---');
+    md = md.replace(/---\n*([^\n])/g, (_, p1) => '---\n\n' + p1);
+    // Đảm bảo trước các tiêu đề H2, H3 có ngắt dòng
+    md = md.replace(/([^\n])\n*(#{1,4}\s)/g, (_, p1, p2) => p1 + '\n\n' + p2);
+    return cleanDatasetCodes(md, decodedClassCode);
+  }, [curatedArticle?.content_markdown, decodedClassCode]);
 
   const isHealthy = useMemo(() => {
     return (
@@ -549,13 +578,11 @@ export const HandbookDiseasePage: React.FC = () => {
                       )}
                     </div>
                     <h1 className="text-xl sm:text-2xl font-bold text-foreground leading-snug">
-                      {curatedArticle.title?.replace(new RegExp(`\\s*\\(${decodedClassCode}\\)`, 'gi'), '')}
+                      {cleanDatasetCodes(curatedArticle.title, decodedClassCode)}
                     </h1>
                     {curatedArticle.summary && (
                       <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed">
-                        {curatedArticle.summary
-                          .replace(new RegExp(`\\s*\\(${decodedClassCode}\\)`, 'gi'), '')
-                          .replace(new RegExp(`\\b${decodedClassCode}\\b`, 'gi'), '')}
+                        {cleanDatasetCodes(curatedArticle.summary, decodedClassCode)}
                       </div>
                     )}
                   </div>
@@ -639,9 +666,7 @@ export const HandbookDiseasePage: React.FC = () => {
                         ),
                       }}
                     >
-                      {(curatedArticle.content_markdown || '')
-                        .replace(new RegExp(`\\s*\\(${decodedClassCode}\\)`, 'gi'), '')
-                        .replace(/\|\s*\|\s*/g, '|\n|')}
+                      {curatedContentMarkdown}
                     </ReactMarkdown>
                   </div>
                 </div>

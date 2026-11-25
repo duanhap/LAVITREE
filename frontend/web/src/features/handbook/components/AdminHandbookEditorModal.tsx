@@ -269,7 +269,6 @@ Nhiệm vụ của bạn là tổng hợp và biên soạn một bài CẨM NANG
 THÔNG TIN ĐỐI TƯỢNG:
 - Cây trồng: ${plantName}
 - Tên bệnh tiếng Việt: ${formattedDiseaseTitle}
-// Lưu ý kỹ thuật nội bộ: Mã hệ thống là "${classCode}" (TUYỆT ĐỐI KHÔNG đưa mã máy nội bộ này vào bài viết).
 
 DỮ LIỆU CĂN CỨ KHOA HỌC ĐÃ ĐƯỢC PHÊ DUYỆT TRONG HỆ THỐNG:
 ---
@@ -285,8 +284,8 @@ ${otherSnippets.length > 0 ? `\n[4. TƯ LIỆU THAM KHẢO KHÁC]:\n${formatSnip
 ---
 
 YÊU CẦU BIÊN TẬP & QUY TẮC BẮT BUỘC:
-1. QUY TẮC CẤM: TUYỆT ĐỐI KHÔNG ghi mã máy nội bộ như "${classCode}" vào bất kỳ đâu trong bài viết, tiêu đề hay tóm tắt. Nông dân chỉ cần đọc Tên bệnh tiếng Việt (ví dụ: "${formattedDiseaseTitle}") và Tên khoa học chuẩn Latin của nấm/khuẩn gây bệnh (ví dụ: Venturia inaequalis).
-2. LƯU Ý BẢNG BIỂU MARKDOWN: Bảng tóm tắt ở Mục 5 BẮT BUỘC phải xuống dòng (\\n) sau mỗi hàng của bảng (ví dụ: | Cột 1 | Cột 2 |\\n|---|---|\\n| Dòng 1 | Dòng 2 |\\n). TUYỆT ĐỐI KHÔNG ghép các hàng trên cùng một dòng bằng dấu "| |" vì sẽ làm hỏng định dạng bảng.
+1. QUY TẮC CẤM: TUYỆT ĐỐI KHÔNG ghi bất kỳ mã máy hay mã dataset nội bộ nào vào bài viết, tiêu đề hay tóm tắt. Nông dân chỉ cần đọc Tên bệnh tiếng Việt (ví dụ: "${formattedDiseaseTitle}") và Tên khoa học chuẩn Latin của nấm/khuẩn gây bệnh (ví dụ: Venturia inaequalis).
+2. LƯU Ý BẢNG BIỂU MARKDOWN: Bảng tóm tắt ở Mục 5 BẮT BUỘC phải xuống dòng (\\n) sau mỗi hàng của bảng (ví dụ: | Cột 1 | Cột 2 |\\n|---|---|\\n| Dòng 1 | Dòng 2 |\\n). TUYỆT ĐỐI KHÔNG ghép các hàng trên cùng một dòng bằng dấu "||" vì sẽ làm hỏng định dạng bảng.
 3. Văn phong chuẩn mực khoa học nông nghiệp nhưng mộc mạc, mạch lạc, dễ nhớ, thiết thực cho bà con nông dân.
 4. KHÔNG chép thô nguyên khối các đoạn trích. Hãy đúc kết, liên kết các số liệu (nhiệt độ, ẩm độ, mật độ, liều lượng) thành các câu văn gãy gọn, có danh sách gạch đầu dòng rõ ràng.
 5. Nội dung Markdown BẮT BUỘC theo cấu trúc 5 phần sau:
@@ -341,16 +340,29 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
         cleaned = cleaned
           .replace(new RegExp(`\\s*\\(${escaped}\\)`, 'gi'), '')
           .replace(new RegExp(`\\s*\\[${escaped}\\]`, 'gi'), '')
-          .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '')
-          .replace(/\s{2,}/g, ' ');
+          .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '');
       }
+      // Loại bỏ mọi pattern dạng mã dataset/mã máy nội bộ (ví dụ Apple___Apple_scab)
+      cleaned = cleaned.replace(/\s*\([A-Za-z0-9_]+___[A-Za-z0-9_]+\)/g, '');
+      cleaned = cleaned.replace(/\b[A-Za-z0-9_]+___[A-Za-z0-9_]+\b/g, '');
+
+      // CHỈ rút gọn khoảng trắng ngang (spaces, tabs), TUYỆT ĐỐI BẢO TOÀN ký tự xuống dòng \n và \r
+      cleaned = cleaned.replace(/[ \t]{2,}/g, ' ');
       return cleaned.trim();
     };
 
-    // Sửa lỗi bảng nếu AI nối các hàng bằng `| |` thay vì xuống dòng `\n`
-    const sanitizeMarkdownTable = (md: string) => {
-      if (!md) return '';
-      return md.replace(/\|\s*\|\s*/g, '|\n|');
+    // Chuẩn hóa cấu trúc Markdown (bảo đảm xuống dòng cho bảng và các tiêu đề H2, H3)
+    const normalizeMarkdown = (text: string) => {
+      if (!text) return '';
+      let md = text;
+      // Sửa lỗi bảng nếu AI nối các hàng bằng `||` hoặc `| |` thay vì xuống dòng `\n`
+      md = md.replace(/\|\s*\|+/g, '|\n|');
+      // Đảm bảo trước đường kẻ ngang --- có ngắt dòng
+      md = md.replace(/([^\n])\n*---/g, (_, p1) => p1 + '\n\n---');
+      md = md.replace(/---\n*([^\n])/g, (_, p1) => '---\n\n' + p1);
+      // Đảm bảo trước các tiêu đề H2, H3 có ngắt dòng
+      md = md.replace(/([^\n])\n*(#{1,4}\s)/g, (_, p1, p2) => p1 + '\n\n' + p2);
+      return md;
     };
 
     try {
@@ -377,7 +389,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
           setSummary(sanitizeClassCode(parsed.summary));
         }
         if (parsed.content_markdown && typeof parsed.content_markdown === 'string') {
-          setContentMarkdown(sanitizeMarkdownTable(sanitizeClassCode(parsed.content_markdown)));
+          setContentMarkdown(normalizeMarkdown(sanitizeClassCode(parsed.content_markdown)));
         }
         if (Array.isArray(parsed.faq) && parsed.faq.length > 0) {
           const validFaqs: FaqItem[] = parsed.faq
@@ -400,7 +412,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
 
       // Fallback: Nếu AI trả về Markdown thuần
       if (rawText.includes('#') || rawText.includes('##')) {
-        setContentMarkdown(sanitizeMarkdownTable(sanitizeClassCode(rawText)));
+        setContentMarkdown(normalizeMarkdown(sanitizeClassCode(rawText)));
         toast.success('Đã nạp nội dung Markdown vào bài viết!');
         setIsAiModalOpen(false);
         setAiInputText('');
@@ -495,7 +507,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
               )}
             </div>
             <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-              Cây trồng: <strong className="text-foreground">{plantName}</strong> • Bệnh: <strong className="text-foreground">{diseaseName}</strong> ({classCode})
+              Cây trồng: <strong className="text-foreground">{plantName}</strong> • Bệnh: <strong className="text-foreground">{diseaseName}</strong>
             </DialogDescription>
           </div>
 
@@ -581,8 +593,8 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
         ) : (
           <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-border">
             {/* Left Column: Markdown & FAQ Editor (7 cols) */}
-            <div className="lg:col-span-7 flex flex-col min-h-0 h-full overflow-y-auto p-4 sm:p-5 space-y-4">
-              <div className="space-y-1.5">
+            <div className="lg:col-span-7 flex flex-col min-h-0 h-full overflow-y-auto p-4 sm:p-5 space-y-5">
+              <div className="space-y-1.5 shrink-0">
                 <label className="text-xs font-semibold text-foreground">
                   Tiêu đề bài cẩm nang <span className="text-destructive">*</span>
                 </label>
@@ -594,7 +606,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground">Tác giả / Ban biên tập</label>
                   <Input
@@ -615,8 +627,8 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
                 </div>
               </div>
 
-              {/* Markdown Toolbar */}
-              <div className="space-y-1.5 flex-1 flex flex-col min-h-[320px]">
+              {/* Markdown Toolbar & Textarea */}
+              <div className="space-y-1.5 shrink-0 flex flex-col">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-primary" />
@@ -734,12 +746,12 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
                   value={contentMarkdown}
                   onChange={(e) => setContentMarkdown(e.target.value)}
                   placeholder="Nhập nội dung bài cẩm nang bằng Markdown..."
-                  className="flex-1 min-h-[300px] font-mono text-xs p-3 rounded-t-none border-t-0 focus-visible:ring-0 leading-relaxed resize-y"
+                  className="w-full min-h-[360px] font-mono text-xs p-3 rounded-t-none border-t-0 focus-visible:ring-0 leading-relaxed resize-y bg-background"
                 />
               </div>
 
               {/* FAQ Section Builder */}
-              <div className="pt-2 border-t border-border space-y-3">
+              <div className="shrink-0 pt-4 border-t border-border space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <HelpCircle className="w-4 h-4 text-primary" />
