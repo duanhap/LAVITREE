@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
 import { safeHref } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,8 @@ import {
   Send,
   Save,
   Check,
+  Sparkles,
+  ClipboardPaste,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -77,6 +80,38 @@ export interface HandbookArticleData {
   updated_at?: string | null;
 }
 
+// Chuẩn hóa và tự động sửa lỗi bảng biểu, mã máy nội bộ cho nội dung Cẩm nang Markdown
+export const normalizeHandbookMarkdown = (text: string | null | undefined, classCode?: string): string => {
+  if (!text) return '';
+  let md = text;
+
+  // 1. Loại bỏ triệt để mã máy, mã dataset nội bộ nếu có
+  if (classCode) {
+    const escaped = classCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    md = md
+      .replace(new RegExp(`\\s*\\(${escaped}\\)`, 'gi'), '')
+      .replace(new RegExp(`\\s*\\[${escaped}\\]`, 'gi'), '')
+      .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '');
+  }
+  md = md.replace(/\s*\([A-Za-z0-9_]+___[A-Za-z0-9_]+\)/g, '');
+  md = md.replace(/\b[A-Za-z0-9_]+___[A-Za-z0-9_]+\b/g, '');
+
+  // 2. Tự động phục hồi dòng phân cách header của bảng nếu từng bị băm bởi '---' trước đó
+  md = md.replace(/\|\s*(?:\|\s*)?:\s*\n+---\s*\n+\s*\|\s*:\s*\n+---\s*\n+\s*\|\s*:\s*\n+---\s*\n+\s*\|?/g, '|\n| :--- | :--- | :--- |\n');
+  md = md.replace(/\|\s*(?:\|\s*)?:\s*\n+---\s*\n+\s*\|\s*:\s*\n+---\s*\n+\s*\|?/g, '|\n| :--- | :--- |\n');
+
+  // 3. Tách các hàng của bảng bị AI dính liền trên 1 dòng bởi '||' hoặc '| |' thành '|\n|'
+  md = md.replace(/\|\s*\|+/g, '|\n|');
+
+  // 4. Xóa dòng pipe rỗng thừa nếu có
+  md = md.replace(/\n\|\s*\n/g, '\n');
+
+  // 5. Rút gọn khoảng trắng ngang (spaces, tabs), TUYỆT ĐỐI BẢO TOÀN ký tự xuống dòng \n
+  md = md.replace(/[ \t]{2,}/g, ' ');
+
+  return md.trim();
+};
+
 interface AdminHandbookEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -111,6 +146,14 @@ export const AdminHandbookEditorModal: React.FC<AdminHandbookEditorModalProps> =
   const [approvedSources, setApprovedSources] = useState<ApprovedKnowledgeSnippet[]>([]);
   const [activeTab, setActiveTab] = useState<'preview' | 'sources'>('preview');
 
+  // AI Prompt & Import states
+  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
+  const [aiInputText, setAiInputText] = useState<string>('');
+
+  const previewMarkdown = useMemo(() => {
+    return normalizeHandbookMarkdown(contentMarkdown, classCode) || '*Chưa có nội dung bài viết.*';
+  }, [contentMarkdown, classCode]);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load article and sources when modal opens
@@ -133,7 +176,7 @@ export const AdminHandbookEditorModal: React.FC<AdminHandbookEditorModalProps> =
           setTitle(art.title || `Cẩm nang phòng trừ ${diseaseName} trên cây ${plantName}`);
           setAuthorName(art.author_name || 'Ban Chuyên môn BVTV Lavitree');
           setSummary(art.summary || '');
-          setContentMarkdown(art.content_markdown || '');
+          setContentMarkdown(normalizeHandbookMarkdown(art.content_markdown || '', classCode));
           setStatus(art.status || 'DRAFT');
           setReviewReason(art.review_reason || null);
 
@@ -145,24 +188,22 @@ export const AdminHandbookEditorModal: React.FC<AdminHandbookEditorModalProps> =
           }
         } else {
           // Initialize template for new article
-          const cleanDisease = diseaseName.trim().replace(/^bệnh\s+/i, '');
-          const formattedDiseaseTitle = `Bệnh ${cleanDisease}`;
-          setTitle(`Cẩm nang nhận biết và phòng trị ${formattedDiseaseTitle} trên cây ${plantName}`);
+          setTitle(`Cẩm nang nhận biết và phòng trị ${diseaseName} trên cây ${plantName}`);
           setAuthorName('Ban Chuyên môn BVTV Lavitree');
-          setSummary(`Hướng dẫn toàn diện về tác nhân, triệu chứng đặc trưng và phác đồ điều trị hiệu quả ${formattedDiseaseTitle} cho bà con nông dân trồng ${plantName}.`);
+          setSummary(`Hướng dẫn toàn diện về tác nhân, triệu chứng đặc trưng và phác đồ điều trị hiệu quả bệnh ${diseaseName} cho bà con nông dân trồng ${plantName}.`);
           setStatus('DRAFT');
           setReviewReason(null);
           setFaqList([
             {
-              question: `${formattedDiseaseTitle} trên cây ${plantName} phát sinh mạnh nhất vào thời điểm nào?`,
+              question: `Bệnh ${diseaseName} trên cây ${plantName} phát sinh mạnh nhất vào thời điểm nào?`,
               answer: 'Bệnh thường phát triển mạnh trong điều kiện ẩm độ cao, mưa kéo dài hoặc chênh lệch nhiệt độ lớn giữa ngày và đêm.',
             },
           ]);
 
           // Suggest initial markdown structure
           setContentMarkdown(
-`## 1. Giới thiệu chung và Tác nhân gây bệnh
-${formattedDiseaseTitle} là một trong những đối tượng dịch hại nguy hiểm thường gặp trên cây **${plantName}**, gây ảnh hưởng trực tiếp đến sinh trưởng và năng suất thu hoạch.
+            `## 1. Giới thiệu chung và Tác nhân gây bệnh
+Bệnh **${diseaseName}** là một trong những đối tượng dịch hại nguy hiểm thường gặp trên cây **${plantName}**, gây ảnh hưởng trực tiếp đến sinh trưởng và năng suất thu hoạch.
 
 ## 2. Triệu chứng nhận biết trên đồng ruộng
 - **Giai đoạn đầu:** Xuất hiện các vết chấm nhỏ hoặc biến đổi màu sắc trên bề mặt lá/thân.
@@ -229,10 +270,178 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
     setFaqList((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleInsertSnippet = (snippet: ApprovedKnowledgeSnippet) => {
-    const textToInsert = `\n> **Trích dẫn khoa học (${snippet.organization}):**\n> "${snippet.evidenceText}"\n`;
-    setContentMarkdown((prev) => prev + textToInsert);
-    toast.success('Đã chép đoạn trích vào bài viết.');
+  const handleCopySnippetText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Đã sao chép đoạn trích vào bộ nhớ tạm.');
+  };
+
+  const handleCopyAiPrompt = () => {
+    const cleanDisease = diseaseName.trim().replace(/^bệnh\s+/i, '');
+    const formattedDiseaseTitle = `Bệnh ${cleanDisease}`;
+
+    // Phân nhóm đoạn trích theo loại kiến thức
+    const symptomSnippets = approvedSources.filter((s) => s.unitType === 'SYMPTOMS');
+    const causeSnippets = approvedSources.filter((s) => s.unitType === 'CAUSE_CONDITIONS');
+    const treatmentSnippets = approvedSources.filter(
+      (s) => s.unitType === 'TREATMENT' || s.unitType === 'PREVENTION'
+    );
+    const otherSnippets = approvedSources.filter(
+      (s) => !['SYMPTOMS', 'CAUSE_CONDITIONS', 'TREATMENT', 'PREVENTION'].includes(s.unitType)
+    );
+
+    const formatSnippetList = (list: ApprovedKnowledgeSnippet[]) => {
+      if (list.length === 0) return '  (Chưa có đoạn trích cụ thể cho mục này trong kho tri thức)';
+      return list
+        .map(
+          (s, idx) =>
+            `  [Đoạn ${idx + 1}] Nguồn: "${s.sourceTitle}" (${s.organization || 'Chuyên gia Nông nghiệp'}):\n  "${s.evidenceText}"`
+        )
+        .join('\n\n');
+    };
+
+    const prompt = `Bạn là một Kỹ sư Bảo vệ Thực vật và Chuyên gia Cây trồng hàng đầu.
+Nhiệm vụ của bạn là tổng hợp và biên soạn một bài CẨM NANG BỆNH HỌC CHUYÊN SÂU bằng định dạng Markdown cho bà con nông dân và cán bộ kỹ thuật nông nghiệp.
+
+THÔNG TIN ĐỐI TƯỢNG:
+- Cây trồng: ${plantName}
+- Tên bệnh tiếng Việt: ${formattedDiseaseTitle}
+
+DỮ LIỆU CĂN CỨ KHOA HỌC ĐÃ ĐƯỢC PHÊ DUYỆT TRONG HỆ THỐNG:
+---
+[1. TRIỆU CHỨNG NHẬN BIẾT - SYMPTOMS]:
+${formatSnippetList(symptomSnippets)}
+
+[2. NGUYÊN NHÂN & ĐIỀU KIỆN PHÁT SINH - CAUSE & CONDITIONS]:
+${formatSnippetList(causeSnippets)}
+
+[3. BIỆN PHÁP PHÒNG TRỪ & THUỐC BVTV - TREATMENT & PREVENTION]:
+${formatSnippetList(treatmentSnippets)}
+${otherSnippets.length > 0 ? `\n[4. TƯ LIỆU THAM KHẢO KHÁC]:\n${formatSnippetList(otherSnippets)}` : ''}
+---
+
+YÊU CẦU BIÊN TẬP & QUY TẮC BẮT BUỘC:
+1. QUY TẮC CẤM: TUYỆT ĐỐI KHÔNG ghi bất kỳ mã máy hay mã dataset nội bộ nào vào bài viết, tiêu đề hay tóm tắt. Nông dân chỉ cần đọc Tên bệnh tiếng Việt (ví dụ: "${formattedDiseaseTitle}") và Tên khoa học chuẩn Latin của nấm/khuẩn gây bệnh (ví dụ: Venturia inaequalis).
+2. LƯU Ý BẢNG BIỂU MARKDOWN: Bảng tóm tắt ở Mục 5 BẮT BUỘC phải xuống dòng (\\n) sau mỗi hàng của bảng (ví dụ: | Cột 1 | Cột 2 |\\n|---|---|\\n| Dòng 1 | Dòng 2 |\\n). TUYỆT ĐỐI KHÔNG ghép các hàng trên cùng một dòng bằng dấu "||" vì sẽ làm hỏng định dạng bảng.
+3. Văn phong chuẩn mực khoa học nông nghiệp nhưng mộc mạc, mạch lạc, dễ nhớ, thiết thực cho bà con nông dân.
+4. KHÔNG chép thô nguyên khối các đoạn trích. Hãy đúc kết, liên kết các số liệu (nhiệt độ, ẩm độ, mật độ, liều lượng) thành các câu văn gãy gọn, có danh sách gạch đầu dòng rõ ràng.
+5. Nội dung Markdown BẮT BUỘC theo cấu trúc 5 phần sau:
+   - ## 1. Giới thiệu chung và Tác nhân gây bệnh
+   - ## 2. Triệu chứng nhận biết trên đồng ruộng (phân kỳ: chớm bệnh, phát triển mạnh, hậu quả thất thu)
+   - ## 3. Điều kiện phát sinh và lây lan (thời tiết, ẩm độ, mùa vụ, cơ chế lây truyền)
+   - ## 4. Biện pháp quản lý và phòng trừ tổng hợp (IPM):
+     - ### 4.1. Canh tác nông nghiệp & Vệ sinh đồng ruộng
+     - ### 4.2. Biện pháp sinh học (các chế phẩm đối kháng như Trichoderma, Bacillus...)
+     - ### 4.3. Biện pháp hóa học (các hoạt chất đặc trị được phép, nguyên tắc luân phiên thuốc chống kháng)
+   - ## 5. Bảng tóm tắt hoạt chất và lưu ý an toàn (bảng Markdown: Cột 1: Hoạt chất / Nhóm thuốc | Cột 2: Cơ chế tác động | Cột 3: Lưu ý cách ly PHI & An toàn)
+
+6. Kèm theo danh sách 3–5 câu hỏi thường gặp (FAQ) sát với thực tế đồng ruộng kèm câu giải đáp súc tích, dễ hiểu.
+
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:
+Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không thêm văn bản giải thích ngoài JSON):
+\`\`\`json
+{
+  "title": "Cẩm nang nhận biết và phòng trị ${formattedDiseaseTitle} trên cây ${plantName}",
+  "summary": "Tóm tắt ngắn súc tích 1-2 câu về triệu chứng chính và phác đồ điều trị hiệu quả.",
+  "content_markdown": "Nội dung bài viết đầy đủ theo khung Markdown 5 mục ở trên...",
+  "faq": [
+    {
+      "question": "Câu hỏi thực tế 1 mà nông dân hay hỏi?",
+      "answer": "Câu trả lời giải thích chi tiết..."
+    },
+    {
+      "question": "Câu hỏi 2...",
+      "answer": "Câu trả lời 2..."
+    }
+  ]
+}
+\`\`\`
+`;
+
+    navigator.clipboard.writeText(prompt);
+    toast.success('Đã sao chép Prompt AI Cẩm nang vào bộ nhớ tạm! Bạn hãy dán sang Gemini/Claude để tạo bài viết.');
+  };
+
+  const handleApplyAiResult = (rawText: string) => {
+    if (!rawText.trim()) {
+      toast.error('Vui lòng dán kết quả từ AI.');
+      return;
+    }
+
+    // Làm sạch mã classCode nội bộ nếu AI vô tình chèn vào
+    const sanitizeClassCode = (text: string) => {
+      if (!text) return '';
+      let cleaned = text;
+      if (classCode) {
+        const escaped = classCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        cleaned = cleaned
+          .replace(new RegExp(`\\s*\\(${escaped}\\)`, 'gi'), '')
+          .replace(new RegExp(`\\s*\\[${escaped}\\]`, 'gi'), '')
+          .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '');
+      }
+      cleaned = cleaned.replace(/\s*\([A-Za-z0-9_]+___[A-Za-z0-9_]+\)/g, '');
+      cleaned = cleaned.replace(/\b[A-Za-z0-9_]+___[A-Za-z0-9_]+\b/g, '');
+      cleaned = cleaned.replace(/[ \t]{2,}/g, ' ');
+      return cleaned.trim();
+    };
+
+    try {
+      let jsonString = rawText.trim();
+      const codeBlockMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (codeBlockMatch) {
+        jsonString = codeBlockMatch[1].trim();
+      } else {
+        const firstBrace = jsonString.indexOf('{');
+        const lastBrace = jsonString.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+        }
+      }
+
+      // Check if it's valid JSON
+      if (jsonString.startsWith('{') && jsonString.endsWith('}')) {
+        const parsed = JSON.parse(jsonString);
+
+        if (parsed.title && typeof parsed.title === 'string') {
+          setTitle(sanitizeClassCode(parsed.title));
+        }
+        if (parsed.summary && typeof parsed.summary === 'string') {
+          setSummary(sanitizeClassCode(parsed.summary));
+        }
+        if (parsed.content_markdown && typeof parsed.content_markdown === 'string') {
+          setContentMarkdown(normalizeHandbookMarkdown(parsed.content_markdown, classCode));
+        }
+        if (Array.isArray(parsed.faq) && parsed.faq.length > 0) {
+          const validFaqs: FaqItem[] = parsed.faq
+            .map((item: any) => ({
+              question: sanitizeClassCode(String(item.question || item.q || item.cau_hoi || '')),
+              answer: sanitizeClassCode(String(item.answer || item.a || item.cau_tra_loi || '')),
+            }))
+            .filter((f: FaqItem) => f.question || f.answer);
+
+          if (validFaqs.length > 0) {
+            setFaqList(validFaqs);
+          }
+        }
+
+        toast.success('Đã nạp thành công bài viết và FAQ từ kết quả AI!');
+        setIsAiModalOpen(false);
+        setAiInputText('');
+        return;
+      }
+
+      // Fallback: Nếu AI trả về Markdown thuần
+      if (rawText.includes('#') || rawText.includes('##')) {
+        setContentMarkdown(normalizeHandbookMarkdown(rawText, classCode));
+        toast.success('Đã nạp nội dung Markdown vào bài viết!');
+        setIsAiModalOpen(false);
+        setAiInputText('');
+        return;
+      }
+
+      toast.error('Không tìm thấy định dạng JSON hợp lệ trong nội dung dán vào.');
+    } catch (err: unknown) {
+      toast.error('Lỗi khi phân tích dữ liệu JSON: ' + getErrorMessage(err));
+    }
   };
 
   const handleSave = async (targetStatus: 'DRAFT' | 'PUBLISHED') => {
@@ -248,12 +457,19 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
     setSaving(true);
     try {
       const validFaqs = faqList.filter((f) => f.question.trim() || f.answer.trim());
+      const cleanedContent = normalizeHandbookMarkdown(contentMarkdown, classCode);
+      const cleanAuthor = authorName.trim() || 'Ban Chuyên môn BVTV Lavitree';
+      const cleanFaqJson = JSON.stringify(validFaqs);
+
       const body = {
         title: title.trim(),
         summary: summary.trim() || null,
-        content_markdown: contentMarkdown.trim(),
-        author_name: authorName.trim() || 'Ban Chuyên môn BVTV Lavitree',
-        faq_json: JSON.stringify(validFaqs),
+        content_markdown: cleanedContent,
+        contentMarkdown: cleanedContent,
+        author_name: cleanAuthor,
+        authorName: cleanAuthor,
+        faq_json: cleanFaqJson,
+        faqJson: cleanFaqJson,
         status: targetStatus,
       };
 
@@ -317,11 +533,37 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
               )}
             </div>
             <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-              Cây trồng: <strong className="text-foreground">{plantName}</strong> • Bệnh: <strong className="text-foreground">{diseaseName}</strong> ({classCode})
+              Cây trồng: <strong className="text-foreground">{plantName}</strong> • Bệnh: <strong className="text-foreground">{diseaseName}</strong>
             </DialogDescription>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 self-end sm:self-auto">
+            {/* Cụm công cụ AI tinh gọn (Icon buttons) */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCopyAiPrompt}
+              className="h-8 w-8 p-0 border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 rounded-lg shrink-0 cursor-pointer"
+              title="Tạo & sao chép Prompt AI Cẩm nang (gồm dữ liệu bệnh & các đoạn trích nguồn)"
+              aria-label="Tạo Prompt AI"
+            >
+              <Sparkles className="w-4 h-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAiModalOpen(true)}
+              className="h-8 w-8 p-0 border-primary/40 text-primary hover:bg-primary/10 rounded-lg shrink-0 cursor-pointer"
+              title="Dán kết quả JSON từ AI (tự động điền bài viết & FAQ)"
+              aria-label="Dán kết quả AI"
+            >
+              <ClipboardPaste className="w-4 h-4" />
+            </Button>
+
+            <div className="w-[1px] h-5 bg-border mx-0.5" />
+
             {status === 'NEEDS_REVIEW' && (
               <Button
                 variant="outline"
@@ -377,7 +619,7 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
         ) : (
           <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-border">
             {/* Left Column: Markdown & FAQ Editor (7 cols) */}
-            <div className="lg:col-span-7 flex flex-col h-full overflow-y-auto p-4 sm:p-5 space-y-5">
+            <div className="lg:col-span-7 flex flex-col min-h-0 h-full overflow-y-auto p-4 sm:p-5 space-y-5">
               <div className="space-y-1.5 shrink-0">
                 <label className="text-xs font-semibold text-foreground">
                   Tiêu đề bài cẩm nang <span className="text-destructive">*</span>
@@ -411,8 +653,8 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                 </div>
               </div>
 
-              {/* Markdown Toolbar */}
-              <div className="space-y-1.5 shrink-0">
+              {/* Markdown Toolbar & Textarea */}
+              <div className="space-y-1.5 shrink-0 flex flex-col">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-primary" />
@@ -502,6 +744,27 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                   >
                     <Quote className="w-3.5 h-3.5" />
                   </Button>
+                  <div className="w-[1px] h-4 bg-border mx-1 ml-auto" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                    title="Tạo & sao chép Prompt AI Cẩm nang"
+                    onClick={handleCopyAiPrompt}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-primary hover:bg-primary/10"
+                    title="Dán kết quả JSON từ AI"
+                    onClick={() => setIsAiModalOpen(true)}
+                  >
+                    <ClipboardPaste className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
 
                 <Textarea
@@ -509,13 +772,12 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                   value={contentMarkdown}
                   onChange={(e) => setContentMarkdown(e.target.value)}
                   placeholder="Nhập nội dung bài cẩm nang bằng Markdown..."
-                  rows={18}
-                  className="w-full min-h-[380px] font-mono text-xs p-3.5 rounded-t-none border-t-0 focus-visible:ring-0 leading-relaxed resize-y bg-background block"
+                  className="w-full min-h-[360px] font-mono text-xs p-3 rounded-t-none border-t-0 focus-visible:ring-0 leading-relaxed resize-y bg-background"
                 />
               </div>
 
               {/* FAQ Section Builder */}
-              <div className="pt-4 border-t border-border space-y-3 shrink-0 pb-6">
+              <div className="shrink-0 pt-4 border-t border-border space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <HelpCircle className="w-4 h-4 text-primary" />
@@ -624,6 +886,7 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                   {/* Rendered Markdown Preview */}
                   <div className="prose prose-xs sm:prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed">
                     <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
                       components={{
                         h2: ({ children }) => (
                           <h2 className="text-sm font-bold text-foreground mt-4 mb-2 pb-1 border-b border-border">
@@ -656,11 +919,26 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                           </blockquote>
                         ),
                         table: ({ children }) => (
-                          <div className="overflow-x-auto my-3 rounded-md border border-border">
+                          <div className="overflow-x-auto my-3 rounded-lg border border-border">
                             <table className="w-full text-xs text-left border-collapse">
                               {children}
                             </table>
                           </div>
+                        ),
+                        thead: ({ children }) => (
+                          <thead className="bg-muted/80 text-foreground border-b border-border font-semibold">
+                            {children}
+                          </thead>
+                        ),
+                        tbody: ({ children }) => (
+                          <tbody className="divide-y divide-border/60">
+                            {children}
+                          </tbody>
+                        ),
+                        tr: ({ children }) => (
+                          <tr className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                            {children}
+                          </tr>
                         ),
                         th: ({ children }) => (
                           <th className="bg-muted px-2.5 py-1.5 font-semibold text-foreground border-b border-border">
@@ -684,7 +962,7 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                         ),
                       }}
                     >
-                      {contentMarkdown || '*Chưa có nội dung bài viết.*'}
+                      {previewMarkdown}
                     </ReactMarkdown>
                   </div>
 
@@ -721,8 +999,18 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                   value="sources"
                   className="flex-1 min-h-0 overflow-y-auto p-4 m-0 focus-visible:outline-hidden space-y-3"
                 >
-                  <div className="text-xs text-muted-foreground">
-                    Đây là các đoạn trích từ bài báo khoa học đã được duyệt cho bệnh <strong>{diseaseName}</strong>. Bạn có thể bấm chép vào bài để bổ sung số liệu:
+                  <div className="text-xs text-muted-foreground flex items-center justify-between gap-2 pb-1 border-b border-border/50">
+                    <span>Căn cứ khoa học đã duyệt ({approvedSources.length}):</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCopyAiPrompt}
+                      className="h-6 w-6 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 rounded-md shrink-0 cursor-pointer"
+                      title="Tạo & sao chép Prompt AI Cẩm nang (gồm dữ liệu bệnh & các đoạn trích này)"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
 
                   {approvedSources.length === 0 ? (
@@ -751,24 +1039,36 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                               </div>
                             </div>
 
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleInsertSnippet(item)}
-                              className="h-7 px-2 text-[11px] gap-1 shrink-0 border-primary/30 text-primary hover:bg-primary/10"
-                              title="Chép trích dẫn này vào cuối bài viết"
-                            >
-                              <Copy className="w-3 h-3" />
-                              <span>Chép vào bài</span>
-                            </Button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {item.sourceUrl && safeHref(item.sourceUrl) && (
+                                <a
+                                  href={safeHref(item.sourceUrl)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                  title="Mở bài báo gốc"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleCopySnippetText(item.evidenceText)}
+                                className="h-7 w-7 p-0 border-border/70 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md cursor-pointer"
+                                title="Sao chép đoạn trích này vào bộ nhớ tạm"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           </div>
 
                           <div className="p-2 rounded bg-muted/50 border border-border/60 text-muted-foreground text-[11px] leading-relaxed line-clamp-4">
                             "{item.evidenceText}"
                           </div>
 
-                          {item.sourceUrl && (
+                          {item.sourceUrl && safeHref(item.sourceUrl) && (
                             <a
                               href={safeHref(item.sourceUrl)}
                               target="_blank"
@@ -776,7 +1076,7 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
                               className="text-[11px] text-primary hover:underline inline-flex items-center gap-1"
                             >
                               <ExternalLink className="w-3 h-3" />
-                              <span>Xem bài báo gốc</span>
+                              <span>Xem link bài báo gốc</span>
                             </a>
                           )}
                         </CardContent>
@@ -788,6 +1088,53 @@ Nguồn bệnh lưu tồn chủ yếu trong tàn dư thực vật vụ trước 
             </div>
           </div>
         )}
+
+        {/* Modal Nhập kết quả AI (JSON) */}
+        <Dialog open={isAiModalOpen} onOpenChange={setIsAiModalOpen}>
+          <DialogContent className="max-w-lg w-[92vw] bg-card border-border p-5 space-y-4">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+                <ClipboardPaste className="w-4 h-4 text-primary" />
+                <span>Dán kết quả từ AI (Gemini / Claude)</span>
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
+                Dán toàn bộ phản hồi từ AI (khối JSON hoặc nội dung có chứa JSON) vào ô bên dưới. Hệ thống sẽ tự động điền Tiêu đề, Tóm tắt, Markdown 5 mục và danh sách FAQ.
+              </DialogDescription>
+            </DialogHeader>
+
+            <Textarea
+              value={aiInputText}
+              onChange={(e) => setAiInputText(e.target.value)}
+              placeholder='Dán phản hồi JSON từ AI vào đây... Ví dụ: {"title": "...", "content_markdown": "...", "faq": [...]}'
+              rows={10}
+              className="font-mono text-xs p-3 leading-relaxed bg-background"
+            />
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsAiModalOpen(false);
+                  setAiInputText('');
+                }}
+                className="h-8 text-xs"
+              >
+                Hủy
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleApplyAiResult(aiInputText)}
+                className="h-8 text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Áp dụng vào bài viết</span>
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );

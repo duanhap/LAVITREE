@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -148,11 +149,43 @@ public class HandbookController : ControllerBase
 
     public class SaveHandbookArticleDto
     {
+        [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
+
+        [JsonPropertyName("summary")]
         public string? Summary { get; set; }
+
+        [JsonPropertyName("content_markdown")]
         public string ContentMarkdown { get; set; } = string.Empty;
+
+        [JsonPropertyName("contentMarkdown")]
+        public string? ContentMarkdownCamel
+        {
+            get => ContentMarkdown;
+            set { if (!string.IsNullOrWhiteSpace(value)) ContentMarkdown = value; }
+        }
+
+        [JsonPropertyName("author_name")]
         public string AuthorName { get; set; } = "Ban Chuyên môn BVTV Lavitree";
+
+        [JsonPropertyName("authorName")]
+        public string? AuthorNameCamel
+        {
+            get => AuthorName;
+            set { if (!string.IsNullOrWhiteSpace(value)) AuthorName = value; }
+        }
+
+        [JsonPropertyName("faq_json")]
         public string? FaqJson { get; set; }
+
+        [JsonPropertyName("faqJson")]
+        public string? FaqJsonCamel
+        {
+            get => FaqJson;
+            set { if (!string.IsNullOrWhiteSpace(value)) FaqJson = value; }
+        }
+
+        [JsonPropertyName("status")]
         public string Status { get; set; } = "DRAFT"; // DRAFT hoặc PUBLISHED
     }
 
