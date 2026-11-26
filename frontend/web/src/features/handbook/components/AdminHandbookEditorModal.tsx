@@ -457,12 +457,19 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
     setSaving(true);
     try {
       const validFaqs = faqList.filter((f) => f.question.trim() || f.answer.trim());
+      const cleanedContent = normalizeHandbookMarkdown(contentMarkdown, classCode);
+      const cleanAuthor = authorName.trim() || 'Ban Chuyên môn BVTV Lavitree';
+      const cleanFaqJson = JSON.stringify(validFaqs);
+
       const body = {
         title: title.trim(),
         summary: summary.trim() || null,
-        content_markdown: normalizeHandbookMarkdown(contentMarkdown, classCode),
-        author_name: authorName.trim() || 'Ban Chuyên môn BVTV Lavitree',
-        faq_json: JSON.stringify(validFaqs),
+        content_markdown: cleanedContent,
+        contentMarkdown: cleanedContent,
+        author_name: cleanAuthor,
+        authorName: cleanAuthor,
+        faq_json: cleanFaqJson,
+        faqJson: cleanFaqJson,
         status: targetStatus,
       };
 
