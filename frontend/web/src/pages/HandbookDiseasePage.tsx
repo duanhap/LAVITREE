@@ -368,7 +368,10 @@ export const HandbookDiseasePage: React.FC = () => {
     const list: TocItem[] = [];
 
     if (curatedArticle && !curatedArticle.is_fallback) {
-      list.push({ id: 'cam-nang-chuyen-sau', label: 'Cẩm nang biên tập' });
+      list.push({ id: 'cam-nang-chuyen-sau', label: 'Cẩm nang chuyên sâu' });
+      if (images.length > 0) {
+        list.push({ id: 'hinh-anh-trieu-chung', label: `Ảnh triệu chứng (${images.length})` });
+      }
       if (curatedFaqs.length > 0) {
         list.push({ id: 'faq', label: 'Câu hỏi thường gặp (FAQ)' });
       }
@@ -574,8 +577,33 @@ export const HandbookDiseasePage: React.FC = () => {
                       {cleanDatasetCodes(curatedArticle.title, decodedClassCode)}
                     </h1>
                     {curatedArticle.summary && (
-                      <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed">
-                        {cleanDatasetCodes(curatedArticle.summary, decodedClassCode)}
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-stretch pt-1">
+                        <div className={leafImage ? "md:col-span-8 p-3.5 sm:p-4 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed flex items-center" : "p-3.5 sm:p-4 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed"}>
+                          {cleanDatasetCodes(curatedArticle.summary, decodedClassCode)}
+                        </div>
+                        {leafImage && (
+                          <div
+                            onClick={() => setZoomedImage(leafImage)}
+                            className="md:col-span-4 group relative rounded-xl overflow-hidden border border-border bg-zinc-950 cursor-pointer hover:border-primary transition-all shadow-2xs min-h-[140px] max-h-[180px] flex items-center justify-center"
+                            title="Bấm để xem ảnh phóng to"
+                          >
+                            <img
+                              src={leafImage.image_url}
+                              alt={leafImage.caption || 'Hình thái lá bệnh'}
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            />
+                            <div className="absolute top-2 left-2">
+                              <span className="inline-block rounded-md px-2 py-0.5 text-[10px] font-semibold bg-emerald-600/90 text-white shadow-xs backdrop-blur-xs">
+                                Hình thái lá bệnh
+                              </span>
+                            </div>
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <span className="rounded-full bg-black/60 p-1.5 text-white shadow-md">
+                                <ZoomIn className="h-4 w-4" />
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -664,6 +692,81 @@ export const HandbookDiseasePage: React.FC = () => {
                   </div>
                 </div>
               </section>
+
+              {/* THƯ VIỆN HÌNH ẢNH TRIỆU CHỨNG THỰC TẾ TRÊN ĐỒNG RUỘNG */}
+              {images.length > 0 && (
+                <section id="hinh-anh-trieu-chung" className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-3.5 shadow-2xs scroll-mt-24">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="w-5 h-5 text-primary" />
+                      <h3 className="text-base sm:text-lg font-bold text-foreground">
+                        Hình ảnh triệu chứng thực tế trên đồng ruộng ({images.length})
+                      </h3>
+                    </div>
+                    <span className="text-xs text-muted-foreground italic">Bấm vào ảnh để phóng to chi tiết</span>
+                  </div>
+
+                  {/* Bộ lọc bộ phận cây trồng */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {['ALL', 'LEAF', 'FRUIT', 'STEM', 'WHOLE_PLANT'].map((part) => {
+                      const count = part === 'ALL' ? images.length : images.filter((img) => img.plant_part === part).length;
+                      if (part !== 'ALL' && count === 0) return null;
+                      const label = part === 'ALL' ? 'Tất cả' : PLANT_PART_LABELS[part]?.label || part;
+                      return (
+                        <Button
+                          key={part}
+                          type="button"
+                          variant={selectedImagePart === part ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setSelectedImagePart(part)}
+                          className={`h-7 px-2.5 text-xs rounded-lg ${
+                            selectedImagePart === part
+                              ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+                              : 'text-muted-foreground border-border hover:text-foreground'
+                          }`}
+                        >
+                          {label} ({count})
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Lưới ảnh triệu chứng */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 pt-2">
+                    {filteredImages.map((img) => (
+                      <div
+                        key={img.id}
+                        onClick={() => setZoomedImage(img)}
+                        className="group relative aspect-4/3 rounded-xl overflow-hidden border border-border bg-muted cursor-pointer hover:border-primary hover:shadow-xs transition-all"
+                      >
+                        <img
+                          src={img.image_url}
+                          alt={img.caption || 'Ảnh triệu chứng'}
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                        />
+                        <div className="absolute top-2 left-2">
+                          {img.plant_part && PLANT_PART_LABELS[img.plant_part] && (
+                            <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${PLANT_PART_LABELS[img.plant_part].badgeColor}`}>
+                              {PLANT_PART_LABELS[img.plant_part].label}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                          <span className="rounded-full bg-black/60 p-2 text-white shadow-md">
+                            <ZoomIn className="w-4 h-4" />
+                          </span>
+                        </div>
+                        {img.caption && (
+                          <div className="absolute bottom-0 inset-x-0 bg-black/65 backdrop-blur-xs p-1.5 text-[11px] text-white truncate">
+                            {img.caption}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {/* FAQ Accordion chuyên sâu */}
               {curatedFaqs.length > 0 && (
@@ -755,12 +858,14 @@ export const HandbookDiseasePage: React.FC = () => {
             </>
           )}
 
-          {/* MỤC XỬ LÝ (TREATMENT KIỂM DUYỆT) */}
-          <TreatmentSection
-            section={treatmentSection}
-            onRefClick={handleRefClick}
-            isHealthy={isHealthy}
-          />
+          {/* MỤC XỬ LÝ (TREATMENT KIỂM DUYỆT) - Chỉ hiển thị khi KHÔNG có bài cẩm nang chuyên sâu để tránh thừa/lặp dữ liệu */}
+          {(!curatedArticle || curatedArticle.is_fallback) && (
+            <TreatmentSection
+              section={treatmentSection}
+              onRefClick={handleRefClick}
+              isHealthy={isHealthy}
+            />
+          )}
 
           {/* MỤC BỆNH HẠI THAM KHẢO KHÁC TRÊN CÙNG CÂY TRỒNG */}
           {relatedDiseases.length > 0 && (
