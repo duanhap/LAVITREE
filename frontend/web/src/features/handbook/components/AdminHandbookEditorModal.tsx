@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import apiClient, { getErrorMessage } from '@/lib/api-client';
@@ -80,6 +80,38 @@ export interface HandbookArticleData {
   updated_at?: string | null;
 }
 
+// Chuẩn hóa và tự động sửa lỗi bảng biểu, mã máy nội bộ cho nội dung Cẩm nang Markdown
+export const normalizeHandbookMarkdown = (text: string | null | undefined, classCode?: string): string => {
+  if (!text) return '';
+  let md = text;
+
+  // 1. Loại bỏ triệt để mã máy, mã dataset nội bộ nếu có
+  if (classCode) {
+    const escaped = classCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    md = md
+      .replace(new RegExp(`\\s*\\(${escaped}\\)`, 'gi'), '')
+      .replace(new RegExp(`\\s*\\[${escaped}\\]`, 'gi'), '')
+      .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '');
+  }
+  md = md.replace(/\s*\([A-Za-z0-9_]+___[A-Za-z0-9_]+\)/g, '');
+  md = md.replace(/\b[A-Za-z0-9_]+___[A-Za-z0-9_]+\b/g, '');
+
+  // 2. Tự động phục hồi dòng phân cách header của bảng nếu từng bị băm bởi '---' trước đó
+  md = md.replace(/\|\s*(?:\|\s*)?:\s*\n+---\s*\n+\s*\|\s*:\s*\n+---\s*\n+\s*\|\s*:\s*\n+---\s*\n+\s*\|?/g, '|\n| :--- | :--- | :--- |\n');
+  md = md.replace(/\|\s*(?:\|\s*)?:\s*\n+---\s*\n+\s*\|\s*:\s*\n+---\s*\n+\s*\|?/g, '|\n| :--- | :--- |\n');
+
+  // 3. Tách các hàng của bảng bị AI dính liền trên 1 dòng bởi '||' hoặc '| |' thành '|\n|'
+  md = md.replace(/\|\s*\|+/g, '|\n|');
+
+  // 4. Xóa dòng pipe rỗng thừa nếu có
+  md = md.replace(/\n\|\s*\n/g, '\n');
+
+  // 5. Rút gọn khoảng trắng ngang (spaces, tabs), TUYỆT ĐỐI BẢO TOÀN ký tự xuống dòng \n
+  md = md.replace(/[ \t]{2,}/g, ' ');
+
+  return md.trim();
+};
+
 interface AdminHandbookEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -118,6 +150,10 @@ export const AdminHandbookEditorModal: React.FC<AdminHandbookEditorModalProps> =
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [aiInputText, setAiInputText] = useState<string>('');
 
+  const previewMarkdown = useMemo(() => {
+    return normalizeHandbookMarkdown(contentMarkdown, classCode) || '*Chưa có nội dung bài viết.*';
+  }, [contentMarkdown, classCode]);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load article and sources when modal opens
@@ -140,7 +176,7 @@ export const AdminHandbookEditorModal: React.FC<AdminHandbookEditorModalProps> =
           setTitle(art.title || `Cẩm nang phòng trừ ${diseaseName} trên cây ${plantName}`);
           setAuthorName(art.author_name || 'Ban Chuyên môn BVTV Lavitree');
           setSummary(art.summary || '');
-          setContentMarkdown(art.content_markdown || '');
+          setContentMarkdown(normalizeHandbookMarkdown(art.content_markdown || '', classCode));
           setStatus(art.status || 'DRAFT');
           setReviewReason(art.review_reason || null);
 
@@ -342,27 +378,10 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
           .replace(new RegExp(`\\s*\\[${escaped}\\]`, 'gi'), '')
           .replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '');
       }
-      // Loại bỏ mọi pattern dạng mã dataset/mã máy nội bộ (ví dụ Apple___Apple_scab)
       cleaned = cleaned.replace(/\s*\([A-Za-z0-9_]+___[A-Za-z0-9_]+\)/g, '');
       cleaned = cleaned.replace(/\b[A-Za-z0-9_]+___[A-Za-z0-9_]+\b/g, '');
-
-      // CHỈ rút gọn khoảng trắng ngang (spaces, tabs), TUYỆT ĐỐI BẢO TOÀN ký tự xuống dòng \n và \r
       cleaned = cleaned.replace(/[ \t]{2,}/g, ' ');
       return cleaned.trim();
-    };
-
-    // Chuẩn hóa cấu trúc Markdown (bảo đảm xuống dòng cho bảng và các tiêu đề H2, H3)
-    const normalizeMarkdown = (text: string) => {
-      if (!text) return '';
-      let md = text;
-      // Sửa lỗi bảng nếu AI nối các hàng bằng `||` hoặc `| |` thay vì xuống dòng `\n`
-      md = md.replace(/\|\s*\|+/g, '|\n|');
-      // Đảm bảo trước đường kẻ ngang --- có ngắt dòng
-      md = md.replace(/([^\n])\n*---/g, (_, p1) => p1 + '\n\n---');
-      md = md.replace(/---\n*([^\n])/g, (_, p1) => '---\n\n' + p1);
-      // Đảm bảo trước các tiêu đề H2, H3 có ngắt dòng
-      md = md.replace(/([^\n])\n*(#{1,4}\s)/g, (_, p1, p2) => p1 + '\n\n' + p2);
-      return md;
     };
 
     try {
@@ -389,7 +408,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
           setSummary(sanitizeClassCode(parsed.summary));
         }
         if (parsed.content_markdown && typeof parsed.content_markdown === 'string') {
-          setContentMarkdown(normalizeMarkdown(sanitizeClassCode(parsed.content_markdown)));
+          setContentMarkdown(normalizeHandbookMarkdown(parsed.content_markdown, classCode));
         }
         if (Array.isArray(parsed.faq) && parsed.faq.length > 0) {
           const validFaqs: FaqItem[] = parsed.faq
@@ -412,7 +431,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
 
       // Fallback: Nếu AI trả về Markdown thuần
       if (rawText.includes('#') || rawText.includes('##')) {
-        setContentMarkdown(normalizeMarkdown(sanitizeClassCode(rawText)));
+        setContentMarkdown(normalizeHandbookMarkdown(rawText, classCode));
         toast.success('Đã nạp nội dung Markdown vào bài viết!');
         setIsAiModalOpen(false);
         setAiInputText('');
@@ -441,7 +460,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
       const body = {
         title: title.trim(),
         summary: summary.trim() || null,
-        content_markdown: contentMarkdown.trim(),
+        content_markdown: normalizeHandbookMarkdown(contentMarkdown, classCode),
         author_name: authorName.trim() || 'Ban Chuyên môn BVTV Lavitree',
         faq_json: JSON.stringify(validFaqs),
         status: targetStatus,
@@ -936,7 +955,7 @@ Chỉ trả về DUY NHẤT một khối JSON hợp lệ theo schema sau (không
                         ),
                       }}
                     >
-                      {contentMarkdown || '*Chưa có nội dung bài viết.*'}
+                      {previewMarkdown}
                     </ReactMarkdown>
                   </div>
 

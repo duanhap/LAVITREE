@@ -61,6 +61,7 @@ import { TreatmentSection } from '@/features/handbook/components/TreatmentSectio
 import { FaqSection } from '@/features/handbook/components/FaqSection';
 import { ReferenceList } from '@/features/handbook/components/ReferenceList';
 import { DiseaseToc, type TocItem } from '@/features/handbook/components/DiseaseToc';
+import { normalizeHandbookMarkdown } from '@/features/handbook/components/AdminHandbookEditorModal';
 
 const PLANT_PART_LABELS: Record<string, { label: string; badgeColor: string }> = {
   LEAF: { label: 'Lá cây', badgeColor: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' },
@@ -176,15 +177,7 @@ export const HandbookDiseasePage: React.FC = () => {
 
   const curatedContentMarkdown = useMemo(() => {
     if (!curatedArticle?.content_markdown) return '';
-    let md = curatedArticle.content_markdown;
-    // Sửa lỗi bảng dính hàng || hoặc | | thành |\n|
-    md = md.replace(/\|\s*\|+/g, '|\n|');
-    // Đảm bảo trước đường kẻ ngang --- có ngắt dòng
-    md = md.replace(/([^\n])\n*---/g, (_, p1) => p1 + '\n\n---');
-    md = md.replace(/---\n*([^\n])/g, (_, p1) => '---\n\n' + p1);
-    // Đảm bảo trước các tiêu đề H2, H3 có ngắt dòng
-    md = md.replace(/([^\n])\n*(#{1,4}\s)/g, (_, p1, p2) => p1 + '\n\n' + p2);
-    return cleanDatasetCodes(md, decodedClassCode);
+    return normalizeHandbookMarkdown(curatedArticle.content_markdown, decodedClassCode);
   }, [curatedArticle?.content_markdown, decodedClassCode]);
 
   const isHealthy = useMemo(() => {
