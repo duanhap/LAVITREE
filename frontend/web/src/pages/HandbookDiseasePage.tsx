@@ -577,11 +577,11 @@ export const HandbookDiseasePage: React.FC = () => {
                       {cleanDatasetCodes(curatedArticle.title, decodedClassCode)}
                     </h1>
                     {curatedArticle.summary && (
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-stretch pt-1">
-                        <div className={leafImage ? "md:col-span-8 p-3.5 sm:p-4 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed flex items-center" : "p-3.5 sm:p-4 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed"}>
-                          {cleanDatasetCodes(curatedArticle.summary, decodedClassCode)}
-                        </div>
-                        {leafImage && (
+                      leafImage ? (
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-stretch pt-1">
+                          <div className="md:col-span-8 p-3.5 sm:p-4 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed flex items-center">
+                            {cleanDatasetCodes(curatedArticle.summary, decodedClassCode)}
+                          </div>
                           <div
                             onClick={() => setZoomedImage(leafImage)}
                             className="md:col-span-4 group relative rounded-xl overflow-hidden border border-border bg-zinc-950 cursor-pointer hover:border-primary transition-all shadow-2xs min-h-[140px] max-h-[180px] flex items-center justify-center"
@@ -603,8 +603,12 @@ export const HandbookDiseasePage: React.FC = () => {
                               </span>
                             </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="w-full p-3.5 sm:p-4 rounded-xl bg-primary/5 border border-primary/15 text-xs sm:text-sm text-foreground/90 italic leading-relaxed mt-2">
+                          {cleanDatasetCodes(curatedArticle.summary, decodedClassCode)}
+                        </div>
+                      )
                     )}
                   </div>
 
@@ -719,11 +723,10 @@ export const HandbookDiseasePage: React.FC = () => {
                           variant={selectedImagePart === part ? 'default' : 'outline'}
                           size="sm"
                           onClick={() => setSelectedImagePart(part)}
-                          className={`h-7 px-2.5 text-xs rounded-lg ${
-                            selectedImagePart === part
-                              ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
-                              : 'text-muted-foreground border-border hover:text-foreground'
-                          }`}
+                          className={`h-7 px-2.5 text-xs rounded-lg ${selectedImagePart === part
+                            ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+                            : 'text-muted-foreground border-border hover:text-foreground'
+                            }`}
                         >
                           {label} ({count})
                         </Button>
