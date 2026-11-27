@@ -485,11 +485,6 @@ export const HandbookDiseasePage: React.FC = () => {
     (img) => selectedImagePart === 'ALL' || img.plant_part === selectedImagePart
   );
 
-  // Kiểm tra xem bài markdown cẩm nang có heading Mục Triệu chứng hay không
-  const hasSymptomH2InMarkdown = useMemo(() => {
-    return /##\s*.*triệu chứng/i.test(curatedContentMarkdown);
-  }, [curatedContentMarkdown]);
-
   // Render khối thư viện ảnh triệu chứng nhúng trực tiếp vào Mục 2 của Cẩm nang
   const renderSymptomImagesBlock = () => {
     if (images.length === 0) return null;
@@ -698,100 +693,115 @@ export const HandbookDiseasePage: React.FC = () => {
                   </div>
 
                   {/* Markdown content */}
-                  <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none text-foreground leading-relaxed pt-2">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        h2: ({ children }) => {
-                          const text = typeof children === 'string'
-                            ? children
-                            : React.Children.toArray(children).map((c) => (typeof c === 'string' ? c : '')).join('');
-                          const isSymptomHeader = /triệu chứng/i.test(text);
+                  {(() => {
+                    let hasRenderedSymptomImages = false;
 
-                          return (
-                            <>
-                              <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
+                    return (
+                      <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none text-foreground leading-relaxed pt-2">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            h2: ({ children }) => {
+                              const text = typeof children === 'string'
+                                ? children
+                                : React.Children.toArray(children).map((c) => (typeof c === 'string' ? c : (c as any)?.props?.children || '')).join('');
+                              const isSymptomHeader = /triệu chứng/i.test(text);
+
+                              if (isSymptomHeader && !hasRenderedSymptomImages) {
+                                hasRenderedSymptomImages = true;
+                                return (
+                                  <>
+                                    <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
+                                      {children}
+                                    </h2>
+                                    {renderSymptomImagesBlock()}
+                                  </>
+                                );
+                              }
+
+                              return (
+                                <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
+                                  {children}
+                                </h2>
+                              );
+                            },
+                            h3: ({ children }) => (
+                              <h3 className="text-sm sm:text-base font-bold text-foreground mt-4 mb-2">
                                 {children}
-                              </h2>
-                              {isSymptomHeader && renderSymptomImagesBlock()}
-                            </>
-                          );
-                        },
-                        h3: ({ children }) => (
-                          <h3 className="text-sm sm:text-base font-bold text-foreground mt-4 mb-2">
-                            {children}
-                          </h3>
-                        ),
-                        p: ({ children }) => (
-                          <p className="text-xs sm:text-sm text-foreground/90 my-2.5 leading-relaxed">
-                            {children}
-                          </p>
-                        ),
-                        ul: ({ children }) => (
-                          <ul className="list-disc pl-5 text-xs sm:text-sm space-y-1.5 my-3 text-foreground/90">
-                            {children}
-                          </ul>
-                        ),
-                        ol: ({ children }) => (
-                          <ol className="list-decimal pl-5 text-xs sm:text-sm space-y-1.5 my-3 text-foreground/90">
-                            {children}
-                          </ol>
-                        ),
-                        blockquote: ({ children }) => (
-                          <blockquote className="border-l-4 border-primary pl-4 py-1.5 my-3 bg-muted/40 rounded-r-lg text-xs sm:text-sm italic text-foreground/85">
-                            {children}
-                          </blockquote>
-                        ),
-                        table: ({ children }) => (
-                          <div className="overflow-x-auto my-4 rounded-xl border border-border">
-                            <table className="w-full text-xs sm:text-sm text-left border-collapse">
-                              {children}
-                            </table>
-                          </div>
-                        ),
-                        thead: ({ children }) => (
-                          <thead className="bg-muted text-foreground border-b border-border font-semibold">
-                            {children}
-                          </thead>
-                        ),
-                        tbody: ({ children }) => (
-                          <tbody className="divide-y divide-border/60">
-                            {children}
-                          </tbody>
-                        ),
-                        tr: ({ children }) => (
-                          <tr className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                            {children}
-                          </tr>
-                        ),
-                        th: ({ children }) => (
-                          <th className="bg-muted px-3 py-2 font-semibold text-foreground border-b border-border">
-                            {children}
-                          </th>
-                        ),
-                        td: ({ children }) => (
-                          <td className="px-3 py-2 border-b border-border/50 text-foreground">
-                            {children}
-                          </td>
-                        ),
-                        a: ({ href, children }) => (
-                          <a
-                            href={safeHref(href)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline hover:text-primary/80 font-medium"
-                          >
-                            {children}
-                          </a>
-                        ),
-                      }}
-                    >
-                      {curatedContentMarkdown}
-                    </ReactMarkdown>
+                              </h3>
+                            ),
+                            p: ({ children }) => (
+                              <p className="text-xs sm:text-sm text-foreground/90 my-2.5 leading-relaxed">
+                                {children}
+                              </p>
+                            ),
+                            ul: ({ children }) => (
+                              <ul className="list-disc pl-5 text-xs sm:text-sm space-y-1.5 my-3 text-foreground/90">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="list-decimal pl-5 text-xs sm:text-sm space-y-1.5 my-3 text-foreground/90">
+                                {children}
+                              </ol>
+                            ),
+                            blockquote: ({ children }) => (
+                              <blockquote className="border-l-4 border-primary pl-4 py-1.5 my-3 bg-muted/40 rounded-r-lg text-xs sm:text-sm italic text-foreground/85">
+                                {children}
+                              </blockquote>
+                            ),
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto my-4 rounded-xl border border-border">
+                                <table className="w-full text-xs sm:text-sm text-left border-collapse">
+                                  {children}
+                                </table>
+                              </div>
+                            ),
+                            thead: ({ children }) => (
+                              <thead className="bg-muted text-foreground border-b border-border font-semibold">
+                                {children}
+                              </thead>
+                            ),
+                            tbody: ({ children }) => (
+                              <tbody className="divide-y divide-border/60">
+                                {children}
+                              </tbody>
+                            ),
+                            tr: ({ children }) => (
+                              <tr className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                                {children}
+                              </tr>
+                            ),
+                            th: ({ children }) => (
+                              <th className="bg-muted px-3 py-2 font-semibold text-foreground border-b border-border">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="px-3 py-2 border-b border-border/50 text-foreground">
+                                {children}
+                              </td>
+                            ),
+                            a: ({ href, children }) => (
+                              <a
+                                href={safeHref(href)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline hover:text-primary/80 font-medium"
+                              >
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
+                          {curatedContentMarkdown}
+                        </ReactMarkdown>
 
-                    {/* Fallback: Nếu markdown không có tiêu đề h2 Triệu chứng thì hiển thị ở cuối bài viết */}
-                    {!hasSymptomH2InMarkdown && renderSymptomImagesBlock()}
-                  </div>
+                        {/* Fallback: Nếu markdown không có tiêu đề h2 Triệu chứng thì hiển thị ở cuối bài viết */}
+                        {!hasRenderedSymptomImages && renderSymptomImagesBlock()}
+                      </div>
+                    );
+                  })()}
                 </div>
               </section>
 
