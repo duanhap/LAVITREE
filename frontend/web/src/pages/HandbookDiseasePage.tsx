@@ -514,11 +514,10 @@ export const HandbookDiseasePage: React.FC = () => {
                   variant={selectedImagePart === part ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedImagePart(part)}
-                  className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[11px] rounded-lg ${
-                    selectedImagePart === part
-                      ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
-                      : 'text-muted-foreground border-border hover:text-foreground'
-                  }`}
+                  className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[11px] rounded-lg ${selectedImagePart === part
+                    ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+                    : 'text-muted-foreground border-border hover:text-foreground'
+                    }`}
                 >
                   {label} ({count})
                 </Button>
@@ -694,7 +693,8 @@ export const HandbookDiseasePage: React.FC = () => {
 
                   {/* Markdown content */}
                   {(() => {
-                    let hasRenderedSymptomImages = false;
+                    let hasRenderedInH2 = false;
+                    const hasSymptomH2 = /##\s*.*triệu chứng/i.test(curatedContentMarkdown);
 
                     return (
                       <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none text-foreground leading-relaxed pt-2">
@@ -707,8 +707,8 @@ export const HandbookDiseasePage: React.FC = () => {
                                 : React.Children.toArray(children).map((c) => (typeof c === 'string' ? c : (c as any)?.props?.children || '')).join('');
                               const isSymptomHeader = /triệu chứng/i.test(text);
 
-                              if (isSymptomHeader && !hasRenderedSymptomImages) {
-                                hasRenderedSymptomImages = true;
+                              if (isSymptomHeader && !hasRenderedInH2) {
+                                hasRenderedInH2 = true;
                                 return (
                                   <>
                                     <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
@@ -797,8 +797,8 @@ export const HandbookDiseasePage: React.FC = () => {
                           {curatedContentMarkdown}
                         </ReactMarkdown>
 
-                        {/* Fallback: Nếu markdown không có tiêu đề h2 Triệu chứng thì hiển thị ở cuối bài viết */}
-                        {!hasRenderedSymptomImages && renderSymptomImagesBlock()}
+                        {/* Fallback: Chỉ khi bài cẩm nang KHÔNG có tiêu đề Mục Triệu chứng thì mới hiển thị ở cuối bài viết */}
+                        {!hasSymptomH2 && renderSymptomImagesBlock()}
                       </div>
                     );
                   })()}
