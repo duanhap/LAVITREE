@@ -485,6 +485,91 @@ export const HandbookDiseasePage: React.FC = () => {
     (img) => selectedImagePart === 'ALL' || img.plant_part === selectedImagePart
   );
 
+  // Kiểm tra xem bài markdown cẩm nang có heading Mục Triệu chứng hay không
+  const hasSymptomH2InMarkdown = useMemo(() => {
+    return /##\s*.*triệu chứng/i.test(curatedContentMarkdown);
+  }, [curatedContentMarkdown]);
+
+  // Render khối thư viện ảnh triệu chứng nhúng trực tiếp vào Mục 2 của Cẩm nang
+  const renderSymptomImagesBlock = () => {
+    if (images.length === 0) return null;
+    return (
+      <div id="hinh-anh-trieu-chung" className="not-prose my-5 p-4 sm:p-5 rounded-2xl bg-secondary/25 border border-border/80 space-y-3 scroll-mt-24 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border/60">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+            <span className="text-xs sm:text-sm font-bold text-foreground">
+              Hình ảnh triệu chứng thực tế trên đồng ruộng ({images.length})
+            </span>
+          </div>
+          <span className="text-[11px] text-muted-foreground italic">Bấm vào ảnh để phóng to chi tiết</span>
+        </div>
+
+        {/* Bộ lọc bộ phận cây trồng (chỉ hiện khi có phân loại) */}
+        {images.some((img) => img.plant_part) && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            {['ALL', 'LEAF', 'FRUIT', 'STEM', 'WHOLE_PLANT'].map((part) => {
+              const count = part === 'ALL' ? images.length : images.filter((img) => img.plant_part === part).length;
+              if (part !== 'ALL' && count === 0) return null;
+              const label = part === 'ALL' ? 'Tất cả' : PLANT_PART_LABELS[part]?.label || part;
+              return (
+                <Button
+                  key={part}
+                  type="button"
+                  variant={selectedImagePart === part ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSelectedImagePart(part)}
+                  className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[11px] rounded-lg ${
+                    selectedImagePart === part
+                      ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+                      : 'text-muted-foreground border-border hover:text-foreground'
+                  }`}
+                >
+                  {label} ({count})
+                </Button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Lưới ảnh triệu chứng */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3 pt-1">
+          {filteredImages.map((img) => (
+            <div
+              key={img.id}
+              onClick={() => setZoomedImage(img)}
+              className="group relative aspect-4/3 rounded-xl overflow-hidden border border-border bg-muted cursor-pointer hover:border-primary hover:shadow-xs transition-all"
+            >
+              <img
+                src={img.image_url}
+                alt={img.caption || 'Ảnh triệu chứng'}
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                loading="lazy"
+              />
+              <div className="absolute top-2 left-2">
+                {img.plant_part && PLANT_PART_LABELS[img.plant_part] && (
+                  <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${PLANT_PART_LABELS[img.plant_part].badgeColor}`}>
+                    {PLANT_PART_LABELS[img.plant_part].label}
+                  </Badge>
+                )}
+              </div>
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                <span className="rounded-full bg-black/60 p-1.5 text-white shadow-md">
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </span>
+              </div>
+              {img.caption && (
+                <div className="absolute bottom-0 inset-x-0 bg-black/65 backdrop-blur-xs p-1.5 text-[10px] sm:text-[11px] text-white truncate">
+                  {img.caption}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="container mx-auto px-4 py-3 md:py-4 max-w-6xl space-y-4">
       {/* Tiêu đề trang, breadcrumb & thông tin tác nhân */}
@@ -617,11 +702,21 @@ export const HandbookDiseasePage: React.FC = () => {
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
-                        h2: ({ children }) => (
-                          <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
-                            {children}
-                          </h2>
-                        ),
+                        h2: ({ children }) => {
+                          const text = typeof children === 'string'
+                            ? children
+                            : React.Children.toArray(children).map((c) => (typeof c === 'string' ? c : '')).join('');
+                          const isSymptomHeader = /triệu chứng/i.test(text);
+
+                          return (
+                            <>
+                              <h2 className="text-base sm:text-lg font-bold text-foreground mt-6 mb-3 pb-1.5 border-b border-border/70 flex items-center gap-2">
+                                {children}
+                              </h2>
+                              {isSymptomHeader && renderSymptomImagesBlock()}
+                            </>
+                          );
+                        },
                         h3: ({ children }) => (
                           <h3 className="text-sm sm:text-base font-bold text-foreground mt-4 mb-2">
                             {children}
@@ -693,83 +788,12 @@ export const HandbookDiseasePage: React.FC = () => {
                     >
                       {curatedContentMarkdown}
                     </ReactMarkdown>
+
+                    {/* Fallback: Nếu markdown không có tiêu đề h2 Triệu chứng thì hiển thị ở cuối bài viết */}
+                    {!hasSymptomH2InMarkdown && renderSymptomImagesBlock()}
                   </div>
                 </div>
               </section>
-
-              {/* THƯ VIỆN HÌNH ẢNH TRIỆU CHỨNG THỰC TẾ TRÊN ĐỒNG RUỘNG */}
-              {images.length > 0 && (
-                <section id="hinh-anh-trieu-chung" className="rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-3.5 shadow-2xs scroll-mt-24">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
-                    <div className="flex items-center gap-2">
-                      <ImageIcon className="w-5 h-5 text-primary" />
-                      <h3 className="text-base sm:text-lg font-bold text-foreground">
-                        Hình ảnh triệu chứng thực tế trên đồng ruộng ({images.length})
-                      </h3>
-                    </div>
-                    <span className="text-xs text-muted-foreground italic">Bấm vào ảnh để phóng to chi tiết</span>
-                  </div>
-
-                  {/* Bộ lọc bộ phận cây trồng */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    {['ALL', 'LEAF', 'FRUIT', 'STEM', 'WHOLE_PLANT'].map((part) => {
-                      const count = part === 'ALL' ? images.length : images.filter((img) => img.plant_part === part).length;
-                      if (part !== 'ALL' && count === 0) return null;
-                      const label = part === 'ALL' ? 'Tất cả' : PLANT_PART_LABELS[part]?.label || part;
-                      return (
-                        <Button
-                          key={part}
-                          type="button"
-                          variant={selectedImagePart === part ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setSelectedImagePart(part)}
-                          className={`h-7 px-2.5 text-xs rounded-lg ${selectedImagePart === part
-                            ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
-                            : 'text-muted-foreground border-border hover:text-foreground'
-                            }`}
-                        >
-                          {label} ({count})
-                        </Button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Lưới ảnh triệu chứng */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 pt-2">
-                    {filteredImages.map((img) => (
-                      <div
-                        key={img.id}
-                        onClick={() => setZoomedImage(img)}
-                        className="group relative aspect-4/3 rounded-xl overflow-hidden border border-border bg-muted cursor-pointer hover:border-primary hover:shadow-xs transition-all"
-                      >
-                        <img
-                          src={img.image_url}
-                          alt={img.caption || 'Ảnh triệu chứng'}
-                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          loading="lazy"
-                        />
-                        <div className="absolute top-2 left-2">
-                          {img.plant_part && PLANT_PART_LABELS[img.plant_part] && (
-                            <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${PLANT_PART_LABELS[img.plant_part].badgeColor}`}>
-                              {PLANT_PART_LABELS[img.plant_part].label}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                          <span className="rounded-full bg-black/60 p-2 text-white shadow-md">
-                            <ZoomIn className="w-4 h-4" />
-                          </span>
-                        </div>
-                        {img.caption && (
-                          <div className="absolute bottom-0 inset-x-0 bg-black/65 backdrop-blur-xs p-1.5 text-[11px] text-white truncate">
-                            {img.caption}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
 
               {/* FAQ Accordion chuyên sâu */}
               {curatedFaqs.length > 0 && (
